@@ -15,17 +15,20 @@ import operator as op
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
-from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
-from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
+    Transformer, is_loki_pragma, pragma_regions_attached
+)
 from loki.tools import flatten, as_tuple
-from loki.types import BasicType
+from loki.types import BasicType, DerivedType
 
 
 __all__ = [
     'RemoveCodeTransformation',
     'do_remove_dead_code', 'RemoveDeadCodeTransformer',
     'do_remove_marked_regions', 'RemoveRegionTransformer',
-    'do_remove_calls', 'RemoveCallsTransformer'
+    'do_remove_calls', 'RemoveCallsTransformer',
+    'do_remove_unused_imports', 'RemoveUnusedImportsTransformer'
 ]
 
 
@@ -166,7 +169,7 @@ def do_remove_unused_call_args(routine, unused_args_map):
        utility.
     """
 
-    for call in FindNodes(CallStatement).visit(routine.body):
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
         if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
             continue
 
@@ -258,7 +261,7 @@ class RemoveDeadCodeTransformer(Transformer):
         if condition == 'False':
             return else_body
 
-        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
+        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], ir.Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):
@@ -335,7 +338,7 @@ class RemoveRegionTransformer(Transformer):
         if is_loki_pragma(o.pragma, starts_with='remove'):
             # Leave a comment to mark the removed region in source
             if self.mark_with_comment:
-                return Comment(text='! [Loki] Removed content of pragma-marked region!')
+                return ir.Comment(text='! [Loki] Removed content of pragma-marked region!')
 
             return None
 
@@ -454,3 +457,68 @@ class RemoveCallsTransformer(Transformer):
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         return self._rebuild(o, rebuilt)
+
+
+def do_remove_unused_imports(routine):
+    """
+    Utility routine to remove unused :any:`Import` nodes
+    and remove unused symbols from existing ones.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine from which to remove unsed imports
+    """
+
+    symbols = tuple(FindTypedSymbols().visit(routine.body))
+
+    # Add derived-type names that may also have been imported
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    dertypes = tuple(
+        decl.symbols[0].type.dtype for decl in decls
+        if isinstance(decl.symbols[0].type.dtype, DerivedType)
+    )
+    # Add symbols used in kind expression (another blind spot)
+    kindsymbols = tuple(
+        decl.symbols[0].type.kind for decl in decls
+        if decl.symbols[0].type.kind
+    )
+    symbols += dertypes + kindsymbols
+
+    transformer = RemoveUnusedImportsTransformer(used_symbols=symbols)
+    routine.spec = transformer.visit(routine.spec)
+
+
+class RemoveUnusedImportsTransformer(Transformer):
+    """
+    :any:`Transformer` to remove unused import symbols and :any:`Import` nodes.
+
+    Parameters
+    ----------
+    used_symbols : tuple of :any:`Expression`
+        Symbols that need to be retained in :any:`Import` nodes.
+    """
+
+    def __init__(self, used_symbols, **kwargs):
+        super().__init__(**kwargs)
+
+        self.used_symbols = used_symbols
+        self.symbol_names = tuple(str(s.name).lower() for s in self.used_symbols)
+
+    def visit_Import(self, imprt):
+        """ Check imported symbols against used ones and remove accordingly """
+
+        if imprt.c_import:
+            # For C-style import, check the basename
+            root_name = imprt.module.split('.')[0]
+            if not root_name in self.symbol_names:
+                return None
+
+        if imprt.symbols and not all(s in self.symbol_names for s in imprt.symbols):
+            # Filter imported symbols and remove if none are retained
+            new_symbols = tuple(s for s in imprt.symbols if s in self.symbol_names)
+            if new_symbols:
+                return imprt.clone(symbols=new_symbols)
+            return None
+
+        return imprt
