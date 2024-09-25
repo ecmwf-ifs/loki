@@ -103,7 +103,7 @@ def outline_region(region, name, imports, intent_map=None):
 
     # Create the call according to the wrapped code region
     call_arguments = region_in_args + region_inout_args + region_out_args
-    call = CallStatement(name=Variable(name=name), arguments=call_arguments)
+    call = CallStatement(name=Variable(name=name), arguments=call_arguments, kwarguments=())
 
     return call, region_routine
 
