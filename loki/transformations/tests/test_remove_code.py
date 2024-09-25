@@ -15,7 +15,7 @@ from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.remove_code import (
     do_remove_dead_code, do_remove_marked_regions, do_remove_calls,
-    RemoveCodeTransformation
+    do_remove_unused_imports, RemoveCodeTransformation
 )
 
 
@@ -383,6 +383,76 @@ end subroutine
         assert imports[0].symbols == ('lhook', 'dr_hook')
         assert imports[1].module == 'abor1_mod'
         assert imports[1].symbols == ('abor1',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not deal well with C-imports')]
+))
+def test_remove_unused_imports(frontend, tmp_path):
+    """
+    Test removal of unused import nodes and symbols.
+    """
+
+    fcode_ext_symbols = """
+module ext_symbols
+  integer, parameter :: kinder = 8
+  real(kind=kinder), pointer :: arr1(:), arr2(:)
+end module ext_symbols
+"""
+
+    fcode_ext_type = """
+module ext_type
+  type rick
+    integer :: i
+  end type rick
+  type dave
+    integer :: j
+  end type dave
+end module ext_type
+"""
+
+    fcode_external = """
+module external
+  real(kind=8) :: other, things
+end module external
+"""
+
+    fcode = """
+subroutine test_remove_imports(n, a, b)
+  use ext_symbols, only: arr1, arr2, kinder
+  use ext_type, only: rick, dave
+  use external, only: other, things
+  implicit none
+
+#include "never_gonna.intfb.h"
+#include "give_you_up.intfb.h"
+  integer, intent(in) :: n
+  real(kind=kinder), intent(inout) :: a(n), b(n)
+  type(rick) :: let_me_down
+
+  a(:) = a(:) + arr1(:)
+
+  call never_gonna(let_me_down)
+end subroutine test_remove_imports
+"""
+    ext_symbols = Module.from_source(fcode_ext_symbols, frontend=frontend, xmods=[tmp_path])
+    ext_type = Module.from_source(fcode_ext_type, frontend=frontend, xmods=[tmp_path])
+    external = Module.from_source(fcode_external, frontend=frontend, xmods=[tmp_path])
+    definitions = [ext_symbols, ext_type, external]
+
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=definitions, xmods=[tmp_path])
+    routine.enrich(definitions)
+
+    do_remove_unused_imports(routine)
+
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    assert len(imports) == 3
+    assert imports[0].module == 'ext_symbols'
+    assert imports[0].symbols == ('arr1', 'kinder')
+    assert imports[1].module == 'ext_type'
+    assert imports[1].symbols == ('rick',)
+    assert imports[2].c_import is True
+    assert imports[2].module == 'never_gonna.intfb.h'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
