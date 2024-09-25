@@ -11,17 +11,22 @@ section and to perform Dead Code Elimination.
 """
 
 from loki.batch import Transformation
-from loki.expression.symbolic import simplify
+from loki.expression import simplify
 from loki.tools import flatten, as_tuple
-from loki.ir import Conditional, Transformer, Comment
+from loki.ir import (
+    nodes as ir, FindNodes, FindTypedSymbols, Conditional,
+    Transformer, Comment
+)
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
+from loki.types import DerivedType
 
 
 __all__ = [
     'RemoveCodeTransformation',
     'do_remove_dead_code', 'RemoveDeadCodeTransformer',
     'do_remove_marked_regions', 'RemoveRegionTransformer',
-    'do_remove_calls', 'RemoveCallsTransformer'
+    'do_remove_calls', 'RemoveCallsTransformer',
+    'do_remove_unused_imports', 'RemoveUnusedImportsTransformer'
 ]
 
 
@@ -332,3 +337,68 @@ class RemoveCallsTransformer(Transformer):
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
         return self._rebuild(o, rebuilt)
+
+
+def do_remove_unused_imports(routine):
+    """
+    Utility routine to remove unused :any:`Import` nodes
+    and remove unused symbols from existing ones.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine from which to remove unsed imports
+    """
+
+    symbols = tuple(FindTypedSymbols().visit(routine.body))
+
+    # Add derived-type names that may also have been imported
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    dertypes = tuple(
+        decl.symbols[0].type.dtype for decl in decls
+        if isinstance(decl.symbols[0].type.dtype, DerivedType)
+    )
+    # Add symbols used in kind expression (another blind spot)
+    kindsymbols = tuple(
+        decl.symbols[0].type.kind for decl in decls
+        if decl.symbols[0].type.kind
+    )
+    symbols += dertypes + kindsymbols
+
+    transformer = RemoveUnusedImportsTransformer(used_symbols=symbols)
+    routine.spec = transformer.visit(routine.spec)
+
+
+class RemoveUnusedImportsTransformer(Transformer):
+    """
+    :any:`Transformer` to remove unused import symbols and :any:`Import` nodes.
+
+    Parameters
+    ----------
+    used_symbols : tuple of :any:`Expression`
+        Symbols that need to be retained in :any:`Import` nodes.
+    """
+
+    def __init__(self, used_symbols, **kwargs):
+        super().__init__(**kwargs)
+
+        self.used_symbols = used_symbols
+        self.symbol_names = tuple(str(s.name).lower() for s in self.used_symbols)
+
+    def visit_Import(self, imprt):
+        """ Check imported symbols against used ones and remove accordingly """
+
+        if imprt.c_import:
+            # For C-style import, check the basename
+            root_name = imprt.module.split('.')[0]
+            if not root_name in self.symbol_names:
+                return None
+
+        if imprt.symbols and not all(s in self.symbol_names for s in imprt.symbols):
+            # Filter imported symbols and remove if none are retained
+            new_symbols = tuple(s for s in imprt.symbols if s in self.symbol_names)
+            if new_symbols:
+                return imprt.clone(symbols=new_symbols)
+            return None
+
+        return imprt
