@@ -70,6 +70,27 @@ class SCCDevectorTransformation(Transformation):
                 loop_map[loop] = loop.body
         routine.body = Transformer(loop_map).visit(routine.body)
 
+    @staticmethod
+    def _add_separator(node, section, separator_nodes):
+        """
+        Add either the current node or its highest ancestor scope to the list of separator nodes.
+        """
+
+        _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+
+        if node in section:
+            # If the node is at the current section's level, it's a separator
+            separator_nodes.append(node)
+
+        else:
+            # If the node is deeper in the IR tree, it's highest ancestor is used
+            ancestors = flatten(FindScopes(node).visit(section))
+            ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_node_types)]
+            if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
+                separator_nodes.append(ancestor_scopes[0])
+
+        return separator_nodes
+
     @classmethod
     def extract_vector_sections(cls, section, horizontal):
         """
@@ -85,8 +106,6 @@ class SCCDevectorTransformation(Transformation):
             The dimension specifying the horizontal vector dimension
         """
 
-        _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
-
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         calls = FindNodes(ir.CallStatement).visit(section)
         pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(section) if pragma.keyword.lower() == "loki" and
@@ -101,22 +120,14 @@ class SCCDevectorTransformation(Transformation):
                 if check_routine_sequential(routine=call.routine):
                     continue
 
-            if call in section:
-                # If the call is at the current section's level, it's a separator
-                separator_nodes.append(call)
-
-            else:
-                # If the call is deeper in the IR tree, it's highest ancestor is used
-                ancestors = flatten(FindScopes(call).visit(section))
-                ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_node_types)]
-                if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
-                    separator_nodes.append(ancestor_scopes[0])
+            separator_nodes = cls._add_separator(call, section, separator_nodes)
 
         for pragma in FindNodes(ir.Pragma).visit(section):
             # Reductions over thread-parallel regions should be marked as a separator node
             if (is_loki_pragma(pragma, starts_with='vector-reduction') or
                 is_loki_pragma(pragma, starts_with='end vector-reduction')):
-                separator_nodes.append(pragma)
+
+                separator_nodes = cls._add_separator(pragma, section, separator_nodes)
 
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)
@@ -338,7 +349,7 @@ class SCCRevectorTransformation(Transformation):
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(section):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
-                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+                    if (reduction_clause := re.search(r'reduction\([\+\w:0-9 \t]+\)', region.pragma.content)):
 
                         loops = FindNodes(ir.Loop).visit(region)
                         assert len(loops) == 1
