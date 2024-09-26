@@ -458,28 +458,83 @@ class CCodegen(Stringifier):
         Format as
           switch case (<expr>) {
           case <value>:
+          {
             ...body...
+          }
           [case <value>:]
-            [...body...]
-          [default:]
+          {
             [...body...]
           }
+          [default:] {
+            [...body...]
+          }
+          }
+
+        E.g., the following
+
+        select case (in)
+            case (:2)
+                out = 1
+            case (4, 5, 7:9)
+                out = 2
+            case (6)
+                out = 3
+            case default
+                out = 4
+        end select
+
+        becomes
+
+        switch (in) {
+            case 0:
+            case 1:
+            case 2:
+            {
+              out = 1;
+              break;
+            }
+            case 4:
+            case 5:
+            case 7:
+            case 8:
+            case 9:
+            {
+              out = 2;
+              break;
+            }
+            case 6:
+            {
+              out = 3;
+              break;
+            }
+            default:
+            {
+              out = 4;
+              breal;
+            }
+        }
         """
         header = self.format_line('switch (', self.visit(o.expr, **kwargs), ') {')
         cases = []
         end_cases = []
         for value in o.values:
-            if any(isinstance(val, sym.RangeIndex) for val in value):
-                # TODO: in Fortran a case can be a range, which is not straight-forward
-                #  to translate/transfer to C
-                #  https://j3-fortran.org/doc/year/10/10-007.pdf#page=200
-                raise NotImplementedError
-            case = self.visit_all(as_tuple(value), **kwargs)
-            cases.append(self.format_line('case ', self.join_items(case), ':'))
-            end_cases.append(self.format_line('break;'))
+            sub_cases = []
+            for val in value:
+                if not isinstance(val, sym.RangeIndex):
+                    sub_cases.append(self.visit(val, **kwargs))
+                else:
+                    assert (val.lower is None or isinstance(val.lower, sym.IntLiteral))\
+                            and isinstance(val.upper, sym.IntLiteral)
+                    lower = val.lower.value if val.lower is not None else 0
+                    sub_cases.extend([str(v) for v in list(range(lower, val.upper.value + 1))])
+            case = ()
+            for sub_case in sub_cases:
+                case += (self.format_line('case ', self.join_items(as_tuple(sub_case)), ':'),)
+            cases.append(self.join_lines(*case, self.format_line('{')))
+            end_cases.append(self.join_lines(self.format_line('break;'), self.format_line('}')))
         if o.else_body:
-            cases.append(self.format_line('default: '))
-            end_cases.append(self.format_line('break;'))
+            cases.append(self.join_lines(self.format_line('default: '), self.format_line('{')))
+            end_cases.append(self.join_lines(self.format_line('break;'), self.format_line('}')))
         footer = self.format_line('}')
         self.depth += 1
         bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)

@@ -1145,13 +1145,13 @@ end function add
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
-def test_transpile_multiconditional(tmp_path, builder, frontend, codegen):
+def test_transpile_multiconditional_simple(tmp_path, builder, frontend, codegen):
     """
     A simple test to verify multiconditionals/select case statements.
     """
 
     fcode = """
-subroutine multi_cond(in, out)
+subroutine multi_cond_simple(in, out)
   implicit none
   integer, intent(in) :: in
   integer, intent(inout) :: out
@@ -1165,7 +1165,7 @@ subroutine multi_cond(in, out)
         out = 100
   end select
 
-end subroutine multi_cond
+end subroutine multi_cond_simple
 """.strip()
 
     # for testing purposes
@@ -1194,7 +1194,7 @@ end subroutine multi_cond
     # compile C version
     libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
-    fc_function = c_kernel.multi_cond_fc_mod.multi_cond_fc
+    fc_function = c_kernel.multi_cond_simple_fc_mod.multi_cond_simple_fc
     # test C version
     for i, val in enumerate(test_vals):
         in_var = val
@@ -1202,32 +1202,41 @@ end subroutine multi_cond
         assert out_var == expected_results[i]
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_transpile_multiconditional_range(tmp_path, frontend):
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OFP, 'OFP got problems with RangeIndex as case value!')]
+))
+def test_transpile_multiconditional(tmp_path, builder, frontend):
     """
-    A simple test to verify multiconditionals/select case statements.
+    A test to verify multiconditionals/select case statements.
     """
 
     fcode = """
-subroutine transpile_multi_conditional_range(in, out)
+subroutine multi_cond(in, out)
   implicit none
   integer, intent(in) :: in
   integer, intent(inout) :: out
 
   select case (in)
-    case (1:5)
+    case (:5)
         out = 10
+    case (6, 7, 10:15)
+        out = 15
+    case (8)
+        out = 12
+    case (20:30)
+        out = 20
     case default
         out = 100
   end select
 
-end subroutine transpile_multi_conditional_range
+end subroutine multi_cond
 """.strip()
 
     # for testing purposes
     in_var = 0
-    test_vals = [0, 1, 2, 5, 6]
-    expected_results = [100, 10, 10, 10, 100]
+    # [(<input>, <expected result>), (<input 2>, <expected result 2>), ...]
+    test_results = [(0, 10), (1, 10), (5, 10), (6, 15), (10, 15), (11, 15),
+                    (15, 15), (8, 12), (20, 20), (21, 20), (29, 20), (50, 100)]
     out_var = np.int_([0])
 
     # compile original Fortran version
@@ -1235,19 +1244,28 @@ end subroutine transpile_multi_conditional_range
     filepath = tmp_path/f'{routine.name}_{frontend!s}.f90'
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     # test Fortran version
-    for i, val in enumerate(test_vals):
-        in_var = val
+    for val in test_results:
+        in_var = val[0]
         function(in_var, out_var)
-        assert out_var == expected_results[i]
-
-    clean_test(filepath)
+        assert out_var == val[1]
 
     # apply F2C trafo
-    # TODO: RangeIndex as case is not yet implemented!
-    #  'NotImplementedError' is raised
     f2c = FortranCTransformation()
-    with pytest.raises(NotImplementedError):
-        f2c.apply(source=routine, path=tmp_path)
+    f2c.apply(source=routine, path=tmp_path)
+
+    # check whether 'switch' statement is within C code
+    assert 'switch' in cgen(routine)
+
+    # compile C version
+    libname = f'fc_{routine.name}_{frontend}'
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    fc_function = c_kernel.multi_cond_fc_mod.multi_cond_fc
+    # test C version
+    for val in test_results:
+        in_var = val[0]
+        fc_function(in_var, out_var)
+        assert out_var == val[1]
+
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
