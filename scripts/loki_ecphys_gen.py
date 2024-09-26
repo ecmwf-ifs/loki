@@ -22,7 +22,7 @@ from loki.expression import symbols as sym, parse_expr
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, SubstituteExpressions,
     Transformer, CallStatement, pragmas_attached,
-    pragma_regions_attached, is_loki_pragma
+    pragma_regions_attached, is_loki_pragma, get_pragma_parameters
 )
 from loki.logging import warning
 from loki.tools import as_tuple, flatten
@@ -33,9 +33,12 @@ from loki.transformations.sanitise import (
     merge_associates, resolve_associates,
     transform_sequence_association_append_map
 )
-from loki.transformations.remove_code import do_remove_marked_regions
+from loki.transformations.remove_code import (
+    do_remove_marked_regions, do_remove_unused_imports
+)
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.build_system import ModuleWrapTransformation
+from loki.transformations.extract import extract_marked_subroutines, extract_subroutine
 
 
 # List of types that we know to be FIELD API groups
@@ -438,6 +441,37 @@ def promote_temporary_arrays(routine, horizontal, blocking):
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
 
 
+def extract_driver_routines(routine):
+    """
+    Extracts driver routines and replaces them with an appropriate
+    :any:`CallStatement`.
+    """
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    mapper = {}
+    driver_routines = []
+    with pragma_regions_attached(routine):
+        with dataflow_analysis_attached(routine):
+            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                if not is_loki_pragma(region.pragma, starts_with='extract'):
+                   continue
+
+                # Name the external routine
+                parameters = get_pragma_parameters(region.pragma, starts_with='extract')
+                name = parameters['name']
+
+                call, region_routine = extract_subroutine(region, name, imports, intent_map=parameters)
+
+                do_remove_unused_imports(region_routine)
+
+                driver_routines.append(region_routine)
+
+                # Replace region by call in original routine
+                mapper[region] = call
+
+            routine.body = Transformer(mapper=mapper).visit(routine.body)
+
+    return driver_routines
+
 @click.group()
 def cli():
     pass
@@ -603,6 +637,19 @@ def parallel(source, build, remove_block_loop, promote_local_arrays):
                 horizontal=Dimension(name='horizontal', index='JL', size='YDGEOMETRY%YRDIM%NPROMA'),
                 blocking=Dimension(name='blocking', index='IBL', size='YDGEOMETRY%YRDIM%NGPBLKS'),
             )
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Extracted driver routines in {s:.2f}s'):
+
+        driver_routines = extract_driver_routines(ec_phys_parallel)
+        for driver in driver_routines:
+            # Create a new source file for the extracted routine
+            filename = driver.name.lower() + '.F90'
+            sourcefile = Sourcefile(ir=ir.Section(driver), path=build/filename)
+            sourcefile.write()
+
+            # Add an implicit C-style import to the control-flow routine
+            imprt = ir.Import(module=f'{driver.name.lower()}.intfb.h', c_import=True)
+            ec_phys_parallel.spec.append(imprt)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
