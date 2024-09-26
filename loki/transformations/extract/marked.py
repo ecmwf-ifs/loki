@@ -43,6 +43,8 @@ def extract_subroutine(region, name, imports, intent_map=None):
     intent_map = intent_map or {}
     imports = as_tuple(imports)
     imported_symbols = {var for imp in imports for var in imp.symbols}
+    # Special-case for IFS-style C-imports
+    imported_symbols |= {str(imp.module).split('.')[0] for imp in imports if imp.c_import}
 
     # Create the external subroutine containing the routine's imports and the region's body
     spec = Section(body=imports)
