@@ -395,7 +395,8 @@ def test_remove_unused_imports(frontend, tmp_path):
 
     fcode_ext_symbols = """
 module ext_symbols
-  real(kind=8), pointer :: arr1(:), arr2(:)
+  integer, parameter :: kinder = 8
+  real(kind=kinder), pointer :: arr1(:), arr2(:)
 end module ext_symbols
 """
 
@@ -418,7 +419,7 @@ end module external
 
     fcode = """
 subroutine test_remove_imports(n, a, b)
-  use ext_symbols, only: arr1, arr2
+  use ext_symbols, only: arr1, arr2, kinder
   use ext_type, only: rick, dave
   use external, only: other, things
   implicit none
@@ -426,7 +427,7 @@ subroutine test_remove_imports(n, a, b)
 #include "never_gonna.intfb.h"
 #include "give_you_up.intfb.h"
   integer, intent(in) :: n
-  real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=kinder), intent(inout) :: a(n), b(n)
   type(rick) :: let_me_down
 
   a(:) = a(:) + arr1(:)
@@ -447,7 +448,7 @@ end subroutine test_remove_imports
     imports = FindNodes(ir.Import).visit(routine.spec)
     assert len(imports) == 3
     assert imports[0].module == 'ext_symbols'
-    assert imports[0].symbols == ('arr1',)
+    assert imports[0].symbols == ('arr1', 'kinder')
     assert imports[1].module == 'ext_type'
     assert imports[1].symbols == ('rick',)
     assert imports[2].c_import is True

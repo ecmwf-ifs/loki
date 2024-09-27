@@ -358,7 +358,12 @@ def do_remove_unused_imports(routine):
         decl.symbols[0].type.dtype for decl in decls
         if isinstance(decl.symbols[0].type.dtype, DerivedType)
     )
-    symbols += dertypes
+    # Add symbols used in kind expression (another blind spot)
+    kindsymbols = tuple(
+        decl.symbols[0].type.kind for decl in decls
+        if decl.symbols[0].type.kind
+    )
+    symbols += dertypes + kindsymbols
 
     transformer = RemoveImportsTransformer(symbols=symbols)
     routine.spec = transformer.visit(routine.spec)
