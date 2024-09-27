@@ -101,7 +101,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         item.trafo_data[self._key] = defaultdict(dict)
         self._gather_from_children(routine, item, successors, role)
 
-        with dataflow_analysis_attached(routine):
+        with dataflow_analysis_attached(routine, exclude_calls=True):
             #gather used symbols in specification
             item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'read' for v in routine.spec.uses_symbols
                                                if v.name_parts[0].lower() in routine._dummies})
