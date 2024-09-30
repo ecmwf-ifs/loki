@@ -160,10 +160,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region_map_derived, region_map_not_field = self.decl_derived_types(routine, region)
         region_map_private = self.get_private(region) 
         #region_map_not_field = self.get_not_field_array(routine, region) 
-        map_region['map_temp']= region_map_temp
-        map_region['map_derived']= region_map_derived
-        map_region['private']= region_map_private
-        map_region['not_field_array']= region_map_not_field
+        region_map_var = [var for var in chain (region_map_temp.values(), region_map_derived.values())]
+        region_map_var_sorted = sorted(region_map_var ,key=lambda X: X[1].name)
+
+        map_region["var_sorted"] = region_map_var_sorted
+        map_region['map_temp'] = region_map_temp
+        map_region['map_derived'] = region_map_derived
+        map_region['private'] = region_map_private
+        map_region['not_field_array'] = region_map_not_field
 
         self.create_synchost(routine, region_name, map_region)
         self.create_nullify(routine, region_name, map_region)
@@ -297,6 +301,17 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
 
     def decl_local_array(self, routine, region, map_region):
+        """
+        Finds local arrays for each region.
+        Creates the pointers by wich the local arrays declarations will be replaced.
+        Creates field_new/field_delete calls (call to self.create_field_new_delete).
+
+        return: 
+        return : region_map_temp
+        update : map_region['field_new']
+        update:  map_region['field_delete']
+        """
+
         map_region['field_new'] = []
         map_region['field_delete'] = []
         temp_arrays = [var for var in FindVariables(Array).visit(region)  if isinstance(var, Array) and not var.name_parts[0] in routine.arguments and var.shape[0] in self.horizontal]
@@ -346,19 +361,23 @@ class ParallelRoutineDispatchTransformation(Transformation):
     def add_field(self, routine, map_routine):
         field_new = map_routine['field_new']
         field_delete = map_routine['field_delete']
+
+        field_new_sorted = sorted(field_new, key=lambda X: X.arguments[0].name)
+        field_delete_sorted = sorted(field_delete, key=lambda X: X.body[0].arguments[0].name)
+
         # Insert the field generation wrapped into a DR_HOOK call
         dr_hook_calls = self.create_dr_hook_calls(
             routine, cdname='CREATE_TEMPORARIES',
             handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
-        routine.body.insert(2, (dr_hook_calls[0], ir.Comment(text=''), *field_new, dr_hook_calls[1]))
+        routine.body.insert(2, (dr_hook_calls[0], ir.Comment(text=''), *field_new_sorted, dr_hook_calls[1]))
 
         # Insert the field deletion wrapped into a DR_HOOK call
         dr_hook_calls = self.create_dr_hook_calls(
             routine, cdname='DELETE_TEMPORARIES',
             handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
-        routine.body.insert(-2,(dr_hook_calls[0], ir.Comment(text=''), *field_delete, dr_hook_calls[1]))
+        routine.body.insert(-2,(dr_hook_calls[0], ir.Comment(text=''), *field_delete_sorted, dr_hook_calls[1]))
 
     def decl_derived_types(self, routine, region):
         region_map_derived = {}
@@ -427,8 +446,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         routine.spec=Transformer(map_routine['imports_mapper']).visit(routine.spec)
         
     def create_pt_sync(self, routine, target, region_name, is_get_data, map_region):
-        region_map_derived = map_region['map_derived']
-        region_map_temp = map_region['map_temp']
+        region_map_var_sorted = map_region["var_sorted"]
         if is_get_data: #GET_***_DATA
             hook_name = "GET_DATA"
             if target == "OpenMP" or target == "OpenMPSingleColumn" : 
@@ -448,10 +466,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
        
         sync_data = [dr_hook_calls[0]]
 
-        var_to_sync = [var for var in chain(region_map_temp.values(), region_map_derived.values())]
-        var_to_sync_sorted = sorted(var_to_sync, key=lambda X: X[1].name)
-
-        for var in var_to_sync_sorted:
+        for var in region_map_var_sorted: 
             if is_get_data:
                 if not self.is_intent : 
                     intent = "RDWR"
@@ -474,14 +489,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
 
     def create_nullify(self, routine, region_name, map_region):
-        region_map_temp = map_region['map_temp']
-        region_map_derived = map_region['map_derived']
+        region_map_var_sorted = map_region["var_sorted"]
         dr_hook_calls = self.create_dr_hook_calls(
             routine, cdname=f"{routine.name}:{region_name}:NULLIFY",
             handle=sym.Variable(name='ZHOOK_HANDLE_FIELD_API', scope=routine)
         )
         nullify= [dr_hook_calls[0]]
-        for var in chain(region_map_temp.values(), region_map_derived.values()):
+        for var in region_map_var_sorted:
             nullify += [ir.Assignment(lhs=var[1].clone(dimensions=None), rhs=sym.InlineCall(sym.Variable(name='NULL')),ptr=True)]
         nullify.append(dr_hook_calls[1])
         map_region['nullify'] = nullify
@@ -842,8 +856,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return compute_openmpscc
 
     def create_compute_openaccscc(self, routine, region, region_name, map_routine, map_region):
-        region_map_temp = map_region["map_temp"]
-        region_map_derived = map_region["map_derived"]
+        region_map_var_sorted = map_region["var_sorted"]
         not_field_array = map_region['not_field_array']
         cpg_opts = map_routine["cpg_opts"]
         lst_private1 = f"JBLK"
@@ -857,7 +870,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         for var_name in not_field_array:
             if var_name not in lst_present:
                 lst_present += f"{var_name}, "
-        for var in chain(region_map_temp.values(), region_map_derived.values()):
+
+
+        for var in region_map_var_sorted:
             if var[1].name not in lst_present:
                 lst_present += f"{var[1].name}, "
         lst_present = lst_present[:-2]+" " #rm the coma
