@@ -216,10 +216,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 'parent': None,
                 'analysis': analysis,
                 'typedef_configs': typedef_configs,
-                'present': parameters.get('preset', []),
-                'wipe': parameters.get('wipe', []),
-                'preserve': parameters.get('preserve', []),
-                'private': parameters.get('private', [])
+                'present': [p.lower() for p in parameters.get('present', '').split(',')],
+                'device_resident': [p.lower() for p in parameters.get('device_resident', '').split(',')],
         }
 
     def process_driver(self, routine, analysis, typedef_configs):
@@ -235,12 +233,12 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 parameters = get_pragma_parameters(region.pragma, starts_with='data')
 
                 kwargs = self._init_kwargs(mode, analysis, typedef_configs, parameters)
-                pre, post = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
+                copy, host, wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
 
                 if mode == 'offload':
-                    pragma_map.update({region.pragma: pre, region.pragma_post: post})
+                    pragma_map.update({region.pragma: copy, region.pragma_post: (host, wipe)})
                 else:
-                    pragma_map.update({region.pragma: post, region.pragma_post: None})
+                    pragma_map.update({region.pragma: host, region.pragma_post: None})
 
         routine.body = Transformer(pragma_map).visit(routine.body)
         if (new_vars := set(kwargs['new_vars'])):
@@ -289,22 +287,29 @@ class DataOffloadDeepcopyTransformation(Transformation):
             device += as_tuple(ir.Pragma(keyword='acc', content=f'enter data attach({alias_var})'))
 
 
-        host = as_tuple(self.create_field_api_call(field_object, 'HOST', 'RDWR',
-                                                   field_ptr))
+        host = ()
+        if delete:
+            host += as_tuple(self.create_field_api_call(field_object, 'HOST', 'RDWR',
+                                                       field_ptr))
+        wipe = ()
+
         if mode == 'offload':
-            host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr})'))
-            if alias:
-                host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
-                host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
             if delete:
-                host += as_tuple(ir.CallStatement(name=sym.Variable('DELETE_DEVICE_DATA', parent=field_object)))
+                if alias:
+                    host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
+                    host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
+                wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr})'))
+                wipe += as_tuple(ir.CallStatement(name=sym.Variable(name='DELETE_DEVICE_DATA', parent=field_object),
+                                                  arguments=()))
         elif alias:
                 host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
 
         device = self.create_memory_status_test('ASSOCIATED', field_object, device)
-        host = self.create_memory_status_test('ASSOCIATED', field_object, host)
+        if delete:
+            host = self.create_memory_status_test('ASSOCIATED', field_object, host)
+            wipe = self.create_memory_status_test('ASSOCIATED', field_object, wipe)
 
-        return device, host
+        return device, host, wipe
 
     @staticmethod
     def _map_memory_status_checks(str_map, body):
@@ -360,76 +365,85 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
     def generate_deepcopy(self, routine, symbol_map, **kwargs):
 
-        pre = ()
-        post = ()
+        copy = ()
+        host = ()
+        wipe = ()
         analysis = kwargs.pop('analysis')
 
         for var in analysis:
 
-            if var in kwargs['present'] or var in kwargs['private']:
+            if var in kwargs['present']:
                 continue
+
+            delete = not var in kwargs['device_resident']
+            if (parent := kwargs['parent']):
+                delete = not parent.name_parts[0].lower() in kwargs['device_resident']
 
             if isinstance(symbol_map[var].type.dtype, DerivedType):
 
                 _parent = kwargs.pop('parent')
                 parent = symbol_map[var].clone(parent=_parent)
 
-                _pre, _post = self.generate_deepcopy(routine, symbol_map[var].type.dtype.typedef.variable_map,
-                                                     analysis=analysis[var], parent=parent, **kwargs)
+                _copy, _host, _wipe = self.generate_deepcopy(routine, symbol_map[var].type.dtype.typedef.variable_map,
+                                                             analysis=analysis[var], parent=parent, **kwargs)
 
                 #wrap in loop
                 if symbol_map[var].type.shape:
-                    _pre = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _pre)
-                    _post = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _post)
+                    _copy = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _copy)
+                    if delete:
+                        _host = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _host)
+                        _wipe = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _wipe)
 
                 if kwargs['mode'] == 'offload':
                     if not _parent or (symbol_map[var].type.allocatable or symbol_map[var].type.pointer):
-                        _pre = as_tuple(ir.Pragma(keyword='acc',
-                        content=f'enter data copyin({symbol_map[var].clone(parent=_parent, dimensions=None)})')) + _pre
-                        _post += as_tuple(ir.Pragma(keyword='acc',
-                        content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)})'))
+                        _copy = as_tuple(ir.Pragma(keyword='acc',
+                        content=f'enter data copyin({symbol_map[var].clone(parent=_parent, dimensions=None)})')) + _copy
+                        if delete:
+                            _wipe += as_tuple(ir.Pragma(keyword='acc',
+                            content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)}) finalize'))
 
                 #wrap in memory status check
                 check = 'ASSOCIATED' if symbol_map[var].type.pointer else None
                 check = 'ALLOCATED' if symbol_map[var].type.allocatable else None
                 if check:
-                    _pre = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _pre)
-                    _post = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _post)
+                    _copy = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _copy)
+                    if delete:
+                        _host = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _host)
+                        _wipe = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _wipe)
 
                 kwargs['parent'] = _parent
             else:
-                _pre = ()
-                _post = ()
+                _copy = ()
+                _host = ()
+                _wipe = ()
+
                 stat = analysis[var]
                 parent = kwargs['parent']
                 mode = kwargs['mode']
-                wipe = kwargs['wipe']
 
                 typedef_config = kwargs['typedef_configs'][parent.type.dtype.typedef.name.lower()] if parent else None
 
-                delete = var in wipe
-                if parent:
-                    delete = delete or parent.name_parts[0] in wipe
-
                 # check for FIELD_API pointer
                 if re.search('_field$', var, re.IGNORECASE):
-                    _pre, _post = self._set_field_api_ptrs(var, stat, symbol_map, typedef_config, parent, delete, mode)
+                    _copy, _host, _wipe = self._set_field_api_ptrs(var, stat, symbol_map, typedef_config, parent, delete, mode)
+
                 elif mode == 'offload':
                 # if not we have a regular variable
                     check = 'ASSOCIATED' if symbol_map[var].type.pointer else None
                     check = 'ALLOCATED' if symbol_map[var].type.allocatable else None
                     if check:
-                        _pre = as_tuple(ir.Pragma(keyword='acc',
+                        _copy = as_tuple(ir.Pragma(keyword='acc',
                                     content=f'enter data copyin({symbol_map[var].clone(parent=parent)})'))
-                        if stat != 'read':
-                            _post = as_tuple(ir.Pragma(keyword='acc',
-                                        content=f'exit data copyout({symbol_map[var].clone(parent=parent)})'))
-                    else:
-                        if stat != 'read':
-                            _post = as_tuple(ir.Pragma(keyword='acc',
-                                        content=f'update self({symbol_map[var].clone(parent=parent)})'))
 
-            pre += as_tuple(_pre)
-            post += as_tuple(_post)
+                    if delete and stat != 'read':
+                        _host = as_tuple(ir.Pragma(keyword='acc',
+                                    content=f'update self({symbol_map[var].clone(parent=parent)})'))
+                    if delete and check:
+                        _wipe = as_tuple(ir.Pragma(keyword='acc',
+                        content=f'exit data delete finalize({symbol_map[var].clone(parent=parent, dimensions=None)})'))
 
-        return pre, post
+            copy += as_tuple(_copy)
+            host += as_tuple(_host)
+            wipe += as_tuple(_wipe)
+
+        return copy, host, wipe
