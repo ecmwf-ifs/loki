@@ -8,7 +8,7 @@
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.backend import cgen, fgen, cudagen
+from loki.backend import cgen, fgen, cudagen, cppgen
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, Variable, InlineCall, RangeIndex, Scalar, Array,
@@ -121,19 +121,27 @@ class FortranCTransformation(Transformation):
         self.use_c_ptr = use_c_ptr
         self.path = Path(path) if path is not None else None
         self.language = language.lower()
-        assert self.language in ['c', 'cuda'] # , 'hip']
+        self._supported_languages = ['c', 'cpp', 'cuda']
 
         if self.language == 'c':
             self.codegen = cgen
+        elif self.language == 'cpp':
+            self.codegen = cppgen
         elif self.language == 'cuda':
             self.codegen = cudagen
-            # elif self.language == 'hip':
-            #     self.langgen = hipgen
         else:
-            assert False
+            raise ValueError(f'language "{self.language}" is not supported!'
+                             f' (supported languages: "{self._supported_languages}")')
 
         # Maps from original type name to ISO-C and C-struct types
         self.c_structs = OrderedDict()
+
+    def file_suffix(self):
+        if self.language == 'cpp':
+            return '.cpp'
+        if self.language == 'cuda':
+            return '.cu'
+        return '.c'
 
     def transform_module(self, module, **kwargs):
         if self.path is None:
@@ -188,7 +196,7 @@ class FortranCTransformation(Transformation):
 
         if role == 'kernel':
             # Generate Fortran wrapper module
-            bind_name = None if self.language == 'c' else f'{routine.name.lower()}_c_launch'
+            bind_name = None if self.language in ['c', 'cpp'] else f'{routine.name.lower()}_c_launch'
             wrapper = self.generate_iso_c_wrapper_routine(routine, self.c_structs, bind_name=bind_name)
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
             self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
@@ -197,7 +205,7 @@ class FortranCTransformation(Transformation):
 
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(routine, targets=targets)
-            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
+            self.c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
             Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
 
             # Generate C source file from Loki IR
@@ -219,8 +227,9 @@ class FortranCTransformation(Transformation):
 
             if depth > 1:
                 c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
-            self.c_path = (path/c_kernel.name.lower()).with_suffix('.c')
-            Sourcefile.to_file(source=self.codegen(c_kernel), path=self.c_path)
+            self.c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
+            Sourcefile.to_file(source=self.codegen(c_kernel, extern=self.language=='cpp'),
+                               path=self.c_path)
             header_path = (path/c_kernel.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=header_path)
 
@@ -442,7 +451,7 @@ class FortranCTransformation(Transformation):
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
-                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in'
+                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in' and not arg.type.optional
                 kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
                 if self.use_c_ptr:
                     if isinstance(arg, Array):
@@ -525,7 +534,7 @@ class FortranCTransformation(Transformation):
         """
         to_be_dereferenced = []
         for arg in routine.arguments:
-            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)) or arg.type.optional:
                 to_be_dereferenced.append(arg.name.lower())
 
         routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)

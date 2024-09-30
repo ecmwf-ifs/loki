@@ -10,6 +10,7 @@ from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
+from loki.logging import warning
 from loki.tools import as_tuple
 from loki.ir import Import, Stringifier, FindNodes
 from loki.expression import (
@@ -140,6 +141,10 @@ class CCodeMapper(LokiStringifyMapper):
     def map_c_dereference(self, expr, enclosing_prec, *args, **kwargs):
         return self.format(' (*%s)', self.rec(expr.expression, PREC_NONE, *args, **kwargs))
 
+    def map_inline_call(self, expr, enclosing_prec, *args, **kwargs):
+        if expr.function.name.lower() == 'present':
+            return self.format('true /*ATTENTION: present({%s})*/', expr.parameters[0].name)
+        return super().map_inline_call(expr, enclosing_prec, *args, **kwargs)
 
 class CCodegen(Stringifier):
     """
@@ -192,6 +197,14 @@ class CCodegen(Stringifier):
             return '*'
         if a.type.pointer:
             return '*'
+        if a.type.optional:
+            return '*'
+        return ''
+
+    def _subroutine_optional_args(self, a):
+        if a.type.optional:
+            warning(f'Argument "{a}" is optional, however, there is currently'
+                    f' no support for optional arguments for this backend!')
         return ''
 
     def _subroutine_declaration(self, o, **kwargs):
@@ -203,7 +216,7 @@ class CCodegen(Stringifier):
         #              for a, p, k in zip(o.arguments, pass_by, var_keywords)]
         arguments = [
             (f'{self._subroutine_argument_keyword(a)}{self.visit(a.type, **kwargs)} '
-            f'{self._subroutine_argument_pass_by(a)}{a.name}')
+            f'{self._subroutine_argument_pass_by(a)}{a.name}{self._subroutine_optional_args(a)}')
             for a in o.arguments
         ]
         opt_header = kwargs.get('header', False)
