@@ -5,11 +5,13 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
 from loki.batch import Transformation
 from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer,
-    pragmas_attached, is_loki_pragma, get_pragma_parameters
+    pragmas_attached, is_loki_pragma, get_pragma_parameters,
+    pragma_regions_attached
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten
@@ -192,11 +194,55 @@ class SCCAnnotateTransformation(Transformation):
             # Mark all non-parallel loops as `!$acc loop seq`
             self.annotate_sequential_loops(routine)
 
-            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-                driver_loops = find_driver_loops(routine=routine, targets=targets)
-                for loop in driver_loops:
-                    self.annotate_driver_loop(loop)
+            # Find variables with existing OpenACC data declarations
+            acc_vars = self.find_acc_vars(routine, targets)
 
+            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                driver_loops = find_driver_loops(section=routine.body, targets=targets)
+                for loop in driver_loops:
+                    self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+
+    def find_acc_vars(self, routine, targets):
+        """
+        Find variables already specified in acc data clauses.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+
+        acc_vars = defaultdict(list)
+
+        with pragma_regions_attached(routine):
+            with pragmas_attached(routine, ir.Loop):
+                for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                    if region.pragma.keyword.lower() == 'acc' and 'data' in region.pragma.content.lower():
+
+                        driver_loops = find_driver_loops(section=region.body, targets=targets)
+                        if not driver_loops:
+                            continue
+
+                        parameters = get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)
+                        if (default := parameters.get('default', None)):
+                            if not 'none' in [p.strip().lower() for p in default.split(',')]:
+                                for loop in driver_loops:
+                                    _vars = [var.name.lower() for var in FindVariables(unique=True).visit(loop)]
+                                    acc_vars[loop] += _vars
+                        else:
+                            _vars = [p.strip().lower() for p in parameters.get('present', '').split(',')]
+                            _vars += [p.strip().lower() for p in parameters.get('copy', '').split(',')]
+                            _vars += [p.strip().lower() for p in parameters.get('copyin', '').split(',')]
+                            _vars += [p.strip().lower() for p in parameters.get('copyout', '').split(',')]
+                            _vars += [p.strip().lower() for p in parameters.get('deviceptr', '').split(',')]
+
+                            for loop in driver_loops:
+                                acc_vars[loop] += _vars
+
+        return acc_vars
 
     @classmethod
     def device_alloc_column_locals(cls, routine, column_locals):
@@ -219,7 +265,7 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-    def annotate_driver_loop(self, loop):
+    def annotate_driver_loop(self, loop, acc_vars):
         """
         Annotate driver block loop with ``'openacc'`` pragmas.
 
@@ -227,6 +273,8 @@ class SCCAnnotateTransformation(Transformation):
         ----------
         loop : :any:`Loop`
             Driver :any:`Loop` to wrap in ``'opencc'`` pragmas.
+        acc_vars : list
+            Variables already declared in ``'openacc'`` data directives.
         """
 
         # Mark driver loop as "gang parallel".
@@ -239,7 +287,7 @@ class SCCAnnotateTransformation(Transformation):
             # Filter out arrays that are explicitly allocated with block dimension
             sizes = self.block_dim.size_expressions
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
-            private_arrays = ', '.join(set(v.name for v in arrays))
+            private_arrays = ', '.join(set(v.name for v in arrays if not v.name_parts[0].lower() in acc_vars))
             private_clause = '' if not private_arrays else f' private({private_arrays})'
 
             for pragma in as_tuple(loop.pragma):
