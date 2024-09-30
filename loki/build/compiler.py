@@ -124,6 +124,8 @@ class Compiler:
 
     CC = None
     CFLAGS = None
+    CPP = None
+    CPPFLAGS = None
     F90 = None
     F90FLAGS = None
     FC = None
@@ -137,6 +139,8 @@ class Compiler:
     def __init__(self):
         self.cc = self.CC or 'gcc'
         self.cflags = self.CFLAGS or ['-g', '-fPIC']
+        self.cpp = self.CPP or 'g++'
+        self.cppflags = self.CPPFLAGS or ['-g', '-fPIC']
         self.f90 = self.F90 or 'gfortran'
         self.f90flags = self.F90FLAGS or ['-g', '-fPIC']
         self.fc = self.FC or 'gfortran'
@@ -164,13 +168,13 @@ class Compiler:
         mode : str, optional
             One of ``'f90'`` (free form), ``'f'`` (fixed form) or ``'c'``
         """
-        assert mode in ['f90', 'f', 'c']
+        assert mode in ['f90', 'f', 'c', 'cpp']
         include_dirs = include_dirs or []
-        cc = {'f90': self.f90, 'f': self.fc, 'c': self.cc}[mode]
+        cc = {'f90': self.f90, 'f': self.fc, 'c': self.cc, 'cpp': self.cpp}[mode]
         args = [cc, '-c']
-        args += {'f90': self.f90flags, 'f': self.fcflags, 'c': self.cflags}[mode]
+        args += {'f90': self.f90flags, 'f': self.fcflags, 'c': self.cflags, 'cpp': self.cppflags}[mode]
         args += self._include_dir_args(include_dirs)
-        if mode != 'c':
+        if mode not in ['c', 'cpp']:
             args += self._mod_dir_args(mod_dir)
         args += [] if target is None else ['-o', str(target)]
         args += [str(source)]
@@ -194,13 +198,15 @@ class Compiler:
             return []
         return [f'-J{mod_dir!s}']
 
-    def compile(self, source, target=None, include_dirs=None, use_c=False, cwd=None):
+    def compile(self, source, target=None, include_dirs=None, use_c=False, use_cpp=False, cwd=None):
         """
         Execute a build command for a given source.
         """
         kwargs = {'target': target, 'include_dirs': include_dirs}
         if use_c:
             kwargs['mode'] = 'c'
+        if use_cpp:
+            kwargs['mode'] = 'cpp'
         args = self.compile_args(source, **kwargs)
         execute(args, cwd=cwd)
 
@@ -282,6 +288,8 @@ class GNUCompiler(Compiler):
 
     CC = 'gcc'
     CFLAGS = ['-g', '-fPIC']
+    CPP = 'g++'
+    CPPFLAGS = ['-g', '-fPIC']
     F90 = 'gfortran'
     F90FLAGS = ['-g', '-fPIC']
     FC = 'gfortran'
@@ -293,6 +301,7 @@ class GNUCompiler(Compiler):
     F2PY_FCOMPILER_TYPE = 'gnu95'
 
     CC_PATTERN = re.compile(r'(^|/|\\)gcc\b')
+    CPP_PATTERN = re.compile(r'(^|/|\\)g\+\+\b')
     FC_PATTERN = re.compile(r'(^|/|\\)gfortran\b')
 
 
@@ -303,6 +312,8 @@ class NvidiaCompiler(Compiler):
 
     CC = 'nvc'
     CFLAGS = ['-g', '-fPIC']
+    CPP = 'nvc++'
+    CPPFLAGS =  ['-g', '-fPIC']
     F90 = 'nvfortran'
     F90FLAGS = ['-g', '-fPIC']
     FC = 'nvfortran'
@@ -314,6 +325,7 @@ class NvidiaCompiler(Compiler):
     F2PY_FCOMPILER_TYPE = 'nv'
 
     CC_PATTERN = re.compile(r'(^|/|\\)nvc\b')
+    CPP_PATTERN = re.compile(r'(^|/|\\)nvc\+\+\b')
     FC_PATTERN = re.compile(r'(^|/|\\)(pgf9[05]|pgfortran|nvfortran)\b')
 
     def _mod_dir_args(self, mod_dir):
@@ -358,7 +370,8 @@ def get_compiler_from_env(env=None):
     var_pattern_map = {
         'F90': 'FC_PATTERN',
         'FC': 'FC_PATTERN',
-        'CC': 'CC_PATTERN'
+        'CC': 'CC_PATTERN',
+        'CPP': 'CPP_PATTERN'
     }
     for var, pattern in var_pattern_map.items():
         if env.get(var):
@@ -377,6 +390,7 @@ def get_compiler_from_env(env=None):
     # overwrite compiler executable and compiler flags with environment values
     var_compiler_map = {
         'CC': 'cc',
+        'CPP': 'cpp',
         'FC': 'fc',
         'F90': 'f90',
         'LD': 'ld',
@@ -388,6 +402,7 @@ def get_compiler_from_env(env=None):
 
     var_flag_map = {
         'CFLAGS': 'cflags',
+        'CPPFLAGS': 'cppflags',
         'FCFLAGS': 'fcflags',
         'LDFLAGS': 'ldflags',
     }
