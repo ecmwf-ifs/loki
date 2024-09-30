@@ -108,9 +108,7 @@ class SCCDevectorTransformation(Transformation):
 
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         calls = FindNodes(ir.CallStatement).visit(section)
-        pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(section) if pragma.keyword.lower() == "loki" and
-                   pragma.content.lower() == "separator"]
-        separator_nodes = pragmas
+        separator_nodes = []
 
         for call in calls:
 
@@ -125,7 +123,8 @@ class SCCDevectorTransformation(Transformation):
         for pragma in FindNodes(ir.Pragma).visit(section):
             # Reductions over thread-parallel regions should be marked as a separator node
             if (is_loki_pragma(pragma, starts_with='vector-reduction') or
-                is_loki_pragma(pragma, starts_with='end vector-reduction')):
+                is_loki_pragma(pragma, starts_with='end vector-reduction') or
+                is_loki_pragma(pragma, starts_with='separator')):
 
                 separator_nodes = cls._add_separator(pragma, section, separator_nodes)
 
