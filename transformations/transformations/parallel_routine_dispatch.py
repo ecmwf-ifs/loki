@@ -412,13 +412,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         lhs = [a.lhs for a in FindNodes(ir.Assignment).visit(region)]
         scalars = [var for var in lhs if isinstance(var, sym.Scalar)]
         scalars_ = [var.name for var in scalars if not isinstance(var.type.dtype, DerivedType)]
+
+        loop_variables = [loop.variable.name for loop in FindNodes(ir.Loop).visit(region)]
+        scalars_+=loop_variables
+
         return scalars_
 
-#     def get_not_field_array(routine, region):
-#        not_field_array = [var for var in FindVariables().visit(region) if var.nameçparts[0] in routine.arguments]
-
-
-        
 
     def add_derived(self, routine, map_routine):
         routine_map_derived = map_routine['map_derived']
