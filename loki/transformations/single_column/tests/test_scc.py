@@ -9,7 +9,7 @@ import pytest
 
 from loki import Subroutine, Sourcefile, Dimension, fgen
 from loki.batch import ProcedureItem
-from loki.expression import Scalar, Array, IntLiteral, RangeIndex
+from loki.expression import Scalar, Array, IntLiteral
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Conditional, Loop,
@@ -236,32 +236,40 @@ def test_scc_demote_transformation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_annotate_openacc(frontend, horizontal, blocking):
+@pytest.mark.parametrize('acc_data', ['default', 'copyin', None])
+def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     """
     Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
     """
 
-    fcode_driver = """
+    fcode_driver = f"""
   SUBROUTINE column_driver(nlon, nproma, nlev, nz, q, nb)
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     INTEGER, INTENT(IN)   :: nproma, nlev  ! Aliases of horizontal and vertical sizes
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    REAL :: other_var(nlon)
     INTEGER :: b, start, end
 
     start = 1
     end = nlon
+    {'!$acc data default(present)' if acc_data == 'default' else ''}
+    {'!$acc data copyin(other_var)' if acc_data == 'copyin' else ''}
+    !
     do b=1, nb
-      call compute_column(start, end, nlon, nproma, nz, q(:,:,b))
+      call compute_column(start, end, nlon, nproma, nz, q(:,:,b), other_var)
     end do
+    !
+    {'!$acc end data' if acc_data else ''}
   END SUBROUTINE column_driver
 """
 
     fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q)
+  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q, other_var)
     INTEGER, INTENT(IN) :: start, end   ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz     ! Size of the horizontal and vertical
     INTEGER, INTENT(IN) :: nproma, nlev ! Aliases of horizontal and vertical sizes
     REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, INTENT(IN) :: other_var
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: d(nproma)
@@ -326,8 +334,11 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking):
     with pragmas_attached(driver, Loop):
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 1
-        assert driver_loops[0].pragma[0].keyword == 'acc'
-        assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
+        assert driver_loops[0].pragma[0].keyword.lower() == 'acc'
+        if acc_data:
+            assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
+        else:
+            assert driver_loops[0].pragma[0].content == 'parallel loop gang private(other_var) vector_length(nlon)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -750,7 +761,7 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
+def test_scc_annotate_routine_seq_pragma(frontend, blocking):
     """
     Test that `!$loki routine seq` pragmas are replaced correctly by
     `!$acc routine seq` pragmas.
@@ -790,7 +801,7 @@ def test_scc_annotate_routine_seq_pragma(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_annotate_empty_data_clause(frontend, horizontal, blocking):
+def test_scc_annotate_empty_data_clause(frontend, blocking):
     """
     Test that we do not generate empty `!$acc data` clauses.
     """

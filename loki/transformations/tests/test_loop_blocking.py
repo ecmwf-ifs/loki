@@ -44,7 +44,7 @@ end subroutine test_1d_splitting
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
@@ -94,7 +94,7 @@ end subroutine test_1d_splitting_multi_var
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
@@ -142,7 +142,7 @@ def test_2d_splitting(tmp_path, frontend, block_size, n):
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
@@ -192,7 +192,7 @@ def test_3d_splitting(tmp_path, frontend, block_size, n):
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
@@ -250,7 +250,7 @@ end subroutine test_1d_blocking
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
 
     num_loops = len(loops)
@@ -309,7 +309,7 @@ end subroutine test_1d_blocking_multi_intent
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
 
     num_loops = len(loops)
@@ -372,7 +372,7 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
@@ -432,7 +432,7 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine,
+        loops = find_driver_loops(routine.body,
                                   targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
