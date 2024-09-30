@@ -67,7 +67,7 @@ class SCCDevectorTransformation(Transformation):
         nodes that are not assignments involving vector parallel arrays.
     """
 
-    _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+    _separator_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
 
     def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
@@ -76,7 +76,9 @@ class SCCDevectorTransformation(Transformation):
     @classmethod
     def _add_separator(cls, node, section, separator_nodes):
         """
-        Add either the current node or its highest ancestor scope to the list of separator nodes.
+        Add either the current node or its outermost parent node from the list of types
+        defining a vector region separator (:attr:`separator_node_types`) to the list of
+        separator nodes.
         """
 
         if node in section:
@@ -86,7 +88,7 @@ class SCCDevectorTransformation(Transformation):
         else:
             # If the node is deeper in the IR tree, it's highest ancestor is used
             ancestors = flatten(FindScopes(node).visit(section))
-            ancestor_scopes = [a for a in ancestors if isinstance(a, cls._scope_node_types)]
+            ancestor_scopes = [a for a in ancestors if isinstance(a, cls._separator_node_types)]
             if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
                 separator_nodes.append(ancestor_scopes[0])
 
@@ -109,9 +111,7 @@ class SCCDevectorTransformation(Transformation):
 
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         calls = FindNodes(ir.CallStatement).visit(section)
-        pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(section) if pragma.keyword.lower() == "loki" and
-                   pragma.content.lower() == "separator"]
-        separator_nodes = pragmas
+        separator_nodes = []
 
         for call in calls:
 
@@ -126,7 +126,8 @@ class SCCDevectorTransformation(Transformation):
         for pragma in FindNodes(ir.Pragma).visit(section):
             # Reductions over thread-parallel regions should be marked as a separator node
             if (is_loki_pragma(pragma, starts_with='vector-reduction') or
-                is_loki_pragma(pragma, starts_with='end vector-reduction')):
+                is_loki_pragma(pragma, starts_with='end vector-reduction') or
+                is_loki_pragma(pragma, starts_with='separator')):
 
                 separator_nodes = cls._add_separator(pragma, section, separator_nodes)
 

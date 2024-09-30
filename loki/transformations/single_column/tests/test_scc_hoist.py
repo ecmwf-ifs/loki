@@ -176,11 +176,12 @@ def test_scc_hoist_multiple_kernels_loops(tmp_path, frontend, trim_vector_sectio
     """
 
     fcode_driver = """
-  SUBROUTINE driver(nlon, nz, q, nb)
+  SUBROUTINE driver(nlon, nz, q, nb, lflag)
     use kernel_mod, only: kernel
     implicit none
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    LOGICAL, INTENT(IN)   :: lflag
     REAL                  :: c, tmp(nlon,nz,nb)
     INTEGER :: b, jk, jl, start, end
 
@@ -219,13 +220,15 @@ def test_scc_hoist_multiple_kernels_loops(tmp_path, frontend, trim_vector_sectio
 
     !$loki driver-loop
     do b=3, nb
-      end = nlon - nb
-      !$loki separator
-      do jk = 2, nz
-        do jl = start, end
-          q(jl, jk, b) = 2.0 * jk * jl
+      if (lflag) then
+        end = nlon - nb
+        !$loki separator
+        do jk = 2, nz
+          do jl = start, end
+            q(jl, jk, b) = 2.0 * jk * jl
+          end do
         end do
-      end do
+      endif
     end do
   END SUBROUTINE driver
 """.strip()
