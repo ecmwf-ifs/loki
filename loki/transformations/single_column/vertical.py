@@ -14,9 +14,10 @@ from loki.ir import (
     is_loki_pragma, pragmas_attached,
     get_pragma_parameters
 )
-from loki.tools import as_tuple
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.transformations.transform_loop import loop_fusion, loop_interchange
 from loki.transformations.array_indexing import demote_variables
+from loki.transformations.utilities import get_local_arrays
 from loki.logging import info
 
 __all__ = ['SCCFuseVerticalLoops']
@@ -28,7 +29,13 @@ class SCCFuseVerticalLoops(Transformation):
 
     .. note::
         This transfomation currently relies on pragmas being inserted in the input
-        source files.
+        source files. Relevant pragmas are `!$loki loop-interchange` to expose the
+        vertical loops (in case vertical loops are nested) and `!$loki loop-fusion`
+        possibly grouped via `group(<group name>)`. Further, if there are loops
+        that initialize multilevel arrays (`jk +/- 1`) it is possible to mark those
+        loops as `!$loki loop-fusion group(<group-name>-init)`. This allows to split
+        the relevant node and moves the initialization of those arrays to the top of
+        the group.
 
     Parameters
     ----------
@@ -50,8 +57,6 @@ class SCCFuseVerticalLoops(Transformation):
         routine : :any:`Subroutine`
             The subroutine in the vertical loops should be fused and
             temporaries be demoted.
-        horizontal : :any:`Dimension`
-            The dimension specifying the horizontal vector dimension
         """
         if self.vertical is None:
             info('[SCCFuseVerticalLoops] is not applied as the vertical dimension is not defined!')
@@ -97,27 +102,22 @@ class SCCFuseVerticalLoops(Transformation):
         Current heuristic: If the candidate is used in more than one vertical loop, assume it is NOT safe
         to demote!
         """
-        loop_var_map = {}
+        loop_var_map = CaseInsensitiveDict()
         with pragmas_attached(routine, ir.Loop):
             for loop in FindNodes(ir.Loop).visit(routine.body):
-                if loop.variable.name.lower() == self.vertical.index.lower():
-                    ignore = False
+                if loop.variable == self.vertical.index:
                     if is_loki_pragma(loop.pragma, starts_with='fused-loop'):
                         parameters = get_pragma_parameters(loop.pragma, starts_with='fused-loop')
                         group = parameters.get('group', 'default')
                         if group == 'ignore':
-                            ignore = True
-                    if not ignore:
-                        loop_var_map[loop] = as_tuple(var.name.lower() for var in FindVariables().visit(loop.body)
-                                if isinstance(var, sym.Array))
+                            continue
+                        for var in FindVariables().visit(loop.body):
+                            if isinstance(var, sym.Array):
+                                loop_var_map.setdefault(var.name, set()).add(group)
 
         safe_to_demote = ()
         for var in demote_candidates:
-            count = 0
-            for _, var_names in loop_var_map.items():
-                if var in var_names:
-                    count += 1
-            if count <= 1:
+            if var in loop_var_map and len(loop_var_map[var]) <= 1:
                 safe_to_demote += (var,)
 
         return safe_to_demote
@@ -127,12 +127,10 @@ class SCCFuseVerticalLoops(Transformation):
         Find local arrays/temporaries that do have the vertical dimension.
         """
         # local/temporary arrays
-        arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
-        argument_names = [arg.name.lower() for arg in routine.arguments]
-        local_arrays = [arr for arr in arrays if arr.name.lower() not in argument_names]
+        local_arrays = get_local_arrays(routine, routine.body)
         # only those with the vertical size within shape
         relevant_local_arrays = [arr for arr in local_arrays if self.vertical.size.lower()
-                in [var.name.lower() for var in FindVariables().visit(arr.shape)]]
+                in FindVariables().visit(arr.shape)]
         # filter arrays to be ignored (for whatever reason)
         ignore_names = self.find_local_arrays_to_be_ignored(routine)
         if ignore_names:
@@ -153,8 +151,7 @@ class SCCFuseVerticalLoops(Transformation):
         # look for 'loki k-caching ignore(var1, var2, ...)' pragmas within routine and ignore those vars
         for pragma in pragmas:
             if is_loki_pragma(pragma, starts_with='k-caching'):
-                pragma_ignore = get_pragma_parameters(pragma, starts_with='k-caching').get('ignore', None)
-                if pragma_ignore:
+                if pragma_ignore := get_pragma_parameters(pragma, starts_with='k-caching').get('ignore', None):
                     ignore += as_tuple(v.strip() for v in pragma_ignore.split(','))
         ignore_names = set(var.lower() for var in ignore)
         return ignore_names
@@ -175,7 +172,7 @@ class SCCFuseVerticalLoops(Transformation):
 
     def correct_init_of_multilevel_arrays(self, routine, multilevel_local_arrays):
         """
-        Possibly handle initaliztion of those multilevel local arrays via
+        Possibly handle initialization of those multilevel local arrays via
         splitting relevant loops or rather creating a new node with the relevant
         nodes moved to the newly created loop.
 
@@ -209,10 +206,13 @@ class SCCFuseVerticalLoops(Transformation):
                             pragmas = loop.pragma
                             new_pragmas = [pragma.clone(content=pragma.content.replace('-init', '')) if '-init'
                                     in pragma.content else pragma for pragma in pragmas]
+                            # init part
+                            transf_init = Transformer(node_map_init).visit(loop.clone(\
+                                    pragma=as_tuple(ir.Pragma(keyword='loki',
+                                        content='fused-loop group(ignore)'))))
+                            # rest of the original node/loop
+                            transf_orig = Transformer(node_map).visit(loop.clone(pragma=as_tuple(new_pragmas)))
                             loop_map[loop] = (ir.Comment('! Loki generated loop for init ...'),
-                                    Transformer(node_map_init).visit(loop.clone(\
-                                            pragma=as_tuple(ir.Pragma(keyword='loki',
-                                            content='fused-loop group(ignore)')))),
-                                    Transformer(node_map).visit(loop.clone(pragma=as_tuple(new_pragmas))))
+                                    transf_init, transf_orig)
             if loop_map:
                 routine.body = Transformer(loop_map).visit(routine.body)

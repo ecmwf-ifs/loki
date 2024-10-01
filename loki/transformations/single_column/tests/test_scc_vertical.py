@@ -52,15 +52,15 @@ def test_simple_scc_fuse_verticals_transformation(frontend, horizontal, vertical
     REAL, INTENT(INOUT) :: q(nlon,nz)
     REAL :: temp_t(nlon, nz)
     REAL :: temp_q(nlon, nz)
-    INTEGER :: jl, jk
+    INTEGER :: jl, JK
     REAL :: c
 
     c = 5.345
     !$loki loop-fusion group(1)
-    DO jk = 1, nz
+    DO JK = 1, nz
       DO jl = start, end
         temp_t(jl, jk) = c
-        temp_q(jl, jk) = c
+        temp_q(jl, JK) = c
       END DO
     END DO
 
