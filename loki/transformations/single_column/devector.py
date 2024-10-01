@@ -15,6 +15,7 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
+from loki.expression import symbols as sym
 
 from loki.transformations.utilities import (
     find_driver_loops, check_routine_sequential
@@ -128,6 +129,11 @@ class SCCDevectorTransformation(Transformation):
                 is_loki_pragma(pragma, starts_with='end vector-reduction')):
 
                 separator_nodes = cls._add_separator(pragma, section, separator_nodes)
+
+        for assign in FindNodes(ir.Assignment).visit(section):
+            if assign.ptr and isinstance(assign.rhs, sym.Array):
+                if any(s in assign.rhs.shape for s in horizontal.size_expressions):
+                    separator_nodes = cls._add_separator(assign, section, separator_nodes)
 
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)

@@ -874,22 +874,29 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
       !$loki data
       !$omp parallel do private(b) shared(work, nproma)
         do b=1, nb
-           call some_kernel(nlon, work(:,b))
+           call some_kernel(1, nlon, nlon, work(:,b))
         enddo
       !$omp end parallel do
       !$loki end data
 
     end subroutine test
 
-    subroutine some_kernel(nlon, work)
+    subroutine some_kernel(start, end, nlon, work)
     implicit none
 
-      integer, intent(in) :: nlon
-      real, dimension(nlon), intent(inout) :: work
+      integer, intent(in) :: start, end, nlon
+      real, dimension(nlon), target, intent(inout) :: work
+      real, pointer :: tmp(:) => null()
       integer :: jl
 
-      do jl=1,nlon
+      do jl=start,end
          work(jl) = work(jl) + 1.
+      enddo
+
+      tmp => work
+
+      do jl=start,end
+         tmp(jl) = tmp(jl) + 1.
       enddo
 
     end subroutine some_kernel
@@ -923,6 +930,13 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     assert pragmas[1].content == 'parallel loop gang vector_length(nlon)'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
+
+    # check that pointer association was correctly identified as a separator node
+    routine = source['some_kernel']
+    scc_pipeline.apply(routine, role='kernel')
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
