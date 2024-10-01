@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 import re
+import pdb
 
 from more_itertools import split_at
 
@@ -127,6 +128,11 @@ class SCCDevectorTransformation(Transformation):
                 is_loki_pragma(pragma, starts_with='separator')):
 
                 separator_nodes = cls._add_separator(pragma, section, separator_nodes)
+
+        for assign in FindNodes(ir.Assignment).visit(section):
+            if assign.ptr and isinstance(assign.rhs, sym.Array):
+                if any(s in assign.rhs.shape for s in horizontal.size_expressions):
+                    separator_nodes = cls._add_separator(assign, section, separator_nodes)
 
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)
