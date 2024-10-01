@@ -217,6 +217,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 'analysis': analysis,
                 'typedef_configs': typedef_configs,
                 'present': [p.lower() for p in parameters.get('present', '').split(',')],
+                'private': [p.lower() for p in parameters.get('private', '').split(',')],
+                'temporary': [p.lower() for p in parameters.get('temporary', '').split(',')],
                 'device_resident': [p.lower() for p in parameters.get('device_resident', '').split(',')],
         }
 
@@ -244,6 +246,15 @@ class DataOffloadDeepcopyTransformation(Transformation):
         if (new_vars := set(kwargs['new_vars'])):
             routine.variables += as_tuple(new_vars)
 
+        # update driver loop pragma
+        acc_pragmas = [p for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
+        for pragma in acc_pragmas:
+            if pragma.content.lower().startswith('parallel') and 'gang' in pragma.content.lower():
+                content = pragma.content
+                present_vars = [v.upper() for v in analysis if not v in kwargs['private']]
+                content += f" present({','.join(present_vars)})"
+                pragma._update(content=content)
+
     @staticmethod
     def create_field_api_call(field_object, dest, access, ptr):
         return ir.CallStatement(name=sym.Variable(name='GET_' + dest.upper() + '_DATA_' + access, parent=field_object),
@@ -264,7 +275,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
             dimensions=as_tuple([sym.RangeIndex(children=(d, None)) for d in dims]))
         return ir.Assignment(lhs=lhs, rhs=ptr, ptr=True)
 
-    def _set_field_api_ptrs(self, var, stat, symbol_map, typedef_config, parent, delete, mode):
+    def _set_field_api_ptrs(self, var, stat, symbol_map, typedef_config, parent, mode):
 
         field_object = typedef_config['field_prefix'].lower() + var.lower().replace('_field', '')
         field_object = symbol_map[field_object].clone(parent=parent)
@@ -287,27 +298,23 @@ class DataOffloadDeepcopyTransformation(Transformation):
             device += as_tuple(ir.Pragma(keyword='acc', content=f'enter data attach({alias_var})'))
 
 
-        host = ()
-        if delete:
-            host += as_tuple(self.create_field_api_call(field_object, 'HOST', 'RDWR',
-                                                       field_ptr))
+        host = as_tuple(self.create_field_api_call(field_object, 'HOST', 'RDWR',
+                                                   field_ptr))
         wipe = ()
 
         if mode == 'offload':
-            if delete:
-                if alias:
-                    host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
-                    host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
-                wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr})'))
-                wipe += as_tuple(ir.CallStatement(name=sym.Variable(name='DELETE_DEVICE_DATA', parent=field_object),
+            if alias:
+                host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
+                host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
+            wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr})'))
+            wipe += as_tuple(ir.CallStatement(name=sym.Variable(name='DELETE_DEVICE_DATA', parent=field_object),
                                                   arguments=()))
         elif alias:
                 host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
 
         device = self.create_memory_status_test('ASSOCIATED', field_object, device)
-        if delete:
-            host = self.create_memory_status_test('ASSOCIATED', field_object, host)
-            wipe = self.create_memory_status_test('ASSOCIATED', field_object, wipe)
+        host = self.create_memory_status_test('ASSOCIATED', field_object, host)
+        wipe = self.create_memory_status_test('ASSOCIATED', field_object, wipe)
 
         return device, host, wipe
 
@@ -372,12 +379,14 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
         for var in analysis:
 
-            if var in kwargs['present']:
+            if var in kwargs['present'] or var in kwargs['private']:
                 continue
 
             delete = not var in kwargs['device_resident']
+            temporary = var in kwargs['temporary']
             if (parent := kwargs['parent']):
                 delete = not parent.name_parts[0].lower() in kwargs['device_resident']
+                temporary = parent.name_parts[0].lower() in kwargs['temporary']
 
             if isinstance(symbol_map[var].type.dtype, DerivedType):
 
@@ -390,26 +399,23 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 #wrap in loop
                 if symbol_map[var].type.shape:
                     _copy = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _copy)
-                    if delete:
-                        _host = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _host)
-                        _wipe = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _wipe)
+                    _host = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _host)
+                    _wipe = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _wipe)
 
                 if kwargs['mode'] == 'offload':
                     if not _parent or (symbol_map[var].type.allocatable or symbol_map[var].type.pointer):
                         _copy = as_tuple(ir.Pragma(keyword='acc',
                         content=f'enter data copyin({symbol_map[var].clone(parent=_parent, dimensions=None)})')) + _copy
-                        if delete:
-                            _wipe += as_tuple(ir.Pragma(keyword='acc',
-                            content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)}) finalize'))
+                        _wipe += as_tuple(ir.Pragma(keyword='acc',
+                        content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)}) finalize'))
 
                 #wrap in memory status check
                 check = 'ASSOCIATED' if symbol_map[var].type.pointer else None
                 check = 'ALLOCATED' if symbol_map[var].type.allocatable else None
                 if check:
                     _copy = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _copy)
-                    if delete:
-                        _host = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _host)
-                        _wipe = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _wipe)
+                    _host = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _host)
+                    _wipe = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _wipe)
 
                 kwargs['parent'] = _parent
             else:
@@ -425,7 +431,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                 # check for FIELD_API pointer
                 if re.search('_field$', var, re.IGNORECASE):
-                    _copy, _host, _wipe = self._set_field_api_ptrs(var, stat, symbol_map, typedef_config, parent, delete, mode)
+                    _copy, _host, _wipe = self._set_field_api_ptrs(var, stat, symbol_map, typedef_config, parent, mode)
 
                 elif mode == 'offload':
                 # if not we have a regular variable
@@ -435,15 +441,17 @@ class DataOffloadDeepcopyTransformation(Transformation):
                         _copy = as_tuple(ir.Pragma(keyword='acc',
                                     content=f'enter data copyin({symbol_map[var].clone(parent=parent)})'))
 
-                    if delete and stat != 'read':
+                    if stat != 'read':
                         _host = as_tuple(ir.Pragma(keyword='acc',
                                     content=f'update self({symbol_map[var].clone(parent=parent)})'))
-                    if delete and check:
+                    if check:
                         _wipe = as_tuple(ir.Pragma(keyword='acc',
                         content=f'exit data delete finalize({symbol_map[var].clone(parent=parent, dimensions=None)})'))
 
             copy += as_tuple(_copy)
-            host += as_tuple(_host)
-            wipe += as_tuple(_wipe)
+            if delete and not temporary:
+                host += as_tuple(_host)
+            if delete:
+                wipe += as_tuple(_wipe)
 
         return copy, host, wipe
