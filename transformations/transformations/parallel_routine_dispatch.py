@@ -673,7 +673,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_new_calls = {}
         calls = [call for call in FindNodes(ir.CallStatement).visit(region)]
         for call in calls:
-            if call.name!="DR_HOOK":
+            if call.name!="DR_HOOK" and call.name!="ABOR1":
                 new_arguments = []
                 for arg in call.arguments:
                     if arg not in vars_call:
@@ -681,7 +681,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     if not (
                         isinstance(arg, sym.LogicalOr) 
                         or isinstance(arg, sym.LogicalAnd) 
-                        or isinstance(arg, sym.IntLiteral)):
+                        or isinstance(arg, sym.IntLiteral)
+                        or isinstance(arg, sym.LogicLiteral)
+                        or isinstance(arg, sym.Sum)):
+#                        or isinstance(arg, sym.StringLiteral)):
 
                         if arg.name in region_map_temp:
                             new_arguments += [self.update_args(arg, region_map_temp)]
@@ -896,7 +899,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         call_mapper = {} #mapper for transformation
         for call in calls:
-            if call.name!="DR_HOOK":
+            if call.name!="DR_HOOK" and call.name!="ABOR1":
                 region_map_temp = self.decl_local_array(routine, call, map_region) #map_region to store field_new and field_delete
 #                region_map_derived = self.decl_derived_types(routine, call)
                 region_map_derived, region_map_not_field = self.decl_derived_types(routine, call)
@@ -914,7 +917,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 new_arguments = []
                 for arg in call.arguments:
                     if not (
-                        isinstance(arg, sym.LogicalOr) or isinstance(arg, sym.LogicalAnd)):
+                        isinstance(arg, sym.LogicalOr) 
+                        or isinstance(arg, sym.LogicalAnd)
+                        or isinstance(arg, sym.StringLiteral)):
 
                         if arg.name in region_map_temp:
                             new_arguments += [region_map_temp[arg.name][0]]
