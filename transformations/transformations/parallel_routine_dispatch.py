@@ -314,13 +314,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         map_region['field_new'] = []
         map_region['field_delete'] = []
-        temp_arrays = [var for var in FindVariables(Array).visit(region)  if isinstance(var, Array) and not var.name_parts[0] in routine.arguments and var.shape[0] in self.horizontal]
+        arrays = [var for var in FindVariables(Array).visit(region)  if isinstance(var, Array) and not var.name_parts[0] in routine.arguments and var.shape[0] in self.horizontal]
         region_map_temp={}        
         #check if first dim NPROMA ?
-        for var in temp_arrays:
+        for var in arrays:
             var_shape = var.shape
 
             dim = len(var_shape) + 1 # Temporary dimensions + block
+
+            if var.name in routine.argnames:
+                init = None
+                name_prefix = "YD_"
+            else:
+                init = "NULL()"
+                name_prefix = "YL_"
 
             # The FIELD_{d}RB variable
             if var.type.dtype.name=="REAL":
@@ -329,9 +336,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 field_name = 'IM'
             field_ptr_type = SymbolAttributes(
                 dtype=DerivedType(f'FIELD_{dim}{field_name}'),
-                pointer=True, polymorphic=True, initial="NULL()"
+                pointer=True, polymorphic=True, initial=init
             )
-            field_ptr_var = sym.Variable(name=f'YL_{var.name}', type=field_ptr_type, scope=routine)
+            field_ptr_var = sym.Variable(name=f'{name_prefix}{var.name}', type=field_ptr_type, scope=routine)
 
             # Create a pointer instead of the array
             shape = (sym.RangeIndex((None, None)),) * dim
@@ -350,8 +357,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if len(decl.symbols) == 1:
                 var = decl.symbols[0]
                 if var.name in routine_map_temp:
+                    if var.name in routine.argnames:
+                        init = None
+                    else:
+                        init = "NULL()"
                     new_vars = routine_map_temp[var.name]
-                    new_vars[1].type = new_vars[1].type.clone(pointer=True, shape=new_vars[1].dimensions, initial="NULL()")
+                    new_vars[1].type = new_vars[1].type.clone(pointer=True, shape=new_vars[1].dimensions, initial=init, intent=None)
                     map_dcl.update({decl : (ir.VariableDeclaration(symbols=(new_vars[0],)), ir.VariableDeclaration(symbols=(new_vars[1],)))})
             else:
                 raise Exception("Declaration should have only one symbol, please run single_variable_declaration before calling add_temp function.")
