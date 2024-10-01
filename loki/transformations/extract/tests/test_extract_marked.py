@@ -440,3 +440,73 @@ end module test_extract_dertype_mod
     mod_function(a, b)
     assert np.all(a == range(2,12))
     assert np.all(b == 42)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_marked_subroutines_associates(tmp_path, builder, frontend):
+    """
+    Test subroutine extraction with derived-type arguments.
+    """
+
+    fcode_module = """
+module test_extract_dertype_mod
+  implicit none
+
+  type rick
+    integer :: a(10), b(10)
+  end type rick
+end module test_extract_dertype_mod
+"""
+
+    fcode = """
+  subroutine test_extract_imps(a, b)
+    use test_extract_dertype_mod, only: rick
+    integer, intent(out) :: a(10), b(10)
+    type(rick) :: dave
+    integer :: j
+
+    associate(c=>dave%a, d=>dave%b)
+
+    c(:) = a(:)
+    d(:) = b(:)
+
+!$loki extract
+    do j=1,10
+      c(j) = j + 1
+    end do
+
+    d(:) = d(:) + 42
+!$loki end extract
+
+    a(:) = c(:)
+    b(:) = d(:)
+    end associate
+  end subroutine test_extract_imps
+"""
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    refname = f'ref_{module.name}_{frontend}'
+    reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
+    function = getattr(reference, routine.name)
+
+    # Test the reference solution
+    a = np.zeros(shape=(10,), dtype=np.int32)
+    b = np.zeros(shape=(10,), dtype=np.int32)
+    function(a, b)
+    assert np.all(a == range(2,12))
+    assert np.all(b == 42)
+    (tmp_path/f'{module.name}.f90').unlink()
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 6
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+
+    # Apply transformation
+    extracted = extract_marked_subroutines(routine)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 4
+    assert len(FindNodes(CallStatement).visit(routine.body)) == 1
+
+    obj = jit_compile_lib([module, extracted, routine], path=tmp_path, name=f'{module.name}_{frontend}', builder=builder)
+    mod_function = getattr(reference, routine.name)
+
+    from IPython import embed; embed()
