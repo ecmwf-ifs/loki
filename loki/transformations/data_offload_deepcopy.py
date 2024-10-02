@@ -305,7 +305,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
         if mode == 'offload':
             if alias:
                 host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
-                host += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
+                wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
             wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr})'))
             wipe += as_tuple(ir.CallStatement(name=sym.Variable(name='DELETE_DEVICE_DATA', parent=field_object),
                                                   arguments=()))
@@ -347,19 +347,20 @@ class DataOffloadDeepcopyTransformation(Transformation):
             if not loopbody:
                 vmap = {var.clone(parent=parent):
                         var.clone(parent=parent, dimensions=as_tuple(sym.Variable(name=f'J{dim+1}')))}
+                str_map = {fgen(k): fgen(v) for k, v in vmap.items()}
+                loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(body))
+
                 vmap.update({var.clone(parent=parent, dimensions=None):
                              var.clone(parent=parent, dimensions=as_tuple(sym.Variable(name=f'J{dim+1}')))})
                 str_map = {fgen(k): fgen(v) for k, v in vmap.items()}
-
                 vmap.update(self._map_memory_status_checks(str_map, body))
 
-                loopbody = as_tuple(SubstituteExpressions(vmap).visit(body))
-                loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(loopbody))
+                loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
             else:
                 vmap = {sym.Variable(name=f'J{dim}'): sym.Variable(name=f'J{dim}, J{dim+1}')}
                 str_map = {fgen(k): fgen(v) for k, v in vmap.items()}
 
-                vmap.update(self._map_memory_status_checks(str_map, body))
+                vmap.update(self._map_memory_status_checks(str_map, loopbody))
 
                 loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
                 loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(loopbody))
