@@ -132,6 +132,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region['not_field_array'] = []
 
         pragma_content = region.pragma.content.split(maxsplit=1)
+        pragma_content = [entry.replace(" ","") for entry in pragma_content]
         pragma_content = [entry.split('=', maxsplit=1) for entry in pragma_content[1].split(',')]
         pragma_attrs = {
             entry[0].lower(): entry[1] if len(entry) == 2 else None
