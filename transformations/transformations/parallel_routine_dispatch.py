@@ -102,6 +102,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.add_field(routine, map_routine)
         self.add_derived(routine, map_routine)
         self.add_routine_imports(routine, map_routine)
+        self.update_routine_args(routine, map_routine)
 
         #sanitise_imports(routine) => bug...
         calls = [call.name.name.lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
@@ -303,8 +304,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
     def decl_arrays(self, routine, region, map_region):
         """
-        Finds local arrays for each region.
-        Creates the pointers by wich the local arrays declarations will be replaced.
+        Finds arrays for each region.
+        Creates the pointers by wich the arrays declarations will be replaced.
         Creates field_new/field_delete calls (call to self.create_field_new_delete).
 
         return: 
@@ -456,6 +457,17 @@ class ParallelRoutineDispatchTransformation(Transformation):
     
     def add_routine_imports(self, routine, map_routine):
         routine.spec=Transformer(map_routine['imports_mapper']).visit(routine.spec)
+
+    def update_routine_args(self, routine, map_routine):
+        routine_map_arrays = map_routine["map_arrays"]
+        lst_routine_args = list(routine.arguments)
+        idx=0
+        for arg in lst_routine_args:
+            if arg.name in routine_map_arrays:
+                lst_routine_args[idx] = routine_map_arrays[arg.name][0]
+            idx+=1
+        tuple_routine_args = tuple(lst_routine_args)
+        routine.arguments = tuple_routine_args
         
     def create_pt_sync(self, routine, target, region_name, is_get_data, map_region):
         region_map_var_sorted = map_region["var_sorted"]
