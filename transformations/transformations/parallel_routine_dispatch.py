@@ -548,6 +548,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         #  REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_PARALLEL
         #  REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_COMPUTE
         #  TYPE(STACK) :: YLSTACK
+        #
+        # if not present:
+        #  INTEGER(KIND=JPIM) :: JLON
 
         dcls = []
         dcls += self.get_cpg(routine, map_routine)
@@ -555,10 +558,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
         var_type = SymbolAttributes(name='STACK', dtype=stack_type)
         ylstack = sym.Variable(name='YLSTACK', type=var_type, scope=routine)
         dcls += [ir.VariableDeclaration(symbols=(ylstack,))]
-        data_type = SymbolAttributes(
+        integer_type = SymbolAttributes(
             dtype=BasicType.INTEGER, kind=routine.symbol_map['JPIM']
         )
-        self.jblk = sym.Variable(name="JBLK", type=data_type, scope=routine)
+        self.jblk = sym.Variable(name="JBLK", type=integer_type, scope=routine)
         dcls += [ir.VariableDeclaration(symbols=(self.jblk,))]
         hook_type = SymbolAttributes(
             dtype=BasicType.REAL, kind=routine.symbol_map['JPHOOK']
@@ -570,6 +573,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
         dcls += [ir.VariableDeclaration(symbols=(hook_var,))]
         hook_var = sym.Variable(name="ZHOOK_HANDLE_COMPUTE", type=hook_type, scope=routine)
         dcls += [ir.VariableDeclaration(symbols=(hook_var,))]
+
+        if "JLON" not in routine.variable_map:
+            jlon = sym.Variable(name="JLON", type=integer_type, scope=routine)
+            dcls += [ir.VariableDeclaration(symbols=(jlon,))]
+
         routine.spec.append(dcls)
         map_routine['dcls'] = dcls
 
