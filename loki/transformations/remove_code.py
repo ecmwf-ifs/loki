@@ -325,9 +325,15 @@ class RemoveCallsTransformer(Transformer):
     def visit_Import(self, o, **kwargs):
         """ Remove the symbol of any named calls from Import nodes """
 
-        symbols_found = any(s in self.call_names for s in o.symbols)
+        symbols_found = False
+        if o.c_import and 'intfb' in o.module:
+            symbols = as_tuple(o.module.split('.')[0])
+            symbols_found = symbols[0] in self.call_names
+        else:
+            symbols = o.symbols
+            symbols_found = any(s in self.call_names for s in symbols)
         if self.remove_imports and symbols_found:
-            new_symbols = tuple(s for s in o.symbols if s not in self.call_names)
+            new_symbols = tuple(s for s in symbols if s not in self.call_names)
             return o.clone(symbols=new_symbols) if new_symbols else None
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
