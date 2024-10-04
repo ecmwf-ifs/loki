@@ -398,17 +398,27 @@ class SCCRevectorTransformation(Transformation):
         # Find a horizontal size variable to mark vector_length
         symbol_map = routine.symbol_map
         sizes = tuple(
-            symbol_map.get(size) for size in self.horizontal.size_expressions
-            if size in symbol_map
+            size for size in self.horizontal.size_expressions
+            if size.split('%')[0] in symbol_map
         )
         vector_length = f' vector_length({sizes[0]})' if sizes else ''
 
         # Replace existing `!$loki loop driver markers, but leave all others
-        pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
-        loop_pragmas = tuple(
-            p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
-        )
-        loop._update(pragma=loop_pragmas + (pragma,))
+        loop_pragmas = []
+        if any(is_loki_pragma(p, starts_with='loop driver') for p in as_tuple(loop.pragma)):
+            for p in as_tuple(loop.pragma):
+                if is_loki_pragma(p, starts_with='loop driver'):
+                    loop_pragmas += [p.clone(content=p.content + vector_length),]
+                else:
+                    loop_pragmas += [p,]
+        else:
+            loop_pragmas = [
+                p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
+            ]
+
+            loop_pragmas += ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
+
+        loop._update(pragma=as_tuple(loop_pragmas))
 
     def transform_subroutine(self, routine, **kwargs):
         """
