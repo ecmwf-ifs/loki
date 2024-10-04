@@ -11,9 +11,9 @@ import numpy as np
 
 from loki import Module, Subroutine, fgen
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
-from loki.expression import symbols as sym, FindVariables
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import FindNodes, CallStatement, Loop
+from loki.ir import FindNodes, CallStatement, Loop, FindVariables
 
 from loki.transformations.array_indexing import (
     promote_variables, demote_variables, invert_array_indices,

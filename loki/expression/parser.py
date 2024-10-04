@@ -26,11 +26,9 @@ try:
 except ImportError:
     FORTRAN_INTRINSIC_PROCEDURES = ()
 
-from loki.tools.util import CaseInsensitiveDict
-import loki.expression.symbols as sym
-import loki.expression.operations as sym_ops
-from loki.expression.expr_visitors import AttachScopes
+from loki.expression import symbols as sym, operations as sym_ops
 from loki.scope import Scope
+from loki.tools.util import CaseInsensitiveDict
 
 __all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES', 'LokiEvaluationMapper']
 
@@ -519,6 +517,7 @@ class ExpressionParser(ParserBase):
         :any:`Expression`
             The expression tree corresponding to the expression
         """
+        from loki.ir import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
         result = super().__call__(expr_str)
         context = context or {}
         context = CaseInsensitiveDict(context)

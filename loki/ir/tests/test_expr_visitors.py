@@ -8,12 +8,12 @@
 import pytest
 
 from loki import Sourcefile, Subroutine
-from loki.expression import (
-    symbols as sym, parse_expr, FindVariables, FindTypedSymbols,
+from loki.expression import symbols as sym, parse_expr
+from loki.frontend import available_frontends
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
     SubstituteExpressions, SubstituteStringExpressions
 )
-from loki.frontend import available_frontends
-from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

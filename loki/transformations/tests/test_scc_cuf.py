@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 from loki import Scheduler, Subroutine, Dimension, Module
-from loki.expression import symbols as sym, FindVariables
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import (
-    FindNodes, Loop, Assignment, CallStatement, Allocation,
-    Deallocation, VariableDeclaration, Import, Pragma
+    FindNodes, FindVariables, Loop, Assignment, CallStatement,
+    Allocation, Deallocation, VariableDeclaration, Import, Pragma
 )
 
 from loki.transformations.parametrise import ParametriseTransformation

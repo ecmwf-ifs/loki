@@ -22,8 +22,10 @@ declarations and call signatures.
 
 
 from loki.batch import Transformation
-from loki.expression import Array, FindVariables, SubstituteExpressions
-from loki.ir import FindNodes, CallStatement, Transformer
+from loki.expression import Array
+from loki.ir import (
+    FindNodes, CallStatement, Transformer, FindVariables, SubstituteExpressions
+)
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
 

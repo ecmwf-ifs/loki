@@ -9,7 +9,6 @@ Expression layer of the two-level Loki IR based on `Pymbolic
 <https://github.com/inducer/pymbolic>`_.
 """
 
-from loki.expression.expr_visitors import *  # noqa
 from loki.expression.symbols import *  # noqa
 from loki.expression.operations import *  # noqa
 from loki.expression.mappers import *  # noqa

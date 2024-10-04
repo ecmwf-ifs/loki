@@ -66,13 +66,11 @@ from loki.batch import (
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
     ExternalItem, Transformation, Pipeline
 )
-from loki.expression import (
-    Scalar, Array, Literal, ProcedureSymbol, FindInlineCalls
-)
+from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
     available_frontends, OMNI, OFP, FP, REGEX, HAVE_FP, HAVE_OFP, HAVE_OMNI
 )
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, FindInlineCalls
 from loki.transformations import (
     DependencyTransformation, ModuleWrapTransformation
 )

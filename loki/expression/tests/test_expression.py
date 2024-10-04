@@ -20,14 +20,14 @@ from loki import (
 )
 from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
-from loki.expression import (
-    symbols as sym, FindVariables, FindExpressions, FindInlineCalls,
-    SubstituteExpressions, AttachScopesMapper, parse_expr
-)
+from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
 from loki.frontend import (
     available_frontends, OFP, OMNI, FP, HAVE_FP, parse_fparser_expression
 )
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, FindExpressions,
+    FindInlineCalls, SubstituteExpressions
+)
 from loki.tools import (
     filehash, stdchannel_redirected, stdchannel_is_captured
 )

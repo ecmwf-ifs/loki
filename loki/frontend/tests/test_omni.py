@@ -12,9 +12,8 @@ Specific test battery for the OMNI parser frontend.
 import pytest
 
 from loki import Module, Subroutine
-from loki.expression import FindVariables
 from loki.frontend import OMNI, HAVE_OMNI
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, FindVariables
 
 
 @pytest.mark.skipif(not HAVE_OMNI, reason='Test tequires OMNI frontend.')

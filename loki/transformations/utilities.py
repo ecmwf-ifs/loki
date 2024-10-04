@@ -13,13 +13,14 @@ import platform
 from collections import defaultdict
 from pymbolic.primitives import Expression
 from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, SubstituteExpressionsMapper, ExpressionFinder,
-    ExpressionRetriever, TypedSymbol, MetaSymbol
+    symbols as sym, SubstituteExpressionsMapper, ExpressionRetriever,
+    TypedSymbol, MetaSymbol
 )
 from loki.ir import (
-    nodes as ir, Import, TypeDef, VariableDeclaration,
-    StatementFunction, Transformer, FindNodes, is_loki_pragma
+    nodes as ir, Import, TypeDef, VariableDeclaration, is_loki_pragma,
+    StatementFunction, Transformer, FindNodes, FindVariables,
+    FindInlineCalls, FindLiterals, SubstituteExpressions,
+    ExpressionFinder
 )
 from loki.module import Module
 from loki.subroutine import Subroutine

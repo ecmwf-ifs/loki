@@ -6,12 +6,10 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation
-from loki.expression import (
-    symbols as sym, FindVariables, is_dimension_constant
-)
+from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
-    nodes as ir, FindNodes, pragmas_attached, is_loki_pragma,
-    get_pragma_parameters, Transformer
+    nodes as ir, FindNodes, FindVariables, Transformer,
+    pragmas_attached, is_loki_pragma, get_pragma_parameters
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten

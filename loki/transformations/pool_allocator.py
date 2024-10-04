@@ -11,16 +11,16 @@ from collections import  defaultdict
 from loki.batch import Transformation
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
-    FindVariables, FindInlineCalls, Quotient, IntLiteral,
-    LogicLiteral, Variable, Array, Sum, Literal, Product, InlineCall,
-    Comparison, RangeIndex, Cast, ProcedureSymbol, LogicalNot,
-    simplify, SubstituteExpressions, is_dimension_constant,
+    Quotient, IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
+    Product, InlineCall, Comparison, RangeIndex, Cast,
+    ProcedureSymbol, LogicalNot, simplify, is_dimension_constant,
     DetachScopesMapper
 )
 from loki.ir import (
-    FindNodes, Transformer, Intrinsic, Assignment, Conditional,
-    CallStatement, Import, Allocation, Deallocation, Loop, Pragma,
-    Interface, get_pragma_parameters
+    FindNodes, FindVariables, FindInlineCalls, Transformer, Intrinsic,
+    Assignment, Conditional, CallStatement, Import, Allocation,
+    Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
+    SubstituteExpressions
 )
 from loki.logging import warning, debug
 from loki.tools import as_tuple

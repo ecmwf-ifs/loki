@@ -83,13 +83,10 @@ are provided to create derived classes for specialisation of the actual hoisting
 from collections import defaultdict
 
 from loki.batch import Transformation, ProcedureItem
-from loki.expression import (
-    symbols as sym, FindVariables, FindInlineCalls,
-    SubstituteExpressions, is_dimension_constant
-)
+from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
     CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import,
-    Assignment
+    Assignment, FindVariables, FindInlineCalls, SubstituteExpressions
 )
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict, flatten
 

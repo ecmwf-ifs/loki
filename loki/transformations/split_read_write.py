@@ -7,10 +7,11 @@
 
 
 from loki.batch import Transformation, ProcedureItem
-from loki.expression import Array, SubstituteExpressions
+from loki.expression import Array
 from loki.tools import as_tuple
 from loki.ir import (
-    pragma_regions_attached, is_loki_pragma, nodes as ir, FindNodes, Transformer
+    nodes as ir, pragma_regions_attached, is_loki_pragma, FindNodes,
+    Transformer, SubstituteExpressions
 )
 
 __all__ = ['SplitReadWriteTransformation']

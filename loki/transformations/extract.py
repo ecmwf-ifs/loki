@@ -6,11 +6,11 @@
 # nor does it submit to any jurisdiction.
 
 from loki.subroutine import Subroutine
-from loki.expression import (
-    FindVariables, FindInlineCalls, SubstituteExpressions,
-    DeferredTypeSymbol, Array
+from loki.expression import DeferredTypeSymbol, Array
+from loki.ir import (
+    CallStatement, Transformer, FindNodes, FindVariables,
+    FindInlineCalls, SubstituteExpressions
 )
-from loki.ir import CallStatement, Transformer, FindNodes
 from loki.types import DerivedType
 
 

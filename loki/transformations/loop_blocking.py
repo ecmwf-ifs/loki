@@ -6,10 +6,13 @@
 # nor does it submit to any jurisdiction.
 
 
-from loki.ir import nodes as ir, Transformer
+from loki.ir import (
+    nodes as ir, Transformer, FindVariables, SubstituteExpressions
+)
 from loki.subroutine import Subroutine
-from loki.expression import symbols as sym, parse_expr, FindVariables, \
-    SubstituteExpressions, ceil_division, iteration_index
+from loki.expression import (
+    symbols as sym, parse_expr, ceil_division, iteration_index
+)
 
 __all__ = ['split_loop', 'block_loop_arrays']
 

@@ -10,12 +10,11 @@ from itertools import chain
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation, ProcedureItem, ModuleItem
-from loki.expression import (
-    Scalar, Array, FindInlineCalls, SubstituteExpressions
-)
+from loki.expression import Scalar, Array
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Import, Comment,
-    Transformer, pragma_regions_attached, get_pragma_parameters
+    Transformer, pragma_regions_attached, get_pragma_parameters,
+    FindInlineCalls, SubstituteExpressions
 )
 from loki.logging import warning
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict

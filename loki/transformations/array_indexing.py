@@ -16,12 +16,10 @@ import operator as op
 from loki.batch import Transformation, ProcedureItem
 from loki.logging import info
 from loki.analyse import dataflow_analysis_attached
-from loki.expression import (
-    symbols as sym, simplify, symbolic_op, FindVariables, SubstituteExpressions,
-    is_constant
-)
+from loki.expression import symbols as sym, simplify, symbolic_op, is_constant
 from loki.ir import (
-    Assignment, Loop, VariableDeclaration, FindNodes, Transformer, nodes as ir
+    nodes as ir, Assignment, Loop, VariableDeclaration, FindNodes,
+    Transformer, FindVariables, SubstituteExpressions
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType

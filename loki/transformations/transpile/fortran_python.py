@@ -9,10 +9,11 @@ from pathlib import Path
 
 from loki.backend import pygen, dacegen
 from loki.batch import Transformation
-from loki.expression import (
-    symbols as sym, FindInlineCalls, SubstituteExpressions
+from loki.expression import symbols as sym
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, pragmas_attached,
+    FindInlineCalls, SubstituteExpressions
 )
-from loki.ir import nodes as ir, FindNodes, Transformer, pragmas_attached
 from loki.sourcefile import Sourcefile
 
 from loki.transformations.array_indexing import (

@@ -296,7 +296,7 @@ class Scope:
         Make sure all symbols declared and used inside this node belong
         to a scope in the scope hierarchy
         """
-        from loki.expression import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.ir import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
         AttachScopes().visit(self, scope=self)
 
     def make_complete(self, **frontend_args):

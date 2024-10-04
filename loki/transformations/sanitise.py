@@ -13,8 +13,11 @@ code easier.
 """
 
 from loki.batch import Transformation
-from loki.expression import FindVariables, SubstituteExpressions, Array, RangeIndex
-from loki.ir import CallStatement, FindNodes, Transformer, NestedTransformer
+from loki.expression import Array, RangeIndex
+from loki.ir import (
+    CallStatement, FindNodes, Transformer, NestedTransformer,
+    FindVariables, SubstituteExpressions
+)
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
 

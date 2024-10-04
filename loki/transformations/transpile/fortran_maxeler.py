@@ -12,11 +12,12 @@ from hashlib import sha256
 from loki.backend import maxjgen, fgen, cgen
 from loki.batch import Transformation
 from loki.expression import (
-    FindVariables, SubstituteExpressions, ExpressionCallbackMapper,
-    SubstituteExpressionsMapper, ExpressionRetriever, symbols as sym
+    symbols as sym, ExpressionCallbackMapper,
+    SubstituteExpressionsMapper, ExpressionRetriever
 )
 from loki.ir import (
-    nodes as ir, Transformer, FindNodes, is_loki_pragma, pragmas_attached
+    nodes as ir, Transformer, FindNodes, FindVariables,
+    SubstituteExpressions, is_loki_pragma, pragmas_attached
 )
 from loki.module import Module
 from loki.sourcefile import Sourcefile

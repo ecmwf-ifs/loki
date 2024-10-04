@@ -12,10 +12,10 @@ Collection of utility routines that provide transformations for code regions.
 from collections import defaultdict
 
 from loki.analyse import dataflow_analysis_attached
-from loki.expression import FindVariables, Variable
+from loki.expression import Variable
 from loki.ir import (
     CallStatement, Comment, Import, Loop, Pragma, PragmaRegion,
-    Section, FindNodes, FindScopes, MaskedTransformer,
+    Section, FindNodes, FindScopes, FindVariables, MaskedTransformer,
     NestedMaskedTransformer, Transformer, is_loki_pragma,
     get_pragma_parameters, pragma_regions_attached
 )
