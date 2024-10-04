@@ -228,7 +228,7 @@ function( loki_transform_target )
 	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
     )
     set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
-    set( multi_value_args SOURCES HEADERS DEFINITIONS INCLUDES )
+    set( multi_value_args SOURCES HEADERS DEFINITIONS INCLUDES ADDITIONAL_FLAGS )
 
     cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
 
@@ -373,6 +373,13 @@ function( loki_transform_target )
         ORIG_LIST ${LOKI_SOURCES_TO_TRANSFORM}
         NEW_LIST ${LOKI_SOURCES_TO_APPEND}
     )
+
+    if( _PAR_T_ADDITIONAL_FLAGS )
+      loki_add_compile_flags(
+        SRC_LIST ${LOKI_SOURCES_TO_APPEND}
+        FLAG_LIST ${_PAR_T_ADDITIONAL_FLAGS}
+      )
+    endif()
 
     if( _PAR_T_COPY_UNMODIFIED )
         loki_copy_compile_flags(
