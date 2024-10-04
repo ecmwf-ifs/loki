@@ -232,3 +232,18 @@ function( loki_copy_compile_flags )
 endfunction()
 
 ##############################################################################
+
+
+function( loki_add_compile_flags )
+
+    set( options "" )
+    set( single_value_args "" )
+    set( multi_value_args SRC_LIST FLAG_LIST )
+
+    cmake_parse_arguments( _PAR "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+
+    foreach( src ${_PAR_SRC_LIST} )
+       set_source_files_properties( ${src} PROPERTIES COMPILE_OPTIONS ${_PAR_FLAG_LIST}  )
+    endforeach()
+
+endfunction()
