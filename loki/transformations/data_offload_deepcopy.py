@@ -21,6 +21,7 @@ from loki.expression import symbols as sym, SubstituteExpressions, FindLiterals
 from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki.analyse import dataflow_analysis_attached
 from loki.tools import as_tuple
+from loki.transformations import find_driver_loops
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -190,10 +191,11 @@ class DataOffloadDeepcopyTransformation(Transformation):
             raise RuntimeError('Must run DataOffloadDeepcopyAnalysis before the transformation.')
 
         role = kwargs['role']
+        targets = kwargs['targets']
 
         if role == 'driver':
             self.process_driver(routine, item.trafo_data[self._key]['analysis'],
-                                item.trafo_data[self._key]['typedef_configs'])
+                                item.trafo_data[self._key]['typedef_configs'], targets)
 
     @staticmethod
     def _is_active_loki_data_region(region):
@@ -222,7 +224,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 'device_resident': [p.lower() for p in parameters.get('device_resident', '').split(',')],
         }
 
-    def process_driver(self, routine, analysis, typedef_configs):
+    def process_driver(self, routine, analysis, typedef_configs, targets):
 
         pragma_map = {}
         with pragma_regions_attached(routine):
@@ -238,6 +240,11 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 copy, host, wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
 
                 if mode == 'offload':
+                    if (private_vars := kwargs.get('private', None)):
+                        pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
+                        for loop in find_driver_loops(region.body, targets):
+                            loop._update(pragma=as_tuple(pragma))
+
                     # wrap in acc data pragma
                     present_vars = [v.upper() for v in analysis if not v in kwargs['private']]
                     acc_data_pragma = ir.Pragma(keyword='acc', content=f"data present({','.join(present_vars)})")
