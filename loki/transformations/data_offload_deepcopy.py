@@ -238,22 +238,20 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 copy, host, wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
 
                 if mode == 'offload':
-                    pragma_map.update({region.pragma: copy, region.pragma_post: (host, wipe)})
+                    # wrap in acc data pragma
+                    present_vars = [v.upper() for v in analysis if not v in kwargs['private']]
+                    acc_data_pragma = ir.Pragma(keyword='acc', content=f"data present({','.join(present_vars)})")
+                    acc_data_pragma_post = ir.Pragma(keyword='acc', content="end data")
+
+                    pragma_map.update({region.pragma: (copy, acc_data_pragma),
+                                       region.pragma_post: (acc_data_pragma_post, host, wipe)})
                 else:
                     pragma_map.update({region.pragma: host, region.pragma_post: None})
 
-        routine.body = Transformer(pragma_map).visit(routine.body)
-        if (new_vars := set(kwargs['new_vars'])):
-            routine.variables += as_tuple(new_vars)
+                if (new_vars := set(kwargs['new_vars'])):
+                    routine.variables += as_tuple(new_vars)
 
-        # update driver loop pragma
-        acc_pragmas = [p for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
-        for pragma in acc_pragmas:
-            if pragma.content.lower().startswith('parallel') and 'gang' in pragma.content.lower():
-                content = pragma.content
-                present_vars = [v.upper() for v in analysis if not v in kwargs['private']]
-                content += f" present({','.join(present_vars)})"
-                pragma._update(content=content)
+        routine.body = Transformer(pragma_map).visit(routine.body)
 
     @staticmethod
     def create_field_api_call(field_object, dest, access, ptr):
