@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-# from shutil import rmtree
 import pytest
 import numpy as np
 
@@ -1259,18 +1258,23 @@ def test_transpile_special_functions(tmp_path, builder, frontend, dtype, add_flo
     """
     A simple test to verify multiconditionals/select case statements.
     """
+    if dtype == 'real':
+        decl_type = f'{dtype}(kind=real64)'
+        kind = '._real64'
+    else:
+        decl_type = dtype
+        kind = ''
 
     fcode = f"""
 subroutine transpile_special_functions(in, out)
   use iso_fortran_env, only: real64
   implicit none
-  {dtype}{'(kind=real64)' if dtype == 'real' else ''}, intent(in) :: in
-  {dtype}{'(kind=real64)' if dtype == 'real' else ''}, intent(inout) :: out
-
-  if (mod(in{'+ 2._real64' if add_float else ''}, 2{'._real64' if dtype == 'real' else ''}{'+ 0._real64' if add_float else ''}) .eq. 0) then
-    out = 42{'._real64' if dtype == 'real' else ''}
+  {decl_type}, intent(in) :: in
+  {decl_type}, intent(inout) :: out
+  if (mod(in{'+ 2._real64' if add_float else ''}, 2{kind}{'+ 0._real64' if add_float else ''}) .eq. 0) then
+    out = 42{kind}
   else
-    out = 11{'._real64' if dtype == 'real' else ''}
+    out = 11{kind}
   endif
 end subroutine transpile_special_functions
 """.strip()
@@ -1281,11 +1285,10 @@ end subroutine transpile_special_functions
         return np.int_([val])
 
     # for testing purposes
-    in_var = init_var(dtype) # np.float64([0]) # 0
+    in_var = init_var(dtype)
     test_vals = [2, 10, 5, 3]
     expected_results = [42, 42, 11, 11]
-    # out_var = np.int_([0])
-    out_var = init_var(dtype) # np.float64([0])
+    out_var = init_var(dtype)
 
     # compile original Fortran version
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -1304,8 +1307,7 @@ end subroutine transpile_special_functions
     f2c.apply(source=routine, path=tmp_path)
 
     # check whether correct modulo was inserted
-    with open(f2c.c_path, 'r') as f:
-        ccode = f.read()
+    ccode = Path(f2c.c_path).read_text()
     if dtype == 'integer' and not add_float:
         assert '%' in ccode
     if dtype == 'real' or add_float:

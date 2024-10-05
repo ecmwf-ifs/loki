@@ -11,11 +11,13 @@ from pymbolic.mapper.stringifier import (
 )
 
 from loki.tools import as_tuple
-from loki.ir import Import, Stringifier, FindNodes
+from loki.ir import (
+        Import, Stringifier, FindNodes,
+        FindVariables, ExpressionFinder
+)
 from loki.expression import (
         LokiStringifyMapper, Array, symbolic_op, Literal,
-        symbols as sym, FindVariables, ExpressionFinder,
-        ExpressionRetriever
+        symbols as sym, ExpressionRetriever
 )
 from loki.types import BasicType, SymbolAttributes, DerivedType
 
