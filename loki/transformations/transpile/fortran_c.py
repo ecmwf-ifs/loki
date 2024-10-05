@@ -139,8 +139,6 @@ class FortranCTransformation(Transformation):
     def file_suffix(self):
         if self.language == 'cpp':
             return '.cpp'
-        # if self.language == 'cuda':
-        #     return '.cu'
         return '.c'
 
     def transform_module(self, module, **kwargs):
