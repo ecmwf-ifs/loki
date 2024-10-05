@@ -110,7 +110,16 @@ class ResolveAssociateMapper(LokiIdentityMapper):
     def map_array(self, expr, *args, **kwargs):
         """ Special case for arrys: we need to preserve the dimensions """
         new = self.map_variable_symbol(expr, *args, **kwargs)
-        return new.clone(dimensions=expr.dimensions)
+
+        # Recurse over the type's shape
+        _type = expr.type
+        if expr.type.shape:
+            new_shape = self.rec(expr.type.shape, *args, **kwargs)
+            _type = expr.type.clone(shape=new_shape)
+
+        # Recurse over array dimensions
+        new_dims = self.rec(expr.dimensions, *args, **kwargs)
+        return new.clone(dimensions=new_dims, type=_type)
 
     map_variable_symbol = map_scalar
     map_deferred_type_symbol = map_scalar
