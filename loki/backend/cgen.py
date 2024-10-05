@@ -203,8 +203,7 @@ class CCodegen(Stringifier):
 
     def _subroutine_optional_args(self, a):
         if a.type.optional:
-            warning(f'Argument "{a}" is optional, however, there is currently'
-                    f' no support for optional arguments for this backend!')
+            warning(f'Argument "{a}" is optional! No support for optional arguments in {self.__class__.__name__}.')
         return ''
 
     def _subroutine_declaration(self, o, **kwargs):
