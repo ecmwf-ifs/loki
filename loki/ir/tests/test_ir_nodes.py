@@ -196,3 +196,51 @@ def test_section(scope, one, i, n, a_n, a_i):
     assert sec.body == (assign, func, assign, assign)
     sec.insert(pos=3, node=func)
     assert sec.body == (assign, func, assign, func, assign)
+
+
+def test_callstatement(scope, one, i, n, a_i):
+    """ Test constructor of :any:`CallStatement` nodes. """
+
+    cname = sym.ProcedureSymbol(name='test', scope=scope)
+    call = ir.CallStatement(
+        name=cname, arguments=(n, a_i), kwarguments=(('i', i), ('j', one))
+    )
+    assert isinstance(call.name, Expression)
+    assert isinstance(call.arguments, tuple)
+    assert all(isinstance(e, Expression) for e in call.arguments)
+    assert isinstance(call.kwarguments, tuple)
+    assert all(isinstance(e, tuple) for e in call.kwarguments)
+    assert all(
+        isinstance(k, str) and isinstance(v, Expression)
+        for k, v in call.kwarguments
+    )
+
+    # Ensure "frozen" status of node objects
+    with pytest.raises(FrozenInstanceError) as error:
+        call.name = sym.ProcedureSymbol('dave', scope=scope)
+    with pytest.raises(FrozenInstanceError) as error:
+        call.arguments = (a_i, n, one)
+    with pytest.raises(FrozenInstanceError) as error:
+        call.kwarguments = (('i', one), ('j', i))
+
+    # Test auto-casting of the body to tuple
+    call = ir.CallStatement(name=cname, arguments=[a_i, one])
+    assert call.arguments == (a_i, one) and call.kwarguments == ()
+    call = ir.CallStatement(name=cname, arguments=None)
+    assert call.arguments == () and call.kwarguments == ()
+    call = ir.CallStatement(name=cname, kwarguments=[('i', i), ('j', one)])
+    assert call.arguments == () and call.kwarguments == (('i', i), ('j', one))
+    call = ir.CallStatement(name=cname, kwarguments=None)
+    assert call.arguments == () and call.kwarguments == ()
+
+    # Test errors for wrong contructor usage
+    with pytest.raises(ValidationError) as error:
+        ir.CallStatement(name='a', arguments=(sym.Literal(42.0),))
+    with pytest.raises(ValidationError) as error:
+        ir.CallStatement(name=cname, arguments=('a',))
+    with pytest.raises(ValidationError) as error:
+        ir.Assignment(
+            name=cname, arguments=(sym.Literal(42.0),), kwarguments=('i', 'i')
+        )
+
+    # TODO: Test pragmas, active and chevron
