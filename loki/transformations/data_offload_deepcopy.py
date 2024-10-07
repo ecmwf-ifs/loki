@@ -7,7 +7,6 @@
 
 import yaml
 import re
-import pdb
 
 from collections import defaultdict
 
@@ -44,15 +43,16 @@ class DataOffloadDeepcopyAnalysis(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         role = kwargs['role']
+        targets = kwargs['targets']
         successors = kwargs.get('successors', ())
 
         if not (item := kwargs.get('item', None)):
             raise RuntimeError('Cannot apply DataOffloadAnalysis without item to store analysis.')
 
         if role == 'driver':
-           self.process_driver(routine, item, successors, 'driver')
+           self.process_driver(routine, item, successors, role, targets)
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, 'kernel')
+            self.process_kernel(routine, item, successors, role)
 
     def _resolve_nesting(self, k, v):
         name_parts = k.split('%')
@@ -75,26 +75,35 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         return ref_dict
 
-    def process_driver(self, routine, item, successors, role):
-        #gather analysis from children
+    def process_driver(self, routine, item, successors, role, targets):
+
         item.trafo_data[self._key] = defaultdict(dict)
-        self._gather_from_children(routine, item, successors, role)
+        exclude_vars = item.config.get('exclude_offload_vars', [])
 
-        layered_dict = {}
-        for k, v in item.trafo_data[self._key]['analysis'].items():
-            _temp_dict = self._resolve_nesting(k, v)
-            layered_dict = self._nested_merge(layered_dict, _temp_dict)
-        item.trafo_data[self._key]['analysis'] = layered_dict
+        for loop in find_driver_loops(routine.body, targets):
+            calls = FindNodes(ir.CallStatement).visit(loop.body)
+            call_routines = [call.routine for call in calls]
+            _successors = [s for s in successors if s.ir in call_routines or not isinstance(s, ProcedureItem)]
 
-        # filter out explicitly exlucded vars
-        if (exclude_vars := item.config.get('exclude_offload_vars', [])):
-            item.trafo_data[self._key]['analysis'] = {k: v for k, v in item.trafo_data[self._key]['analysis'].items()
-                                                      if not k in exclude_vars
-            }
+            #gather analysis from children
+            self._gather_from_children(routine, item, _successors, role)
 
-        if self.debug:
-            with open('dataoffload_analysis.yaml', 'w') as file:
-                yaml.dump(item.trafo_data[self._key]['analysis'], file)
+            layered_dict = {}
+            for k, v in item.trafo_data[self._key]['analysis'].items():
+                _temp_dict = self._resolve_nesting(k, v)
+                layered_dict = self._nested_merge(layered_dict, _temp_dict)
+            item.trafo_data[self._key]['analysis'][loop] = layered_dict
+
+            # filter out explicitly exlucded vars
+            if exclude_vars:
+                item.trafo_data[self._key]['analysis'][loop] = {k: v for k, v in
+                                                                item.trafo_data[self._key]['analysis'][loop].items()
+                                                                if not k in exclude_vars
+                }
+
+            if self.debug:
+                with open(f'driver_{calls[0].routine.name}_dataoffload_analysis.yaml', 'w') as file:
+                    yaml.dump(item.trafo_data[self._key]['analysis'][loop], file)
 
     def process_kernel(self, routine, item, successors, role):
 
@@ -236,17 +245,33 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                 parameters = get_pragma_parameters(region.pragma, starts_with='data')
 
-                kwargs = self._init_kwargs(mode, analysis, typedef_configs, parameters)
-                copy, host, wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
+                copy, host, wipe = (), (), ()
 
-                if mode == 'offload':
-                    if (private_vars := kwargs.get('private', None)):
-                        pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
-                        for loop in find_driver_loops(region.body, targets):
+                driver_loops = find_driver_loops(region.body, targets)
+                assert len(driver_loops) == 1
+
+                for loop in driver_loops:
+
+                    _analysis = analysis[loop]
+                    kwargs = self._init_kwargs(mode, _analysis, typedef_configs, parameters)
+                    _copy, _host, _wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
+
+                    copy += _copy
+                    host += _host
+                    wipe += _wipe
+
+                    if (new_vars := set(kwargs['new_vars'])):
+                        routine.variables += as_tuple(new_vars)
+
+                    if mode == 'offload':
+                        if (private_vars := kwargs.get('private', None)):
+                            pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
                             loop._update(pragma=as_tuple(pragma))
 
+                    present_vars = [v.upper() for v in _analysis if not v in kwargs['private']]
+
+                if mode == 'offload':
                     # wrap in acc data pragma
-                    present_vars = [v.upper() for v in analysis if not v in kwargs['private']]
                     acc_data_pragma = ir.Pragma(keyword='acc', content=f"data present({','.join(present_vars)})")
                     acc_data_pragma_post = ir.Pragma(keyword='acc', content="end data")
 
@@ -255,8 +280,6 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 else:
                     pragma_map.update({region.pragma: host, region.pragma_post: None})
 
-                if (new_vars := set(kwargs['new_vars'])):
-                    routine.variables += as_tuple(new_vars)
 
         routine.body = Transformer(pragma_map).visit(routine.body)
 
