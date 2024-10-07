@@ -246,7 +246,7 @@ subroutine transform_loop_fuse_ordering(a, b, c, n, m)
     c(j) = j
   enddo
 
-  !$loki loop-fusion group(1) {'insert' if insert_loc else ''}
+  !$loki loop-fusion group(1) {'insert-loc' if insert_loc else ''}
   do i=1,n-1
     do j=1,m
       b(j, i) = n-i+1 + j
