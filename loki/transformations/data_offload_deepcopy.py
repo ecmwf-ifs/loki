@@ -270,9 +270,16 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                     present_vars = [v.upper() for v in _analysis if not v in kwargs['private']]
 
+                    # add create directives for unused arguments
+                    arguments = [arg for call in FindNodes(ir.CallStatement).visit(loop.body) for arg in call.arguments]
+                    create_vars = [arg.name.lower() for arg in arguments if not arg.name.lower() in _analysis]
+
                 if mode == 'offload':
                     # wrap in acc data pragma
-                    acc_data_pragma = ir.Pragma(keyword='acc', content=f"data present({','.join(present_vars)})")
+                    content = f"data present({','.join(present_vars)})"
+                    if create_vars:
+                        content += f" create({','.join(create_vars)})"
+                    acc_data_pragma = ir.Pragma(keyword='acc', content=content)
                     acc_data_pragma_post = ir.Pragma(keyword='acc', content="end data")
 
                     pragma_map.update({region.pragma: (copy, acc_data_pragma),
