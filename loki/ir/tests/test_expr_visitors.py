@@ -9,7 +9,7 @@ import pytest
 
 from loki import Sourcefile, Subroutine
 from loki.expression import symbols as sym, parse_expr
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
     SubstituteExpressions, SubstituteStringExpressions,
@@ -147,7 +147,8 @@ end subroutine test_find_literals
 """
     expected_int_literals = ('1', '5', '42')
     expected_real_literals = ('1.0', '10.5')
-    expected_intrinsic_literals = ("B'00000'",)
+    # Omni evaluates BOZ constants, so it creates IntegerLiteral instead...
+    expected_intrinsic_literals = ("B'00000'",) if frontend != OMNI else ('0',)
     expected_logic_literals = ('True',)
     expected_string_literals = ('string_kwarg',)
     expected_literals = expected_int_literals + expected_real_literals +\
