@@ -157,6 +157,10 @@ def resolve_vector_notation(routine):
     loop_map = {}
     index_vars = set()
     vmap = {}
+    # find available loops and create map {(lower, upper, step): loop_variable}
+    loops = FindNodes(Loop).visit(routine.body)
+    loop_map = {(loop.bounds.lower, loop.bounds.upper, loop.bounds.step or 1):
+                loop.variable for loop in loops}
     for stmt in FindNodes(Assignment).visit(routine.body):
         # Loop over all variables and replace them with loop indices
         vdims = []
@@ -173,9 +177,17 @@ def resolve_vector_notation(routine):
             ivar_basename = f'i_{stmt.lhs.basename}'
             for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
-                    # Create new index variable
-                    vtype = SymbolAttributes(BasicType.INTEGER)
-                    ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=routine)
+                    # create tuple to test whether an appropriate loop is already available
+                    test_range = (sym.IntLiteral(1), s, 1) if not isinstance(s, sym.RangeIndex)\
+                            else (s.lower, s.upper, 1)
+                    # actually test for it
+                    if test_range in loop_map:
+                        # Use index variable of available matching loop
+                        ivar = loop_map[test_range]
+                    else:
+                        # Create new index variable
+                        vtype = SymbolAttributes(BasicType.INTEGER)
+                        ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=routine)
                     shape_index_map[(i, s)] = ivar
                     index_range_map[ivar] = s
 
