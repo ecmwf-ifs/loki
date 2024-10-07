@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Subroutine, Sourcefile, Dimension, fgen
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, is_loki_pragma
 )
@@ -563,7 +563,9 @@ def test_scc_vector_section_trim_complex(
         assert assign in loop.body
         assert(len(FindNodes(ir.Assignment).visit(loop.body)) == 4)
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OMNI: 'OMNI automatically expands ELSEIF into a nested ELSE=>IF.'}
+))
 @pytest.mark.parametrize('trim_vector_sections', [False, True])
 def test_scc_devector_section_special_case(frontend, horizontal, vertical, blocking, trim_vector_sections):
     """
