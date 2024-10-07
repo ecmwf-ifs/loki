@@ -13,11 +13,11 @@ from pymbolic.mapper.stringifier import (
 from loki.tools import as_tuple
 from loki.ir import (
         Import, Stringifier, FindNodes,
-        FindVariables, ExpressionFinder
+        FindVariables, FindRealLiterals
 )
 from loki.expression import (
         LokiStringifyMapper, Array, symbolic_op, Literal,
-        symbols as sym, ExpressionRetriever
+        symbols as sym
 )
 from loki.types import BasicType, SymbolAttributes, DerivedType
 
@@ -145,9 +145,6 @@ class CCodeMapper(LokiStringifyMapper):
 
     def map_inline_call(self, expr, enclosing_prec, *args, **kwargs):
 
-        class FindFloatLiterals(ExpressionFinder):
-            retriever = ExpressionRetriever(lambda e: isinstance(e, sym.FloatLiteral))
-
         if expr.function.name.lower() == 'mod':
             parameters = [self.rec(param, PREC_NONE, *args, **kwargs) for param in expr.parameters]
             # TODO: this check is not quite correct, as it should evaluate the
@@ -157,7 +154,7 @@ class CCodeMapper(LokiStringifyMapper):
             #  as an example: 'celing(3.1415)' got an floating point value in it, however it evaluates/returns
             #  an integer, in that case the wrong modulo function/operation is chosen
             if any(var.type.dtype != BasicType.INTEGER for var in FindVariables().visit(expr.parameters)) or\
-                    FindFloatLiterals().visit(expr.parameters):
+                    FindRealLiterals().visit(expr.parameters):
                 return f'fmod({parameters[0]}, {parameters[1]})'
             return f'({parameters[0]})%({parameters[1]})'
         return super().map_inline_call(expr, enclosing_prec, *args, **kwargs)
