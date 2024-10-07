@@ -21,6 +21,7 @@ from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki.analyse import dataflow_analysis_attached
 from loki.tools import as_tuple
 from loki.transformations import find_driver_loops
+from loki.logging import warning
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -54,19 +55,21 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if role == 'kernel':
             self.process_kernel(routine, item, successors, role)
 
-    def _resolve_nesting(self, k, v):
+    @classmethod
+    def _resolve_nesting(cls, k, v):
         name_parts = k.split('%')
         if len(name_parts) > 1:
-            v = self._resolve_nesting('%'.join(name_parts[1:]), v)
+            v = cls._resolve_nesting('%'.join(name_parts[1:]), v)
 
         return {name_parts[0]: v}
 
-    def _nested_merge(self, ref_dict, temp_dict):
+    @classmethod
+    def _nested_merge(cls, ref_dict, temp_dict, force=False):
         for key in temp_dict:
             if key in ref_dict:
                 if isinstance(temp_dict[key], dict) and isinstance(ref_dict[key], dict):
-                    ref_dict[key] = self._nested_merge(ref_dict[key], temp_dict[key])
-                elif not isinstance(ref_dict[key], dict) and not isinstance(temp_dict[key], dict):
+                    ref_dict[key] = cls._nested_merge(ref_dict[key], temp_dict[key], force=force)
+                elif not isinstance(ref_dict[key], dict) and not isinstance(temp_dict[key], dict) and not force:
                     ref_dict[key] += temp_dict[key]
                 elif not isinstance(ref_dict[key], dict):
                     ref_dict[key] = temp_dict[key]
@@ -110,6 +113,10 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         #gather analysis from children
         item.trafo_data[self._key] = defaultdict(dict)
         self._gather_from_children(routine, item, successors, role)
+
+        pointers = [a for a in FindNodes(ir.Assignment).visit(routine.body) if a.ptr]
+        if pointers:
+            warning(f'[Loki] Data offload deepcopy: pointer associations found in {routine.name}')
 
         with dataflow_analysis_attached(routine, exclude_calls=True):
             #gather used symbols in specification
@@ -233,6 +240,18 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 'device_resident': [p.lower() for p in parameters.get('device_resident', '').split(',')],
         }
 
+    @staticmethod
+    def _update_with_manual_overrides(key, parameters, analysis):
+        override_vars = parameters.get(key, [])
+        if override_vars:
+            override_vars = [p.strip().lower() for p in override_vars.split(',')]
+
+        for v in override_vars:
+            _temp_dict = DataOffloadDeepcopyAnalysis._resolve_nesting(v, key)
+            analysis = DataOffloadDeepcopyAnalysis._nested_merge(analysis, _temp_dict, force=True)
+
+        return analysis
+
     def process_driver(self, routine, analysis, typedef_configs, targets):
 
         pragma_map = {}
@@ -253,6 +272,12 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 for loop in driver_loops:
 
                     _analysis = analysis[loop]
+
+                    #update analysis with manual overrides
+                    _analysis = self._update_with_manual_overrides('read', parameters, _analysis)
+                    _analysis = self._update_with_manual_overrides('write', parameters, _analysis)
+                    _analysis = self._update_with_manual_overrides('readwrite', parameters, _analysis)
+
                     kwargs = self._init_kwargs(mode, _analysis, typedef_configs, parameters)
                     _copy, _host, _wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
 
