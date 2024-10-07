@@ -13,7 +13,7 @@ import numpy as np
 from loki import Subroutine
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym, FindVariables
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
     Assignment
@@ -1684,7 +1684,7 @@ end subroutine test_transform_loop_unroll
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum([x + 1 for x in range(1, 11)])
+    assert s == sum(x + 1 for x in range(1, 11))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -1697,7 +1697,7 @@ end subroutine test_transform_loop_unroll
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([x + 1 for x in range(1, 11)])
+    assert s == sum(x + 1 for x in range(1, 11))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1726,7 +1726,7 @@ end subroutine test_transform_loop_unroll_step
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum([x + 1 for x in range(1, 11, 2)])
+    assert s == sum(x + 1 for x in range(1, 11, 2))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -1739,7 +1739,7 @@ end subroutine test_transform_loop_unroll_step
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([x + 1 for x in range(1, 11, 2)])
+    assert s == sum(x + 1 for x in range(1, 11, 2))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1770,7 +1770,7 @@ end subroutine test_transform_loop_unroll_non_literal_range
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum([x + 1 for x in range(1, 11)])
+    assert s == sum(x + 1 for x in range(1, 11))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -1783,7 +1783,7 @@ end subroutine test_transform_loop_unroll_non_literal_range
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([x + 1 for x in range(1, 11)])
+    assert s == sum(x + 1 for x in range(1, 11))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1815,7 +1815,7 @@ end subroutine test_transform_loop_unroll_nested
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
@@ -1828,7 +1828,7 @@ end subroutine test_transform_loop_unroll_nested
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1860,7 +1860,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
@@ -1873,7 +1873,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1907,7 +1907,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
@@ -1920,7 +1920,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1968,7 +1968,7 @@ end subroutine test_transform_loop_unroll_nested_counters
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a])
+    assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a)
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -2006,7 +2006,7 @@ end subroutine test_transform_loop_unroll_nested_neighbours
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == 2 * sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == 2 * sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 3
     loop_unroll(routine)
@@ -2018,7 +2018,7 @@ end subroutine test_transform_loop_unroll_nested_neighbours
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == 2 * sum([a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6))])
+    assert s == 2 * sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
