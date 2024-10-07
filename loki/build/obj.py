@@ -30,11 +30,12 @@ class Obj:
     A single source object representing a single C or Fortran source file.
     """
 
-    MODEMAP = {'.f90': 'f90', '.f': 'f', '.c': 'c', '.cc': 'c'}
+    MODEMAP = {'.f90': 'f90', '.f': 'f', '.c': 'c', '.cc': 'c', '.cpp': 'cpp',
+               '.CC': 'cpp', '.cxx': 'cpp'}
 
     # Default source and header extension recognized
     # TODO: Make configurable!
-    _ext = ['.f90', '.F90', '.f', '.F', '.c']
+    _ext = ['.f90', '.F90', '.f', '.F', '.c', '.cpp', '.CC', '.cc', '.cxx']
 
     def __new__(cls, *args, name=None, **kwargs):  # pylint: disable=unused-argument
         # Name is either provided or inferred from source_path

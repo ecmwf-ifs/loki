@@ -26,6 +26,15 @@ def fixture_builder(tmp_path):
     Obj.clear_cache()
 
 
+def test_transpile_unsupported_lang():
+    """
+    A simple test for testing failure/exception for unsupported
+    language(s).
+    """
+    with pytest.raises(ValueError):
+        FortranCTransformation(language='not-supported')
+
+
 @pytest.mark.parametrize('case_sensitive', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('language', ('c', 'cuda'))
@@ -1146,13 +1155,13 @@ end function add
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
-def test_transpile_multiconditional(tmp_path, builder, frontend, codegen):
+def test_transpile_multiconditional_simple(tmp_path, builder, frontend, codegen):
     """
     A simple test to verify multiconditionals/select case statements.
     """
 
     fcode = """
-subroutine multi_cond(in, out)
+subroutine multi_cond_simple(in, out)
   implicit none
   integer, intent(in) :: in
   integer, intent(inout) :: out
@@ -1166,7 +1175,7 @@ subroutine multi_cond(in, out)
         out = 100
   end select
 
-end subroutine multi_cond
+end subroutine multi_cond_simple
 """.strip()
 
     # for testing purposes
@@ -1195,7 +1204,7 @@ end subroutine multi_cond
     # compile C version
     libname = f'fc_{routine.name}_{frontend}'
     c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
-    fc_function = c_kernel.multi_cond_fc_mod.multi_cond_fc
+    fc_function = c_kernel.multi_cond_simple_fc_mod.multi_cond_simple_fc
     # test C version
     for i, val in enumerate(test_vals):
         in_var = val
@@ -1203,32 +1212,41 @@ end subroutine multi_cond
         assert out_var == expected_results[i]
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_transpile_multiconditional_range(tmp_path, frontend):
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OFP, 'OFP got problems with RangeIndex as case value!')]
+))
+def test_transpile_multiconditional(tmp_path, builder, frontend):
     """
-    A simple test to verify multiconditionals/select case statements.
+    A test to verify multiconditionals/select case statements.
     """
 
     fcode = """
-subroutine transpile_multi_conditional_range(in, out)
+subroutine multi_cond(in, out)
   implicit none
   integer, intent(in) :: in
   integer, intent(inout) :: out
 
   select case (in)
-    case (1:5)
+    case (:5)
         out = 10
+    case (6, 7, 10:15)
+        out = 15
+    case (8)
+        out = 12
+    case (20:30)
+        out = 20
     case default
         out = 100
   end select
 
-end subroutine transpile_multi_conditional_range
+end subroutine multi_cond
 """.strip()
 
     # for testing purposes
     in_var = 0
-    test_vals = [0, 1, 2, 5, 6]
-    expected_results = [100, 10, 10, 10, 100]
+    # [(<input>, <expected result>), (<input 2>, <expected result 2>), ...]
+    test_results = [(0, 10), (1, 10), (5, 10), (6, 15), (10, 15), (11, 15),
+                    (15, 15), (8, 12), (20, 20), (21, 20), (29, 20), (50, 100)]
     out_var = np.int_([0])
 
     # compile original Fortran version
@@ -1236,19 +1254,28 @@ end subroutine transpile_multi_conditional_range
     filepath = tmp_path/f'{routine.name}_{frontend!s}.f90'
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     # test Fortran version
-    for i, val in enumerate(test_vals):
-        in_var = val
+    for val in test_results:
+        in_var = val[0]
         function(in_var, out_var)
-        assert out_var == expected_results[i]
-
-    clean_test(filepath)
+        assert out_var == val[1]
 
     # apply F2C trafo
-    # TODO: RangeIndex as case is not yet implemented!
-    #  'NotImplementedError' is raised
     f2c = FortranCTransformation()
-    with pytest.raises(NotImplementedError):
-        f2c.apply(source=routine, path=tmp_path)
+    f2c.apply(source=routine, path=tmp_path)
+
+    # check whether 'switch' statement is within C code
+    assert 'switch' in cgen(routine)
+
+    # compile C version
+    libname = f'fc_{routine.name}_{frontend}'
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    fc_function = c_kernel.multi_cond_fc_mod.multi_cond_fc
+    # test C version
+    for val in test_results:
+        in_var = val[0]
+        fc_function(in_var, out_var)
+        assert out_var == val[1]
+
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1504,3 +1531,108 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
     assert '#include<cuda.h>' in c_elemental_device
     assert '#include<cuda_runtime.h>' in c_elemental_device
     assert '#include"elemental_device_c.h"' in c_elemental_device
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('language', ['c', 'cpp'])
+def test_transpile_optional_args(tmp_path, builder, frontend, language):
+    """
+    A simple test to verify multiconditionals/select case statements.
+    """
+
+    fcode = """
+subroutine transpile_optional_args(in, out, out2, opt_flag)
+  implicit none
+  integer, intent(in) :: in
+  integer, intent(inout) :: out
+  integer, intent(out), optional :: out2
+  logical, intent(in), optional :: opt_flag
+
+  out = in
+  if (present(out2)) then
+    out2 = 2*in
+    if (present(opt_flag)) then
+        if (opt_flag) then
+            out = 2* out2
+        else
+            out = 4* out2
+        endif
+    else
+        out = out2
+    endif
+  endif
+  if (.not. present(out2) .and. present(opt_flag)) then
+    if (opt_flag) then
+      out = in + 1
+    else
+      out = in + 2
+    endif
+  endif
+
+end subroutine transpile_optional_args
+""".strip()
+
+    def init_out_vars():
+        return np.int_([0]), np.int_([0])
+
+    builder.clean()
+    # for testing purposes
+    in_var = 10
+
+    # compile and test original Fortran version
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path/f'{routine.name}_{frontend!s}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    out_var, out_var2 = init_out_vars()
+    function(in_var, out_var)
+    assert out_var == 10 and out_var2 == 0
+    out_var, out_var2 = init_out_vars()
+    function(in_var, out_var, out_var2)
+    assert out_var == 20 and out_var2 == 20
+    opt_flag = 1
+    out_var, out_var2 = init_out_vars()
+    function(in_var, out_var, opt_flag=opt_flag)
+    assert out_var == 11 and out_var2 == 0
+    opt_flag = 0
+    out_var, out_var2 = init_out_vars()
+    function(in_var, out_var, opt_flag=opt_flag)
+    assert out_var == 12 and out_var2 == 0
+    opt_flag = 1
+    out_var, out_var2 = init_out_vars()
+    function(in_var, out_var, out_var2, opt_flag)
+    assert out_var == 40 and out_var2 == 20
+    opt_flag = 0
+    out_var, out_var2 = init_out_vars()
+    function(in_var, out_var, out_var2, opt_flag)
+    assert out_var == 80 and out_var2 == 20
+
+    clean_test(filepath)
+
+    # transpile
+    f2c = FortranCTransformation(language=language)
+    f2c.apply(source=routine, path=tmp_path)
+
+    # compile and testC/C++ version
+    libname = f'fc_{routine.name}_{language}_{frontend}'
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    fc_function = c_kernel.transpile_optional_args_fc_mod.transpile_optional_args_fc
+    if language != 'c':
+        out_var, out_var2 = init_out_vars()
+        fc_function(in_var, out_var)
+        assert out_var == 10 and out_var2 == 0
+        opt_flag = 1
+        out_var, out_var2 = init_out_vars()
+        fc_function(in_var, out_var, opt_flag=opt_flag)
+        assert out_var == 11 and out_var2 == 0
+        opt_flag = 0
+        out_var, out_var2 = init_out_vars()
+        fc_function(in_var, out_var, opt_flag=opt_flag)
+        assert out_var == 12 and out_var2 == 0
+    opt_flag = 1
+    out_var, out_var2 = init_out_vars()
+    fc_function(in_var, out_var, out_var2, opt_flag)
+    assert out_var == 40 and out_var2 == 20
+    opt_flag = 0
+    out_var, out_var2 = init_out_vars()
+    fc_function(in_var, out_var, out_var2, opt_flag)
+    assert out_var == 80 and out_var2 == 20
