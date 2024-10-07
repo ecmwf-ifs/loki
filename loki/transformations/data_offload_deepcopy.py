@@ -113,23 +113,41 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         #gather analysis from children
         item.trafo_data[self._key] = defaultdict(dict)
         self._gather_from_children(routine, item, successors, role)
+        variable_map = routine.variable_map
 
         pointers = [a for a in FindNodes(ir.Assignment).visit(routine.body) if a.ptr]
         if pointers:
             warning(f'[Loki] Data offload deepcopy: pointer associations found in {routine.name}')
 
-        with dataflow_analysis_attached(routine, exclude_calls=True):
+        with dataflow_analysis_attached(routine):
             #gather used symbols in specification
-            item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'read' for v in routine.spec.uses_symbols
-                                               if v.name_parts[0].lower() in routine._dummies})
+            for v in routine.spec.uses_symbols:
+                if v.name_parts[0].lower() in routine._dummies:
+                    stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
+                    if stat == 'write':
+                        stat = 'readwrite'
+                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
 
             #gather used and defined symbols in body
-            item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'read' for v in routine.body.uses_symbols
-                                               if v.name_parts[0].lower() in routine._dummies})
-            _defined_symbols = {v for v in routine.body.defines_symbols if v.name_parts[0].lower() in routine._dummies}
-            item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'readwrite'
-                                               if item.trafo_data[self._key].get(v.name.lower(), '') == 'read' else 'write'
-                                               for v in _defined_symbols})
+            for v in routine.body.uses_symbols:
+                if v.name_parts[0].lower() in routine._dummies:
+                    stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
+                    if stat == 'write':
+                        stat = 'readwrite'
+                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
+
+            for v in routine.body.defines_symbols:
+                if v.name_parts[0].lower() in routine._dummies:
+                    if v in routine.body.uses_symbols:
+                        item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'readwrite'})
+                    else:
+                        item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'write'})
+
+        item.trafo_data[self._key]['analysis'] = {k: v
+            for k, v in item.trafo_data[self._key]['analysis'].items()
+            if not isinstance(getattr(getattr(variable_map.get(k, k), 'type', None), 'dtype', None), DerivedType)
+        }
+
 
         if self.debug:
             layered_dict = {}
@@ -170,9 +188,16 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 if role == 'kernel':
                     _child_analysis = {k: v for k, v in _child_analysis.items()
                                        if k.split('%')[0].lower() in routine._dummies}
-                item.trafo_data[self._key]['analysis'].update({k: v
-                                                   if v == item.trafo_data[self._key]['analysis'].get(v, v) else 'readwrite'
-                                                   for k, v in _child_analysis.items()})
+
+                for k, v in _child_analysis.items():
+                    _v = item.trafo_data[self._key]['analysis'].get(k, v)
+                    if _v != v:
+                        if _v == 'write':
+                            item.trafo_data[self._key]['analysis'].update({k: 'write'})
+                        elif _v == 'read' and 'write' in v:
+                            item.trafo_data[self._key]['analysis'].update({k: 'readwrite'})
+                    else:
+                        item.trafo_data[self._key]['analysis'].update({k: _v})
 
         self._gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
 
