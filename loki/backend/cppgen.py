@@ -32,8 +32,12 @@ class CppCodeMapper(CCodeMapper):
     A :class:`StringifyMapper`-derived visitor for Pymbolic expression trees that converts an
     expression to a string adhering to standardized C++.
     """
-    # pylint: disable=abstract-method, unused-argument, unnecessary-pass
-    pass
+    # pylint: disable=abstract-method, unused-argument
+
+    def map_inline_call(self, expr, enclosing_prec, *args, **kwargs):
+        if expr.function.name.lower() == 'present':
+            return self.format('%s', expr.parameters[0].name)
+        return super().map_inline_call(expr, enclosing_prec, *args, **kwargs)
 
 
 class CppCodegen(CCodegen):
@@ -68,6 +72,10 @@ class CppCodegen(CCodegen):
         footer += [self.format_line('\n} // extern')] if opt_extern else []
         return footer
 
+    def _subroutine_optional_args(self, a):
+        if a.type.optional:
+            return ' = nullptr'
+        return ''
 
 def cppgen(ir, **kwargs):
     """
