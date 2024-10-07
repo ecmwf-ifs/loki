@@ -298,14 +298,14 @@ def loop_fusion(routine):
             return
 
         # Merge loops in each group and put them in the position of the group's first loop
-        #  UNLESS 'insert' location is specified for at least one of the group's fusion
-        #  pragmas, in this case the position is the first occurence of 'insert' for each group
+        #  UNLESS 'insert-loc' location is specified for at least one of the group's fusion
+        #  pragmas, in this case the position is the first occurence of 'insert-loc' for each group
         for group, loop_parameter_lists in fusion_groups.items():
             loop_list, parameters = zip(*loop_parameter_lists)
 
             # First, determine the collapse depth and extract user-annotated loop ranges from pragmas
             collapse = [param.get('collapse', None) for param in parameters]
-            insert_locs = [param.get('insert', False) for param in parameters]
+            insert_locs = [param.get('insert-loc', False) for param in parameters]
             if collapse != [collapse[0]] * len(collapse):
                 raise RuntimeError(f'Conflicting collapse values in group "{group}"')
             collapse = int(collapse[0]) if collapse[0] is not None else 1
