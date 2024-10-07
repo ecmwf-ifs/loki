@@ -7,7 +7,7 @@
 
 from abc import abstractmethod
 
-from loki.expression import Variable
+from loki.expression import Variable, parse_expr
 from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
@@ -651,6 +651,65 @@ class ProgramUnit(Scope):
         return CaseInsensitiveDict(
             (s.name, s) for s in self.symbols
         )
+
+    def get_symbol(self, name):
+        """
+        Returns the symbol for a given name as defined in its declaration.
+
+        The returned symbol might include dimension symbols if it was
+        declared as an array.
+
+        Parameters
+        ----------
+        name : str
+            Base name of the symbol to be retrieved
+        """
+        return self.get_symbol_scope(name).variable_map.get(name)
+
+    def Variable(self, **kwargs):
+        """
+        Factory method for :any:`TypedSymbol` or :any:`MetaSymbol` classes.
+
+        This invokes the :any:`Variable` with this node as the scope.
+
+        Parameters
+        ----------
+        name : str
+            The name of the variable.
+        type : optional
+            The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+        parent : :any:`Scalar` or :any:`Array`, optional
+            The derived type variable this variable belongs to.
+        dimensions : :any:`ArraySubscript`, optional
+            The array subscript expression.
+        """
+        kwargs['scope'] = self
+        return Variable(**kwargs)
+
+    def parse_expr(self, expr_str, strict=False, evaluate=False, context=None):
+        """
+        Uses :meth:`parse_expr` to convert expression(s) represented
+        in a string to Loki expression(s)/IR.
+
+        Parameters
+        ----------
+        expr_str : str
+            The expression as a string
+        strict : bool, optional
+            Whether to raise exception for unknown variables/symbols when
+            evaluating an expression (default: `False`)
+        evaluate : bool, optional
+            Whether to evaluate the expression or not (default: `False`)
+        context : dict, optional
+            Symbol context, defining variables/symbols/procedures to help/support
+            evaluating an expression
+
+        Returns
+        -------
+        :any:`Expression`
+            The expression tree corresponding to the expression
+        """
+        return parse_expr(expr_str, scope=self, strict=strict, evaluate=evaluate, context=context)
 
     @property
     def subroutines(self):
