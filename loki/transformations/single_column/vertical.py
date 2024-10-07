@@ -187,7 +187,7 @@ class SCCFuseVerticalLoops(Transformation):
                 if is_loki_pragma(loop.pragma, starts_with='loop-fusion'):
                     parameters = get_pragma_parameters(loop.pragma, starts_with='loop-fusion')
                     group = parameters.get('group', 'default')
-                    if 'init' in group:
+                    if group.endswith('-init'):
                         nodes_to_be_moved = ()
                         nodes = FindNodes(ir.Assignment).visit(loop.body)
                         node_map = {}
