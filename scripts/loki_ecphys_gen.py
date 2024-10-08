@@ -39,6 +39,7 @@ from loki.transformations.remove_code import (
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.build_system import ModuleWrapTransformation
 from loki.transformations.extract import extract_marked_subroutines, extract_subroutine
+from loki.transformations.sanitise import ResolveAssociatesTransformer
 
 
 # List of types that we know to be FIELD API groups
@@ -451,10 +452,17 @@ def extract_driver_routines(routine):
     driver_routines = []
     parent_vmap = routine.variable_map
     with pragma_regions_attached(routine):
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            if not is_loki_pragma(region.pragma, starts_with='extract'):
+                continue
+
+            # Resolve associations in the local region before processing
+            ResolveAssociatesTransformer(inplace=True).visit(region)
+
         with dataflow_analysis_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if not is_loki_pragma(region.pragma, starts_with='extract'):
-                   continue
+                    continue
 
                 # Name the external routine
                 parameters = get_pragma_parameters(region.pragma, starts_with='extract')
