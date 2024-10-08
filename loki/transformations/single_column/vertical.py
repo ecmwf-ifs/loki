@@ -42,10 +42,14 @@ class SCCFuseVerticalLoops(Transformation):
     vertical : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the vertical data dimension and iteration space.
+    apply_to : list of str, optional
+        list of routines to apply this transformation to, if not provided or None 
+        apply to all routines (default: None)
     """
 
-    def __init__(self, vertical=None):
+    def __init__(self, vertical=None, apply_to=None):
         self.vertical = vertical
+        self.apply_to = apply_to or ()
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -63,6 +67,8 @@ class SCCFuseVerticalLoops(Transformation):
             return
         role = kwargs['role']
         if role == 'kernel':
+            if self.apply_to and routine.name.lower() not in self.apply_to:
+                return
             self.process_kernel(routine)
 
     def process_kernel(self, routine):
