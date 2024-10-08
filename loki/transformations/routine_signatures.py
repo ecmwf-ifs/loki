@@ -12,13 +12,10 @@ Collection of utilities and transformations altering routine signatures.
 import os
 import itertools as it
 from loki.batch import Transformation, ProcedureItem
-from loki.expression import (
-    FindVariables,
-    SubstituteExpressions
-)
 from loki.ir import (
-    VariableDeclaration,
-    Transformer, FindNodes, CallStatement
+    VariableDeclaration, FindVariables,
+    Transformer, FindNodes, CallStatement,
+    SubstituteExpressions
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
