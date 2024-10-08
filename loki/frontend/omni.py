@@ -579,6 +579,11 @@ class OMNI2IR(GenericVisitor):
                     # why we restore the return_type
                     _type = _type.dtype.return_type
 
+                    # If the return type has a shape, we need to apply this as a dimension to the
+                    # variable, otherwise it will be missing from the declaration
+                    if _type.shape:
+                        variable = variable.clone(dimensions=_type.shape)
+
         else:
             raise ValueError
 
