@@ -53,7 +53,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if role == 'driver':
            self.process_driver(routine, item, successors, role, targets)
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, role)
+            self.process_kernel(routine, item, successors, role, targets)
 
     @classmethod
     def _resolve_nesting(cls, k, v):
@@ -108,7 +108,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 with open(f'driver_{calls[0].routine.name}_dataoffload_analysis.yaml', 'w') as file:
                     yaml.dump(item.trafo_data[self._key]['analysis'][loop], file)
 
-    def process_kernel(self, routine, item, successors, role):
+    def process_kernel(self, routine, item, successors, role, targets):
 
         #gather analysis from children
         item.trafo_data[self._key] = defaultdict(dict)
@@ -119,7 +119,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if pointers:
             warning(f'[Loki] Data offload deepcopy: pointer associations found in {routine.name}')
 
-        with dataflow_analysis_attached(routine):
+        with dataflow_analysis_attached(routine, targets=targets):
             #gather used symbols in specification
             for v in routine.spec.uses_symbols:
                 if v.name_parts[0].lower() in routine._dummies:
