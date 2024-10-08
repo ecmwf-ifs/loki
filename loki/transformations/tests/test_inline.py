@@ -466,13 +466,14 @@ end subroutine member_routines
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip={
-    OMNI: "OMNI can't parse the code"}))
+    OMNI: "OMNI has a problem with function return variables being arrays!"}))
 def test_inline_member_functions(tmp_path, frontend):
     """
     Test inlining of member subroutines.
     """
     fcode = """
 subroutine member_functions(a, b, c)
+  implicit none
   real(kind=8), intent(inout) :: a(3), b(3), c(3)
   integer :: i
 

@@ -444,7 +444,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
     # inline functions
     node_prepend_map = {}
     call_map = {}
-    for _, calls_nodes in function_calls.items():
+    for calls_nodes in function_calls.values():
         calls, nodes = list(zip(*calls_nodes))
         for call in calls:
             removed_functions.add(call.procedure_type)
@@ -702,6 +702,7 @@ def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
     routine : :any:`Subroutine`
         The subroutine in which to inline all calls to the member routine
     calls : tuple or list of :any:`InlineCall`
+        Set of calls (to the same callee) to be inlined.
     callee : :any:`Subroutine`
         The called target function to be inlined in the parent
     nodes : :any:`Node`
@@ -711,7 +712,7 @@ def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
         if they alias with a local declaration.
     """
 
-    def rename_result_name(routine, rename=''):
+    def rename_result_name(routine, rename):
         callee = routine.clone()
         var_map = {}
         callee_result_var = callee.variable_map[callee.result_name.lower()]
