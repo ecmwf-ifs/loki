@@ -34,8 +34,9 @@ class DataflowAnalysisAttacher(Transformer):
     # group of functions that only query memory properties and don't read/write variable value
     _mem_property_queries = ('size', 'lbound', 'ubound', 'present')
 
-    def __init__(self, exclude_calls=False, **kwargs):
+    def __init__(self, targets=[], exclude_calls=False, **kwargs):
         self.exclude_calls = exclude_calls
+        self.targets = targets
         super().__init__(inplace=True, invalidate_source=False, **kwargs)
 
     # Utility routines
@@ -230,6 +231,9 @@ class DataflowAnalysisAttacher(Transformer):
         if self.exclude_calls:
             return self.visit_Node(o, **kwargs)
 
+        if self.targets and not o.name.name.lower() in self.targets:
+            return self.visit_Node(o, **kwargs)
+
         if o.routine is not BasicType.DEFERRED:
             # With a call context provided we can determine which arguments
             # are potentially defined and which are definitely only used by
@@ -298,7 +302,7 @@ class DataflowAnalysisDetacher(Transformer):
         return super().visit_Node(o, **kwargs)
 
 
-def attach_dataflow_analysis(module_or_routine, exclude_calls=False):
+def attach_dataflow_analysis(module_or_routine, targets=[], exclude_calls=False):
     """
     Determine and attach to each IR node dataflow analysis metadata.
 
@@ -322,11 +326,11 @@ def attach_dataflow_analysis(module_or_routine, exclude_calls=False):
             )
 
     if hasattr(module_or_routine, 'spec'):
-        DataflowAnalysisAttacher(exclude_calls=exclude_calls).visit(module_or_routine.spec, live_symbols=live_symbols)
+        DataflowAnalysisAttacher(targets=targets, exclude_calls=exclude_calls).visit(module_or_routine.spec, live_symbols=live_symbols)
         live_symbols |= module_or_routine.spec.defines_symbols
 
     if hasattr(module_or_routine, 'body'):
-        DataflowAnalysisAttacher(exclude_calls=exclude_calls).visit(module_or_routine.body, live_symbols=live_symbols)
+        DataflowAnalysisAttacher(targets=targets, exclude_calls=exclude_calls).visit(module_or_routine.body, live_symbols=live_symbols)
 
 
 def detach_dataflow_analysis(module_or_routine):
@@ -342,7 +346,7 @@ def detach_dataflow_analysis(module_or_routine):
 
 
 @contextmanager
-def dataflow_analysis_attached(module_or_routine, exclude_calls=False):
+def dataflow_analysis_attached(module_or_routine, targets=[], exclude_calls=False):
     r"""
     Create a context in which information about defined, live and used symbols
     is attached to each IR node
@@ -397,7 +401,7 @@ def dataflow_analysis_attached(module_or_routine, exclude_calls=False):
     module_or_routine : :any:`Module` or :any:`Subroutine`
         The object for which the IR is to be annotated.
     """
-    attach_dataflow_analysis(module_or_routine, exclude_calls=exclude_calls)
+    attach_dataflow_analysis(module_or_routine, targets=targets, exclude_calls=exclude_calls)
     try:
         yield module_or_routine
     finally:
