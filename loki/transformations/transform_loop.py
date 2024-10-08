@@ -371,12 +371,14 @@ def loop_fusion(routine):
                     if len(lower_bounds) == 1:
                         lower_bounds = lower_bounds[0]
                     else:
+                        # TODO: could/should be ProcedureSymbol, however refer to issue: #390
                         fct_symbol = sym.DeferredTypeSymbol(name='min', scope=routine)
                         lower_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(lower_bounds))
 
                     if len(upper_bounds) == 1:
                         upper_bounds = upper_bounds[0]
                     else:
+                        # TODO: could/should be ProcedureSymbol, however refer to issue: #390
                         fct_symbol = sym.DeferredTypeSymbol(name='max', scope=routine)
                         upper_bounds = sym.InlineCall(fct_symbol, parameters=as_tuple(upper_bounds))
 
