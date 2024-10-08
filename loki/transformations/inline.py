@@ -409,6 +409,9 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         """
         retriever = ExpressionRetrieverSkipInlineCallParameters(lambda e: isinstance(e, sym.InlineCall))
 
+    # functions are provided, however functions is empty, thus early exit
+    if functions is not None and not functions:
+        return False
     functions = as_tuple(functions)
 
     # Keep track of removed symbols
