@@ -12,11 +12,11 @@ import numpy as np
 
 from loki import Subroutine
 from loki.build import jit_compile, clean_test
-from loki.expression import symbols as sym, FindVariables
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
-    Assignment
+    Assignment, FindVariables
 )
 
 from loki.transformations.transform_loop import (
