@@ -505,19 +505,19 @@ end module test_outline_assoc_mod
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     calls = FindNodes(CallStatement).visit(routine.body)
     assert len(calls) == 1
-    assert calls[0].arguments == ('d', 'c')
+    assert calls[0].arguments == ('c', 'd')
 
     # Check for a single derived-type argument
     assert len(outlined) == 1
     assert len(outlined[0].arguments) == 2
-    assert outlined[0].arguments[0].name == 'd'
+    assert outlined[0].arguments[0].name == 'c'
     assert outlined[0].arguments[0].type.shape == (10,)
     assert outlined[0].arguments[0].type.dtype == BasicType.INTEGER
-    assert outlined[0].arguments[0].type.intent == 'inout'
-    assert outlined[0].arguments[1].name == 'c'
+    assert outlined[0].arguments[0].type.intent == 'out'
+    assert outlined[0].arguments[1].name == 'd'
     assert outlined[0].arguments[1].type.shape == (10,)
     assert outlined[0].arguments[1].type.dtype == BasicType.INTEGER
-    assert outlined[0].arguments[1].type.intent == 'out'
+    assert outlined[0].arguments[1].type.intent == 'inout'
 
     # Insert created routines into module
     module.contains.append(outlined)
