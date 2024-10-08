@@ -7,12 +7,12 @@
 
 from loki.batch import Transformation
 from loki.expression import (
-    symbols as sym, FindVariables,
+    symbols as sym
 )
 from loki.ir import (
     nodes as ir, FindNodes, Transformer,
     is_loki_pragma, pragmas_attached,
-    get_pragma_parameters
+    get_pragma_parameters, FindVariables
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.transformations.transform_loop import loop_fusion, loop_interchange
