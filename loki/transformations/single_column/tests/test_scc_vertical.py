@@ -9,8 +9,7 @@ import pytest
 
 from loki import Subroutine, Dimension
 from loki.frontend import available_frontends
-from loki.ir import FindNodes, Loop
-from loki.expression import FindVariables
+from loki.ir import FindNodes, Loop, FindVariables
 from loki.transformations.single_column import SCCFuseVerticalLoops
 
 
