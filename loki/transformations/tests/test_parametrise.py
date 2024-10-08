@@ -356,7 +356,7 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
 
     abort_callbacks = (error_stop, stop_execution)
 
-    for _, abort_callback in enumerate(abort_callbacks):
+    for abort_callback in abort_callbacks:
         scheduler = Scheduler(
             paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
             frontend=frontend, xmods=[tmp_path]
