@@ -41,7 +41,7 @@ from loki.transformations.remove_code import (
 )
 from loki.transformations.sanitise import (
     SequenceAssociationTransformation, SubstituteExpressionTransformation,
-    do_merge_associates, do_resolve_associates
+    do_merge_associates, do_resolve_associates, ResolveAssociatesTransformer
 )
 
 
@@ -158,6 +158,13 @@ def outline_driver_routines(routine):
     driver_routines = []
     parent_vmap = routine.variable_map
     with pragma_regions_attached(routine):
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            if not is_loki_pragma(region.pragma, starts_with='outline'):
+                continue
+
+            # Resolve associations in the local region before processing
+            ResolveAssociatesTransformer(inplace=True).visit(region)
+
         with dataflow_analysis_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if not is_loki_pragma(region.pragma, starts_with='outline'):
