@@ -38,7 +38,7 @@ __all__ = [
     'inline_constant_parameters', 'inline_elemental_functions',
     'inline_internal_procedures', 'inline_member_procedures',
     'inline_marked_subroutines', 'InlineTransformation',
-    'inline_statement_functions'
+    'inline_statement_functions', 'inline_functions'
 ]
 
 
