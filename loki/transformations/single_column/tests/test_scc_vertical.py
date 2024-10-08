@@ -83,6 +83,13 @@ def test_simple_scc_fuse_verticals_transformation(frontend, horizontal, vertical
     kernel_loops = FindNodes(Loop).visit(kernel.body)
     assert len(kernel_loops) == 5
 
+    # no-op as 'compute_column' is not within apply_to
+    SCCFuseVerticalLoops(vertical=vertical, apply_to=('another_kernel',)).apply(kernel, role='kernel')
+    # Ensure we have three loops in the kernel prior to transformation
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 5
+
+    # actual loop fusion and demotion ... (as apply_to is not provided and therefore all routines are dispatched)
     SCCFuseVerticalLoops(vertical=vertical).apply(kernel, role='kernel')
 
     # Ensure the two vertical loops are fused
