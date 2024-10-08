@@ -73,7 +73,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         map_routine = {}
         map_region= {}
-        map_routine['map_arrays'] = {} 
+#        map_routine['map_arrays'] = {} 
+        map_routine['field_new'] = []
+        map_routine['field_delete'] = []
         map_routine['map_derived'] = {} 
         map_routine['c_imports_scc'] = {}
         map_routine['c_imports'] = {imp.module: 
@@ -89,6 +91,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         imports = self.create_imports(routine, map_routine)
         dcls = self.create_variables(routine, map_routine)
         calls = FindNodes(ir.CallStatement).visit(routine.body)
+        routine_map_arrays = self.decl_arrays_routine(routine, map_routine)
+        map_routine['map_arrays'] = routine_map_arrays
         in_pragma_calls = []
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
@@ -158,7 +162,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #        region.prepend(dr_hook_calls[0])
 #        region.append(dr_hook_calls[1])
 
-        region_map_arrays = self.decl_arrays(routine, region, map_region) #map_region to store field_new and field_delete
+        region_map_arrays = self.decl_arrays(routine, map_routine, region, map_region) #map_region to store field_new and field_delete
         region_map_derived, region_map_not_field = self.decl_derived_types(routine, region)
         region_map_private = self.get_private(region) 
         #region_map_not_field = self.get_not_field_array(routine, region) 
@@ -260,9 +264,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return dr_hook_calls
     
     
-    def create_field_new_delete(self, routine, var, field_ptr_var, map_region):
-        field_new = map_region['field_new']
-        field_delete = map_region['field_delete'] 
+    def create_field_new_delete(self, routine, map_routine, var, field_ptr_var):
+        field_new = map_routine['field_new']
+        field_delete = map_routine['field_delete'] 
         # Create the FIELD_NEW call
         var_shape = var.shape
         ubounds = [d.upper if isinstance(d, sym.RangeIndex) else d for d in var_shape]
@@ -302,22 +306,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         field_delete += [ir.Conditional(condition=condition, inline=True, body=(call,))]
         
 
-    def decl_arrays(self, routine, region, map_region):
+    def decl_arrays_routine(self, routine, map_routine):
         """
-        Finds arrays for each region.
         Creates the pointers by wich the arrays declarations will be replaced.
         Creates field_new/field_delete calls (call to self.create_field_new_delete).
-
-        return: 
-        return : region_map_arrays
-        update : map_region['field_new']
-        update:  map_region['field_delete']
         """
 
-        map_region['field_new'] = []
-        map_region['field_delete'] = []
-        arrays = [var for var in FindVariables(Array).visit(region)  if isinstance(var, Array) and not var.name_parts[0] in routine.arguments and var.shape[0] in self.horizontal]
-        region_map_arrays={}        
+        arrays = [var for var in FindVariables(Array).visit(routine.spec)  if isinstance(var, Array) and not var.name_parts[0] in routine.arguments and var.shape[0] in self.horizontal]
+        routine_map_arrays={}        
         #check if first dim NPROMA ?
         for var in arrays:
             var_shape = var.shape
@@ -347,8 +343,25 @@ class ParallelRoutineDispatchTransformation(Transformation):
           #  var.type = var_type.clone(pointer=True, shape=shape)
             local_ptr_var = var.clone(dimensions=shape)
 
-            region_map_arrays[var.name]=[field_ptr_var,local_ptr_var]
-            self.create_field_new_delete(routine, var, field_ptr_var, map_region)
+            routine_map_arrays[var.name]=[field_ptr_var,local_ptr_var]
+            self.create_field_new_delete(routine, map_routine, var, field_ptr_var) #file in map_routine['field_new'/'field_delete']
+        return(routine_map_arrays)
+
+    def decl_arrays(self, routine, map_routine, region, map_region):
+        """
+        Finds arrays for each region in map_routine
+
+        return: 
+        return : region_map_arrays
+        """
+
+        arrays = [var for var in FindVariables(Array).visit(region)  if isinstance(var, Array) and not var.name_parts[0] in routine.arguments and var.shape[0] in self.horizontal]
+        region_map_arrays={}        
+        for var in arrays:
+            if var.name in map_routine["map_arrays"]:
+                field_ptr_var = map_routine["map_arrays"][var.name][0]
+                local_ptr_var = map_routine["map_arrays"][var.name][1]
+                region_map_arrays[var.name]=[field_ptr_var,local_ptr_var]
         return(region_map_arrays)
 
     def add_arrays(self, routine, map_routine):
@@ -900,7 +913,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if private not in lst_private2:
                 lst_private2 += f"{private}, "
         lst_private2 = lst_private2[:-2] #rm the coma
-        lst_present = "YDCPG_OPTS, YDMODEL, YSTACK, "
+#        lst_present = "YDCPG_OPTS, YDMODEL, YSTACK, "
+        lst_present = "YDCPG_OPTS, YSTACK,"
         #lst_present = "YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, "
         for var_name in not_field_array:
             if var_name not in lst_present:
@@ -932,7 +946,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         call_mapper = {} #mapper for transformation
         for call in calls:
             if call.name!="DR_HOOK" and call.name!="ABOR1":
-                region_map_arrays = self.decl_arrays(routine, call, map_region) #map_region to store field_new and field_delete
+                region_map_arrays = self.decl_arrays(routine, map_routine, call, map_region) #map_region to store field_new and field_delete
 #                region_map_derived = self.decl_derived_types(routine, call)
                 region_map_derived, region_map_not_field = self.decl_derived_types(routine, call)
 #                map_region['map_arrays'] = region_map_arrays
@@ -943,8 +957,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #                map_region['map_derived'][1] = None #no field to add to routine dcl
                 #TODO fix the field_new = map_region[...] .... this is because map_region['field_new'] is init in decl_arrays. 
                 #an other part of the code needs this initialization ...
-                field_new+=map_region['field_new']
-                field_delete+=map_region['field_delete']
 
                 new_arguments = []
                 for arg in call.arguments:
@@ -993,27 +1005,15 @@ class ParallelRoutineDispatchTransformation(Transformation):
   
     
     def add_to_map_routine(self, map_routine, map_region):
-        routine_map_arrays = map_routine['map_arrays']
         routine_map_derived = map_routine['map_derived']
 
-        region_map_arrays = map_region['map_arrays']
         region_map_derived = map_region['map_derived']
 
-        for var_name in region_map_arrays:
-            if var_name not in routine_map_arrays:
-                routine_map_arrays[var_name]=region_map_arrays[var_name]
 
         for var_name in region_map_derived:
             if var_name not in routine_map_derived:
                 routine_map_derived[var_name]=region_map_derived[var_name]
 
-        for field_new in map_region['field_new']:
-            if field_new.arguments[0].name not in [x.arguments[0].name for x in map_routine['field_new']]:
-                map_routine['field_new'].append(field_new)
-
-        for field_delete in map_region['field_delete']:
-            if field_delete.body[0].arguments[0].name not in [x.body[0].arguments[0].name for x in map_routine['field_delete']]:
-                map_routine['field_delete'].append(field_delete)
 
 #    def process_not_region_loop(self, routine, map_routine):
 
