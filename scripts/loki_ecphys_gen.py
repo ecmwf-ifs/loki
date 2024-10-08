@@ -42,6 +42,7 @@ from loki.transformations.parallel import (
     remove_field_api_view_updates, add_field_api_view_updates,
     remove_explicit_firstprivatisation, create_explicit_firstprivatisation
 )
+from loki.transformations.sanitise import ResolveAssociatesTransformer
 
 
 # List of types that we know to be FIELD API groups
@@ -150,6 +151,13 @@ def extract_driver_routines(routine):
     driver_routines = []
     parent_vmap = routine.variable_map
     with pragma_regions_attached(routine):
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            if not is_loki_pragma(region.pragma, starts_with='extract'):
+                continue
+
+            # Resolve associations in the local region before processing
+            ResolveAssociatesTransformer(inplace=True).visit(region)
+
         with dataflow_analysis_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if not is_loki_pragma(region.pragma, starts_with='extract'):
