@@ -129,7 +129,8 @@ class RemoveCodeTransformation(Transformation):
             item.trafo_data[self._key] = {'unused_args': unused_args}
 
             # remove unused args
-            routine.variables = [a for a in routine.variables if not a.name.lower() in unused_args]
+            routine.variables = [a for a in routine.variables
+                                 if not (a in unused_args or a.name.lower() in unused_args)]
 
     @staticmethod
     def _find_unused_args(routine):
@@ -156,9 +157,10 @@ class RemoveCodeTransformation(Transformation):
 
             successor = successor[0]
             unused_dummies = successor.trafo_data[self._key]['unused_args']
+            unused_dummy_names = [d.name.lower() for d in unused_dummies]
 
             unused_args = [call.arguments[c] for c in unused_dummies.values() if c < len(call.arguments)]
-            unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_dummies]
+            unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_dummy_names]
 
             new_args = [a for a in call.arguments if not a in unused_args]
             new_kwargs = [a for a in call.kwarguments if not a in unused_kwargs]
