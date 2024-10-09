@@ -704,6 +704,16 @@ class Conditional(InternalNode, _ConditionalBase):
             return f'Conditional:: {self.name}'
         return 'Conditional::'
 
+    @property
+    def else_bodies(self):
+        """
+        Return all nested node tuples in the ``ELSEIF``/``ELSE`` part
+        of the conditional chain.
+        """
+        if self.has_elseif:
+            return (self.else_body[0].body,) + self.else_body[0].else_bodies
+        return (self.else_body,)
+
 
 @dataclass_strict(frozen=True)
 class _PragmaRegionBase():

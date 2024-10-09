@@ -151,6 +151,35 @@ def test_conditional(scope, one, i, n, a_i):
     # TODO: Test inline, name, has_elseif
 
 
+def test_multi_conditional(scope, one, i, n, a_i):
+    """
+    Test nested chains of constructors of :any:`Conditional` to form
+    multi-conditional.
+    """
+    multicond = ir.Conditional(
+        condition=sym.Comparison(i, '==', sym.IntLiteral(1)),
+        body=ir.Assignment(lhs=a_i, rhs=sym.Literal(1.0)),
+        else_body=ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    )
+    for idx in range(2, 4):
+        multicond = ir.Conditional(
+            condition=sym.Comparison(i, '==', sym.IntLiteral(idx)),
+            body=ir.Assignment(lhs=a_i, rhs=sym.Literal(float(idx))),
+            else_body=multicond, has_elseif=True
+        )
+
+    # Check that we can recover all bodies from a nested else-if construct
+    else_bodies = multicond.else_bodies
+    assert len(else_bodies) == 3
+    assert all(isinstance(b, tuple) for b in else_bodies)
+    assert isinstance(else_bodies[0][0], ir.Assignment)
+    assert else_bodies[0][0].lhs == 'a(i)' and else_bodies[0][0].rhs == '2.0'
+    assert isinstance(else_bodies[1][0], ir.Assignment)
+    assert else_bodies[1][0].lhs == 'a(i)' and else_bodies[1][0].rhs == '1.0'
+    assert isinstance(else_bodies[2][0], ir.Assignment)
+    assert else_bodies[2][0].lhs == 'a(i)' and else_bodies[2][0].rhs == '42.0'
+
+
 def test_section(scope, one, i, n, a_n, a_i):
     """
     Test constructors and behaviour of :any:`Section` nodes.
