@@ -112,16 +112,7 @@ def promote_temporary_arrays(routine, horizontal, blocking):
         not v.shape[-1] == blocking.size
     )
 
-    for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
-        if not any(s.name in arrays_to_promote for s in decl.symbols):
-            continue
-
-        symbols = tuple(
-            s.clone(dimensions=s.dimensions+(block_size,)) if s.name in arrays_to_promote else s
-            for s in decl.symbols
-        )
-        decl._update(symbols=symbols)
-
+    # First, update the body symbols (which requires the shape)
     vmap = {}
     for var in FindVariables(unique=False).visit(routine.body):
         if var.name not in arrays_to_promote:
@@ -135,6 +126,21 @@ def promote_temporary_arrays(routine, horizontal, blocking):
             new_dims = tuple(sym.Range((None, None)) for _ in var.shape) + (block_idx,)
         vmap[var] = var.clone(dimensions=new_dims)
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
+
+    # Then update the declaration and the shape with it
+    for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
+        if not any(s.name in arrays_to_promote for s in decl.symbols):
+            continue
+
+        symbols = tuple(
+            s.clone(
+                dimensions=s.dimensions+(block_size,),
+                type=s.type.clone(shape=s.type.shape+(block_size,))
+            )
+            if s.name in arrays_to_promote else s
+            for s in decl.symbols
+        )
+        decl._update(symbols=symbols)
 
 
 @click.group()
