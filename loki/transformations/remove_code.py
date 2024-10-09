@@ -136,7 +136,7 @@ class RemoveCodeTransformation(Transformation):
 
         unused_args = {}
         variable_map = routine.symbol_map
-        with dataflow_analysis_attached(routine):
+        with dataflow_analysis_attached(routine, exclude_mem_queries=False):
             used_or_defined_symbols = routine.spec.uses_symbols | routine.body.uses_symbols
             used_or_defined_symbols |= routine.body.defines_symbols
 
@@ -156,10 +156,9 @@ class RemoveCodeTransformation(Transformation):
 
             successor = successor[0]
             unused_dummies = successor.trafo_data[self._key]['unused_args']
-            unused_dummy_names = [d.name.lower() for d in unused_dummies]
 
             unused_args = [call.arguments[c] for c in unused_dummies.values() if c < len(call.arguments)]
-            unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_dummy_names]
+            unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_dummies]
 
             new_args = [a for a in call.arguments if not a in unused_args]
             new_kwargs = [a for a in call.kwarguments if not a in unused_kwargs]
