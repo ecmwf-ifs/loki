@@ -2305,3 +2305,43 @@ end subroutine
     assert tt_invalid_val == 'tt%invalid%val'
     assert tt_invalid_val.type.dtype == BasicType.DEFERRED
     assert tt_invalid_val.parent.type.dtype == BasicType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('dim_decl', [':: add_to_a(n)', ', DIMENSION(n) :: add_to_a'])
+def test_function_array_return_type(frontend, dim_decl):
+    """
+    Verify array return types are correctly represented with all frontends
+    """
+    fcode = f"""
+subroutine member_functions
+    implicit none
+    integer :: i
+    real(kind=8) :: a(3)
+    contains
+    function add_to_a(b, n)
+      integer, intent(in) :: n
+      real(kind=8), intent(in) :: b(n)
+      real(kind=8) {dim_decl}
+
+      do i = 1, n
+        add_to_a(i) = a(i) + b(i)
+      end do
+    end function
+end subroutine member_functions
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    add_to_a = routine['add_to_a']
+    return_type = add_to_a.procedure_type.return_type
+    assert return_type.dtype == BasicType.REAL
+    assert return_type.shape == ('n',)
+    ret_var = add_to_a.variable_map['add_to_a']
+    assert ret_var.type.dtype == BasicType.REAL
+    assert ret_var.type.shape == ('n',)
+    assert ret_var.dimensions == ('n',)
+
+    if frontend == OMNI:
+        # OMNI frontend puts the shape declaration always on the variable
+        assert ':: add_to_a(n)' in routine.to_fortran()
+    else:
+        assert dim_decl in routine.to_fortran()
