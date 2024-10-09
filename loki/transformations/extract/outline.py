@@ -125,7 +125,8 @@ def outline_region(region, name, imports, intent_map=None):
             local_var = region_routine_var_map.get(arg.name, arg)
             # Sanitise argument types
             local_var = local_var.clone(
-                type=local_var.type.clone(intent=intent, allocatable=None, target=None)
+                type=local_var.type.clone(intent=intent, allocatable=None, target=None),
+                scope=region_routine
             )
 
             region_routine_var_map[arg.name] = local_var
