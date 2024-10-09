@@ -110,6 +110,90 @@ end module rick_rolled
     (srcdir/'never_gonna_give.F90').unlink()
 
 
+@pytest.fixture(scope='module', name='source_with_args')
+def fixture_source_with_args(srcdir):
+    """
+    Write some source files with arguments to use in tests.
+    """
+
+    fcode_module = """
+module types_mod
+   type dims_type
+       integer :: kst
+       integer :: kend
+       integer :: klon
+   end type dims_type
+
+   type some_unused_type
+       real :: a
+   end type some_unused_type
+end module types_mod
+"""
+
+    fcode_driver = """
+subroutine driver(dims, struct)
+    use types_mod, only : dims_type, some_unused_type
+    implicit none
+    type(dims_type), intent(in) :: dims
+    type(some_unused_type), intent(in) :: struct
+    real, dimension(dims%klon) :: a, b, c, d
+
+
+    call kernel(dims%kst, dims%kend, dims, struct, a, b, c, d)
+
+end subroutine driver
+"""
+
+    fcode_kernel = """
+subroutine kernel(kst, kend, dims, struct, a, b, c, d)
+    use types_mod, only : dims_type, some_unused_type
+    implicit none
+    integer, intent(in) :: kst, kend
+    type(dims_type), intent(in) :: dims
+    type(some_unused_type), intent(in) :: struct
+    real, intent(out), dimension(dims%klon) :: a, b, c, d
+    integer :: jrof
+
+    do jrof = kst, kend
+      a(jrof) = 0.
+      b(jrof) = 0.
+    enddo
+
+    !$loki remove
+    call an_unused_kernel(struct)
+    !$loki end remove
+
+    call another_kernel(kst, kend, d=c, e=d)
+
+end subroutine kernel
+"""
+
+    fcode_another_kernel = """
+subroutine another_kernel(kst, kend, d, e)
+    implicit none
+    integer, intent(in) :: kst, kend
+    real, intent(out) :: d(:), e(:)
+    integer :: jrof
+
+    do jrof = kst, kend
+       d(jrof) = 0.
+    enddo
+end subroutine another_kernel
+"""
+
+    (srcdir/'module.F90').write_text(fcode_module)
+    (srcdir/'driver.F90').write_text(fcode_driver)
+    (srcdir/'kernel.F90').write_text(fcode_kernel)
+    (srcdir/'another_kernel.F90').write_text(fcode_another_kernel)
+
+    yield srcdir
+
+    (srcdir/'module.F90').unlink()
+    (srcdir/'driver.F90').unlink()
+    (srcdir/'kernel.F90').unlink()
+    (srcdir/'another_kernel.F90').unlink()
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_dead_code_conditional(frontend):
     """
@@ -439,3 +523,58 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
     driver = scheduler['#rick_astley'].ir
     drhook_calls = [call for call in FindNodes(ir.CallStatement).visit(driver.body) if call.name == 'dr_hook']
     assert len(drhook_calls) == (2 if kernel_only else 0)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('kernel_override', [True, False])
+def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tmp_path):
+    """
+    Test the removal of unused arguments in a call tree.
+    """
+
+    config = {
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': False,
+            'disable': ['dr_hook', 'abor1'], 'enable_imports': True,
+            'block': ['an_unused_kernel']
+        },
+        'routines': {
+            'driver': {'role': 'driver'},
+        }
+    }
+
+    if kernel_override:
+        config['routines'].update(
+            {'another_kernel': {'role': 'kernel', 'remove_unused_args': False}}
+        )
+
+    scheduler_config = SchedulerConfig.from_dict(config)
+    scheduler = Scheduler(paths=source_with_args, config=scheduler_config, frontend=frontend, xmods=[tmp_path])
+
+    # Apply the code removal transformation
+    transformation = RemoveCodeTransformation(remove_unused_args=True)
+    scheduler.process(transformation=transformation)
+
+    # check the kernel was transformed correctly
+    kernel = scheduler['#kernel'].ir
+    driver = scheduler['#driver'].ir
+
+    kernel_calls = FindNodes(ir.CallStatement).visit(kernel.body)
+    driver_calls = FindNodes(ir.CallStatement).visit(driver.body)
+
+    assert len(kernel_calls) == 1
+    assert kernel_calls[0].name.name.lower() == 'another_kernel'
+    assert len(driver_calls) == 1
+    assert driver_calls[0].name.name.lower() == 'kernel'
+
+    kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
+
+    if kernel_override:
+        assert not 'struct' in kernel_vars
+        assert not 'struct' in driver_calls[0].arguments
+
+        assert 'd' in kernel_vars
+        assert 'd' in driver_calls[0].arguments
+    else:
+        assert not any(v in kernel_vars for v in ['d', 'struct'])
+        assert not any(v in driver_calls[0].arguments for v in ['d', 'struct'])
