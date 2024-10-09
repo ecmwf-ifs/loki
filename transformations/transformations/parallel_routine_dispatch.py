@@ -466,7 +466,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
     def add_derived(self, routine, map_routine):
         routine_map_derived = map_routine['map_derived']
-        routine.variables += tuple(v[1] for v in routine_map_derived.values())
+        routine_map_derived_sorted = sorted(routine_map_derived.values(), key=lambda X: X[1].name)
+        routine.variables += tuple(v[1] for v in routine_map_derived_sorted)
     
     def add_routine_imports(self, routine, map_routine):
         routine.spec=Transformer(map_routine['imports_mapper']).visit(routine.spec)
