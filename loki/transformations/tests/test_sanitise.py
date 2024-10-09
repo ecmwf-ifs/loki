@@ -11,10 +11,11 @@ from loki import (
     BasicType, FindNodes, Subroutine, Module, fgen
 )
 from loki.frontend import available_frontends, OMNI
-from loki.ir import Assignment, Associate, CallStatement, Conditional
+from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.sanitise import (
-    resolve_associates, transform_sequence_association,
+    resolve_associates, merge_associates,
+    transform_sequence_association, ResolveAssociatesTransformer,
     SanitiseTransformation
 )
 
@@ -40,18 +41,18 @@ end subroutine transform_associates_simple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Associate).visit(routine.body)) == 1
-    assert len(FindNodes(Assignment).visit(routine.body)) == 1
-    assign = FindNodes(Assignment).visit(routine.body)[0]
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assign.rhs == 'a' and 'some_obj' not in assign.rhs
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
     resolve_associates(routine)
 
-    assert len(FindNodes(Associate).visit(routine.body)) == 0
-    assert len(FindNodes(Assignment).visit(routine.body)) == 1
-    assign = FindNodes(Assignment).visit(routine.body)[0]
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assign.rhs == 'some_obj%a'
     assert assign.rhs.parent == 'some_obj'
     assert assign.rhs.type.dtype == BasicType.DEFERRED
@@ -84,18 +85,18 @@ end subroutine transform_associates_nested
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Associate).visit(routine.body)) == 3
-    assert len(FindNodes(Assignment).visit(routine.body)) == 1
-    assign = FindNodes(Assignment).visit(routine.body)[0]
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assign.lhs == 'rick' and assign.rhs == 'a'
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
     resolve_associates(routine)
 
-    assert len(FindNodes(Associate).visit(routine.body)) == 0
-    assert len(FindNodes(Assignment).visit(routine.body)) == 1
-    assign = FindNodes(Assignment).visit(routine.body)[0]
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
     assert assign.rhs == 'some_obj%never%gonna%give%you%up'
 
 
@@ -114,8 +115,10 @@ subroutine transform_associates_simple
 
   integer :: i
   real :: local_var
+  real, allocatable :: local_arr(:)
 
-  associate (some_array => some_obj%some_array)
+  associate (some_array => some_obj%some_array, a => some_obj%a)
+    allocate(local_arr(a%n))
 
     do i=1, 5
       call another_routine(i, n=some_array(i)%n)
@@ -126,21 +129,25 @@ end subroutine transform_associates_simple
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Associate).visit(routine.body)) == 1
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 1
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
     assert call.kwarguments[0][1] == 'some_array(i)%n'
     assert call.kwarguments[0][1].type.dtype == BasicType.DEFERRED
+    assert routine.variable_map['local_arr'].type.shape == ('a%n',)
 
     # Now apply the association resolver
     resolve_associates(routine)
 
-    assert len(FindNodes(Associate).visit(routine.body)) == 0
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 1
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
     assert call.kwarguments[0][1] == 'some_obj%some_array(i)%n'
     assert call.kwarguments[0][1].scope == routine
     assert call.kwarguments[0][1].type.dtype == BasicType.DEFERRED
+
+    # Test the special case of shapes derived from allocations
+    assert routine.variable_map['local_arr'].type.shape == ('some_obj%a%n',)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -179,25 +186,174 @@ end subroutine transform_associates_nested_conditional
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Conditional).visit(routine.body)) == 2
-    assert len(FindNodes(Associate).visit(routine.body)) == 1
-    assert len(FindNodes(Assignment).visit(routine.body)) == 3
-    assign = FindNodes(Assignment).visit(routine.body)[1]
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 2
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    assign = FindNodes(ir.Assignment).visit(routine.body)[1]
     assert assign.rhs == 'a' and 'some_obj' not in assign.rhs
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
     resolve_associates(routine)
 
-    assert len(FindNodes(Conditional).visit(routine.body)) == 2
-    assert len(FindNodes(Associate).visit(routine.body)) == 0
-    assert len(FindNodes(Assignment).visit(routine.body)) == 3
-    assign = FindNodes(Assignment).visit(routine.body)[1]
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 2
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    assign = FindNodes(ir.Assignment).visit(routine.body)[1]
     assert assign.rhs == 'some_obj%a'
     assert assign.rhs.parent == 'some_obj'
     assert assign.rhs.type.dtype == BasicType.DEFERRED
     assert assign.rhs.scope == routine
     assert assign.rhs.parent.scope == routine
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_partial_body(frontend):
+    """
+    Test resolving associated symbols, but only for a part of an
+    associate's body.
+    """
+    fcode = """
+subroutine transform_associates_partial
+  use some_module, only: some_obj
+  implicit none
+
+  integer :: i
+  real :: local_var
+
+  associate (a=>some_obj%a, b=>some_obj%b)
+    local_var = a(1)
+
+    do i=1, some_obj%n
+      a(i) = a(i) + 1.
+      b(i) = b(i) + 1.
+    end do
+  end associate
+end subroutine transform_associates_partial
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    transformer = ResolveAssociatesTransformer(inplace=True)
+    transformer.visit(loops[0])
+
+    # Check that associated symbols have been resolved in loop body only
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'local_var'
+    assert assigns[0].rhs == 'a(1)'
+    assert assigns[1].lhs == 'some_obj%a(i)'
+    assert assigns[1].rhs == 'some_obj%a(i) + 1.'
+    assert assigns[2].lhs == 'some_obj%b(i)'
+    assert assigns[2].rhs == 'some_obj%b(i) + 1.'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_start_depth(frontend):
+    """
+    Test resolving associated symbols, but only for a part of an
+    associate's body.
+    """
+    fcode = """
+subroutine transform_associates_partial
+  use some_module, only: some_obj
+  implicit none
+
+  integer :: i
+  real :: local_var
+
+  associate (a=>some_obj%a, b=>some_obj%b)
+  associate (c=>a%b, d=>b%d)
+    local_var = a(1)
+
+    do i=1, some_obj%n
+      c(i) = c(i) + 1.
+      d(i) = d(i) + 1.
+    end do
+  end associate
+  end associate
+end subroutine transform_associates_partial
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    # Resolve all expect the outermost associate block
+    resolve_associates(routine, start_depth=1)
+
+    # Check that associated symbols have been resolved in loop body only
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'local_var'
+    assert assigns[0].rhs == 'a(1)'
+    assert assigns[1].lhs == 'a%b(i)'
+    assert assigns[1].rhs == 'a%b(i) + 1.'
+    assert assigns[2].lhs == 'b%d(i)'
+    assert assigns[2].rhs == 'b%d(i) + 1.'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_merge_associates_nested(frontend):
+    """
+    Test association merging for nested mappings.
+    """
+    fcode = """
+subroutine merge_associates_simple(base)
+  use some_module, only: some_type
+  implicit none
+
+  type(some_type), intent(inout) :: base
+  integer :: i
+  real :: local_var
+
+  associate(a => base%a)
+  associate(b => base%other%symbol, c => a%more)
+  associate(d => base%other%symbol%really%deep, &
+   &        a => base%a)
+    do i=1, 5
+      call another_routine(i, n=b(c)%n)
+
+      d(i) = 42.0
+    end do
+  end associate
+  end associate
+  end associate
+end subroutine merge_associates_simple
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assocs = FindNodes(ir.Associate).visit(routine.body)
+    assert len(assocs) == 3
+    assert len(assocs[0].associations) == 1
+    assert len(assocs[1].associations) == 2
+    assert len(assocs[2].associations) == 2
+
+    # Move associate mapping around
+    merge_associates(routine, max_parents=2)
+
+    assocs = FindNodes(ir.Associate).visit(routine.body)
+    assert len(assocs) == 3
+    assert len(assocs[0].associations) == 2
+    assert assocs[0].associations[0] == ('base%a', 'a')
+    assert assocs[0].associations[1] == ('base%other%symbol', 'b')
+    assert len(assocs[1].associations) == 1
+    assert assocs[1].associations[0] == ('a%more', 'c')
+    assert len(assocs[2].associations) == 1
+    assert assocs[2].associations[0] == ('base%other%symbol%really%deep', 'd')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -249,7 +405,7 @@ end module mod_a
 
     transform_sequence_association(routine)
 
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
 
     assert fgen(calls[0]).lower() == 'call sub_x(array(1:10, 1), 1)'
     assert fgen(calls[1]).lower() == 'call sub_x(array(2:10, 2), 2)'
@@ -299,9 +455,9 @@ end module test_transformation_sanitise_mod
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['test_transformation_sanitise']
 
-    assoc = FindNodes(Associate).visit(routine.body)
+    assoc = FindNodes(ir.Associate).visit(routine.body)
     assert len(assoc) == 1
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].arguments[0] == 'a(1)'
 
@@ -311,9 +467,9 @@ end module test_transformation_sanitise_mod
     )
     trafo.apply(routine)
 
-    assoc = FindNodes(Associate).visit(routine.body)
+    assoc = FindNodes(ir.Associate).visit(routine.body)
     assert len(assoc) == 0 if resolve_associate else 1
 
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].arguments[0] == 'a(1:3)' if resolve_sequence else 'a(1)'
