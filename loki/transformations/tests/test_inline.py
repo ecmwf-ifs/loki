@@ -465,8 +465,7 @@ end subroutine member_routines
     assert (b == [3., 3., 3.]).all()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(skip={
-    OMNI: "OMNI has a problem with function return variables being arrays!"}))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_functions(tmp_path, frontend):
     """
     Test inlining of member subroutines.
