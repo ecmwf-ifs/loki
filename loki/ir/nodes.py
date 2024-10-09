@@ -712,7 +712,7 @@ class Conditional(InternalNode, _ConditionalBase):
         """
         if self.has_elseif:
             return (self.else_body[0].body,) + self.else_body[0].else_bodies
-        return (self.else_body,)
+        return (self.else_body,) if self.else_body else ()
 
 
 @dataclass_strict(frozen=True)

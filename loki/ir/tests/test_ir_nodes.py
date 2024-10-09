@@ -179,6 +179,25 @@ def test_multi_conditional(scope, one, i, n, a_i):
     assert isinstance(else_bodies[2][0], ir.Assignment)
     assert else_bodies[2][0].lhs == 'a(i)' and else_bodies[2][0].rhs == '42.0'
 
+    # Not try without the final else
+    multicond = ir.Conditional(
+        condition=sym.Comparison(i, '==', sym.IntLiteral(1)),
+        body=ir.Assignment(lhs=a_i, rhs=sym.Literal(1.0)),
+    )
+    for idx in range(2, 4):
+        multicond = ir.Conditional(
+            condition=sym.Comparison(i, '==', sym.IntLiteral(idx)),
+            body=ir.Assignment(lhs=a_i, rhs=sym.Literal(float(idx))),
+            else_body=multicond, has_elseif=True
+        )
+    else_bodies = multicond.else_bodies
+    assert len(else_bodies) == 2
+    assert all(isinstance(b, tuple) for b in else_bodies)
+    assert isinstance(else_bodies[0][0], ir.Assignment)
+    assert else_bodies[0][0].lhs == 'a(i)' and else_bodies[0][0].rhs == '2.0'
+    assert isinstance(else_bodies[1][0], ir.Assignment)
+    assert else_bodies[1][0].lhs == 'a(i)' and else_bodies[1][0].rhs == '1.0'
+
 
 def test_section(scope, one, i, n, a_n, a_i):
     """
