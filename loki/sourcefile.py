@@ -22,7 +22,7 @@ from loki.frontend import (
 
 )
 from loki.ir import Section, RawSource, Comment, PreprocessorDirective
-from loki.logging import info, debug, perf
+from loki.logging import debug, detail, perf
 from loki.module import Module
 from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
@@ -110,9 +110,9 @@ class Sourcefile:
         if isinstance(frontend, str):
             frontend = Frontend[frontend.upper()]
 
-        # Log full parses at INFO and regex scans at PERF level
+        # Log full parses at INFO and regex scans at DETAIL level
         log = f'[Loki::Sourcefile] Constructed from {filename}' + ' in {:.2f}s'
-        with Timer(logger=perf if frontend is REGEX else info, text=log):
+        with Timer(logger=detail if frontend is REGEX else perf, text=log):
 
             filepath = Path(filename)
             raw_source = read_file(filepath)
@@ -365,7 +365,7 @@ class Sourcefile:
         frontend = frontend_args.pop('frontend', FP)
 
         log = f'[Loki::Sourcefile] Finished constructing from {self.path}' + ' in {:.2f}s'
-        with Timer(logger=debug if frontend == REGEX else info, text=log):
+        with Timer(logger=debug if frontend == REGEX else perf, text=log):
 
             # Sanitize frontend_args
             if isinstance(frontend, str):
@@ -583,7 +583,7 @@ class Sourcefile:
         """
         Same as :meth:`write` but can be called from a static context.
         """
-        info(f'[Loki::Sourcefile] Writing to {path}')
+        detail(f'[Loki::Sourcefile] Writing to {path}')
         with path.open('w') as f:
             f.write(source)
             if source[-1] != '\n':
