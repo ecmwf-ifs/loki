@@ -25,8 +25,9 @@ from loki.expression.symbols import (
 
 __all__ = [
     'FindExpressions', 'FindVariables', 'FindTypedSymbols',
-    'FindInlineCalls', 'FindLiterals', 'SubstituteExpressions',
-    'SubstituteStringExpressions', 'ExpressionFinder', 'AttachScopes'
+    'FindInlineCalls', 'FindLiterals', 'FindRealLiterals',
+    'SubstituteExpressions', 'SubstituteStringExpressions',
+    'ExpressionFinder', 'AttachScopes'
 ]
 
 
@@ -200,6 +201,15 @@ class FindLiterals(ExpressionFinder):
     retriever = ExpressionRetriever(lambda e: isinstance(e, (
         FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral
     )))
+
+class FindRealLiterals(ExpressionFinder):
+    """
+    A visitor to collect all real/float literals (which includes :any:`FloatLiteral`)
+    used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
 
 
 class SubstituteExpressions(Transformer):

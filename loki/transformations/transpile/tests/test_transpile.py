@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-# from shutil import rmtree
 import pytest
 import numpy as np
 
@@ -1276,6 +1275,80 @@ end subroutine multi_cond
         in_var = val[0]
         fc_function(in_var, out_var)
         assert out_var == val[1]
+
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('dtype', ('integer', 'real',))
+@pytest.mark.parametrize('add_float', (False, True))
+def test_transpile_special_functions(tmp_path, builder, frontend, dtype, add_float):
+    """
+    A simple test to verify multiconditionals/select case statements.
+    """
+    if dtype == 'real':
+        decl_type = f'{dtype}(kind=real64)'
+        kind = '._real64'
+    else:
+        decl_type = dtype
+        kind = ''
+
+    fcode = f"""
+subroutine transpile_special_functions(in, out)
+  use iso_fortran_env, only: real64
+  implicit none
+  {decl_type}, intent(in) :: in
+  {decl_type}, intent(inout) :: out
+  if (mod(in{'+ 2._real64' if add_float else ''}, 2{kind}{'+ 0._real64' if add_float else ''}) .eq. 0) then
+    out = 42{kind}
+  else
+    out = 11{kind}
+  endif
+end subroutine transpile_special_functions
+""".strip()
+
+    def init_var(dtype, val=0):
+        if dtype == 'real':
+            return np.float64([val])
+        return np.int_([val])
+
+    # for testing purposes
+    in_var = init_var(dtype)
+    test_vals = [2, 10, 5, 3]
+    expected_results = [42, 42, 11, 11]
+    out_var = init_var(dtype)
+
+    # compile original Fortran version
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path/f'{routine.name}_{frontend!s}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    # test Fortran version
+    for i, val in enumerate(test_vals):
+        in_var = val
+        function(in_var, out_var)
+        assert out_var == expected_results[i]
+
+    clean_test(filepath)
+
+    # apply F2C trafo
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=tmp_path)
+
+    # check whether correct modulo was inserted
+    ccode = Path(f2c.c_path).read_text()
+    if dtype == 'integer' and not add_float:
+        assert '%' in ccode
+    if dtype == 'real' or add_float:
+        assert 'fmod' in ccode
+
+    # compile C version
+    libname = f'fc_{routine.name}_{frontend}'
+    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    fc_function = c_kernel.transpile_special_functions_fc_mod.transpile_special_functions_fc
+    # test C version
+    for i, val in enumerate(test_vals):
+        in_var = val
+        fc_function(in_var, out_var)
+        assert int(out_var) == expected_results[i]
 
 
 @pytest.fixture(scope='module', name='horizontal')

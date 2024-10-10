@@ -9,10 +9,11 @@ import pytest
 
 from loki import Sourcefile, Subroutine
 from loki.expression import symbols as sym, parse_expr
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
-    SubstituteExpressions, SubstituteStringExpressions
+    SubstituteExpressions, SubstituteStringExpressions,
+    FindLiterals, FindRealLiterals
 )
 
 
@@ -122,6 +123,44 @@ end module test_mod
     body_vars = FindVariables(unique=True).visit(routine.body)
     assert len(body_vars) == 10
     assert all(v in body_vars for v in expected)
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_find_literals(frontend):
+    """
+    Test that :any:`FindLiterals` finds all literals
+    and :any:`FindRealLiterals` all real/float literals.
+    """
+    fcode = """
+subroutine test_find_literals()
+  implicit none
+  integer :: n, n1
+  real(kind=8) :: x
+
+  n = 1 + 5 + 42
+  x = 1.0 / 10.5
+  n1 = int(B'00000')
+  if (.TRUE.) then
+    call some_func(x, some_string='string_kwarg')
+  endif
+
+end subroutine test_find_literals
+"""
+    expected_int_literals = ('1', '5', '42')
+    expected_real_literals = ('1.0', '10.5')
+    # Omni evaluates BOZ constants, so it creates IntegerLiteral instead...
+    expected_intrinsic_literals = ("B'00000'",) if frontend != OMNI else ('0',)
+    expected_logic_literals = ('True',)
+    expected_string_literals = ('string_kwarg',)
+    expected_literals = expected_int_literals + expected_real_literals +\
+            expected_intrinsic_literals + expected_logic_literals +\
+            expected_string_literals
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    literals = FindLiterals().visit(routine.body)
+    assert sorted(list(expected_literals)) == sorted([str(literal.value) for literal in literals])
+    real_literals = FindRealLiterals().visit(routine.body)
+    assert sorted(list(expected_real_literals)) == sorted([str(literal.value) for literal in real_literals])
+    real_literals_isinstance = [literal for literal in literals if isinstance(literal, sym.FloatLiteral)]
+    assert sorted(list(expected_real_literals)) == sorted([str(literal.value) for literal in real_literals_isinstance])
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
