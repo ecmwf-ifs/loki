@@ -20,6 +20,7 @@ from loki.batch.sgraph import SGraph
 from loki.batch.transformation import Transformation
 
 from loki.frontend import FP, REGEX, RegexParserClass
+from loki.sourcefile import Sourcefile
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug, error
 
@@ -185,8 +186,14 @@ class Scheduler:
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
         # Instantiate FileItem instances for all files in the search path
-        for path in path_list:
-            self.item_factory.get_or_create_file_item_from_path(path, self.config, frontend_args)
+        path_fargs = tuple(
+            (path, self.config.create_frontend_args(path, frontend_args)) for path in path_list
+        )
+        sources = tuple(
+            Sourcefile.from_file(filename=path, **fargs) for path, fargs in path_fargs
+        )
+        for source in sources:
+            self.item_factory.get_or_create_file_item_from_source(source, self.config)
 
         # Instantiate the basic list of items for files and top-level program units
         #  in each file, i.e., modules and subroutines
