@@ -12,11 +12,11 @@ from loki.ir import CallStatement, Import, FindNodes, FindInlineCalls
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 
-from loki.transformations.extract import extract_contained_procedures
+from loki.transformations.extract import extract_internal_procedures
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_basic_scalar(frontend):
+def test_extract_internal_procedures_basic_scalar(frontend):
     """
     Tests that a global scalar is correctly added as argument of `inner`.
     """
@@ -36,7 +36,7 @@ def test_extract_contained_procedures_basic_scalar(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
@@ -47,7 +47,7 @@ def test_extract_contained_procedures_basic_scalar(frontend):
     assert 'x' in (arg[0] for arg in call.kwarguments)
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_contains_emptied(frontend):
+def test_extract_internal_procedures_contains_emptied(frontend):
     """
     Tests that the contains section does not contain any functions or subroutines after processing.
     """
@@ -76,12 +76,12 @@ def test_extract_contained_procedures_contains_emptied(frontend):
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
     outer = src.routines[0]
-    extract_contained_procedures(outer)
+    extract_internal_procedures(outer)
     # NOTE: Functions in Loki are also typed as Subroutines.
     assert not any(isinstance(r, Subroutine) for r in outer.contains.body)
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_basic_array(frontend):
+def test_extract_internal_procedures_basic_array(frontend):
     """
     Tests that a global array variable (and a scalar) is correctly added as argument of `inner`.
     """
@@ -104,7 +104,7 @@ def test_extract_contained_procedures_basic_array(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     inner = routines[0]
     outer = src.routines[0]
@@ -117,7 +117,7 @@ def test_extract_contained_procedures_basic_array(frontend):
     assert kwargdict['arr'] == 'arr'
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_existing_call_args(frontend):
+def test_extract_internal_procedures_existing_call_args(frontend):
     """
     Tests that variable resolution process works correctly when the parent contains a call to
     the extracted function that already has some calling arguments.
@@ -149,7 +149,7 @@ def test_extract_contained_procedures_existing_call_args(frontend):
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
     outer = src.routines[0]
-    extract_contained_procedures(outer)
+    extract_internal_procedures(outer)
     calls = FindNodes(CallStatement).visit(outer.body)
 
     for call in calls:
@@ -176,7 +176,7 @@ def test_extract_contained_procedures_existing_call_args(frontend):
     assert kwargdict['y'] == 1
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing constants module')]))
-def test_extract_contained_procedures_basic_import(frontend):
+def test_extract_internal_procedures_basic_import(frontend):
     """
     Tests that a global imported binding is correctly introduced to the contained subroutine.
     """
@@ -198,7 +198,7 @@ def test_extract_contained_procedures_basic_import(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     inner = routines[0]
     assert "c2" in inner.import_map
@@ -206,7 +206,7 @@ def test_extract_contained_procedures_basic_import(frontend):
     assert 'c2' not in inner.arguments
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing type_mod module')]))
-def test_extract_contained_procedures_recursive_definition(frontend):
+def test_extract_internal_procedures_recursive_definition(frontend):
     """
     Tests that whenever a global in the contained subroutine depends on another
     global variable, both are introduced as arguments,
@@ -235,7 +235,7 @@ def test_extract_contained_procedures_recursive_definition(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -274,7 +274,7 @@ def test_extract_contained_procedures_recursive_definition(frontend):
     assert klev.type.intent == "in"
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing parkind1 module')]))
-def test_extract_contained_procedures_recursive_definition_import(frontend):
+def test_extract_internal_procedures_recursive_definition_import(frontend):
     """
     Tests that whenever globals in the contained subroutine depend on imported bindings,
     the globals are introduced as arguments, and the imports are added to the contained subroutine.
@@ -299,7 +299,7 @@ def test_extract_contained_procedures_recursive_definition_import(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -324,7 +324,7 @@ def test_extract_contained_procedures_recursive_definition_import(frontend):
     assert len(symbols) == 2
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing parkind1 module')]))
-def test_extract_contained_procedures_kind_resolution(frontend):
+def test_extract_internal_procedures_kind_resolution(frontend):
     """
     Tests that an unresolved kind parameter in inner scope is resolved from import in outer scope.
     """
@@ -336,18 +336,18 @@ def test_extract_contained_procedures_kind_resolution(frontend):
             contains
             subroutine inner()
                 integer(kind = jpim) :: y
-                integer :: z
+                integer(kind=8) :: z
                 z = y
             end subroutine inner
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     inner = routines[0]
     assert "jpim" in inner.import_map
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing stuff module')]))
-def test_extract_contained_procedures_derived_type_resolution(frontend):
+def test_extract_internal_procedures_derived_type_resolution(frontend):
     """
     Tests that an unresolved derived type in inner scope is resolved from import in outer scope.
     """
@@ -365,12 +365,12 @@ def test_extract_contained_procedures_derived_type_resolution(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     inner = routines[0]
     assert "mytype" in inner.import_map
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing types module')]))
-def test_extract_contained_procedures_derived_type_field(frontend):
+def test_extract_internal_procedures_derived_type_field(frontend):
     """
     Test that when a derived type field, i.e 'a%b' is a global in the scope of the contained subroutine,
     the derived type itself, that is, 'a', is introduced as an the argument in the transformation.
@@ -394,7 +394,7 @@ def test_extract_contained_procedures_derived_type_field(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     outer = src.routines[0]
     inner = routines[0]
     assert 'xtyp' in inner.arguments
@@ -419,7 +419,7 @@ def test_extract_contained_procedures_derived_type_field(frontend):
     assert len(symbols) == 2
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_intent(frontend):
+def test_extract_internal_procedures_intent(frontend):
     """
     This test is just to document the current behaviour: when a global is
     introduced as an argument to the extracted contained procedure,
@@ -444,7 +444,7 @@ def test_extract_contained_procedures_intent(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     outer = src.routines[0]
     inner = routines[0]
@@ -458,7 +458,7 @@ def test_extract_contained_procedures_intent(frontend):
     assert outer.variable_map['p'].type.intent == "out"
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on undefined symbols')]))
-def test_extract_contained_procedures_undefined_in_parent(frontend):
+def test_extract_internal_procedures_undefined_in_parent(frontend):
     """
     This test is just to document current behaviour:
     an exception is raised if a global inside the contained procedure does not
@@ -480,10 +480,10 @@ def test_extract_contained_procedures_undefined_in_parent(frontend):
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
     with pytest.raises(RuntimeError):
-        extract_contained_procedures(src.routines[0])
+        extract_internal_procedures(src.routines[0])
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_multiple_contained_procedures(frontend):
+def test_extract_internal_procedures_multiple_internal_procedures(frontend):
     """
     Basic test to check that multiple contained procedures can also be handled.
     """
@@ -511,7 +511,7 @@ def test_extract_contained_procedures_multiple_contained_procedures(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 2
     assert routines[0].name == "inner1"
     assert routines[1].name == "inner2"
@@ -527,7 +527,7 @@ def test_extract_contained_procedures_multiple_contained_procedures(frontend):
     assert 'gx' in (arg[0] for arg in call.kwarguments)
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_contained_procedures_basic_scalar_function(frontend):
+def test_extract_internal_procedures_basic_scalar_function(frontend):
     """
     Basic test for scalars highlighting that the inner procedure may also be a function.
     """
@@ -548,7 +548,7 @@ def test_extract_contained_procedures_basic_scalar_function(frontend):
         end subroutine outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
@@ -561,7 +561,7 @@ def test_extract_contained_procedures_basic_scalar_function(frontend):
 @pytest.mark.parametrize(
     'frontend', available_frontends(skip=(OFP, "ofp fails for unknown reason, likely frontend issue"))
 )
-def test_extract_contained_procedures_basic_scalar_function_both(frontend):
+def test_extract_internal_procedures_basic_scalar_function_both(frontend):
     """
     Basic test for scalars highlighting that the outer and inner procedure may be functions.
     """
@@ -584,7 +584,7 @@ def test_extract_contained_procedures_basic_scalar_function_both(frontend):
         end function outer
     """
     src = Sourcefile.from_source(fcode, frontend=frontend)
-    routines = extract_contained_procedures(src.routines[0])
+    routines = extract_internal_procedures(src.routines[0])
     assert len(routines) == 1
     assert routines[0].name == "inner"
     inner = routines[0]
