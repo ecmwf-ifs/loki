@@ -140,7 +140,9 @@ class Scheduler:
             self.config = SchedulerConfig.from_dict(config or {})
 
         self.full_parse = full_parse
-        self.num_workers = num_workers
+
+        # Create the parallel pool executor for parallel processing
+        self.executor = ProcessPoolExecutor(max_workers=num_workers)
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
@@ -171,6 +173,10 @@ class Scheduler:
             # Attach interprocedural call-tree information
             self._enrich()
 
+    def __del__(self):
+        # Shut down the parallel process pool
+        self.executor.shutdown()
+
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
         """
@@ -193,14 +199,14 @@ class Scheduler:
         path_fargs = tuple(
             (path, self.config.create_frontend_args(path, frontend_args)) for path in path_list
         )
-        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+        with Timer(logger=info, text='[Loki::Scheduler] Scheduler:: Initial file parse in {:.2f}s'):
             src_futures = tuple(
-                executor.submit(Sourcefile.from_file, path, **frontend_args)
+                self.executor.submit(Sourcefile.from_file, path, **frontend_args)
                 for path, fargs in path_fargs
             )
-            sources = [src.result() for src in src_futures]
-        for source in sources:
-            self.item_factory.get_or_create_file_item_from_source(source, self.config)
+            sources = tuple(src.result() for src in src_futures)
+            for source in sources:
+                self.item_factory.get_or_create_file_item_from_source(source, self.config)
 
         # Instantiate the basic list of items for files and top-level program units
         #  in each file, i.e., modules and subroutines
