@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from enum import Enum, auto
+from concurrent.futures import ProcessPoolExecutor
 from os.path import commonpath
 from pathlib import Path
 from codetiming import Timer
@@ -160,9 +161,12 @@ class Scheduler:
     # TODO: Should be user-definable!
     source_suffixes = ['.f90', '.F90', '.f', '.F']
 
-    def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
-                 includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, frontend=FP, output_dir=None):
+    def __init__(
+            self, paths, config=None, seed_routines=None, preprocess=False,
+            includes=None, defines=None, definitions=None, xmods=None,
+            omni_includes=None, full_parse=True, num_workers=1,
+            frontend=FP, output_dir=None
+    ):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -172,6 +176,7 @@ class Scheduler:
             self.config = SchedulerConfig.from_dict(config or {})
 
         self.full_parse = full_parse
+        self.num_workers = num_workers
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
@@ -224,12 +229,16 @@ class Scheduler:
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
         # Instantiate FileItem instances for all files in the search path
+        # TODO: This is essentially item-cache creation, and should live on ItemFactory
         path_fargs = tuple(
             (path, self.config.create_frontend_args(path, frontend_args)) for path in path_list
         )
-        sources = tuple(
-            Sourcefile.from_file(filename=path, **fargs) for path, fargs in path_fargs
-        )
+        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            src_futures = tuple(
+                executor.submit(Sourcefile.from_file, path, **fargs)
+                for path, fargs in path_fargs
+            )
+            sources = [src.result() for src in src_futures]
         for source in sources:
             self.item_factory.get_or_create_file_item_from_source(source, self.config)
 
