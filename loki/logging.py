@@ -67,22 +67,26 @@ INFO = logging.INFO
 WARNING = logging.WARNING
 ERROR = logging.ERROR
 PERF = 15
+DETAIL = 12
 
 # Internally accepted log levels
 log_levels = {
     'DEBUG': DEBUG,
+    'DETAIL': DETAIL,
     'PERF': PERF,
     'INFO': INFO,
     'WARNING': WARNING,
     'ERROR': ERROR,
     # Lower case keywords for env variables
     'debug': DEBUG,
+    'detail': DETAIL,
     'perf': PERF,
     'info': INFO,
     'warning': WARNING,
     'error': ERROR,
     # Enum keys for idempotence
     DEBUG: DEBUG,
+    DETAIL: DETAIL,
     PERF: PERF,
     INFO: INFO,
     WARNING: WARNING,
@@ -96,6 +100,7 @@ BLUE = '\033[1;37;34m%s\033[0m'
 GREEN = '\033[1;37;32m%s\033[0m'
 colors = {
     DEBUG: NOCOLOR,
+    DETAIL: GREEN,
     PERF: GREEN,
     INFO: GREEN,
     WARNING: BLUE,
@@ -124,18 +129,82 @@ def log(msg, level, *args, **kwargs):
 
 
 def debug(msg, *args, **kwargs):
+    """
+    Logger method for most verbose level of output
+
+    Parameters
+    ----------
+    msg : str
+        Message to log at :any:`DEBUG` level.
+    """
     log(msg, DEBUG, *args, **kwargs)
 
+def detail(msg, *args, **kwargs):
+    """
+    Logger method for detailed, per-file information.
 
-def info(msg, *args, **kwargs):
-    log(msg, INFO, *args, **kwargs)
+    This level should be used for timing and detailed information at a
+    per-file level, which can get verbose.
+
+    Parameters
+    ----------
+    msg : str
+        Message to log at :any:`DETAIL` level.
+    """
+    log(msg, DETAIL, *args, **kwargs)
 
 def perf(msg, *args, **kwargs):
+    """
+    Logger method for performance information.
+
+    This level should be used for timing individual processes at a
+    global granularity during batch-processing.
+
+    Parameters
+    ----------
+    msg : str
+        Message to log at :any:`DETAIL` level.
+    """
     log(msg, PERF, *args, **kwargs)
 
+def info(msg, *args, **kwargs):
+    """
+    Logger method for high-level progress information.
+
+    This is the default output logging and should only be used at a
+    global granularity during batch-processing.
+
+    Parameters
+    ----------
+    msg : str
+        Message to log at :any:`INFO` level.
+    """
+    log(msg, INFO, *args, **kwargs)
+
 def warning(msg, *args, **kwargs):
+    """
+    Logger method for high-level progress information.
+
+    This level should be used for potentially dangerous, but not fatal
+    information.
+
+    Parameters
+    ----------
+    msg : str
+        Message to log at :any:`WARN` level.
+    """
     log(msg, WARNING, *args, **kwargs)
 
-
 def error(msg, *args, **kwargs):
+    """
+    Logger method for high-level progress information.
+
+    This level should be used to provide additional information in
+    case of failures.
+
+    Parameters
+    ----------
+    msg : str
+        Message to log at :any:`ERROR` level.
+    """
     log(msg, ERROR, *args, **kwargs)

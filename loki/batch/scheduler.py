@@ -283,7 +283,7 @@ class Scheduler:
         # Re-build the SGraph after parsing to pick up all new connections
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
-    @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
+    @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
         """
         For items that have a specific enrichment list provided as part of their

@@ -20,7 +20,7 @@ from loki.ir import (
     ProcedureDeclaration, Loop, Intrinsic, Pragma
 )
 from loki.frontend.source import join_source_list
-from loki.logging import warning, perf, error
+from loki.logging import detail, warning, error
 from loki.tools import group_by_class, replace_windowed, as_tuple
 
 
@@ -299,7 +299,7 @@ class RangeIndexTransformer(Transformer):
         return o.clone(symbols=mapper(o.symbols, recurse_to_declaration_attributes=True))
 
 
-@Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
+@Timer(logger=detail, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
 def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     """
     Utility function to sanitize internal representation after creating it

@@ -15,7 +15,7 @@ from loki.batch.item import (
     InterfaceItem, ProcedureItem, ProcedureBindingItem, TypeDefItem
 )
 from loki.batch.sfilter import SFilter
-from loki.logging import info, warning, debug
+from loki.logging import debug, perf, warning
 from loki.tools import as_tuple
 
 
@@ -39,7 +39,7 @@ class SGraph:
         self._graph = nx.DiGraph()
 
     @classmethod
-    @Timer(logger=info, text='[Loki::Scheduler] Built SGraph from seed in {:.2f}s')
+    @Timer(logger=perf, text='[Loki::Scheduler] Built SGraph from seed in {:.2f}s')
     def from_seed(cls, seed, item_factory, config=None):
         """
         Create a new :any:`SGraph` using :data:`seed` as starting point.

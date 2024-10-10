@@ -20,6 +20,7 @@ from loki import (
     auto_post_mortem_debugger, info
 )
 from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
+from loki.logging import set_log_level, log_levels
 
 # Get generalized transformations provided by Loki
 from loki.transformations.argument_shape import (
@@ -113,12 +114,15 @@ def cli(debug):
               help="Recursively derive explicit shape dimension for argument arrays")
 @click.option('--eliminate-dead-code/--no-eliminate-dead-code', default=True,
               help='Perform dead code elimination, where unreachable branches are trimmed from the code.')
+@click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
+              type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
+              help='Log level to output during batch processing')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args, inline_members, inline_marked,
         resolve_sequence_association, resolve_sequence_association_inlined_calls,
-        derive_argument_array_shape, eliminate_dead_code
+        derive_argument_array_shape, eliminate_dead_code, log_level
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -130,6 +134,8 @@ def convert(
     automatic call-tree exploration and apply a set of
     :any:`Transformation` objects to this call tree.
     """
+
+    set_log_level(log_levels[log_level])
 
     info(f'[Loki] Batch-processing source files using config: {config} ')
 
@@ -429,11 +435,19 @@ def convert(
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
               help='CMake "plan" file to generate.')
-def plan(mode, config, header, source, build, root, cpp, directive, frontend, callgraph, plan_file):
+@click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
+              type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
+              help='Log level to output during batch processing')
+def plan(
+         mode, config, header, source, build, root, cpp, directive,
+         frontend, callgraph, plan_file, log_level
+):
     """
     Create a "plan", a schedule of files to inject and transform for a
     given configuration.
     """
+
+    set_log_level(log_levels[log_level])
 
     info(f'[Loki] Creating CMake plan file from config: {config}')
     config = SchedulerConfig.from_file(config)
