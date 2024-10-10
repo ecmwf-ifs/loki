@@ -39,8 +39,10 @@ from loki.transformations.build_system import FileWriteTransformation
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
+@click.option('--num-workers', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+              help='Number of worker processes to use for parallel processing steps.')
 def convert(
-        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level
+        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level, num_workers
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -85,7 +87,8 @@ def convert(
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
         paths=paths, config=config, full_parse=full_parse,
-        definitions=definitions, output_dir=scheduler_opts.build, **frontend_opts.asdict
+        definitions=definitions, output_dir=scheduler_opts.build,
+        num_workers=num_workers, **frontend_opts.asdict
     )
 
     # If requested, apply a custom pipeline from the scheduler config
@@ -132,6 +135,8 @@ def convert(
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
+@click.option('--num-workers', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+              help='Number of worker processes to use for parallel processing steps.')
 @click.pass_context
 def plan(ctx, *_args, **_kwargs):
     """
