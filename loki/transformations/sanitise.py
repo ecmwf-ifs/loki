@@ -13,15 +13,10 @@ code easier.
 """
 
 from loki.batch import Transformation
-from loki.expression import Array, RangeIndex
-from loki.ir import (
-    CallStatement, FindNodes, Transformer, NestedTransformer,
-    FindVariables, SubstituteExpressions
-)
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.expression import Array, RangeIndex, LokiIdentityMapper
+from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.tools import as_tuple
 from loki.types import BasicType
-
-from loki.transformations.utilities import recursive_expression_map_update
 
 
 __all__ = [
@@ -80,42 +75,83 @@ def resolve_associates(routine):
     routine.rescope_symbols()
 
 
-class ResolveAssociatesTransformer(NestedTransformer):
+class ResolveAssociateMapper(LokiIdentityMapper):
     """
-    :any:`Transformer` class to resolve :any:`Associate` nodes in IR trees
+    Exppression mapper that will resolve symbol associations due
+    :any:`Associate` scopes.
+
+    The mapper will inspect the associated scope of each symbol
+    and replace it with the inverse of the associate mapping.
+    """
+
+    def map_scalar(self, expr, *args, **kwargs):
+        # Skip unscoped expressions
+        if not hasattr(expr, 'scope'):
+            return self.rec(expr, *args, **kwargs)
+
+        # Stop if scope is not an associate
+        if not isinstance(expr.scope, ir.Associate):
+            return expr
+
+        scope = expr.scope
+
+        # Recurse on parent first and propagate scope changes
+        parent = self.rec(expr.parent, *args, **kwargs)
+        if parent != expr.parent:
+            expr = expr.clone(parent=parent, scope=parent.scope)
+
+        # Find a match in the given inverse map
+        if expr.basename in scope.inverse_map:
+            expr = scope.inverse_map[expr.basename]
+            return self.rec(expr, *args, **kwargs)
+
+        return expr
+
+    def map_array(self, expr, *args, **kwargs):
+        """ Special case for arrys: we need to preserve the dimensions """
+        new = self.map_variable_symbol(expr, *args, **kwargs)
+
+        # Recurse over the type's shape
+        _type = expr.type
+        if expr.type.shape:
+            new_shape = self.rec(expr.type.shape, *args, **kwargs)
+            _type = expr.type.clone(shape=new_shape)
+
+        # Recurse over array dimensions
+        new_dims = self.rec(expr.dimensions, *args, **kwargs)
+        return new.clone(dimensions=new_dims, type=_type)
+
+    map_variable_symbol = map_scalar
+    map_deferred_type_symbol = map_scalar
+    map_procedure_symbol = map_scalar
+
+
+class ResolveAssociatesTransformer(Transformer):
+    """
+    :any:`Transformer` class to resolve :any:`Associate` nodes in IR trees.
 
     This will replace each :any:`Associate` node with its own body,
     where all `identifier` symbols have been replaced with the
     corresponding `selector` expression defined in ``associations``.
+
+    Importantly, this :any:`Transformer` can also be applied over partial
+    bodies of :any:`Associate` bodies.
     """
+    # pylint: disable=unused-argument
+
+    def visit_Expression(self, o, **kwargs):
+        return ResolveAssociateMapper()(o)
 
     def visit_Associate(self, o, **kwargs):
-        # First head-recurse, so that all associate blocks beneath are resolved
-        body = self.visit(o.body, **kwargs)
+        """
+        Replaces an :any:`Associate` node with its transformed body
+        """
+        return self.visit(o.body, **kwargs)
 
-        # Create an inverse association map to look up replacements
-        invert_assoc = CaseInsensitiveDict({v.name: k for k, v in o.associations})
-
-        # Build the expression substitution map
-        vmap = {}
-        for v in FindVariables().visit(body):
-            if v.name in invert_assoc:
-                # Clone the expression to update its parentage and scoping
-                inv = invert_assoc[v.name]
-                if hasattr(v, 'dimensions'):
-                    vmap[v] = inv.clone(dimensions=v.dimensions)
-                else:
-                    vmap[v] = inv
-
-        # Apply the expression substitution map to itself to handle nested expressions
-        vmap = recursive_expression_map_update(vmap)
-
-        # Mark the associate block for replacement with its body, with all expressions replaced
-        self.mapper[o] = SubstituteExpressions(vmap).visit(body)
-
-        # Return the original object unchanged and let the tuple injection mechanism take care
-        # of replacing it by its body - otherwise we would end up with nested tuples
-        return o
+    def visit_CallStatement(self, o, **kwargs):
+        arguments = self.visit(o.arguments, **kwargs)
+        kwarguments = tuple((k, self.visit(v, **kwargs)) for k, v in o.kwarguments)
+        return o._rebuild(arguments=arguments, kwarguments=kwarguments)
 
 
 def check_if_scalar_syntax(arg, dummy):
@@ -169,7 +205,7 @@ def transform_sequence_association(routine):
     """
 
     #List calls in routine, but make sure we have the called routine definition
-    calls = (c for c in FindNodes(CallStatement).visit(routine.body) if not c.procedure_type is BasicType.DEFERRED)
+    calls = (c for c in FindNodes(ir.CallStatement).visit(routine.body) if not c.procedure_type is BasicType.DEFERRED)
     call_map = {}
 
     # Check all calls and record changes to `call_map` if necessary.

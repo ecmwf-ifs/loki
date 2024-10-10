@@ -501,7 +501,14 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
         """
         An :any:`collections.OrderedDict` of associated expressions.
         """
-        return OrderedDict(self.associations)
+        return CaseInsensitiveDict((str(k), v) for k, v in self.associations)
+
+    @property
+    def inverse_map(self):
+        """
+        An :any:`collections.OrderedDict` of associated expressions.
+        """
+        return CaseInsensitiveDict((str(v), k) for k, v in self.associations)
 
     @property
     def variables(self):
@@ -957,6 +964,23 @@ class CallStatement(LeafNode, _CallStatementBase):
     """
 
     _traversable = ['name', 'arguments', 'kwarguments']
+
+    @model_validator(mode='before')
+    @classmethod
+    def pre_init(cls, values):
+        # Ensure non-nested tuples for arguments
+        if 'arguments' in values.kwargs:
+            values.kwargs['arguments'] = _sanitize_tuple(values.kwargs['arguments'])
+        else:
+            values.kwargs['arguments'] = ()
+        # Ensure two-level nested tuples for kwarguments
+        if 'kwarguments' in values.kwargs:
+            kwarguments = as_tuple(values.kwargs['kwarguments'])
+            kwarguments = tuple(_sanitize_tuple(pair) for pair in kwarguments)
+            values.kwargs['kwarguments'] = kwarguments
+        else:
+            values.kwargs['kwarguments'] = ()
+        return values
 
     def __post_init__(self):
         super().__post_init__()
