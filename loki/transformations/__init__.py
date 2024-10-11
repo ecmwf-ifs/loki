@@ -35,3 +35,4 @@ from loki.transformations.utilities import * # noqa
 from loki.transformations.block_index_transformations import * # noqa
 from loki.transformations.split_read_write import * # noqa
 from loki.transformations.loop_blocking import * # noqa
+from loki.transformations.routine_signatures import * # noqa
