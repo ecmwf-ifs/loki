@@ -29,6 +29,11 @@ from loki.logging import info, perf, warning, debug, error
 __all__ = ['Scheduler']
 
 
+def _parse_source(source, frontend_args):
+    source.make_complete(**frontend_args)
+    return source
+
+
 class Scheduler:
     """
     Work queue manager to discover and capture dependencies for a given
@@ -296,9 +301,26 @@ class Scheduler:
         # Force the parsing of the routines
         default_frontend_args = self.build_args.copy()
         default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
-        for item in SFilter(self.file_graph, reverse=True):
-            frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
-            item.source.make_complete(**frontend_args)
+        # for item in SFilter(self.file_graph, reverse=True):
+        #     frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
+        #     item.source.make_complete(**frontend_args)
+
+        item_source_fargs = tuple(
+            (item, item.source, self.config.create_frontend_args(item.name, default_frontend_args))
+            for item in SFilter(self.file_graph, reverse=True)
+        )
+
+        # This works....
+        for item, source, fargs in item_source_fargs:
+            item.source = _parse_source(source, fargs)
+
+        # This doesn't .... why?!
+        # item_futures = tuple(
+        #     (item, self.executor.submit(_parse_source, source, fargs))
+        #     for item, source, fargs in item_source_fargs
+        # )
+        # for item, future in item_futures:
+        #     item.source = future.result()
 
         # Re-build the SGraph after parsing to pick up all new connections
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
