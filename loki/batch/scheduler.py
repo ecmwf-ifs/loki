@@ -177,6 +177,23 @@ class Scheduler:
         # Shut down the parallel process pool
         self.executor.shutdown()
 
+    @staticmethod
+    def _parse_source(source, frontend_args):
+        """
+        Utility function that exposes the parsing step for one
+        :any:`SourceFile` as a pure function for the parallel
+        executor.
+
+        Parameters
+        ----------
+        source : :any:`Sourcefile`
+            The sourcefile object to trigger full parse on
+        frontend_args : dict
+            Dict of arguments to pass to :meth:`make_complete`
+        """
+        source.make_complete(**frontend_args)
+        return source
+
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
         """
@@ -296,9 +313,22 @@ class Scheduler:
         # Force the parsing of the routines
         default_frontend_args = self.build_args.copy()
         default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
-        for item in SFilter(self.file_graph, reverse=True):
-            frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
-            item.source.make_complete(**frontend_args)
+
+        # Get the iteration order from the Sfilter
+        items = SFilter(self.file_graph, reverse=True)
+
+        # Build the arguments for the parser function and call parallel map
+        with Timer(logger=perf, text='[Loki::Scheduler] Performed the actual parse loop in {:.2f}s'):
+            sources = tuple(item.source for item in items)
+            fargs = tuple(
+                self.config.create_frontend_args(item.name, default_frontend_args)
+                for item in items
+            )
+            f_sources = self.executor.map(self._parse_source, sources, fargs)
+
+        # Set the "completed" Sourcefile on the item
+        for item, source in zip(items, f_sources):
+            item.source = source
 
         # Re-build the SGraph after parsing to pick up all new connections
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
