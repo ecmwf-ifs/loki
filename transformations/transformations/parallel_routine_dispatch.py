@@ -173,6 +173,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region['map_arrays'] = region_map_arrays
         map_region['map_derived'] = region_map_derived
         map_region['private'] = region_map_private
+        region_map_not_field = sorted(region_map_not_field) #todo : uniforme names sorted/unsorted; sort at one point, maybe here?
         map_region['not_field_array'] = region_map_not_field
 
         self.create_synchost(routine, region_name, map_region)
@@ -344,7 +345,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             local_ptr_var = var.clone(dimensions=shape)
 
             routine_map_arrays[var.name]=[field_ptr_var,local_ptr_var]
-            self.create_field_new_delete(routine, map_routine, var, field_ptr_var) #file in map_routine['field_new'/'field_delete']
+            if var.name not in routine.argnames:
+                self.create_field_new_delete(routine, map_routine, var, field_ptr_var) #file in map_routine['field_new'/'field_delete']
         return(routine_map_arrays)
 
     def decl_arrays(self, routine, map_routine, region, map_region):
@@ -461,7 +463,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         loop_variables = [loop.variable.name for loop in FindNodes(ir.Loop).visit(region)]
         scalars_+=loop_variables
 
-        return scalars_
+        scalars_sorted = sorted(scalars_, key=lambda X: X)
+
+        return scalars_sorted
 
 
     def add_derived(self, routine, map_routine):
