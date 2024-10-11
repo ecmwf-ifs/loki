@@ -50,6 +50,7 @@ contains
     real(kind=real64) :: multiply
     real(kind=real64), intent(in) :: a, b
     real(kind=real64) :: temp
+    !$loki routine seq
 
     ! simulate multi-line function
     temp = a * b
@@ -93,6 +94,9 @@ end subroutine transform_inline_elemental_functions
 
     # Verify correct scope of inlined elements
     assert all(v.scope is routine for v in FindVariables().visit(routine.body))
+
+    # Ensure the !$loki routine pragma has been removed
+    assert not FindNodes(ir.Pragma).visit(routine.body)
 
     # Hack: rename routine to use a different filename in the build
     routine.name = f'{routine.name}_'
