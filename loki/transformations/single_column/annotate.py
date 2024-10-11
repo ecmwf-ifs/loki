@@ -194,13 +194,14 @@ class SCCAnnotateTransformation(Transformation):
             # Mark all non-parallel loops as `!$acc loop seq`
             self.annotate_sequential_loops(routine)
 
-            # Find variables with existing OpenACC data declarations
-            acc_vars = self.find_acc_vars(routine, targets)
+            with pragma_regions_attached(routine):
+                with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                    # Find variables with existing OpenACC data declarations
+                    acc_vars = self.find_acc_vars(routine, targets)
 
-            with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-                driver_loops = find_driver_loops(section=routine.body, targets=targets)
-                for loop in driver_loops:
-                    self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+                    driver_loops = find_driver_loops(section=routine.body, targets=targets)
+                    for loop in driver_loops:
+                        self.annotate_driver_loop(loop, acc_vars.get(loop, []))
 
     def find_acc_vars(self, routine, targets):
         """
@@ -217,30 +218,29 @@ class SCCAnnotateTransformation(Transformation):
 
         acc_vars = defaultdict(list)
 
-        with pragma_regions_attached(routine):
-            with pragmas_attached(routine, ir.Loop):
-                for region in FindNodes(ir.PragmaRegion).visit(routine.body):
-                    if region.pragma.keyword.lower() == 'acc' and 'data' in region.pragma.content.lower():
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            if region.pragma.keyword.lower() == 'acc':
+                if (parameters := get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)):
 
-                        driver_loops = find_driver_loops(section=region.body, targets=targets)
-                        if not driver_loops:
-                            continue
+                    driver_loops = find_driver_loops(section=region.body, targets=targets)
+                    if not driver_loops:
+                        continue
 
-                        parameters = get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)
-                        if (default := parameters.get('default', None)):
-                            if not 'none' in [p.strip().lower() for p in default.split(',')]:
-                                for loop in driver_loops:
-                                    _vars = [var.name.lower() for var in FindVariables(unique=True).visit(loop)]
-                                    acc_vars[loop] += _vars
-                        else:
-                            _vars = [p.strip().lower() for p in parameters.get('present', '').split(',')]
-                            _vars += [p.strip().lower() for p in parameters.get('copy', '').split(',')]
-                            _vars += [p.strip().lower() for p in parameters.get('copyin', '').split(',')]
-                            _vars += [p.strip().lower() for p in parameters.get('copyout', '').split(',')]
-                            _vars += [p.strip().lower() for p in parameters.get('deviceptr', '').split(',')]
-
+                    if (default := parameters.get('default', None)):
+                        if not 'none' in [p.strip().lower() for p in default.split(',')]:
                             for loop in driver_loops:
+
+                                _vars = [var.name.lower() for var in FindVariables(unique=True).visit(loop)]
                                 acc_vars[loop] += _vars
+                    else:
+                        _vars = [
+                            p.strip().lower()
+                            for category in ('present', 'copy', 'copyin', 'copyout', 'deviceptr')
+                            for p in parameters.get(category, '').split(',')
+                        ]
+
+                        for loop in driver_loops:
+                            acc_vars[loop] += _vars
 
         return acc_vars
 
@@ -272,7 +272,7 @@ class SCCAnnotateTransformation(Transformation):
         Parameters
         ----------
         loop : :any:`Loop`
-            Driver :any:`Loop` to wrap in ``'opencc'`` pragmas.
+            Driver :any:`Loop` to wrap in ``'openacc'`` pragmas.
         acc_vars : list
             Variables already declared in ``'openacc'`` data directives.
         """
