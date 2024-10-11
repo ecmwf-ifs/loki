@@ -17,7 +17,7 @@ from loki.ir import (
     Import, Comment, Assignment, VariableDeclaration, CallStatement,
     Transformer, FindNodes, pragmas_attached, is_loki_pragma, Interface,
     StatementFunction, FindVariables, FindInlineCalls, FindLiterals,
-    SubstituteExpressions, ExpressionFinder
+    SubstituteExpressions, ExpressionFinder, Pragma
 )
 from loki.expression import (
     symbols as sym, LokiIdentityMapper, ExpressionRetriever
@@ -600,6 +600,12 @@ def map_call_to_procedure_body(call, caller, callee=None):
     callee_body = SubstituteExpressions(argmap, rebuild_scopes=True).visit(
         callee.body.body, scope=caller
     )
+
+    # Remove 'loki routine' pragmas
+    callee_body = Transformer(
+        {pragma: None for pragma in FindNodes(Pragma).visit(callee_body)
+         if is_loki_pragma(pragma, starts_with='routine')}
+    ).visit(callee_body)
 
     # Inline substituted body within a pair of marker comments
     comment = Comment(f'! [Loki] inlined child subroutine: {callee.name}')
