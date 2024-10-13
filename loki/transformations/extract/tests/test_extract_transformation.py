@@ -15,9 +15,9 @@ from loki.transformations.extract import ExtractTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('extract_marked', [False, True])
+@pytest.mark.parametrize('outline_regions', [False, True])
 @pytest.mark.parametrize('extract_internals', [False, True])
-def test_extract_transformation_module(extract_internals, extract_marked, frontend):
+def test_extract_transformation_module(extract_internals, outline_regions, frontend):
     """
     Test basic subroutine extraction from marker pragmas in modules.
     """
@@ -37,13 +37,13 @@ subroutine outer(n, a, b)
     y(i,:) = b(i)
   end do
 
-  !$loki extract name(test1)
+  !$loki outline name(test1)
   do i=1, n
     do j=1, n+1
       x(i) = x(i)  + y(i, j)
     end do
   end do
-  !$loki end extract
+  !$loki end outline
 
   do i=1, n
     call plus_one(x, i=i)
@@ -62,26 +62,26 @@ end module test_extract_mod
     module = Module.from_source(fcode, frontend=frontend)
 
     ExtractTransformation(
-        extract_internals=extract_internals, extract_marked=extract_marked
+        extract_internals=extract_internals, outline_regions=outline_regions
     ).apply(module)
 
     routines = tuple(r for r in module.contains.body if isinstance(r, Subroutine))
-    assert len(routines) == 1 + (1 if extract_internals else 0) + (1 if extract_marked else 0)
+    assert len(routines) == 1 + (1 if extract_internals else 0) + (1 if outline_regions else 0)
     assert ('plus_one' in module) ==  extract_internals
-    assert ('test1' in module) ==  extract_marked
+    assert ('test1' in module) ==  outline_regions
 
     outer = module['outer']
-    assert len(FindNodes(ir.CallStatement).visit(outer.body)) == (2 if extract_marked else 1)
+    assert len(FindNodes(ir.CallStatement).visit(outer.body)) == (2 if outline_regions else 1)
     outer_internals = tuple(r for r in outer.contains.body if isinstance(r, Subroutine))
     assert len(outer_internals) == (0 if extract_internals else 1)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('extract_marked', [False, True])
+@pytest.mark.parametrize('outline_regions', [False, True])
 @pytest.mark.parametrize('extract_internals', [False, True])
-def test_extract_transformation_sourcefile(extract_internals, extract_marked, frontend):
+def test_extract_transformation_sourcefile(extract_internals, outline_regions, frontend):
     """
-    Test internal procedure extraction from subroutines.
+    Test internal procedure extraction and region outlining from subroutines.
     """
     fcode = """
 subroutine outer(n, a, b)
@@ -95,13 +95,13 @@ subroutine outer(n, a, b)
     y(i,:) = b(i)
   end do
 
-  !$loki extract name(test1)
+  !$loki outline name(test1)
   do i=1, n
     do j=1, n+1
       x(i) = x(i)  + y(i, j)
     end do
   end do
-  !$loki end extract
+  !$loki end outline
 
   do i=1, n
     call plus_one(x, i=i)
@@ -119,15 +119,15 @@ end subroutine outer
     sourcefile = Sourcefile.from_source(fcode, frontend=frontend)
 
     ExtractTransformation(
-        extract_internals=extract_internals, extract_marked=extract_marked
+        extract_internals=extract_internals, outline_regions=outline_regions
     ).apply(sourcefile)
 
     routines = tuple(r for r in sourcefile.ir.body if isinstance(r, Subroutine))
-    assert len(routines) == 1 + (1 if extract_internals else 0) + (1 if extract_marked else 0)
+    assert len(routines) == 1 + (1 if extract_internals else 0) + (1 if outline_regions else 0)
     assert ('plus_one' in sourcefile) ==  extract_internals
-    assert ('test1' in sourcefile) ==  extract_marked
+    assert ('test1' in sourcefile) ==  outline_regions
 
     outer = sourcefile['outer']
-    assert len(FindNodes(ir.CallStatement).visit(outer.body)) == (2 if extract_marked else 1)
+    assert len(FindNodes(ir.CallStatement).visit(outer.body)) == (2 if outline_regions else 1)
     outer_internals = tuple(r for r in outer.contains.body if isinstance(r, Subroutine))
     assert len(outer_internals) == (0 if extract_internals else 1)

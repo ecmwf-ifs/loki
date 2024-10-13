@@ -17,7 +17,7 @@ These utilities represent the conceptual inverse operation to
 """
 
 from loki.transformations.extract.internal import * # noqa
-from loki.transformations.extract.marked import * # noqa
+from loki.transformations.extract.outline import * # noqa
 
 from loki.batch import Transformation
 
@@ -33,16 +33,16 @@ class ExtractTransformation(Transformation):
 
     Parameters
     ----------
-    inline_internals : bool
+    extract_internals : bool
         Extract internal procedure (see :any:`extract_internal_procedures`);
         default: False.
-    inline_marked : bool
-        Extract :any:`Subroutine` objects marked by pragma annotations
-        (see :any:`extract_marked_subroutines`); default: True.
+    outline_regions : bool
+        Outline pragma-annotated code regions to :any:`Subroutine` objects.
+        (see :any:`outline_pragma_regions`); default: True.
     """
-    def __init__(self, extract_internals=False, extract_marked=True):
+    def __init__(self, extract_internals=False, outline_regions=True):
         self.extract_internals = extract_internals
-        self.extract_marked = extract_marked
+        self.outline_regions = outline_regions
 
     def transform_module(self, module, **kwargs):
         """
@@ -57,9 +57,9 @@ class ExtractTransformation(Transformation):
                 module.contains.append(new_routines)
 
         # Extract pragma-marked code regions into standalone subroutines
-        if self.extract_marked:
+        if self.outline_regions:
             for routine in module.subroutines:
-                new_routines = extract_marked_subroutines(routine)
+                new_routines = outline_pragma_regions(routine)
                 module.contains.append(new_routines)
 
     def transform_file(self, sourcefile, **kwargs):
@@ -75,7 +75,7 @@ class ExtractTransformation(Transformation):
                 sourcefile.ir.append(new_routines)
 
         # Extract pragma-marked code regions into standalone subroutines
-        if self.extract_marked:
+        if self.outline_regions:
             for routine in sourcefile.subroutines:
-                new_routines = extract_marked_subroutines(routine)
+                new_routines = outline_pragma_regions(routine)
                 sourcefile.ir.append(new_routines)

@@ -17,17 +17,16 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple, CaseInsensitiveDict
 
 
-__all__ = ['extract_marked_subroutines']
+__all__ = ['outline_pragma_regions']
 
 
-def extract_marked_subroutines(routine):
+def outline_pragma_regions(routine):
     """
-    Convert regions annotated with ``!$loki extract`` pragmas to subroutine calls.
-
+    Convert regions annotated with ``!$loki outline`` pragmas to subroutine calls.
 
     The pragma syntax for regions to convert to subroutines is
-    ``!$loki extract [name(...)] [in(...)] [out(...)] [inout(...)]``
-    and ``!$loki end extract``.
+    ``!$loki outline [name(...)] [in(...)] [out(...)] [inout(...)]``
+    and ``!$loki end outline``.
 
     A new subroutine is created with the provided name (or an auto-generated default name
     derived from the current subroutine name) and the content of the pragma region as body.
@@ -51,12 +50,12 @@ def extract_marked_subroutines(routine):
     with pragma_regions_attached(routine):
         with dataflow_analysis_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
-                if not is_loki_pragma(region.pragma, starts_with='extract'):
+                if not is_loki_pragma(region.pragma, starts_with='outline'):
                     continue
 
                 # Name the external routine
-                parameters = get_pragma_parameters(region.pragma, starts_with='extract')
-                name = parameters.get('name', f'{routine.name}_extracted_{counter}')
+                parameters = get_pragma_parameters(region.pragma, starts_with='outline')
+                name = parameters.get('name', f'{routine.name}_outlined_{counter}')
                 counter += 1
 
                 # Create the external subroutine containing the routine's imports and the region's body

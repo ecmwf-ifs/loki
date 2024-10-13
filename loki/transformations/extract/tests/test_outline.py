@@ -14,7 +14,7 @@ from loki.frontend import available_frontends
 from loki.ir import FindNodes, Section, Assignment, CallStatement, Intrinsic
 from loki.tools import as_tuple
 
-from loki.transformations.extract.marked import extract_marked_subroutines
+from loki.transformations.extract.outline import outline_pragma_regions
 
 
 @pytest.fixture(scope='function', name='builder')
@@ -24,23 +24,23 @@ def fixture_builder(tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_marked_subroutines(tmp_path, frontend):
+def test_outline_pragma_regions(tmp_path, frontend):
     """
-    A very simple :any:`extract_marked_subroutine` test case
+    A very simple :any:`outline_pragma_regions` test case
     """
     fcode = """
-subroutine test_extract(a, b, c)
+subroutine test_outline(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 5
   a = 1
 
-!$loki extract in(a) out(b)
+!$loki outline in(a) out(b)
   b = a
-!$loki end extract
+!$loki end outline
 
   c = a + b
-end subroutine test_extract
+end subroutine test_outline
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -54,8 +54,8 @@ end subroutine test_extract
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = extract_marked_subroutines(routine)
-    assert len(routines) == 1 and routines[0].name == f'{routine.name}_extracted_0'
+    routines = outline_pragma_regions(routine)
+    assert len(routines) == 1 and routines[0].name == f'{routine.name}_outlined_0'
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     assert len(FindNodes(Assignment).visit(routines[0].body)) == 1
@@ -73,30 +73,30 @@ end subroutine test_extract
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_marked_subroutines_multiple(tmp_path, frontend):
+def test_outline_pragma_regions_multiple(tmp_path, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
     """
     fcode = """
-subroutine test_extract_mult(a, b, c)
+subroutine test_outline_mult(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 1
   a = a + 1
   a = a + 1
-!$loki extract name(oiwjfklsf) inout(a)
+!$loki outline name(oiwjfklsf) inout(a)
   a = a + 1
-!$loki end extract
+!$loki end outline
   a = a + 1
 
-!$loki extract in(a) out(b)
+!$loki outline in(a) out(b)
   b = a
-!$loki end extract
+!$loki end outline
 
-!$loki extract in(a,b) out(c)
+!$loki outline in(a,b) out(c)
   c = a + b
-!$loki end extract
-end subroutine test_extract_mult
+!$loki end outline
+end subroutine test_outline_mult
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -110,10 +110,10 @@ end subroutine test_extract_mult
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = extract_marked_subroutines(routine)
+    routines = outline_pragma_regions(routine)
     assert len(routines) == 3
     assert routines[0].name == 'oiwjfklsf'
-    assert all(routines[i].name == f'{routine.name}_extracted_{i}' for i in (1,2))
+    assert all(routines[i].name == f'{routine.name}_outlined_{i}' for i in (1,2))
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
@@ -131,32 +131,32 @@ end subroutine test_extract_mult
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_marked_subroutines_arguments(tmp_path, frontend):
+def test_outline_pragma_regions_arguments(tmp_path, frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
     and automatic derivation of arguments
     """
     fcode = """
-subroutine test_extract_args(a, b, c)
+subroutine test_outline_args(a, b, c)
   integer, intent(out) :: a, b, c
 
   a = 1
   a = a + 1
   a = a + 1
-!$loki extract name(func_a)
+!$loki outline name(func_a)
   a = a + 1
-!$loki end extract
+!$loki end outline
   a = a + 1
 
-!$loki extract name(func_b)
+!$loki outline name(func_b)
   b = a
-!$loki end extract
+!$loki end outline
 
 ! partially override arguments
-!$loki extract name(func_c) inout(b)
+!$loki outline name(func_c) inout(b)
   c = a + b
-!$loki end extract
-end subroutine test_extract_args
+!$loki end outline
+end subroutine test_outline_args
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
@@ -170,7 +170,7 @@ end subroutine test_extract_args
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = extract_marked_subroutines(routine)
+    routines = outline_pragma_regions(routine)
     assert len(routines) == 3
     assert [r.name for r in routines] == ['func_a', 'func_b', 'func_c']
 
@@ -202,35 +202,35 @@ end subroutine test_extract_args
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_marked_subroutines_arrays(tmp_path, frontend):
+def test_outline_pragma_regions_arrays(tmp_path, frontend):
     """
     Test hoisting with array variables
     """
     fcode = """
-subroutine test_extract_arr(a, b, n)
+subroutine test_outline_arr(a, b, n)
   integer, intent(out) :: a(n), b(n)
   integer, intent(in) :: n
   integer :: j
 
-!$loki extract
+!$loki outline
   do j=1,n
     a(j) = j
   end do
-!$loki end extract
+!$loki end outline
 
-!$loki extract
+!$loki outline
   do j=1,n
     b(j) = j
   end do
-!$loki end extract
+!$loki end outline
 
-!$loki extract
+!$loki outline
   do j=1,n-1
     b(j) = b(j+1) - a(j)
   end do
   b(n) = 1
-!$loki end extract
-end subroutine test_extract_arr
+!$loki end outline
+end subroutine test_outline_arr
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -249,7 +249,7 @@ end subroutine test_extract_arr
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
-    routines = extract_marked_subroutines(routine)
+    routines = outline_pragma_regions(routine)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 0
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
@@ -276,49 +276,49 @@ end subroutine test_extract_arr
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_extract_marked_subroutines_imports(tmp_path, builder, frontend):
+def test_outline_pragma_regions_imports(tmp_path, builder, frontend):
     """
     Test hoisting with correct treatment of imports
     """
     fcode_module = """
-module extract_mod
+module outline_mod
   implicit none
   integer, parameter :: param = 1
   integer :: arr1(10)
   integer :: arr2(10)
-end module extract_mod
+end module outline_mod
     """.strip()
 
     fcode = """
-module test_extract_imps_mod
+module test_outline_imps_mod
   implicit none
 contains
-  subroutine test_extract_imps(a, b)
-    use extract_mod, only: param, arr1, arr2
+  subroutine test_outline_imps(a, b)
+    use outline_mod, only: param, arr1, arr2
     integer, intent(out) :: a(10), b(10)
     integer :: j
 
-!$loki extract
+!$loki outline
     do j=1,10
       a(j) = param
     end do
-!$loki end extract
+!$loki end outline
 
-!$loki extract
+!$loki outline
     do j=1,10
       arr1(j) = j+1
     end do
-!$loki end extract
+!$loki end outline
 
     arr2(:) = arr1(:)
 
-!$loki extract
+!$loki outline
     do j=1,10
       b(j) = arr2(j) - a(j)
     end do
-!$loki end extract
-  end subroutine test_extract_imps
-end module test_extract_imps_mod
+!$loki end outline
+  end subroutine test_outline_imps
+end module test_outline_imps_mod
 """
     ext_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     module = Module.from_source(fcode, frontend=frontend, definitions=ext_module, xmods=[tmp_path])
@@ -338,7 +338,7 @@ end module test_extract_imps_mod
     assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 0
 
     # Apply transformation
-    routines = extract_marked_subroutines(module.subroutines[0])
+    routines = outline_pragma_regions(module.subroutines[0])
 
     assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 1
     assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 3
