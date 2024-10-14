@@ -46,8 +46,7 @@ config.register('print-config', False, env_variable='LOKI_PRINT_CONFIG',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
 # Define Loki's global config options
-config.register('log-level', 'INFO', env_variable='LOKI_LOGGING',
-                callback=set_log_level, preprocess=lambda i: log_levels[i])
+config.register('log-level', 'INFO', callback=set_log_level, preprocess=lambda i: log_levels[i])
 
 config.register('debug', None, env_variable='LOKI_DEBUG',
                 callback=set_excepthook, preprocess=lambda i: auto_post_mortem_debugger if i else None)
