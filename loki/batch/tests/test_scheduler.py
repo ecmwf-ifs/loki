@@ -266,6 +266,20 @@ def test_scheduler_enrichment(testdir, config, frontend, tmp_path):
                 assert call.routine is call_item.ir
 
 
+def test_scheduler_empty_config(testdir, frontend, tmp_path):
+    """
+    Test that instantiating the Scheduler without config works (albeit it's not very useful)
+    This fixes #373
+    """
+    projA = testdir/'sources/projA'
+
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include',
+        seed_routines=['driverA'], frontend=frontend, xmods=[tmp_path]
+    )
+    assert scheduler.items == ('drivera_mod#drivera',)
+
+
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 @pytest.mark.parametrize('with_file_graph', [True, False, 'filegraph_simple'])
 @pytest.mark.parametrize('with_legend', [True, False])

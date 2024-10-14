@@ -134,7 +134,7 @@ class Scheduler:
         elif isinstance(config, (str, Path)):
             self.config = SchedulerConfig.from_file(config)
         else:
-            self.config = SchedulerConfig.from_dict(config)
+            self.config = SchedulerConfig.from_dict(config or {})
 
         self.full_parse = full_parse
 
