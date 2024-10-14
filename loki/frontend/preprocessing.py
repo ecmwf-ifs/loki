@@ -15,7 +15,7 @@ import re
 import pcpp
 from codetiming import Timer
 
-from loki.logging import debug, perf
+from loki.logging import debug, detail
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash
 from loki.ir import VariableDeclaration, Intrinsic, FindNodes
@@ -95,7 +95,7 @@ def preprocess_cpp(source, filepath=None, includes=None, defines=None):
     return s.getvalue()
 
 
-@Timer(logger=perf, text=lambda s: f'[Loki::Frontend] Executed sanitize_input in {s:.2f}s')
+@Timer(logger=detail, text=lambda s: f'[Loki::Frontend] Executed sanitize_input in {s:.2f}s')
 def sanitize_input(source, frontend):
     """
     Apply internal regex-based sanitisation rules to filter out known
