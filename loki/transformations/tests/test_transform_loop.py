@@ -16,7 +16,7 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
-    Assignment
+    Assignment, FindVariables
 )
 
 from loki.transformations.transform_loop import (
@@ -214,6 +214,59 @@ end subroutine transform_loop_interchange_project
     clean_test(filepath)
     clean_test(interchanged_filepath)
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('insert_loc', (False, True))
+def test_transform_loop_fuse_ordering(frontend, insert_loc):
+    """
+    Apply loop fusion for two loops with matching iteration spaces.
+    """
+    fcode = f"""
+subroutine transform_loop_fuse_ordering(a, b, c, n, m)
+  integer, intent(out) :: a(m, n), b(m, n), c(m)
+  integer, intent(in) :: n, m
+  integer :: i
+
+  !$loki loop-fusion group(1)
+  !$loki loop-interchange
+  do j=1,m
+    do i=1,n
+      a(j, i) = i + j
+    enddo
+  end do
+
+  !$loki loop-fusion group(1)
+  do i=1,n
+    do j=1,m
+      a(j, i) = i + j
+    enddo
+  end do
+  
+  do j=1,m
+    c(j) = j
+  enddo
+
+  !$loki loop-fusion group(1) {'insert-loc' if insert_loc else ''}
+  do i=1,n-1
+    do j=1,m
+      b(j, i) = n-i+1 + j
+    enddo
+  end do
+end subroutine transform_loop_fuse_ordering
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindNodes(Loop).visit(routine.body)) == 7
+    loop_interchange(routine)
+    loop_fusion(routine)
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 5
+    loop_0_vars = [var.name.lower() for var in FindVariables().visit(loops[0].body)]
+    if insert_loc:
+        assert loops[0].variable.name.lower() == 'j'
+        assert 'c' in loop_0_vars
+    else:
+        assert loops[0].variable.name.lower() == 'i'
+        assert 'c' not in loop_0_vars
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_loop_fuse_matching(tmp_path, frontend):
