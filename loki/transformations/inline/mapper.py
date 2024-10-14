@@ -5,10 +5,11 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.expression import LokiIdentityMapper
 from loki.ir import (
     FindNodes, Assignment, StatementFunction, SubstituteExpressions
 )
-from loki.expression import LokiIdentityMapper
+from loki.logging import detail
 from loki.types import BasicType
 
 
@@ -72,6 +73,13 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
 
         function = expr.procedure_type.procedure
         v_result = [v for v in function.variables if v == function.name][0]
+
+        scope = kwargs.get('scope') or expr.function.scope
+        if scope and function.name in scope.interface_map:
+            # Inline call to a function that is provided via an interface
+            # We don't have the function body available for inlining
+            detail(f'Cannot inline {expr.function.name} into {scope.name}. Only interface available.')
+            return super().map_inline_call(expr, *args, **kwargs)
 
         # Substitute all arguments through the elemental body
         arg_map = dict(expr.arg_iter())
