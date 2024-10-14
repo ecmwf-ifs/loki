@@ -13,7 +13,7 @@ import sys
 
 
 __all__ = ['logger', 'log_levels', 'set_log_level', 'FileLogger',
-           'debug', 'info', 'warning', 'error', 'log']
+           'debug', 'detail', 'perf', 'info', 'warning', 'error', 'log']
 
 
 def FileLogger(name, filename, level=None, file_level=None, fmt=None,
