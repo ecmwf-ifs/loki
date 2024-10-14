@@ -16,11 +16,10 @@ from pathlib import Path
 import click
 
 from loki import (
-    Sourcefile, Frontend, as_tuple, set_excepthook,
-    auto_post_mortem_debugger, info
+    config as loki_config, Sourcefile, Frontend, as_tuple,
+    set_excepthook, auto_post_mortem_debugger, info
 )
 from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
-from loki.logging import set_log_level, log_levels
 
 # Get generalized transformations provided by Loki
 from loki.transformations.argument_shape import (
@@ -135,7 +134,7 @@ def convert(
     :any:`Transformation` objects to this call tree.
     """
 
-    set_log_level(log_levels[log_level])
+    loki_config['log-level'] = log_level
 
     info(f'[Loki] Batch-processing source files using config: {config} ')
 
@@ -447,7 +446,7 @@ def plan(
     given configuration.
     """
 
-    set_log_level(log_levels[log_level])
+    loki_config['log-level'] = log_level
 
     info(f'[Loki] Creating CMake plan file from config: {config}')
     config = SchedulerConfig.from_file(config)
