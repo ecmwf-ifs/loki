@@ -70,10 +70,16 @@ shared_variables = [
 ]
 
 
-blocking = Dimension(
+blocking_outer = Dimension(
     name='block', index=('JKGLO', 'IBL'),
     lower=('1', 'ICST'), upper=('YDGEM%NGPTOT', 'ICEND'),
     step='YDDIM%NPROMA', size='YDDIM%NGPBLKS',
+)
+
+blocking_driver = Dimension(
+    name='block', index=('JKGLO', 'IBL'),
+    lower=('1', 'ICST'), upper=('YDGEOMETRY%YRGEM%NGPTOT', 'ICEND'),
+    step='YDGEOMETRY%YRDIM%NPROMA', size='YDGEOMETRY%YRDIM%NGPBLKS',
 )
 
 
@@ -185,6 +191,13 @@ def outline_driver_routines(routine):
 
                 driver_routines.append(region_routine)
 
+                if 'parallel' in parameters:
+                    # Propagate any "parallel" pragma marker for further processing
+                    pragma = ir.Pragma(keyword='loki', content='parallel')
+                    pragma_post = ir.Pragma(keyword='loki', content='end parallel')
+                    region_routine.body.prepend((ir.Comment(''), ir.Comment(''), pragma))
+                    region_routine.body.append((pragma_post, ir.Comment('')))
+
                 # Replace region by call in original routine
                 mapper[region] = call
 
@@ -277,7 +290,7 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
             # Re-insert OpenMP parallel regions after inlining
             fgtypes = field_group_types + fgroup_dimension + fgroup_firstprivates
             add_openmp_regions(
-                routine=ec_phys_fc, dimension=blocking,
+                routine=ec_phys_fc, dimension=blocking_outer,
                 field_group_types=fgtypes,
                 shared_variables=shared_variables
             )
@@ -358,7 +371,7 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             )
 
             # Strip the outer block loop and FIELD-API boilerplate
-            remove_block_loops(ec_phys_parallel, dimension=blocking)
+            remove_block_loops(ec_phys_parallel, dimension=blocking_outer)
 
             remove_field_api_view_updates(
                 ec_phys_parallel, dim_object='IDIMS',
@@ -366,10 +379,10 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             )
 
             # The add them back in according to parallel region
-            add_block_loops(ec_phys_parallel, dimension=blocking)
+            add_block_loops(ec_phys_parallel, dimension=blocking_outer)
 
             add_field_api_view_updates(
-                ec_phys_parallel, dim_object='IDIMS', dimension=blocking,
+                ec_phys_parallel, dim_object='IDIMS', dimension=blocking_outer,
                 field_group_types=field_group_types+fgroup_firstprivates
             )
 
@@ -380,6 +393,22 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
 
         driver_routines = outline_driver_routines(ec_phys_parallel)
         for driver in driver_routines:
+            # Re-insert block loop with FIELD API view updates
+            add_block_loops(routine=driver, dimension=blocking_driver)
+
+            add_field_api_view_updates(
+                routine=driver, dim_object='IDIMS', dimension=blocking_driver,
+                field_group_types=field_group_types+fgroup_firstprivates
+            )
+
+            # Re-insert explicit firstprivate copies
+            create_explicit_firstprivatisation(driver, fprivate_map=lcopies_firstprivates)
+
+            add_openmp_regions(
+                routine=driver, field_group_types=field_group_types + fgroup_dimension,
+                global_variables=global_variables
+            )
+
             # Create a new source file for the extracted routine
             filename = driver.name.lower() + '.F90'
             sourcefile = Sourcefile(ir=ir.Section(driver), path=build/filename)
