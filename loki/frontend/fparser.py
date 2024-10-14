@@ -872,12 +872,12 @@ class FParser2IR(GenericVisitor):
         # ...and update their symbol table entry...
         scope = kwargs['scope']
         for var in symbols:
-            _type = scope.symbol_attrs.lookup(var.name)
-            if _type is None or _type.dtype == BasicType.DEFERRED:
+            _type = scope.symbol_attrs.lookup(var.name) or SymbolAttributes(dtype=BasicType.DEFERRED)
+            if _type.dtype == BasicType.DEFERRED:
                 dtype = ProcedureType(var.name, is_function=False)
             else:
-                dtype = _type.dtype
-            scope.symbol_attrs[var.name] = SymbolAttributes(dtype, external=True)
+                dtype = ProcedureType(var.name, is_function=True, return_type=_type)
+            scope.symbol_attrs[var.name] = _type.clone(dtype=dtype, external=True)
 
         symbols = tuple(v.rescope(scope=scope) for v in symbols)
         declaration = ir.ProcedureDeclaration(symbols=symbols, external=True,

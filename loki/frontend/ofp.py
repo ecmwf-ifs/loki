@@ -791,12 +791,12 @@ class OFP2IR(GenericVisitor):
 
             variables = self.visit(o.findall('names'), **kwargs)
             for var in variables:
-                _type = kwargs['scope'].symbol_attrs.lookup(var.name)
-                if _type is None:
-                    _type = SymbolAttributes(dtype=ProcedureType(var.name, is_function=False), external=True)
+                _type = kwargs['scope'].symbol_attrs.lookup(var.name) or SymbolAttributes(dtype=BasicType.DEFERRED)
+                if _type.dtype == BasicType.DEFERRED:
+                    dtype = ProcedureType(var.name, is_function=False)
                 else:
-                    _type = _type.clone(external=True)
-                kwargs['scope'].symbol_attrs[var.name] = _type
+                    dtype = ProcedureType(var.name, is_function=True, return_type=_type)
+                kwargs['scope'].symbol_attrs[var.name] = _type.clone(dtype=dtype, external=True)
 
             variables = tuple(v.clone(scope=kwargs['scope']) for v in variables)
             declaration = ir.ProcedureDeclaration(symbols=variables, external=True, source=source, label=label)
