@@ -230,11 +230,27 @@ END SUBROUTINE SPCMNEW
     source = Sourcefile.from_source(fcode, frontend=frontend, definitions=definitions, xmods=[tmp_path])
     routine = source['spcmnew']
     ptr = routine.variable_map['spnsiptr']
+    func = routine.variable_map['func']
 
+    # Make sure we always have procedure type as dtype for the declared pointers
     assert isinstance(ptr.type.dtype, ProcedureType)
+    assert isinstance(func.type.dtype, ProcedureType)
+
+    # We should have the inter-procedural annotation in place if the module
+    # definition was provided
     if use_module:
         assert ptr.type.dtype.procedure is module['spnsi'].body[0]
     else:
         assert ptr.type.dtype.procedure == BasicType.DEFERRED
 
+    # With an implicit interface routine like this, we will never have
+    # procedure information in place
+    assert func.type.dtype.procedure == BasicType.DEFERRED
+    assert func.type.dtype.return_type.dtype == BasicType.REAL
+
+    # Check the interfaces declared on the variable declarations
+    assert tuple(decl.interface for decl in routine.declarations) == ('SPNSI', BasicType.REAL)
+
+    # Ensure that the fgen backend does the right thing
     assert 'procedure(spnsi), pointer :: spnsiptr' in source.to_fortran().lower()
+    assert 'procedure(real), pointer, intent(out) :: func' in source.to_fortran().lower()

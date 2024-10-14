@@ -1114,7 +1114,7 @@ class OFP2IR(GenericVisitor):
                     interface = _type.dtype
                     for var in symbols:
                         dtype = ProcedureType(var.name, is_function=True, return_type=_type)
-                        scope.symbol_attrs[var.name] = var.type.clone(dtype=dtype)
+                        scope.symbol_attrs[var.name] = _type.clone(dtype=dtype)
 
             # Rescope variables so they know their type
             symbols = tuple(var.rescope(scope=scope) for var in symbols)

@@ -547,6 +547,9 @@ class OMNI2IR(GenericVisitor):
         name = o.find('name')
         variable = self.visit(name, **kwargs)
 
+        interface = None
+        scope = kwargs['scope']
+
         # Create the declared type
         if name.attrib['type'] in self._omni_types:
             # Intrinsic scalar type
@@ -571,12 +574,19 @@ class OMNI2IR(GenericVisitor):
                         variable.name, is_function=_type.dtype.is_function, return_type=_type.dtype.return_type
                     )
                     _type = _type.clone(dtype=dtype)
+                    interface = dtype.return_type.dtype
 
-                if variable != kwargs['scope'].name:
+                if variable != scope.name:
                     # Instantiate the symbol representing the procedure in the current scope to create
                     # relevant symbol table entries, and then extract the dtype
-                    dtype = kwargs['scope'].Variable(name=_type.dtype.name).type.dtype
-                    _type = _type.clone(dtype=dtype)
+                    try:
+                        symbol_scope = scope.get_symbol_scope(_type.dtype.name)
+                        interface = symbol_scope.Variable(name=_type.dtype.name)
+                        _type = _type.clone(dtype=interface.type.dtype)
+                    except AttributeError:
+                        # Interface symbol could not be found
+                        pass
+
                 elif _type.dtype.return_type is not None:
                     # This is the declaration of the return type inside a function, which is
                     # why we restore the return_type
@@ -593,7 +603,6 @@ class OMNI2IR(GenericVisitor):
         else:
             raise ValueError
 
-        scope = kwargs['scope']
         if o.find('value') is not None:
             _type = _type.clone(initial=AttachScopesMapper()(self.visit(o.find('value'), **kwargs), scope=scope))
         if _type.kind is not None:
@@ -604,14 +613,10 @@ class OMNI2IR(GenericVisitor):
 
         if isinstance(_type.dtype, ProcedureType):
             # This is actually a function or subroutine (EXTERNAL or PROCEDURE declaration)
-            if _type.external:
-                return ir.ProcedureDeclaration(symbols=(variable,), external=True, source=kwargs['source'])
-            if _type.dtype.name == variable and _type.dtype.is_function:
-                return ir.ProcedureDeclaration(
-                    symbols=(variable,), interface=_type.dtype.return_type.dtype, source=kwargs['source']
-                )
-            interface = sym.Variable(name=_type.dtype.name, scope=scope.get_symbol_scope(_type.dtype.name))
-            return ir.ProcedureDeclaration(symbols=(variable,), interface=interface, source=kwargs['source'])
+            return ir.ProcedureDeclaration(
+                symbols=(variable,), interface=interface, external=_type.external or False,
+                source=kwargs['source']
+            )
 
         return ir.VariableDeclaration(symbols=(variable,), source=kwargs['source'])
 
