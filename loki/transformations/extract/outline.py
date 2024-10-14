@@ -37,10 +37,15 @@ def outline_pragma_regions(routine):
 
     The pragma region in the original routine is replaced by a call to the new subroutine.
 
-    :param :class:``Subroutine`` routine:
-        the routine to modify.
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The routine from which to extract marked pragma regions.
 
-    :return: the list of newly created subroutines.
+    Returns
+    -------
+    list of :any:`Subroutine`
+        the list of newly created subroutines.
 
     """
     counter = 0
