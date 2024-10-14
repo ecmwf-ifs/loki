@@ -14,21 +14,24 @@ from loki.ir import (
 from loki.types import DerivedType
 
 
-__all__ = ['extract_contained_procedures', 'extract_contained_procedure']
+__all__ = [
+    'extract_contained_procedures', 'extract_contained_procedure',
+    'extract_internal_procedures', 'extract_internal_procedure'
+]
 
 
-def extract_contained_procedures(procedure):
+def extract_internal_procedures(procedure):
     """
     This transform creates "standalone" :any:`Subroutine`s
-    from the contained procedures (subroutines or functions) of ``procedure``.
+    from the internal procedures (subroutines or functions) of ``procedure``.
 
-    A list of :any:`Subroutine`s corresponding to each contained subroutine of
+    A list of :any:`Subroutine`s corresponding to each internal subroutine of
     ``procedure`` is returned and ``procedure`` itself is
     modified (see below).
     This function does the following transforms:
-    1. all global bindings from the point of view of the contained procedures(s) are introduced
-    as imports or dummy arguments to the modified contained procedures(s) to make them standalone.
-    2. all calls or invocations of the contained procedures in parent are modified accordingly.
+    1. all global bindings from the point of view of the internal procedures(s) are introduced
+    as imports or dummy arguments to the modified internal procedures(s) to make them standalone.
+    2. all calls or invocations of the internal procedures in parent are modified accordingly.
     3. All procedures are removed from the CONTAINS block of ``procedure``.
 
     As a basic example of this transformation, the Fortran subroutine:
@@ -79,24 +82,25 @@ def extract_contained_procedures(procedure):
     """
     new_procedures = []
     for r in procedure.subroutines:
-        new_procedures += [extract_contained_procedure(procedure, r.name)]
+        new_procedures += [extract_internal_procedure(procedure, r.name)]
 
     # Remove all subroutines (or functions) from the CONTAINS section.
     newbody = tuple(r for r in procedure.contains.body if not isinstance(r, Subroutine))
     procedure.contains = procedure.contains.clone(body=newbody)
     return new_procedures
 
-def extract_contained_procedure(procedure, name):
+
+def extract_internal_procedure(procedure, name):
     """
-    Extract a single contained procedure with name ``name`` from the parent procedure ``procedure``.
+    Extract a single internal procedure with name ``name`` from the parent procedure ``procedure``.
 
     This function does the following transforms:
-    1. all global bindings from the point of view of the contained procedure are introduced
-    as imports or dummy arguments to the modified contained procedure returned from this function.
-    2. all calls or invocations of the contained procedure in the parent are modified accordingly.
+    1. all global bindings from the point of view of the internal procedure are introduced
+    as imports or dummy arguments to the modified internal procedure returned from this function.
+    2. all calls or invocations of the internal procedure in the parent are modified accordingly.
 
-    See also the "driver" function ``extract_contained_procedures``, which applies this function to each
-    contained procedure of a parent procedure and additionally empties the CONTAINS section of subroutines.
+    See also the "driver" function ``extract_internal_procedures``, which applies this function to each
+    internal procedure of a parent procedure and additionally empties the CONTAINS section of subroutines.
     """
     inner = procedure.subroutine_map[name] # Fetch the subprocedure to extract (or crash with 'KeyError').
 
@@ -104,7 +108,7 @@ def extract_contained_procedure(procedure, name):
     # and execution cannot continue.
     undefined = tuple(v for v in FindVariables().visit(inner.body) if not v.scope)
     if undefined:
-        msg = f"The following variables appearing in the contained procedure '{inner.name}' are undefined "
+        msg = f"The following variables appearing in the internal procedure '{inner.name}' are undefined "
         msg += f"in both '{inner.name}' and the parent procedure '{procedure.name}': "
         for u in undefined:
             msg += f"{u.name}, "
@@ -152,7 +156,7 @@ def extract_contained_procedure(procedure, name):
     # Produce kinds appearing in `vars_to_resolve` or in `inner.spec` that need to be resolved
     # from imports of `procedure`.
     kind_imports_to_add = tuple(v.type.kind for v in vars_to_resolve + inner_spec_vars \
-        if v.type.kind and v.type.kind.scope is procedure)
+        if v.type.kind and hasattr(v.type.kind, 'scope') and v.type.kind.scope is procedure)
 
     # Produce all imports to add.
     # Here the imports are also tidied to only import what is strictly necessary, and with single
@@ -204,3 +208,8 @@ def extract_contained_procedure(procedure, name):
         procedure.body = Transformer(call_map).visit(procedure.body)
 
     return inner
+
+
+# Aliases to the original names
+extract_contained_procedures = extract_internal_procedures
+extract_contained_procedure = extract_internal_procedure

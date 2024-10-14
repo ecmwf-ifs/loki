@@ -356,7 +356,7 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
 
     abort_callbacks = (error_stop, stop_execution)
 
-    for i, abort_callback in enumerate(abort_callbacks):
+    for abort_callback in abort_callbacks:
         scheduler = Scheduler(
             paths=[proj], config=config, seed_routines=['driver', 'another_driver'],
             frontend=frontend, xmods=[tmp_path]
@@ -380,8 +380,6 @@ def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, 
     proj = testdir/'sources/projParametrise'
 
     dic2p = {'a': 12, 'b': 11}
-    a = dic2p['a']
-    b = dic2p['b']
 
     def only_warn(**kwargs):
         msg = kwargs.get("msg")

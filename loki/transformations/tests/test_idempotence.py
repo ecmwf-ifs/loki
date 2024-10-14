@@ -15,7 +15,7 @@ from loki.transformations import IdemTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_idempotence(frontend, tmp_path):
+def test_transform_idempotence(frontend):
     """ Test the do-nothing equivalence of :any:`IdemTransformations` """
 
     fcode_driver = """

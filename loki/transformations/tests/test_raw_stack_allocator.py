@@ -8,7 +8,7 @@
 import pytest
 
 from loki.backend import fgen
-from loki.batch import Scheduler, SchedulerConfig, ProcedureItem
+from loki.batch import Scheduler, SchedulerConfig
 from loki.dimension import Dimension
 from loki.expression import DeferredTypeSymbol, InlineCall, IntLiteral
 from loki.frontend import available_frontends, OMNI
