@@ -432,6 +432,14 @@ def extract_driver_routines(routine):
 
                 driver_routines.append(region_routine)
 
+                if 'parallel' in parameters:
+                    # Propagate any "parallel" pragma marker for further processing
+                    # parallel_params = '.'.join(as_tuple(parameters['parallel']))
+                    pragma = ir.Pragma(keyword='loki', content=f'parallel')
+                    pragma_post = ir.Pragma(keyword='loki', content=f'end parallel')
+                    region_routine.body.prepend((ir.Comment(''), ir.Comment(''), pragma))
+                    region_routine.body.append((pragma_post, ir.Comment('')))
+
                 # Replace region by call in original routine
                 mapper[region] = call
 
@@ -629,6 +637,22 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
 
         driver_routines = extract_driver_routines(ec_phys_parallel)
         for driver in driver_routines:
+            # Re-insert block loop with FIELD API view updates
+            add_block_loops(routine=driver)
+
+            add_field_api_view_updates(
+                routine=driver, field_group_types=field_group_types+fgroup_firstprivates
+            )
+
+            # Re-insert explicit firstprivate copies
+            create_explicit_firstprivatisation(driver, fprivate_map=lcopies_firstprivates)
+
+            fgtypes = field_group_types + fgroup_dimension + fgroup_firstprivates
+            add_openmp_pragmas(
+                routine=driver, field_group_types=fgtypes,
+                global_variables=global_variables
+            )
+
             # Create a new source file for the extracted routine
             filename = driver.name.lower() + '.F90'
             sourcefile = Sourcefile(ir=ir.Section(driver), path=build/filename)
