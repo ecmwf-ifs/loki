@@ -120,7 +120,10 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         """
         Find inline calls but skip/ignore parameters of inline calls.
         """
-        retriever = ExpressionRetrieverSkipInlineCallParameters(lambda e: isinstance(e, sym.InlineCall))
+        retriever = ExpressionRetrieverSkipInlineCallParameters(
+            query=lambda e: isinstance(e, sym.InlineCall),
+            inline_elementals_only=inline_elementals_only, functions=functions
+        )
 
     # functions are provided, however functions is empty, thus early exit
     if functions is not None and not functions:
@@ -133,12 +136,8 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
     # Find and filter inline calls and corresponding nodes
     function_calls = {}
     # Find inline calls but skip/ignore inline calls being parameters of other inline calls
-    #  to ensure correct ordering of inlining. Those skipped/ignored inline calls will be handled
-    #  in the next call to this function.
-    retriever = ExpressionRetrieverSkipInlineCallParameters(lambda e: isinstance(e, sym.InlineCall),
-            inline_elementals_only=inline_elementals_only, functions=functions)
-    # override retriever ...
-    FindInlineCallsSkipInlineCallParameters.retriever = retriever
+    # to ensure correct ordering of inlining. Those skipped/ignored inline calls will be handled
+    # in the next call to this function.
     for node, calls in FindInlineCallsSkipInlineCallParameters(with_ir_node=True).visit(routine.body):
         for call in calls:
             if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
