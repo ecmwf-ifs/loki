@@ -7,10 +7,11 @@
 
 import pytest
 
-from loki import Module, Subroutine
+from loki import Module, Subroutine, Sourcefile
 from loki.backend import fgen
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import Intrinsic, DataDeclaration
+from loki.types import ProcedureType, BasicType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -189,3 +190,51 @@ END MODULE test
     assert len(module.declarations) == 1
     assert 'SAVE' in fgen(module.declarations[0])
     assert 'SAVE' in module.to_fortran()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('use_module', (True, False))
+def test_fgen_procedure_pointer(frontend, use_module, tmp_path):
+    """
+    Test correct code generation for procedure pointers
+
+    This was reported in #393
+    """
+    fcode_module = """
+MODULE SPSI_MODNEW
+IMPLICIT NONE
+INTERFACE
+    REAL FUNCTION SPNSI ()
+    END FUNCTION SPNSI
+END INTERFACE
+END MODULE SPSI_MODNEW
+    """.strip()
+
+    fcode = """
+SUBROUTINE SPCMNEW(FUNC)
+USE SPSI_MODNEW, ONLY : SPNSI
+IMPLICIT NONE
+PROCEDURE(SPNSI), POINTER :: SPNSIPTR
+PROCEDURE(REAL), POINTER, INTENT(OUT) :: FUNC
+FUNC => SPNSIPTR
+END SUBROUTINE SPCMNEW
+    """.strip()
+
+    if frontend == OMNI and not use_module:
+        pytest.skip('Parsing without module definitions impossible in OMNI')
+
+    definitions = []
+    if use_module:
+        module = Sourcefile.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+        definitions.extend(module.definitions)
+    source = Sourcefile.from_source(fcode, frontend=frontend, definitions=definitions, xmods=[tmp_path])
+    routine = source['spcmnew']
+    ptr = routine.variable_map['spnsiptr']
+
+    assert isinstance(ptr.type.dtype, ProcedureType)
+    if use_module:
+        assert ptr.type.dtype.procedure is module['spnsi'].body[0]
+    else:
+        assert ptr.type.dtype.procedure == BasicType.DEFERRED
+
+    assert 'procedure(spnsi), pointer :: spnsiptr' in source.to_fortran().lower()

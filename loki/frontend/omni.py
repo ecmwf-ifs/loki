@@ -572,9 +572,12 @@ class OMNI2IR(GenericVisitor):
                     )
                     _type = _type.clone(dtype=dtype)
 
-                if tast.attrib.get('is_external') == 'true':
-                    _type.external = True
-                elif variable == kwargs['scope'].name and _type.dtype.return_type is not None:
+                if variable != kwargs['scope'].name:
+                    # Instantiate the symbol representing the procedure in the current scope to create
+                    # relevant symbol table entries, and then extract the dtype
+                    dtype = kwargs['scope'].Variable(name=_type.dtype.name).type.dtype
+                    _type = _type.clone(dtype=dtype)
+                elif _type.dtype.return_type is not None:
                     # This is the declaration of the return type inside a function, which is
                     # why we restore the return_type
                     _type = _type.dtype.return_type
@@ -583,6 +586,9 @@ class OMNI2IR(GenericVisitor):
                     # variable, otherwise it will be missing from the declaration
                     if _type.shape:
                         variable = variable.clone(dimensions=_type.shape)
+
+                if tast.attrib.get('is_external') == 'true':
+                    _type.external = True
 
         else:
             raise ValueError
