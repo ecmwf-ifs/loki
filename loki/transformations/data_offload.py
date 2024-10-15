@@ -7,15 +7,19 @@
 
 from collections import defaultdict
 from itertools import chain
+from enum import Enum
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation, ProcedureItem, ModuleItem
-from loki.expression import Scalar, Array
+from loki.expression import Scalar, Array, symbols as sym
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Import, Comment,
-    Transformer, pragma_regions_attached, get_pragma_parameters,
-    FindInlineCalls, SubstituteExpressions
+    Transformer, pragma_regions_attached, get_pragma_parameters, pragmas_attached,
+    FindInlineCalls, FindVariables, SubstituteExpressions
 )
+import loki.ir as ir
+from loki.scope import Scope
+from loki.transformations.utilities import find_driver_loops
 from loki.logging import warning
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
 from loki.types import BasicType, DerivedType
@@ -23,7 +27,8 @@ from loki.types import BasicType, DerivedType
 
 __all__ = [
     'DataOffloadTransformation', 'GlobalVariableAnalysis',
-    'GlobalVarOffloadTransformation', 'GlobalVarHoistTransformation'
+    'GlobalVarOffloadTransformation', 'GlobalVarHoistTransformation',
+    'FieldOffloadTransformation'
 ]
 
 
@@ -131,8 +136,7 @@ class DataOffloadTransformation(Transformation):
                         continue
 
                     for param, arg in call.arg_iter():
-                        if isinstance(param, Array) and param.type.intent.lower() == 'in':
-                            inargs += (str(arg.name).lower(),)
+                        if isinstance(param, Array) and param.type.intent.lower() == 'in': inargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':
                             inoutargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
@@ -908,3 +912,395 @@ class GlobalVarHoistTransformation(Transformation):
             )) for arg in new_arguments
         ]
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
+
+
+################################################################################
+# OpenMP annotation stripping subroutine
+################################################################################
+class OpenMPPragmaStripper:
+    def __init__(self, **kwargs):
+        # We need to record if we actually added any, so
+        # that down-stream processing can use that info
+        self.has_data_regions = False
+        self.remove_openmp = kwargs.get('remove_openmp', False)
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs.get('role')
+        targets = as_tuple(kwargs.get('target', None))
+
+        if targets:
+            targets = tuple(t.lower() for t in targets)
+
+        if role == 'driver':
+            self.remove_openmp_pragmas(routine, targets)
+
+    def remove_openmp_pragmas(self, routine, targets):
+        """
+        Remove any existing OpenMP pragmas in the offload regions that
+        will have been intended for OpenMP threading rather than
+        offload.
+
+        Parameters
+        ----------
+        routine : `Subroutine`
+            Subroutine to apply this transformation to.
+        targets : list or string
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
+        """
+        pragma_map = {}
+        with pragma_regions_attached(routine):
+            for region in FindNodes(PragmaRegion).visit(routine.body):
+                # Only work on active `!$loki data` regions
+                if not self._is_active_loki_data_region(region, targets):
+                    continue
+
+                for p in FindNodes(Pragma).visit(routine.body):
+                    if p.keyword.lower() == 'omp':
+                        pragma_map[p] = None
+                for r in FindNodes(PragmaRegion).visit(region):
+                    if r.pragma.keyword.lower() == 'omp':
+                        pragma_map[r.pragma] = None
+                        pragma_map[r.pragma_post] = None
+
+        routine.body = Transformer(pragma_map).visit(routine.body)
+
+
+################################################################################
+# IterMap
+################################################################################
+
+################################################################################
+# Field API helper routines
+################################################################################
+def get_field_type(a: sym.Array) -> sym.DerivedType:
+    """
+    Returns the corresponding FIELD API type for an array.
+
+    This transformation is IFS specific and assumes that the
+    type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
+    """
+    type_map = ["jprb",
+                "jpit", "jpis",
+                "jpim",
+                "jpib",
+                "jpia",
+                "jprt",
+                "jprs",
+                "jprm",
+                "jprd",
+                "jplm"]
+
+    type_name = a.type.kind.name
+    assert type_name.lower() in type_map, ('Error array type kind is: '
+                                           f'"{type_name}" which is not a valid IFS type specifier')
+    rank = len(a.shape)
+    field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4])
+    return field_type
+
+
+def field_new(field_ptr, data, scope):
+    return ir.CallStatement(sym.ProcedureSymbol('FIELD_NEW', scope=scope),
+                            (field_ptr,), (('DATA', data),))
+
+
+def field_delete(field_ptr, scope):
+    return ir.CallStatement(sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
+                            (field_ptr,))
+
+
+class FieldAPITransferType(Enum):
+    READ_ONLY = 1
+    READ_WRITE = 2
+    WRITE_ONLY = 3
+
+
+def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope):
+    assert isinstance(transfer_type, FieldAPITransferType)
+    if transfer_type == FieldAPITransferType.READ_ONLY:
+        suffix = 'RDONLY'
+    if transfer_type == FieldAPITransferType.READ_WRITE:
+        suffix = 'RDWR'
+    if transfer_type == FieldAPITransferType.WRITE_ONLY:
+        suffix = 'WRONLY'
+    procedure_name = 'GET_DEVICE_DATA_' + suffix
+    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                            (dev_ptr.clone(dimensions=None),))
+
+
+def field_sync_host(field_ptr, scope):
+    procedure_name = 'SYNC_HOST_RDWR'
+    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), ())
+
+
+def find_array_arguments(routine, calls):
+    """
+    Finds all arguments and sorts them by intents
+
+    Parameters
+    ----------
+    routine : `Subroutine`
+        Subroutine to apply this transformation to.
+    calls : list of `CallStatement`
+        Calls to extract arguments from.
+        This transformation will only apply at the ``'driver'`` level.
+
+
+    Returns
+    -------
+    inargs : tuple of arguments that are only inargs
+    inoutargs : tuples of arguments that are both in and out, or inout
+    outargs : tuples of arguments that are only outargs
+    """
+    inargs = ()
+    inoutargs = ()
+    outargs = ()
+
+    for call in calls:
+        if call.routine is BasicType.DEFERRED:
+            warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched ' +
+                    f'in {str(call.name).lower()}')
+            continue
+        for param, arg in call.arg_iter():
+            if isinstance(param, Array) and param.type.intent.lower() == 'in':
+                inargs += (arg, )
+            if isinstance(param, Array) and param.type.intent.lower() == 'inout':
+                inoutargs += (arg, )
+            if isinstance(param, Array) and param.type.intent.lower() == 'out':
+                outargs += (arg, )
+
+    # Sanitize data access categories to avoid double-counting variables
+    inoutargs += tuple(v for v in inargs if v in outargs)
+    inargs = tuple(v for v in inargs if v not in inoutargs)
+    outargs = tuple(v for v in outargs if v not in inoutargs)
+
+    # Filter for duplicates TODO: What if we pass different slices of same array!?
+    inargs = tuple(set(inargs))
+    inoutargs = tuple(set(inoutargs))
+    outargs = tuple(set(outargs))
+    return inargs, inoutargs, outargs
+
+
+class FieldOffloadTransformation(Transformation):
+
+    def __init__(self, blocking_indices=None, devptr_prefix='devp', field_wrapper_types=None):
+        self.block_suffix = '_block_ptr'
+        self.field_block_suffix = '_field_block_ptr'
+        self.blocking_indices = ('jbl',) if blocking_indices is None else blocking_indices
+        self.devptr_prefix = devptr_prefix
+        self.device_variable_map = {}   # map to hold device pointers
+        # TODO: Add support for PACKED functionality (i.e. field gangs)
+        # self.field_wrapper_types = field_wrapper_types
+        self.field_wrapper_types = ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE']  # the FIELD prefix should perhaps also be reserved?
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        targets = as_tuple(kwargs.get('targets'), (None))
+        if role == 'kernel':
+            self.process_kernel(routine)
+        if role == 'driver':
+            self.process_driver(routine, targets)
+            from loki.ir import pprint
+            from loki import fgen
+            print(f"{pprint(routine)}")
+            print(f"{fgen(routine)}")
+
+    def process_kernel(self, routine):
+        print("processing kernel:", routine)
+        pass
+
+    def process_driver(self, driver, targets):
+        print("processing driver:", driver)
+        print("targets:", targets)
+        with pragma_regions_attached(driver):
+            for region in FindNodes(PragmaRegion).visit(driver.body):
+                # Only work on active `!$loki data` regions
+                if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
+                    continue
+                offload_calls = self.find_kernel_calls(driver, region, targets)
+                offload_variables = self.find_offload_variables(driver, offload_calls)
+                device_ptrs = self._declare_device_ptrs(driver, offload_variables)
+                self._replace_data_offload_calls(driver, *offload_variables)
+                self._replace_kernel_args(driver, offload_calls)
+
+    def find_kernel_calls(self, driver, region, targets):
+        """TODO: Docstring for find_kernel_calls.
+
+        :driver: TODO
+        :region: TODO
+        :targets: TODO
+        :returns: TODO
+        """
+        calls = FindNodes(CallStatement).visit(region)
+        calls = [c for c in calls if str(c.name).lower() in targets]
+        return calls
+
+    def find_offload_variables(self, driver, calls):
+        # Perhaps we want more vars to offload in the future
+        inargs = ()
+        inoutargs = ()
+        outargs = ()
+
+        for call in calls:
+            if call.routine is BasicType.DEFERRED:
+                warning(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
+                        f'in {str(call.name).lower()}')
+                continue
+            for param, arg in call.arg_iter():
+                if not isinstance(param, Array):
+                    continue
+                try:
+                    parent = arg.parent
+                    if parent.type.dtype.name not in self.field_wrapper_types:
+                        warning(f'[Loki] The parent object {parent.name} of type {parent.type.dtype} is not in the list of' +
+                                f' field wrapper types')
+                except AttributeError:
+                    warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in' +
+                            f'{driver.name} that is not wrapped by a Field API object')  # ofc we cant know this for sure
+                    continue
+
+                if isinstance(param, Array) and param.type.intent.lower() == 'in':
+                    inargs += (arg, )
+                if isinstance(param, Array) and param.type.intent.lower() == 'inout':
+                    inoutargs += (arg, )
+                if isinstance(param, Array) and param.type.intent.lower() == 'out':
+                    outargs += (arg, )
+
+        # Sanitize data access categories to avoid double-counting variables
+        inoutargs += tuple(v for v in inargs if v in outargs)
+        inargs = tuple(v for v in inargs if v not in inoutargs)
+        outargs = tuple(v for v in outargs if v not in inoutargs)
+
+        # Filter for duplicates TODO: What if we pass different slices of same array!?
+        inargs = tuple(set(inargs))
+        inoutargs = tuple(set(inoutargs))
+        outargs = tuple(set(outargs))
+        return inargs, inoutargs, outargs
+
+
+    def _declare_device_ptrs(self, driver, offload_variables):
+        device_ptrs = tuple(self._devptr_from_array(driver, a) for a in chain(*offload_variables))
+        driver.variables += device_ptrs
+        return device_ptrs
+
+    def _replace_data_offload_calls(self, driver, inargs, inoutargs, outargs):
+        """TODO: Docstring for _replace_data_offload_calls.
+
+        Parameters
+        ----------
+        :inargs: TODO
+        :inoutargs: TODO
+        :outargs: TODO
+        :returns: TODO
+
+        """
+        pass
+    
+    def _replace_kernel_args(self, driver, args):
+        """TODO: Docstring for _replace_kernel_args.
+
+        :driver: TODO
+        :args: TODO
+        :returns: TODO
+
+        """
+        pass
+    def _field_ptr_from_array(self, a: sym.Array) -> sym.Variable:
+        """
+        Returns a pointer :any:`Variable` pointing to a FIELD with types matching the array.
+        """
+
+        field_ptr_type = sym.SymbolAttributes(get_field_type(a), polymorphic=True, pointer=True,
+                                              intent=None, initial="NULL()")
+        field_ptr = sym.Variable(name=a.name + self.field_block_suffix, type=field_ptr_type)
+        return field_ptr
+
+    def _devptr_from_array(self, driver, a: sym.Array) -> sym.Variable:
+        """
+        Returns a contiguous pointer :any:`Variable` with types matching the array a
+        """
+        shape = (sym.RangeIndex((None, None)),) * len(a.shape)
+        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
+        base_name = a.name if a.parent is None else a.name.split('%')[-1]
+        devptr_name = self.devptr_prefix + base_name
+        try:
+            driver.variable_map[devptr_name]
+            warning(f'[Loki] Field data offload: The routine {driver.name} already has a' +
+                    f'variable named {devptr_name}')
+        except KeyError:
+            pass
+        devptr = sym.Variable(name=self.devptr_prefix+base_name, type=devptr_type, dimensions=shape)
+        return devptr
+    
+    def _insert_fields(self, routine, splitting_vars, inner_loop, outer_loop):
+        """
+        Replaces arrays inside the inner loop with FIELD api fields
+
+        This routine declares field object pointers to hold the blocks of the arrays used inside
+        the loop and replaces array variables inside the loop with their blocked counterparts.
+        An array is blocked with the leading dimensions
+
+        """
+
+        # Field API pointer and device pointer variables
+        blocking_arrays = tuple(var for var in FindVariables().visit(inner_loop.body) if
+                                isinstance(var, sym.Array) and any(
+                                    bi in var for bi in self.blocking_indices))
+
+        field_pointers = tuple(self._field_ptr_from_array(a) for a in blocking_arrays)
+        routine.variables += field_pointers
+        block_pointers = tuple(self._block_ptr_from_array(a) for a in blocking_arrays)
+        routine.variables += block_pointers
+
+        field_ptr_map = dict(zip(blocking_arrays, field_pointers))
+        block_ptr_map = dict(zip(blocking_arrays, block_pointers))
+
+        block_range = sym.RangeIndex(
+            (splitting_vars.block_start, splitting_vars.block_end))
+
+        # Field creation/updates
+        field_updates = tuple(field_new(block_ptr_map[a],
+                                        a.clone(dimensions=None)) for a in blocking_arrays)
+
+        # # memory copies
+        # should be replaced by a proper data flow analysis in the future
+        in_vars = tuple(a for a in blocking_arrays if a.type.intent == 'in')
+        inout_vars = tuple(a for a in blocking_arrays if a.type.intent == 'inout')
+        out_vars = tuple(a for a in blocking_arrays if a.type.intent == 'out')
+
+        # FIELD API host to device transfers
+        host_to_device = tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
+                                                     FieldAPITransferType.READ_ONLY, routine)
+                               for var in in_vars)
+        host_to_device += tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
+                                                      FieldAPITransferType.READ_WRITE, routine)
+                                for var in inout_vars)
+        host_to_device += tuple(field_get_device_data(field_ptr_map[var], block_ptr_map[var],
+                                                      FieldAPITransferType.WRITE_ONLY, routine)
+                                for var in out_vars)
+
+        device_to_host = tuple(
+            field_sync_host(field_ptr_map[var], routine) for var in chain(inout_vars, out_vars))
+        field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
+
+        change_map = {inner_loop: field_updates + host_to_device + (
+            inner_loop,) + device_to_host + field_deletes}
+        Transformer(change_map, inplace=True).visit(outer_loop)
+        return field_ptr_map, block_ptr_map
+
+    def _insert_acc_data_pragmas(self, inner_loop, outer_loop, block_ptr_map):
+        non_blocked_vars = tuple(
+                var for var in FindVariables().visit(inner_loop.body) if var is not block_ptr_map)
+
+        acc_copyins = ir.Pragma(keyword='acc',
+                                content=f'data copyin({", ".join(v.name for v in non_blocked_vars)})')
+        acc_present = ir.Pragma(keyword='acc',
+                                content=f'data present({", ".join(v.name for v in block_ptr_map.values())})')
+        # acc_data_start = (ir.Pragma(keyword='acc', content='data'), acc_copyins, acc_present)
+        acc_data_start = (acc_copyins, acc_present)
+        acc_data_end = (ir.Pragma(keyword='acc', content='data end)'),)
+
+        change_map = {inner_loop: acc_data_start + (inner_loop,)}# + acc_data_end}
+        # change_map = {inner_loop: (inner_loop,) }
+        Transformer(change_map, inplace=True).visit(outer_loop)
+
