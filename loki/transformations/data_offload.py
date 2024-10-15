@@ -7,15 +7,19 @@
 
 from collections import defaultdict
 from itertools import chain
+from enum import Enum
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation, ProcedureItem, ModuleItem
-from loki.expression import Scalar, Array
+from loki.expression import Scalar, Array, symbols as sym
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Import, Comment,
-    Transformer, pragma_regions_attached, get_pragma_parameters,
-    FindInlineCalls, SubstituteExpressions
+    Transformer, pragma_regions_attached, get_pragma_parameters, pragmas_attached,
+    FindInlineCalls, FindVariables, SubstituteExpressions
 )
+import loki.ir as ir
+from loki.scope import Scope
+from loki.transformations.utilities import find_driver_loops
 from loki.logging import warning
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
 from loki.types import BasicType, DerivedType
@@ -23,7 +27,8 @@ from loki.types import BasicType, DerivedType
 
 __all__ = [
     'DataOffloadTransformation', 'GlobalVariableAnalysis',
-    'GlobalVarOffloadTransformation', 'GlobalVarHoistTransformation'
+    'GlobalVarOffloadTransformation', 'GlobalVarHoistTransformation',
+    'FieldOffloadTransformation'
 ]
 
 
@@ -49,6 +54,7 @@ class DataOffloadTransformation(Transformation):
         self.has_data_regions = False
         self.remove_openmp = kwargs.get('remove_openmp', False)
         self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
+        self.assume_acc_mapped = kwargs.get('assume_acc_mapped', False)
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -131,8 +137,7 @@ class DataOffloadTransformation(Transformation):
                         continue
 
                     for param, arg in call.arg_iter():
-                        if isinstance(param, Array) and param.type.intent.lower() == 'in':
-                            inargs += (str(arg.name).lower(),)
+                        if isinstance(param, Array) and param.type.intent.lower() == 'in': inargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':
                             inoutargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
@@ -156,6 +161,13 @@ class DataOffloadTransformation(Transformation):
                     else:
                         deviceptr = ''
                     pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
+                elif self.assume_acc_mapped:
+                    offload_args = inargs + outargs + inoutargs
+                    if offload_args:
+                        present = f' present({", ".join(offload_args)})'
+                    else:
+                        present = ''
+                    pragma = Pragma(keyword='acc', content=f'data{present}')
                 else:
                     copyin = f'copyin({", ".join(inargs)})' if inargs else ''
                     copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''
@@ -908,3 +920,303 @@ class GlobalVarHoistTransformation(Transformation):
             )) for arg in new_arguments
         ]
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
+
+
+################################################################################
+# Field API helper routines
+################################################################################
+def get_field_type(a: sym.Array) -> sym.DerivedType:
+    """
+    Returns the corresponding FIELD API type for an array.
+
+    This transformation is IFS specific and assumes that the
+    type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
+    """
+    type_map = ["jprb",
+                "jpit",
+                "jpis",
+                "jpim",
+                "jpib",
+                "jpia",
+                "jprt",
+                "jprs",
+                "jprm",
+                "jprd",
+                "jplm"]
+
+    type_name = a.type.kind.name
+    assert type_name.lower() in type_map, ('Error array type kind is: '
+                                           f'"{type_name}" which is not a valid IFS type specifier')
+    rank = len(a.shape)
+    field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4])
+    return field_type
+
+
+def field_new(field_ptr, data, scope):
+    return ir.CallStatement(sym.ProcedureSymbol('FIELD_NEW', scope=scope),
+                            (field_ptr,), (('DATA', data),))
+
+
+def field_delete(field_ptr, scope):
+    return ir.CallStatement(sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
+                            (field_ptr,))
+
+
+class FieldAPITransferType(Enum):
+    READ_ONLY = 1
+    READ_WRITE = 2
+    WRITE_ONLY = 3
+
+
+def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope):
+    assert isinstance(transfer_type, FieldAPITransferType)
+    if transfer_type == FieldAPITransferType.READ_ONLY:
+        suffix = 'RDONLY'
+    if transfer_type == FieldAPITransferType.READ_WRITE:
+        suffix = 'RDWR'
+    if transfer_type == FieldAPITransferType.WRITE_ONLY:
+        suffix = 'WRONLY'
+    procedure_name = 'GET_DEVICE_DATA_' + suffix
+    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                            (dev_ptr.clone(dimensions=None),))
+
+
+def field_sync_host(field_ptr, scope):
+    procedure_name = 'SYNC_HOST_RDWR'
+    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), ())
+
+
+def find_array_arguments(routine, calls):
+    """
+    Finds all arguments and sorts them by intents
+
+    Parameters
+    ----------
+    routine : `Subroutine`
+        Subroutine to apply this transformation to.
+    calls : list of `CallStatement`
+        Calls to extract arguments from.
+        This transformation will only apply at the ``'driver'`` level.
+
+
+    Returns
+    -------
+    inargs : tuple of arguments that are only inargs
+    inoutargs : tuples of arguments that are both in and out, or inout
+    outargs : tuples of arguments that are only outargs
+    """
+    inargs = ()
+    inoutargs = ()
+    outargs = ()
+
+    for call in calls:
+        if call.routine is BasicType.DEFERRED:
+            warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched ' +
+                    f'in {str(call.name).lower()}')
+            continue
+        for param, arg in call.arg_iter():
+            if isinstance(param, Array) and param.type.intent.lower() == 'in':
+                inargs += (arg, )
+            if isinstance(param, Array) and param.type.intent.lower() == 'inout':
+                inoutargs += (arg, )
+            if isinstance(param, Array) and param.type.intent.lower() == 'out':
+                outargs += (arg, )
+
+    inoutargs += tuple(v for v in inargs if v in outargs)
+    inargs = tuple(v for v in inargs if v not in inoutargs)
+    outargs = tuple(v for v in outargs if v not in inoutargs)
+
+    # Filter for duplicates TODO: What if we pass different slices of same array!?
+    inargs = tuple(set(inargs))
+    inoutargs = tuple(set(inoutargs))
+    outargs = tuple(set(outargs))
+    return inargs, inoutargs, outargs
+
+
+def find_target_calls(region, targets):
+    """Returns a list of all calls to targets inside the region
+
+    Parameters
+    ----------
+    :region: :any:`PragmaRegion`
+    :targets: collection of :any:`Subroutine`
+        Iterable object of subroutines or functions called
+    :returns: list of :any:`CallStatement`
+    """
+    calls = FindNodes(CallStatement).visit(region)
+    calls = [c for c in calls if str(c.name).lower() in targets]
+    return calls
+
+
+class FieldOffloadTransformation(Transformation):
+    class FieldPointerMap:
+        def __init__(self, devptrs, inargs, inoutargs, outargs):
+            self.inargs = inargs
+            self.inoutargs = inoutargs
+            self.outargs = outargs
+            self.devptrs = devptrs
+
+        @property
+        def in_pairs(self):
+            for i, inarg in enumerate(self.inargs):
+                yield inarg, self.devptrs[i]
+
+        @property
+        def inout_pairs(self):
+            start = len(self.inargs)
+            for i, inoutarg in enumerate(self.inoutargs):
+                yield inoutarg, self.devptrs[i+start]
+
+        @property
+        def out_pairs(self):
+            start = len(self.inargs)+len(self.inoutargs)
+            for i, outarg in enumerate(self.outargs):
+                yield outarg, self.devptrs[i+start]
+
+
+    def __init__(self, devptr_prefix='LOKI_DEVPTR_', **kwargs):
+        self.devptr_prefix = kwargs.get('devptr_prefix', 'loki_devptr')
+        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE'])
+        self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
+        self.field_group_types = tuple(typename.lower() for typename in field_group_types)
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        targets = as_tuple(kwargs.get('targets'), (None))
+        if role == 'kernel':
+            self.process_kernel(routine)
+        if role == 'driver':
+            self.process_driver(routine, targets)
+
+    def process_kernel(self, routine):
+        pass
+
+    def process_driver(self, driver, targets):
+        with pragma_regions_attached(driver):
+            for region in FindNodes(PragmaRegion).visit(driver.body):
+                # Only work on active `!$loki data` regions
+                if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
+                    continue
+                kernel_calls = find_target_calls(region, targets)
+                offload_variables = self.find_offload_variables(driver, kernel_calls)
+                device_ptrs = self._declare_device_ptrs(driver, offload_variables)
+                offload_map = self.FieldPointerMap(device_ptrs, *offload_variables)
+                old_offload_calls = self._replace_data_offload_calls(driver, region, offload_map)
+                self._replace_kernel_args(kernel_calls, old_offload_calls, offload_map)
+
+    def find_offload_variables(self, driver, calls):
+        inargs = ()
+        inoutargs = ()
+        outargs = ()
+
+        for call in calls:
+            if call.routine is BasicType.DEFERRED:
+                warning(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
+                        f'in {str(call.name).lower()}')
+                continue
+            for param, arg in call.arg_iter():
+                if not isinstance(param, Array):
+                    continue
+                try:
+                    parent = arg.parent
+                    if parent.type.dtype.name.lower() not in self.field_group_types:
+                        warning(f'[Loki] The parent object {parent.name} of type {parent.type.dtype} is not in the list of' +
+                                ' field wrapper types')
+                except AttributeError:
+                    warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in' +
+                            f'{driver.name} that is not wrapped by a Field API object')  # ofc we cant know this for sure
+                    continue
+
+                if param.type.intent.lower() == 'in':
+                    inargs += (arg, )
+                if param.type.intent.lower() == 'inout':
+                    inoutargs += (arg, )
+                if param.type.intent.lower() == 'out':
+                    outargs += (arg, )
+
+        inoutargs += tuple(v for v in inargs if v in outargs)
+        inargs = tuple(v for v in inargs if v not in inoutargs)
+        outargs = tuple(v for v in outargs if v not in inoutargs)
+
+        # Filter for duplicates TODO: What if we pass different slices of same array!?
+        inargs = tuple(set(inargs))
+        inoutargs = tuple(set(inoutargs))
+        outargs = tuple(set(outargs))
+        return inargs, inoutargs, outargs
+
+
+    def _declare_device_ptrs(self, driver, offload_variables):
+        device_ptrs = tuple(self._devptr_from_array(driver, a) for a in chain(*offload_variables))
+        driver.variables += device_ptrs
+        return device_ptrs
+
+    def _devptr_from_array(self, driver, a: sym.Array) -> sym.Variable:
+        """
+        Returns a contiguous pointer :any:`Variable` with types matching the array a
+        """
+        shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
+        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
+        base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
+        devptr_name = self.devptr_prefix + base_name
+        try:
+            driver.variable_map[devptr_name]
+            warning(f'[Loki] Field data offload: The routine {driver.name} already has a' +
+                    f'variable named {devptr_name}')
+        except KeyError:
+            pass
+        devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
+        return devptr
+
+    def _replace_data_offload_calls(self, driver, region, offload_map):
+        # remove calls to [field_group_type]%update_view
+        calls = FindNodes(CallStatement).visit(region)
+        field_group_updates = tuple(c for c in calls if self._is_field_group_update(driver, c))
+        # c.arguments contains Scalar(IBL)
+        Transformer(dict.fromkeys(field_group_updates, None), inplace=True).visit(region.body)
+        host_to_device = tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
+                               FieldAPITransferType.READ_ONLY, driver) for inarg, devptr in offload_map.in_pairs)
+        host_to_device += tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
+                                FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.inout_pairs)
+        host_to_device += tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
+                                FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.out_pairs)
+        device_to_host = tuple(field_sync_host(self._get_field_ptr_from_view(inarg), driver)
+                               for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
+        # field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
+        update_map = {region: host_to_device + (region,) + device_to_host}
+        Transformer(update_map, inplace=True).visit(driver.body)
+        return field_group_updates
+
+    def _is_field_group_update(self, driver, call):
+        try:
+            *_, parent, call_name = call.name.name.split('%')
+            parent = driver.variable_map.get(parent)
+            if parent is not None and parent.type.dtype.name.lower() in self.field_group_types:
+                return True
+        except ValueError:
+            return False
+        return False
+
+    def _get_field_ptr_from_view(self, field_view):
+        type_chain = field_view.name.split('%')
+        field_type_name = 'F_' + type_chain[-1]
+        return field_view.parent.get_derived_type_member(field_type_name)
+
+    def _replace_kernel_args(self, kernel_calls, old_offload_calls, offload_map):
+        """TODO: Docstring for _replace_kernel_calls.
+
+        :kernel_calls: TODO
+        :old_offload_calls: TODO
+        :device_ptrs: TODO
+        :returns: TODO
+        """
+        change_map = {}
+        for arg, devptr in chain(offload_map.in_pairs, offload_map.inout_pairs, offload_map.out_pairs):
+            group_update = next((c for c in old_offload_calls if c.name.parent == arg.parent), None)
+            assert group_update is not None, "Group update should not be none"
+            block_idx = group_update.arguments[0]
+            dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (block_idx,)
+            change_map[arg] = devptr.clone(dimensions=dims)
+        arg_transformer = SubstituteExpressions(change_map, inplace=True)
+        for call in kernel_calls:
+            arg_transformer.visit(call)
+
