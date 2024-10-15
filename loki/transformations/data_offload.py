@@ -1023,7 +1023,6 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
     return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
                             (dev_ptr.clone(dimensions=None),))
 
-
 def field_sync_host(field_ptr, scope):
     procedure_name = 'SYNC_HOST_RDWR'
     return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), ())
@@ -1101,21 +1100,24 @@ class FieldOffloadTransformation(Transformation):
             self.inoutargs = inoutargs
             self.outargs = outargs
             self.devptrs = devptrs
-        
+
+        @property
         def in_pairs(self):
             for i, inarg in enumerate(self.inargs):
-                return inarg, self.devptrs[i]
+                yield inarg, self.devptrs[i]
 
+        @property
         def inout_pairs(self):
             start = len(self.inargs)
             for i, inoutarg in enumerate(self.inoutargs):
-                return inoutarg, self.devptrs[i+start]
+                yield inoutarg, self.devptrs[i+start]
 
+        @property
         def out_pairs(self):
-            start = len(self.inargs)+len(self.outargs)
+            start = len(self.inargs)+len(self.inoutargs)
             for i, outarg in enumerate(self.outargs):
-                return outarg, self.devptrs[i+start]
-        
+                yield outarg, self.devptrs[i+start]
+
     def __init__(self, blocking_indices=None, devptr_prefix='LOKI_DEVPTR_', **kwargs):
         self.block_suffix = '_block_ptr'
         self.field_block_suffix = '_field_block_ptr'
@@ -1182,7 +1184,7 @@ class FieldOffloadTransformation(Transformation):
                     warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in' +
                             f'{driver.name} that is not wrapped by a Field API object')  # ofc we cant know this for sure
                     continue
-                 
+
                 if param.type.intent.lower() == 'in':
                     inargs += (arg, )
                 if param.type.intent.lower() == 'inout':
@@ -1211,7 +1213,7 @@ class FieldOffloadTransformation(Transformation):
         """
         Returns a contiguous pointer :any:`Variable` with types matching the array a
         """
-        shape = (sym.RangeIndex((None, None)),) * len(a.shape)
+        shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
         devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
         base_name = a.name if a.parent is None else a.name.split('%')[-1]
         devptr_name = self.devptr_prefix + base_name
@@ -1225,9 +1227,24 @@ class FieldOffloadTransformation(Transformation):
         return devptr
 
     def _replace_data_offload_calls(self, driver, region, offload_map):
+        # remove calls to [field_group_type]%update_view
         calls = FindNodes(CallStatement).visit(region)
-        field_group_updates = (c for c in calls if self._is_field_group_update(driver, c))
+        field_group_updates = tuple(c for c in calls if self._is_field_group_update(driver, c))
         Transformer(dict.fromkeys(field_group_updates, None), inplace=True).visit(region.body)
+
+        host_to_device = tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
+                               FieldAPITransferType.READ_ONLY, driver) for inarg, devptr in offload_map.in_pairs)
+        host_to_device += tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
+                                FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.inout_pairs)
+        device_to_host = tuple(field_sync_host(self._get_field_ptr_from_view(inarg), driver)
+                               for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
+
+            #field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
+        region.prepend(host_to_device)
+        region.append(device_to_host)
+        # Transformer(change_map, inplace=True).visit(driver)
+        # insert call to FIELD_API
+        update_indices = tuple(c.arguments for c in field_group_updates)
 
     def _is_field_group_update(self, driver, call):
         # This is purely done on string logic rn, is that bad?
@@ -1239,6 +1256,12 @@ class FieldOffloadTransformation(Transformation):
         except ValueError:
             return False
         return False
+
+    def _get_field_ptr_from_view(self, field_view):
+        type_chain = field_view.name.split('%')
+        field_type_name = 'F_' + type_chain[-1]
+        # return '%'.join(type_chain)
+        return field_view.parent.get_derived_type_member(field_type_name)
 
     def _replace_kernel_args(self, driver, args):
         """TODO: Docstring for _replace_kernel_args.
