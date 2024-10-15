@@ -1399,7 +1399,7 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
 
     proj = here / '../../tests/sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
 
     dic2p = {'nz': 137}
     cuda_transform = SCCLowLevelParametrise(
@@ -1469,7 +1469,7 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
 
     proj = here / '../../tests/sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend)
+    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
 
     cuda_transform = SCCLowLevelHoist(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,

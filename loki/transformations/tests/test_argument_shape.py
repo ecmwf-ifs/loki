@@ -365,7 +365,7 @@ def test_argument_shape_transformation(frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
-def test_argument_shape_transformation_import(frontend, here):
+def test_argument_shape_transformation_import(frontend, here, tmp_path):
     """
     Test that ensures that explicit argument shapes are indeed inserted
     in a multi-layered call tree.
@@ -388,7 +388,7 @@ def test_argument_shape_transformation_import(frontend, here):
     headers = [Sourcefile.from_file(filename=h, frontend=frontend_type) for h in header]
     definitions = flatten(h.modules for h in headers)
     scheduler = Scheduler(paths=here/'sources/projArgShape', config=config, frontend=frontend,
-                          definitions=definitions)
+                          definitions=definitions, xmods=[tmp_path])
     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
     scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
 
