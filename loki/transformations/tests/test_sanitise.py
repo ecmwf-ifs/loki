@@ -355,6 +355,13 @@ end subroutine merge_associates_simple
     assert len(assocs[2].associations) == 1
     assert assocs[2].associations[0] == ('base%other%symbol%really%deep', 'd')
 
+    # Check that body symbols have been rescoped correctly
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+    b_c_n = call.kwarguments[0][1]  # b(c)%n
+    c = b_c_n.parent.dimensions[0]  # c
+    assert b_c_n.scope == assocs[0]
+    assert c.scope == assocs[1]
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_sequence_assocaition_scalar_notation(frontend, tmp_path):

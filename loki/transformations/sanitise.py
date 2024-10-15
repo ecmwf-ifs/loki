@@ -244,7 +244,7 @@ class MergeAssociatesTransformer(NestedTransformer):
         body = self.visit(o.body, **kwargs)
 
         if not o.parent or not isinstance(o.parent, ir.Associate):
-            return o._rebuild(body=body)
+            return o._rebuild(body=body, rescope_symbols=True)
 
         # Find all associate mapping that can be moved up
         to_move = tuple(
@@ -271,7 +271,7 @@ class MergeAssociatesTransformer(NestedTransformer):
             (expr, name) for expr, name in o.associations
             if (expr, name) not in to_move
         )
-        return o._rebuild(body=body, associations=new_assocs)
+        return o._rebuild(body=body, associations=new_assocs, rescope_symbols=True)
 
 
 def check_if_scalar_syntax(arg, dummy):
