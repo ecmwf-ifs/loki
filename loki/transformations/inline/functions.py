@@ -121,7 +121,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
                 if expr.routine not in functions:
                     return
             if expr.procedure_type.is_elemental:
-                if any(is_array(val) for val in expr.arg_map.values()):
+                if any(is_array(val) for val in expr.arg_map.values() if isinstance(val, sym.Array)):
                     warning(f"Call to elemental function '{expr.routine.name}' with array arguments."
                             f' There is currently no support to inline those calls!')
                     return
