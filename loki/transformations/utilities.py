@@ -595,16 +595,16 @@ def is_driver_loop(loop, targets):
     return False
 
 
-def find_driver_loops(routine, targets):
+def find_driver_loops(section, targets):
     """
-    Find and return all driver loops of a given `routine`.
+    Find and return all driver loops in a given `section`.
 
     A *driver loop* is specified either by a call to a routine within
     `targets` or by the pragma `!$loki driver-loop`.
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
+    section : :any:`Section` or tuple
         The subroutine in which to find the driver loops.
     targets : list or string
         List of subroutines that are to be considered as part of
@@ -613,7 +613,7 @@ def find_driver_loops(routine, targets):
 
     driver_loops = []
     nested_driver_loops = []
-    for loop in FindNodes(ir.Loop).visit(routine.body):
+    for loop in FindNodes(ir.Loop).visit(section):
         if loop in nested_driver_loops:
             continue
 

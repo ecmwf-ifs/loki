@@ -232,7 +232,7 @@ class SCCDevectorTransformation(Transformation):
         """
 
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            driver_loops = find_driver_loops(routine=routine, targets=targets)
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
 
         # remove vector loops
         driver_loop_map = {}
@@ -435,7 +435,7 @@ class SCCRevectorTransformation(Transformation):
 
         if role == 'driver':
             with pragmas_attached(routine, ir.Loop):
-                driver_loops = find_driver_loops(routine=routine, targets=targets)
+                driver_loops = find_driver_loops(section=routine.body, targets=targets)
 
                 for loop in driver_loops:
                     # Revector all marked sections within the driver loop body
