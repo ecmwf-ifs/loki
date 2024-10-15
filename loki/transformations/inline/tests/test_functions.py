@@ -178,7 +178,7 @@ end subroutine transform_inline_elemental_functions_extended_scalar
     assert all(v.scope is routine for v in FindVariables().visit(routine.body))
     # Hack: rename routine to use a different filename in the build
     routine.name = f'{routine.name}_'
-    kernel = jit_compile_lib([routine], path=tmp_path, name=routine.name, builder=builder)
+    kernel = jit_compile_lib([routine, module], path=tmp_path, name=routine.name, builder=builder)
     v2, v3 = kernel.transform_inline_elemental_functions_extended_scalar_(11.)
     assert v2 == 99.
     assert v3 == 666.
@@ -228,7 +228,7 @@ end subroutine transform_inline_elemental_functions_extended_array
     assert all(v.scope is routine for v in FindVariables().visit(routine.body))
     # Hack: rename routine to use a different filename in the build
     routine.name = f'{routine.name}_'
-    kernel = jit_compile_lib([routine], path=tmp_path, name=routine.name, builder=builder)
+    kernel = jit_compile_lib([routine, module], path=tmp_path, name=routine.name, builder=builder)
     v1 = np.array([1.0, 2.0, 3.0, 5.0, 3.0], dtype=np.float64, order='F')
     v2 = np.zeros((arr_len,), dtype=np.float64, order='F')
     v3 = np.zeros((arr_len,), dtype=np.float64, order='F')
