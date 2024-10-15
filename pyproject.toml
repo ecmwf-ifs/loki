@@ -4,7 +4,6 @@ requires = [
   "setuptools >= 61",
   "wheel",
   "setuptools_scm[toml] >= 6.2",
-  "numpy<1.24"
 ]
 build-backend = "setuptools.build_meta"
 
@@ -18,7 +17,7 @@ requires-python = ">=3.8,<3.12"
 license = {text = "Apache-2.0"}
 dynamic = ["version", "readme"]
 dependencies = [
-  "numpy<1.24",  # essential for tests, loop transformations and other dependencies
+  "numpy",  # essential for tests, loop transformations and other dependencies
   "pymbolic>=2022.1",  # essential for expression tree
   "PyYAML",  # essential for loki-lint
   "pcpp",  # essential for preprocessing
@@ -42,7 +41,7 @@ tests = [
   "coverage2clover",
   "pylint!=2.11.0,!=2.11.1",
   "pandas",
-  "f90wrap>=0.2.3",
+  "f90wrap>=0.2.15",
   "nbconvert",
 ]
 ofp = [
