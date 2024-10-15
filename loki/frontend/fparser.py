@@ -35,7 +35,7 @@ import loki.expression.symbols as sym
 from loki.expression.operations import (
     StringConcat, ParenthesisedAdd, ParenthesisedMul, ParenthesisedDiv, ParenthesisedPow
 )
-from loki.expression import ExpressionDimensionsMapper, AttachScopesMapper
+from loki.expression import AttachScopesMapper
 from loki.logging import debug, detail, info, warning, error
 from loki.tools import (
     as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
@@ -1493,35 +1493,11 @@ class FParser2IR(GenericVisitor):
         kwargs['scope'] = associate
 
         # Put associate expressions into the right scope and determine type of new symbols
-        rescoped_associations = []
-        for expr, name in associations:
-            # Put symbols in associated expression into the right scope
-            expr = AttachScopesMapper()(expr, scope=parent_scope)
-
-            # Determine type of new names
-            if isinstance(expr, (sym.TypedSymbol, sym.MetaSymbol)):
-                # Use the type of the associated variable
-                _type = expr.type.clone(parent=None)
-                if isinstance(expr, sym.Array) and expr.dimensions is not None:
-                    shape = ExpressionDimensionsMapper()(expr)
-                    if shape == (sym.IntLiteral(1),):
-                        # For a scalar expression, we remove the shape
-                        shape = None
-                    _type = _type.clone(shape=shape)
-            else:
-                # TODO: Handle data type and shape of complex expressions
-                shape = ExpressionDimensionsMapper()(expr)
-                if shape == (sym.IntLiteral(1),):
-                    # For a scalar expression, we remove the shape
-                    shape = None
-                _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            name = name.clone(scope=associate, type=_type)
-            rescoped_associations += [(expr, name)]
-        associations = as_tuple(rescoped_associations)
+        associate._derive_local_symbol_types(parent_scope=parent_scope)
 
         # The body
         body = as_tuple(flatten(self.visit(c, **kwargs) for c in o.children[assoc_stmt_index+1:end_assoc_stmt_index]))
-        associate._update(associations=associations, body=body)
+        associate._update(body=body)
 
         # Everything past the END ASSOCIATE (should be empty)
         assert not o.children[end_assoc_stmt_index+1:]
