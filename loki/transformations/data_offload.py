@@ -967,10 +967,6 @@ class OpenMPPragmaStripper:
 
 
 ################################################################################
-# IterMap
-################################################################################
-
-################################################################################
 # Field API helper routines
 ################################################################################
 def get_field_type(a: sym.Array) -> sym.DerivedType:
@@ -1081,17 +1077,55 @@ def find_array_arguments(routine, calls):
     return inargs, inoutargs, outargs
 
 
-class FieldOffloadTransformation(Transformation):
+def find_kernel_calls(region, targets):
+    """Returns a list of all calls to targets inside the region
 
-    def __init__(self, blocking_indices=None, devptr_prefix='devp', field_wrapper_types=None):
+    Parameters
+    ----------
+    :region: :any:`PragmaRegion`
+    :targets: collection of :any:`Subroutine`
+        Iterable object of subroutines or functions called
+    :returns: list of :any:`CallStatement`
+    """
+
+    print(type(region))
+    calls = FindNodes(CallStatement).visit(region)
+    calls = [c for c in calls if str(c.name).lower() in targets]
+    return calls
+
+
+class FieldOffloadTransformation(Transformation):
+    class FieldPointerMap:
+        def __init__(self, devptrs, inargs, inoutargs, outargs):
+            self.inargs = inargs
+            self.inoutargs = inoutargs
+            self.outargs = outargs
+            self.devptrs = devptrs
+        
+        def in_pairs(self):
+            for i, inarg in enumerate(self.inargs):
+                return inarg, self.devptrs[i]
+
+        def inout_pairs(self):
+            start = len(self.inargs)
+            for i, inoutarg in enumerate(self.inoutargs):
+                return inoutarg, self.devptrs[i+start]
+
+        def out_pairs(self):
+            start = len(self.inargs)+len(self.outargs)
+            for i, outarg in enumerate(self.outargs):
+                return outarg, self.devptrs[i+start]
+        
+    def __init__(self, blocking_indices=None, devptr_prefix='LOKI_DEVPTR_', **kwargs):
         self.block_suffix = '_block_ptr'
         self.field_block_suffix = '_field_block_ptr'
         self.blocking_indices = ('jbl',) if blocking_indices is None else blocking_indices
         self.devptr_prefix = devptr_prefix
         self.device_variable_map = {}   # map to hold device pointers
+        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE'])
+        self.field_group_types = [typename.lower() for typename in field_group_types] # TODO: make tuple?
+        self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
         # TODO: Add support for PACKED functionality (i.e. field gangs)
-        # self.field_wrapper_types = field_wrapper_types
-        self.field_wrapper_types = ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE']  # the FIELD prefix should perhaps also be reserved?
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
@@ -1117,23 +1151,13 @@ class FieldOffloadTransformation(Transformation):
                 # Only work on active `!$loki data` regions
                 if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
                     continue
-                offload_calls = self.find_kernel_calls(driver, region, targets)
+                offload_calls = find_kernel_calls(region, targets)
                 offload_variables = self.find_offload_variables(driver, offload_calls)
                 device_ptrs = self._declare_device_ptrs(driver, offload_variables)
-                self._replace_data_offload_calls(driver, *offload_variables)
+                offload_map = self.FieldPointerMap(device_ptrs, *offload_variables)
+                self._replace_data_offload_calls(driver, region, offload_map)
                 self._replace_kernel_args(driver, offload_calls)
 
-    def find_kernel_calls(self, driver, region, targets):
-        """TODO: Docstring for find_kernel_calls.
-
-        :driver: TODO
-        :region: TODO
-        :targets: TODO
-        :returns: TODO
-        """
-        calls = FindNodes(CallStatement).visit(region)
-        calls = [c for c in calls if str(c.name).lower() in targets]
-        return calls
 
     def find_offload_variables(self, driver, calls):
         # Perhaps we want more vars to offload in the future
@@ -1151,19 +1175,19 @@ class FieldOffloadTransformation(Transformation):
                     continue
                 try:
                     parent = arg.parent
-                    if parent.type.dtype.name not in self.field_wrapper_types:
+                    if parent.type.dtype.name not in self.field_group_types:
                         warning(f'[Loki] The parent object {parent.name} of type {parent.type.dtype} is not in the list of' +
-                                f' field wrapper types')
+                                ' field wrapper types')
                 except AttributeError:
                     warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in' +
                             f'{driver.name} that is not wrapped by a Field API object')  # ofc we cant know this for sure
                     continue
-
-                if isinstance(param, Array) and param.type.intent.lower() == 'in':
+                 
+                if param.type.intent.lower() == 'in':
                     inargs += (arg, )
-                if isinstance(param, Array) and param.type.intent.lower() == 'inout':
+                if param.type.intent.lower() == 'inout':
                     inoutargs += (arg, )
-                if isinstance(param, Array) and param.type.intent.lower() == 'out':
+                if param.type.intent.lower() == 'out':
                     outargs += (arg, )
 
         # Sanitize data access categories to avoid double-counting variables
@@ -1183,38 +1207,6 @@ class FieldOffloadTransformation(Transformation):
         driver.variables += device_ptrs
         return device_ptrs
 
-    def _replace_data_offload_calls(self, driver, inargs, inoutargs, outargs):
-        """TODO: Docstring for _replace_data_offload_calls.
-
-        Parameters
-        ----------
-        :inargs: TODO
-        :inoutargs: TODO
-        :outargs: TODO
-        :returns: TODO
-
-        """
-        pass
-    
-    def _replace_kernel_args(self, driver, args):
-        """TODO: Docstring for _replace_kernel_args.
-
-        :driver: TODO
-        :args: TODO
-        :returns: TODO
-
-        """
-        pass
-    def _field_ptr_from_array(self, a: sym.Array) -> sym.Variable:
-        """
-        Returns a pointer :any:`Variable` pointing to a FIELD with types matching the array.
-        """
-
-        field_ptr_type = sym.SymbolAttributes(get_field_type(a), polymorphic=True, pointer=True,
-                                              intent=None, initial="NULL()")
-        field_ptr = sym.Variable(name=a.name + self.field_block_suffix, type=field_ptr_type)
-        return field_ptr
-
     def _devptr_from_array(self, driver, a: sym.Array) -> sym.Variable:
         """
         Returns a contiguous pointer :any:`Variable` with types matching the array a
@@ -1231,7 +1223,44 @@ class FieldOffloadTransformation(Transformation):
             pass
         devptr = sym.Variable(name=self.devptr_prefix+base_name, type=devptr_type, dimensions=shape)
         return devptr
-    
+
+    def _replace_data_offload_calls(self, driver, region, offload_map):
+        calls = FindNodes(CallStatement).visit(region)
+        field_group_updates = (c for c in calls if self._is_field_group_update(driver, c))
+        Transformer(dict.fromkeys(field_group_updates, None), inplace=True).visit(region.body)
+
+    def _is_field_group_update(self, driver, call):
+        # This is purely done on string logic rn, is that bad?
+        try:
+            *_, parent, call_name = call.name.name.split('%')
+            parent = driver.variable_map.get(parent)
+            if parent is not None and parent.type.dtype.name.lower() in self.field_group_types:
+                return True
+        except ValueError:
+            return False
+        return False
+
+    def _replace_kernel_args(self, driver, args):
+        """TODO: Docstring for _replace_kernel_args.
+
+        :driver: TODO
+        :args: TODO
+        :returns: TODO
+
+        """
+
+        pass
+
+    def _field_ptr_from_array(self, a: sym.Array) -> sym.Variable:
+        """
+        Returns a pointer :any:`Variable` pointing to a FIELD with types matching the array.
+        """
+
+        field_ptr_type = sym.SymbolAttributes(get_field_type(a), polymorphic=True, pointer=True,
+                                              intent=None, initial="NULL()")
+        field_ptr = sym.Variable(name=a.name + self.field_block_suffix, type=field_ptr_type)
+        return field_ptr
+
     def _insert_fields(self, routine, splitting_vars, inner_loop, outer_loop):
         """
         Replaces arrays inside the inner loop with FIELD api fields
@@ -1300,7 +1329,7 @@ class FieldOffloadTransformation(Transformation):
         acc_data_start = (acc_copyins, acc_present)
         acc_data_end = (ir.Pragma(keyword='acc', content='data end)'),)
 
-        change_map = {inner_loop: acc_data_start + (inner_loop,)}# + acc_data_end}
+        change_map = {inner_loop: acc_data_start + (inner_loop,)}   # + acc_data_end}
         # change_map = {inner_loop: (inner_loop,) }
         Transformer(change_map, inplace=True).visit(outer_loop)
 
