@@ -239,16 +239,20 @@ class CaseInsensitiveDict(OrderedDict):
     https://stackoverflow.com/questions/2082152/case-insensitive-dictionary
     """
     def __setitem__(self, key, value):
-        super().__setitem__(key.lower(), value)
+        key = key.lower() if isinstance(key, str) else key
+        super().__setitem__(key, value)
 
     def __getitem__(self, key):
-        return super().__getitem__(key.lower())
+        key = key.lower() if isinstance(key, str) else key
+        return super().__getitem__(key)
 
     def get(self, key, default=None):
-        return super().get(key.lower(), default)
+        key = key.lower() if isinstance(key, str) else key
+        return super().get(key, default)
 
     def __contains__(self, key):
-        return super().__contains__(key.lower())
+        key = key.lower() if isinstance(key, str) else key
+        return super().__contains__(key)
 
 
 class CaseInsensitiveDefaultDict(defaultdict):
@@ -256,16 +260,20 @@ class CaseInsensitiveDefaultDict(defaultdict):
     Variant of :any:`collections.defaultdict` that ignores the casing of string keys.
     """
     def __setitem__(self, key, value):
-        super().__setitem__(key.lower(), value)
+        key = key.lower() if isinstance(key, str) else key
+        super().__setitem__(key, value)
 
     def __getitem__(self, key):
-        return super().__getitem__(key.lower())
+        key = key.lower() if isinstance(key, str) else key
+        return super().__getitem__(key)
 
     def get(self, key, default=None):
-        return super().get(key.lower(), default)
+        key = key.lower() if isinstance(key, str) else key
+        return super().get(key, default)
 
     def __contains__(self, key):
-        return super().__contains__(key.lower())
+        key = key.lower() if isinstance(key, str) else key
+        return super().__contains__(key)
 
 
 def strip_inline_comments(source, comment_char='!', str_delim='"\''):

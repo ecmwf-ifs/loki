@@ -501,14 +501,14 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
         """
         An :any:`collections.OrderedDict` of associated expressions.
         """
-        return CaseInsensitiveDict((str(k), v) for k, v in self.associations)
+        return CaseInsensitiveDict((k, v) for k, v in self.associations)
 
     @property
     def inverse_map(self):
         """
         An :any:`collections.OrderedDict` of associated expressions.
         """
-        return CaseInsensitiveDict((str(v), k) for k, v in self.associations)
+        return CaseInsensitiveDict((v, k) for k, v in self.associations)
 
     @property
     def variables(self):
