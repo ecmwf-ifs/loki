@@ -13,8 +13,8 @@ set -euo pipefail
 loki_ant_version=1.10.13
 
 hpc2020_java_version=11.0.6
-hpc2020_python_version=3.10.10-01
-hpc2020_cmake_version=3.25.2
+hpc2020_python_version=3.11.8-01
+hpc2020_cmake_version=3.28.3
 
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
@@ -379,21 +379,21 @@ if [ "$with_claw" == true ]; then
   mkdir -p "${CLAW_INSTALL_DIR}"
   cd "${CLAW_INSTALL_DIR}"
   rm -rf claw-compiler
-  # git clone --recursive https://github.com/claw-project/claw-compiler.git claw-compiler
+  # git clone --recursive --single-branch https://github.com/claw-project/claw-compiler.git claw-compiler
 
-  # Note that our current regression tests (CLOUDSC) will fail due to faulty offload
+  # Note that the deprecated CLAW variants in CLOUDSC will fail due to faulty offload
   # directives with current CLAW-master. The fixes exist in this pinned branch:
+  # However, this branch fails to build with recent GNU versions (GNU 10+)
   git clone --recursive --single-branch --branch=mlange-dev https://github.com/mlange05/claw-compiler.git claw-compiler
   cd claw-compiler
 
   (
     set -a
     eval ${claw_install_env}
-    cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
+    cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}"
+    cmake --build build
+    cmake --install .
   )
-
-  make
-  make install
 fi
 
 #
