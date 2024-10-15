@@ -16,7 +16,7 @@ import pytest
 from loki.tools import (
     execute, write_env_launch_script, local_loki_setup, local_loki_cleanup
 )
-from loki.frontend import available_frontends, OMNI, OFP, HAVE_FP, HAVE_OMNI
+from loki.frontend import available_frontends, OMNI, OFP, HAVE_FP
 from loki.logging import warning
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
@@ -59,9 +59,6 @@ def test_cloudsc(here, frontend):
         '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
     ]
 
-    if HAVE_OMNI:
-        build_cmd += ['--with-claw']
-
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
     else:
@@ -89,13 +86,6 @@ def test_cloudsc(here, frontend):
         ('dwarf-cloudsc-loki-idem-stack', '2', '16000', '32'),
         ('dwarf-cloudsc-loki-scc-stack', '1', '16000', '32'),
     ]
-
-    if HAVE_OMNI:
-        # Skip CLAW binaries if we don't have OMNI installed
-        binaries += [
-            ('dwarf-cloudsc-loki-claw-cpu', '2', '16000', '64'),
-            ('dwarf-cloudsc-loki-claw-gpu', '1', '16000', '64'),
-        ]
 
     failures, warnings = {}, {}
     for binary, *args in binaries:
