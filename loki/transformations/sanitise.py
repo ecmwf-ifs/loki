@@ -15,6 +15,7 @@ code easier.
 from loki.batch import Transformation
 from loki.expression import Array, RangeIndex, LokiIdentityMapper
 from loki.ir import nodes as ir, FindNodes, Transformer, NestedTransformer
+from loki.scope import SymbolTable
 from loki.tools import as_tuple, dict_override
 from loki.types import BasicType
 
@@ -271,7 +272,14 @@ class MergeAssociatesTransformer(NestedTransformer):
             (expr, name) for expr, name in o.associations
             if (expr, name) not in to_move
         )
-        return o._rebuild(body=body, associations=new_assocs, rescope_symbols=True)
+        o = o._rebuild(
+            body=body, associations=new_assocs, parent=o.parent,
+            rescope_symbols=True, symbol_attrs=SymbolTable()
+        )
+        # We rebuild the local symbol-table from scratch to ensure
+        # that moved associations get the correct defining scope
+        o._derive_local_symbol_types(parent_scope=o.parent)
+        return o
 
 
 def check_if_scalar_syntax(arg, dummy):
