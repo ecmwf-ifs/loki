@@ -7,4 +7,3 @@
 
 from loki.transformations.transpile.fortran_c import * # noqa
 from loki.transformations.transpile.fortran_python import * # noqa
-from loki.transformations.transpile.fortran_maxeler import * # noqa
