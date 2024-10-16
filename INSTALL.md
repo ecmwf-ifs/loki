@@ -108,6 +108,7 @@ Available options:
   --with[out]-jdk              Install JDK instead of using system version (default: use system version)
   --with[out]-ant              Install ant instead of using system version (default: use system version)
   --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)
+  --with[out]-omni             Install OMNI Compiler; cannot be combined with --with-claw (default: disabled)
   --with[out]-ofp              Install Open Fortran Parser (default: disabled)
   --with[out]-dace             Install DaCe (default: enabled)
   --with[out]-tests            Install dependencies to run tests (default: enabled)
@@ -128,19 +129,19 @@ to bring up the virtual environment and set paths for the external dependencies.
 The default command on ECMWF's Atos HPC facility for a full stack installation is
 
 ```bash
-./install --hpc2020 --with-ant --with-claw --with-ofp
+./install --hpc2020 --with-ant --with-omni --with-ofp
 ```
 
 On standard Linux hosts with up-to-date JDK and ant, it is as easy as
 
 ```bash
-./install --with-claw --with-ofp
+./install --with-omni --with-ofp
 ```
 
 To update the installation (e.g., to add JDK), the existing virtual environment can be provided, e.g.,
 
 ```bash
-./install --with-claw --with-jdk --with-ant --use-venv=loki_env --with-ofp
+./install --with-omni --with-jdk --with-ant --use-venv=loki_env --with-ofp
 ```
 
 ### Installation using CMake/ecbuild
@@ -161,7 +162,10 @@ The following options are available and can be enabled/disabled by providing `-D
   elsewhere and only the CMake integration is required
 - `EDITABLE` (default: `OFF`): Install Loki in editable mode, i.e. without
   copying any files
-- `CLAW` (default: `OFF`): Install the CLAW and OMNI Compiler as well as its
+- `OMNI` (default: `OFF`): Install the OMNI compiler as well as its
+  Java dependencies as required. Note that this is an experimental setup and comes
+  with no support or guarantees.
+- `CLAW` (default: `OFF`): Install the CLAW with the included OMNI Compiler and their
   Java dependencies as required. Note that this is an experimental setup and comes
   with no support or guarantees.
 
@@ -293,18 +297,29 @@ pip install -e ./lint_rules
 popd
 ```
 
-### 4.  Install CLAW with OMNI compiler -- optional
+### 4.  Install OMNI compiler -- optional
+
+#### Option a: install latest xcodeml-tools
+
+```bash
+git clone --recursive --single-branch https://github.com/omni-compiler/xcodeml-tools.git xcodeml-tools
+pushd xcodeml-tools
+# Now build and install OMNI in the venv:
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=../loki_env
+cmake --build build
+cmake --install build
+popd
+```
+
+#### Option b: install (older) OMNI version and CLAW
 
 ```bash
 git clone --recursive --single-branch --branch=mlange-dev https://github.com/mlange05/claw-compiler.git claw-compiler
 pushd claw-compiler
-mkdir build
-pushd build
 # Now build and install CLAW in the venv:
-cmake -DCMAKE_INSTALL_PREFIX=../../loki_env ..
-make
-make install
-popd
+cmake -S . -B build -DCMAKE_INSTALL_PREFIX=../loki_env
+cmake --build build
+cmake --install build
 popd
 ```
 
