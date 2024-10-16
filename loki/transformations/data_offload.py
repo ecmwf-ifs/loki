@@ -1118,6 +1118,7 @@ class FieldOffloadTransformation(Transformation):
             for i, outarg in enumerate(self.outargs):
                 yield outarg, self.devptrs[i+start]
 
+
     def __init__(self, blocking_indices=None, devptr_prefix='LOKI_DEVPTR_', **kwargs):
         self.block_suffix = '_block_ptr'
         self.field_block_suffix = '_field_block_ptr'
@@ -1153,13 +1154,12 @@ class FieldOffloadTransformation(Transformation):
                 # Only work on active `!$loki data` regions
                 if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
                     continue
-                offload_calls = find_kernel_calls(region, targets)
-                offload_variables = self.find_offload_variables(driver, offload_calls)
+                kernel_calls = find_kernel_calls(region, targets)
+                offload_variables = self.find_offload_variables(driver, kernel_calls)
                 device_ptrs = self._declare_device_ptrs(driver, offload_variables)
                 offload_map = self.FieldPointerMap(device_ptrs, *offload_variables)
-                self._replace_data_offload_calls(driver, region, offload_map)
-                self._replace_kernel_args(driver, offload_calls)
-
+                old_offload_calls = self._replace_data_offload_calls(driver, region, offload_map)
+                self._replace_kernel_args(kernel_calls, old_offload_calls, offload_map)
 
     def find_offload_variables(self, driver, calls):
         # Perhaps we want more vars to offload in the future
@@ -1230,6 +1230,7 @@ class FieldOffloadTransformation(Transformation):
         # remove calls to [field_group_type]%update_view
         calls = FindNodes(CallStatement).visit(region)
         field_group_updates = tuple(c for c in calls if self._is_field_group_update(driver, c))
+        # c.arguments contains Scalar(IBL)
         Transformer(dict.fromkeys(field_group_updates, None), inplace=True).visit(region.body)
 
         host_to_device = tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
@@ -1238,13 +1239,10 @@ class FieldOffloadTransformation(Transformation):
                                 FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.inout_pairs)
         device_to_host = tuple(field_sync_host(self._get_field_ptr_from_view(inarg), driver)
                                for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
-
-            #field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
+        # field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
         region.prepend(host_to_device)
         region.append(device_to_host)
-        # Transformer(change_map, inplace=True).visit(driver)
-        # insert call to FIELD_API
-        update_indices = tuple(c.arguments for c in field_group_updates)
+        return field_group_updates
 
     def _is_field_group_update(self, driver, call):
         # This is purely done on string logic rn, is that bad?
@@ -1263,16 +1261,25 @@ class FieldOffloadTransformation(Transformation):
         # return '%'.join(type_chain)
         return field_view.parent.get_derived_type_member(field_type_name)
 
-    def _replace_kernel_args(self, driver, args):
-        """TODO: Docstring for _replace_kernel_args.
+    def _replace_kernel_args(self, kernel_calls, old_offload_calls, offload_map):
+        """TODO: Docstring for _replace_kernel_calls.
 
-        :driver: TODO
-        :args: TODO
+        :kernel_calls: TODO
+        :old_offload_calls: TODO
+        :device_ptrs: TODO
         :returns: TODO
-
         """
-
-        pass
+        change_map = {}
+        for arg, devptr in chain(offload_map.in_pairs, offload_map.inout_pairs, offload_map.out_pairs):
+            group_update = next((c for c in old_offload_calls if c.name.parent == arg.parent), None)
+            assert group_update is not None, "Group update should not be none"
+            block_idx = group_update.arguments[0]
+            dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (block_idx,)
+            change_map[arg] = devptr.clone(dimensions=dims)
+        print(change_map)
+        arg_transformer = SubstituteExpressions(change_map, inplace=True)
+        for call in kernel_calls:
+            arg_transformer.visit(call)
 
     def _field_ptr_from_array(self, a: sym.Array) -> sym.Variable:
         """
