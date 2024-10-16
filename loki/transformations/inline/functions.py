@@ -110,17 +110,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         def map_inline_call(self, expr, *args, **kwargs):
             if not self.visit(expr, *args, **kwargs):
                 return
-            if expr.procedure_type is BasicType.DEFERRED or isinstance(expr.routine, StatementFunction):
-                return
-            if not expr.procedure_type.is_function:
-                return
-            if self.inline_elementals_only:
-                if self.inline_elementals_only and not expr.procedure_type.is_elemental:
-                    return
-            if functions:
-                if expr.routine not in functions:
-                    return
-            if expr.procedure_type.is_elemental:
+            if not expr.procedure_type is BasicType.DEFERRED and expr.procedure_type.is_elemental:
                 if any(is_array(val) for val in expr.arg_map.values() if isinstance(val, sym.Array)):
                     warning(f"Call to elemental function '{expr.routine.name}' with array arguments."
                             f' There is currently no support to inline those calls!')
@@ -163,6 +153,15 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
     # in the next call to this function.
     for node, calls in FindInlineCallsSkipInlineCallParameters(with_ir_node=True).visit(routine.body):
         for call in calls:
+            if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
+                continue
+            if not call.procedure_type.is_function:
+                continue
+            if inline_elementals_only and not call.procedure_type.is_elemental:
+                continue
+            if functions:
+                if call.routine not in functions:
+                    continue
             function_calls.setdefault(str(call.name).lower(),[]).append((call, node))
 
     if not function_calls:
