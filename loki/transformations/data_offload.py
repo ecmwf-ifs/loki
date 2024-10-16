@@ -1086,8 +1086,6 @@ def find_kernel_calls(region, targets):
         Iterable object of subroutines or functions called
     :returns: list of :any:`CallStatement`
     """
-
-    print(type(region))
     calls = FindNodes(CallStatement).visit(region)
     calls = [c for c in calls if str(c.name).lower() in targets]
     return calls
@@ -1137,18 +1135,15 @@ class FieldOffloadTransformation(Transformation):
             self.process_kernel(routine)
         if role == 'driver':
             self.process_driver(routine, targets)
-            from loki.ir import pprint
-            from loki import fgen
-            print(f"{pprint(routine)}")
-            print(f"{fgen(routine)}")
+            # from loki.ir import pprint
+            # from loki import fgen
+            # print(f"{pprint(routine)}")
+            # print(f"{fgen(routine)}")
 
     def process_kernel(self, routine):
-        print("processing kernel:", routine)
         pass
 
     def process_driver(self, driver, targets):
-        print("processing driver:", driver)
-        print("targets:", targets)
         with pragma_regions_attached(driver):
             for region in FindNodes(PragmaRegion).visit(driver.body):
                 # Only work on active `!$loki data` regions
@@ -1177,7 +1172,7 @@ class FieldOffloadTransformation(Transformation):
                     continue
                 try:
                     parent = arg.parent
-                    if parent.type.dtype.name not in self.field_group_types:
+                    if parent.type.dtype.name.lower() not in self.field_group_types:
                         warning(f'[Loki] The parent object {parent.name} of type {parent.type.dtype} is not in the list of' +
                                 ' field wrapper types')
                 except AttributeError:
@@ -1215,7 +1210,7 @@ class FieldOffloadTransformation(Transformation):
         """
         shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
         devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
-        base_name = a.name if a.parent is None else a.name.split('%')[-1]
+        base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
         devptr_name = self.devptr_prefix + base_name
         try:
             driver.variable_map[devptr_name]
@@ -1223,7 +1218,7 @@ class FieldOffloadTransformation(Transformation):
                     f'variable named {devptr_name}')
         except KeyError:
             pass
-        devptr = sym.Variable(name=self.devptr_prefix+base_name, type=devptr_type, dimensions=shape)
+        devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
         return devptr
 
     def _replace_data_offload_calls(self, driver, region, offload_map):
@@ -1276,7 +1271,6 @@ class FieldOffloadTransformation(Transformation):
             block_idx = group_update.arguments[0]
             dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (block_idx,)
             change_map[arg] = devptr.clone(dimensions=dims)
-        print(change_map)
         arg_transformer = SubstituteExpressions(change_map, inplace=True)
         for call in kernel_calls:
             arg_transformer.visit(call)
