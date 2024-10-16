@@ -7,7 +7,8 @@
 
 from collections import ChainMap
 
-from loki.expression import symbols as sym, ExpressionRetriever
+from loki.logging import warning
+from loki.expression import symbols as sym, ExpressionRetriever, ExpressionDimensionsMapper
 from loki.ir import (
     Transformer, FindNodes, FindVariables, Import, StatementFunction,
     FindInlineCalls, ExpressionFinder, SubstituteExpressions,
@@ -87,6 +88,13 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         inlined in the next call to this function.
     """
 
+    def is_array(expr):
+        """
+        Check whether expr evaluates to an array.
+        E.g., for arr(:, :) return True, for arr(1, 1) or arr(jl, jk) return False.
+        """
+        return any(d != '1' for d in ExpressionDimensionsMapper()(expr))
+
     class ExpressionRetrieverSkipInlineCallParameters(ExpressionRetriever):
         """
         Expression retriever skipping parameters of inline calls.
@@ -102,6 +110,11 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         def map_inline_call(self, expr, *args, **kwargs):
             if not self.visit(expr, *args, **kwargs):
                 return
+            if not expr.procedure_type is BasicType.DEFERRED and expr.procedure_type.is_elemental:
+                if any(is_array(val) for val in expr.arg_map.values() if isinstance(val, sym.Array)):
+                    warning(f"Call to elemental function '{expr.routine.name}' with array arguments."
+                            f' There is currently no support to inline those calls!')
+                    return
             self.rec(expr.function, *args, **kwargs)
             # SKIP parameters/args/kwargs on purpose
             #  under certain circumstances
@@ -142,9 +155,10 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         for call in calls:
             if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
                 continue
-            if inline_elementals_only:
-                if not (call.procedure_type.is_function and call.procedure_type.is_elemental):
-                    continue
+            if not call.procedure_type.is_function:
+                continue
+            if inline_elementals_only and not call.procedure_type.is_elemental:
+                continue
             if functions:
                 if call.routine not in functions:
                     continue
