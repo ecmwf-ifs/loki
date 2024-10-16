@@ -19,7 +19,7 @@ set( FORCE_ANT_INSTALL OFF CACHE BOOL "Force installation of OpenJDK" )
 set( OPEN_JDK_INSTALL_VERSION 11.0.2 CACHE STRING "OpenJDK version to install if Java >= ${MINIMUM_JAVA_VERSION} not found" )
 set( OPEN_JDK_MIRROR https://download.java.net/java/GA/jdk11/9/GPL/ CACHE STRING "OpenJDK download mirror" )
 
-set( ANT_INSTALL_VERSION 1.10.12 CACHE STRING "ant version to install if Ant >= ${MINIMUM_ANT_VERSION} not found" )
+set( ANT_INSTALL_VERSION 1.10.15 CACHE STRING "ant version to install if Ant >= ${MINIMUM_ANT_VERSION} not found" )
 set( ANT_MIRROR https://archive.apache.org/dist/ant/binaries/ CACHE STRING "ant download mirror" )
 
 list( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/module" )
