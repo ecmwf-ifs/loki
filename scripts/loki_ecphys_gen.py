@@ -598,6 +598,9 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
 
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
+        do_remove_marked_regions(ec_phys_parallel)
+
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
             # Remove explicit firstprivatisation
