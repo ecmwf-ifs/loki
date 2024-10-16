@@ -79,9 +79,11 @@ function(install_claw_compiler VERSION)
         CMAKE_ARGS -DOMNI_CONF_OPTION=JAR=${Java_JAR_EXECUTABLE} -DCMAKE_INSTALL_PREFIX=${CLAW_DIR} -DJAVA_HOME=${JAVA_HOME} -DANT_HOME=${ANT_HOME}
     )
 
-    add_executable( clawfc IMPORTED GLOBAL )
-    set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${CLAW_DIR}/bin/clawfc )
-    add_dependencies( clawfc claw )
+    foreach ( _bin clawfc F_Front )
+        add_executable( ${_bin} IMPORTED GLOBAL )
+        set_property( TARGET ${_bin} PROPERTY IMPORTED_LOCATION ${CLAW_DIR}/bin/${_bin} )
+        add_dependencies( ${_bin} claw )
+    endforeach()
 
     # Forward variables to parent scope
     foreach ( _VAR_NAME CLAW_DIR )

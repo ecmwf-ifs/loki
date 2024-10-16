@@ -72,7 +72,13 @@ ecbuild_add_option(
 ecbuild_add_option(
     FEATURE CLAW
     DEFAULT OFF
-    DESCRIPTION "Build OMNI Compiler and CLAW Compiler"
+    DESCRIPTION "Build OMNI compiler and CLAW compiler"
+)
+ecbuild_add_option(
+    FEATURE OMNI
+    DEFAULT OFF
+    DESCRIPTION "Build OMNI compiler as Loki frontend"
+    CONDITION NOT HAVE_CLAW
 )
 
 include( loki_transform )
@@ -98,6 +104,11 @@ if( NOT HAVE_NO_INSTALL )
         install_claw_compiler( mlange-dev )
     endif()
 
+    if( HAVE_OMNI )
+        include( omni_compiler )
+        install_omni_compiler( master )
+    endif()
+
     # Setup Python virtual environment
     include( python_venv )
     set( loki_VENV_PATH ${CMAKE_CURRENT_BINARY_DIR}/loki_env )
@@ -111,6 +122,9 @@ if( NOT HAVE_NO_INSTALL )
         if( HAVE_CLAW )
             set( _TEST_SELECTOR "not ofp" )
             set( _TEST_PATH "${CLAW_DIR}/bin:$ENV{PATH}" )
+        elseif( HAVE_OMNI )
+            set( _TEST_SELECTOR "not ofp" )
+            set( _TEST_PATH "${OMNI_DIR}/bin:$ENV{PATH}" )
         else()
             set( _TEST_SELECTOR "not ofp and not omni" )
             set( _TEST_PATH "$ENV{PATH}" )
