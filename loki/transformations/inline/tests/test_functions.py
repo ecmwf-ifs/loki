@@ -13,7 +13,7 @@ from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls
 )
-from loki.tools import as_tuple
+from loki.types import ProcedureType
 
 from loki.transformations.inline import (
     inline_elemental_functions, inline_statement_functions
@@ -245,19 +245,24 @@ end subroutine stmt_func
     skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
           OMNI: "OMNI automatically inlines Statement Functions"}
 ))
-@pytest.mark.parametrize('provide_myfunc', ('import', 'module', 'interface', 'intfb'))
+@pytest.mark.parametrize('provide_myfunc', ('import', 'module', 'interface', 'intfb', 'routine'))
 def test_inline_statement_functions_inline_call(frontend, provide_myfunc, tmp_path):
-    fcode_module = """
-module my_mod
-    implicit none
-contains
-    elemental function myfunc(a)
-        real, intent(in) :: a
-        real :: myfunc
-        myfunc = a * 2.0
-    end function myfunc
-end module my_mod
+    fcode_myfunc = """
+elemental function myfunc(a)
+    real, intent(in) :: a
+    real :: myfunc
+    myfunc = a * 2.0
+end function myfunc
     """.strip()
+
+    if provide_myfunc == 'module':
+        fcode_myfunc = f"""
+module my_mod
+implicit none
+contains
+{fcode_myfunc}
+end module my_mod
+        """.strip()
 
     if provide_myfunc in ('import', 'module'):
         module_import = 'use my_mod, only: myfunc'
@@ -274,7 +279,7 @@ end module my_mod
             end function myfunc
             end interface
         """
-    elif provide_myfunc == 'intfb':
+    elif provide_myfunc in ('intfb', 'routine'):
         intf = '#include "myfunc.intfb.h"'
     else:
         intf = ''
@@ -301,30 +306,56 @@ end subroutine stmt_func
     """.strip()
 
     if provide_myfunc == 'module':
-        module = Module.from_source(fcode_module, xmods=[tmp_path])
+        definitions = (Module.from_source(fcode_myfunc, xmods=[tmp_path]),)
+    elif provide_myfunc == 'routine':
+        definitions = (Subroutine.from_source(fcode_myfunc, xmods=[tmp_path]),)
     else:
-        module = None
+        definitions = None
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=definitions, xmods=[tmp_path])
 
-    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=as_tuple(module), xmods=[tmp_path])
-    assert FindNodes(ir.StatementFunction).visit(routine.spec)
+    # Check the spec
+    statement_funcs = FindNodes(ir.StatementFunction).visit(routine.spec)
+    assert len(statement_funcs) == 2
+
+    inline_calls = FindInlineCalls(unique=False).visit(routine.spec)
+    if provide_myfunc in ('module', 'interface', 'routine'):
+        # Enough information available that MYFUNC is recognized as a procedure call
+        assert len(inline_calls) == 3
+        assert all(isinstance(call.function.type.dtype, ProcedureType) for call in inline_calls)
+    else:
+        # No information available about MYFUNC, so fparser treats it as an ArraySubscript
+        assert len(inline_calls) == 1
+        assert inline_calls[0].function == 'foedelta'
+        assert isinstance(inline_calls[0].function.type.dtype, ProcedureType)
+
+    # Check the body
     inline_calls = FindInlineCalls().visit(routine.body)
     assert len(inline_calls) == 3
+
+    # Apply the transformation
     inline_statement_functions(routine)
 
+    # Check the outcome
     assert not FindNodes(ir.StatementFunction).visit(routine.spec)
     inline_calls = FindInlineCalls(unique=False).visit(routine.body)
     assignments = FindNodes(ir.Assignment).visit(routine.body)
 
-    if provide_myfunc in ('import', 'module', 'intfb'):
-        assert len(inline_calls) == 0  # MYFUNC(arr) is misclassified as array subscript or fully inlined
+    if provide_myfunc in ('import', 'intfb'):
+          # MYFUNC(arr) is misclassified as array subscript
+        assert len(inline_calls) == 0
+    elif provide_myfunc in ('module', 'routine'):
+          # MYFUNC(arr) is eliminated due to inlining
+        assert len(inline_calls) == 0
     else:
         assert len(inline_calls) == 4
 
     assert assignments[0].lhs  == 'ret'
     assert assignments[1].lhs  == 'ret2'
-    if provide_myfunc == 'module':
+    if provide_myfunc in ('module', 'routine'):
+        # Fully inlined due to definition of myfunc available
         assert assignments[0].rhs  ==  "arr + arr + 1.0 + arr*2.0 + arr*2.0"
         assert assignments[1].rhs  ==  "3.0 + 1.0 + 3.0*2.0 + val + 1.0 + val*2.0"
     else:
+        # myfunc not inlined
         assert assignments[0].rhs  ==  "arr + arr + 1.0 + myfunc(arr) + myfunc(arr)"
         assert assignments[1].rhs  ==  "3.0 + 1.0 + myfunc(3.0) + val + 1.0 + myfunc(val)"

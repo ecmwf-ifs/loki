@@ -394,6 +394,13 @@ class FParser2IR(GenericVisitor):
         # This should go away once fparser has a basic symbol table, see
         # https://github.com/stfc/fparser/issues/201 for some details
         _type = kwargs['scope'].symbol_attrs.lookup(name.name)
+        if _type is None and (definition := self.definitions.get(name.name)):
+            # We don't have any type information for this, which means it has
+            # not been declared locally. Check the definitions for enriched
+            # type information:
+            if isinstance(dtype := definition.procedure_type, ProcedureType):
+                _type = name.type.clone(dtype=dtype)
+                name = name.clone(type=_type)
         if _type and isinstance(_type.dtype, ProcedureType):
             name = name.clone(dimensions=None)
             call = sym.InlineCall(name, parameters=dimensions, kw_parameters=())
