@@ -532,7 +532,7 @@ class PragmaRegionAttacher(Transformer):
             if start in o:
                 # If a pair does not live in the same tuple we have a problem.
                 if stop not in o:
-                    warning('[Loki::IR] Cannot find matching end for pragma {start} at same IR level!')
+                    warning(f'[Loki::IR] Cannot find matching end for pragma {start} at same IR level!')
                     continue
 
                 # Create the PragmaRegion node and replace in tuple
