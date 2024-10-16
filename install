@@ -407,7 +407,7 @@ if [ "$with_claw" == true ]; then
     eval ${claw_install_env}
     cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}"
     cmake --build build
-    cmake --install .
+    cmake --install build
   )
 fi
 
@@ -429,6 +429,11 @@ if [ "$with_omni" == true ]; then
   omni_opts=()
   [[ ! -z "${JAVA_HOME}" ]] && omni_opts+=("JAVA_HOME=${JAVA_HOME}")
 
+  # A CMake install would be cleaner but they inject without good reason a -Werror for
+  # GNU and Clang without writing good enough code that actually avoids any warnings...
+  # cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${OMNI_INSTALL_DIR}" "${omni_opts[@]}"
+  # cmake --build build
+  # cmake --install build
   ./configure --prefix="${OMNI_INSTALL_DIR}" "${omni_opts[@]}"
   make && make install
 fi
@@ -555,7 +560,10 @@ echo "Activate the Loki environment with"
 echo
 echo "    source loki-activate"
 echo
-echo "You can then test the Loki installation by running"
-echo
-echo "    pytest --pyargs loki lint_rules"
-echo
+
+if [ "$with_tests" == true ]; then
+  echo "You can test the Loki installation by running"
+  echo
+  echo "    pytest --pyargs loki lint_rules"
+  echo
+fi
