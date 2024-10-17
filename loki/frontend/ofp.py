@@ -22,7 +22,7 @@ except ImportError:
 
 from loki.frontend.source import extract_source, extract_source_from_range
 from loki.frontend.preprocessing import sanitize_registry
-from loki.frontend.util import OFP, sanitize_ir
+from loki.frontend.util import sanitize_ir, Frontend
 
 from loki import ir
 from loki.ir import (
@@ -45,6 +45,9 @@ from loki.config import config
 
 
 __all__ = ['HAVE_OFP', 'parse_ofp_file', 'parse_ofp_source', 'parse_ofp_ast']
+
+
+OFP = Frontend.OFP
 
 
 @Timer(logger=debug, text=lambda s: f'[Loki::OFP] Executed parse_ofp_file in {s:.2f}s')
