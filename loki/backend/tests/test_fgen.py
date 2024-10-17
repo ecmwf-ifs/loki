@@ -9,6 +9,7 @@ import pytest
 
 from loki import Module, Subroutine, Sourcefile
 from loki.backend import fgen
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, OFP
 from loki.ir import Intrinsic, DataDeclaration
 from loki.types import ProcedureType, BasicType
@@ -190,6 +191,27 @@ END MODULE test
     assert len(module.declarations) == 1
     assert 'SAVE' in fgen(module.declarations[0])
     assert 'SAVE' in module.to_fortran()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('external_decl', ('real :: x\n    external x', 'real, external :: x'))
+@pytest.mark.parametrize('body', ('', 'y = x()'))
+def test_fgen_external_procedure(frontend, external_decl, body):
+    fcode = f"""
+SUBROUTINE DRIVER
+    implicit none
+    real :: y
+    {external_decl}
+    {body}
+END SUBROUTINE DRIVER
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    x = routine.variable_map['x']
+    assert x.type.external
+    assert isinstance(x.type.dtype, ProcedureType)
+    assert x.type.dtype.return_type.dtype == BasicType.REAL
+    assert isinstance(x, (sym.Scalar, sym.ProcedureSymbol))
+    assert 'real, external :: x' in routine.to_fortran().lower()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

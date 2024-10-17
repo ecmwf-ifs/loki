@@ -22,6 +22,7 @@ from loki.ir import (
 from loki.frontend.source import join_source_list
 from loki.logging import detail, warning, error
 from loki.tools import group_by_class, replace_windowed, as_tuple
+from loki.types import ProcedureType
 
 
 __all__ = [
@@ -299,6 +300,47 @@ class RangeIndexTransformer(Transformer):
         return o.clone(symbols=mapper(o.symbols, recurse_to_declaration_attributes=True))
 
 
+class RemoveDuplicateVariableDeclarationsForExternalProcedures(Transformer):
+    """
+    :any:`Transformer` that removes procedure symbols from
+    :any:`VariableDeclarations` if they have the ``external`` attribute
+
+    This is because Fortran's external-stmt allows to declare procedure
+    symbols as external separate to their return type declaration. That makes
+    it virtually impossible to determine that this return type declaration
+    refers to a procedure rather than a local variable until the corresponding
+    ``EXTERNAL`` statement has been encountered.
+
+    Because Fortran allows to represent this also as an attribute in the same
+    declaration, we choose this to represent external procedures in all cases.
+    This means, we are replacing
+
+    .. code-block::
+        REAL :: ext_func
+        EXTERNAL ext_func
+
+    by the equivalent representation
+
+    .. code-block::
+        REAL, EXTERNAL :: ext_func
+
+    The frontends will readily translate external statements to the
+    procedure declaration with the ``EXTERNAL`` attribute, and therefore this
+    transformer only has to remove the duplicate variable declarations.
+    """
+
+    def visit_VariableDeclaration(self, o, **kwargs):  # pylint: disable=unused-argument
+        symbols = tuple(
+            s for s in o.symbols
+            if not (s.type.external and isinstance(s.type.dtype, ProcedureType))
+        )
+        if not symbols:
+            return None
+        if len(symbols) < len(o.symbols):
+            return o._update(symbols=symbols)
+        return o
+
+
 @Timer(logger=detail, text=lambda s: f'[Loki::Frontend] Executed sanitize_ir in {s:.2f}s')
 def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
     """
@@ -344,5 +386,6 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
 
     if frontend in (FP, OFP):
         _ir = CombineMultilinePragmasTransformer(inplace=True, invalidate_source=False).visit(_ir)
+        _ir = RemoveDuplicateVariableDeclarationsForExternalProcedures(inplace=True, invalidate_source=False).visit(_ir)
 
     return _ir
