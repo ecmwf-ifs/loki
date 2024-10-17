@@ -58,6 +58,8 @@ def parse_ofp_file(filename):
     if not HAVE_OFP:
         error('OpenFortranParser is not available.')
 
+    warning('[DEPRECATION]: The OFP frontend is deprecated and will be removed soon!')
+
     filepath = Path(filename)
     info(f'[Loki::OFP] Parsing {filepath}')
     return open_fortran_parser.parse(filepath, raise_on_error=True)
