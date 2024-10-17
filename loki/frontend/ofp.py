@@ -1098,15 +1098,23 @@ class OFP2IR(GenericVisitor):
             # Update symbol table entries
             if isinstance(_type.dtype, ProcedureType):
                 scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
-            else:
-                # This is (presumably!) an external or dummy function with implicit interface,
-                # which is declared as `PROCEDURE(<return_type>) [::] <name>`. Easy, isn't it...?
-                # Great, now we have to update each symbol's type one-by-one...
-                assert o.find('procedure-declaration-stmt').get('hasProcInterface')
-                interface = _type.dtype
-                for var in symbols:
-                    dtype = ProcedureType(var.name, is_function=True, return_type=_type)
-                    scope.symbol_attrs[var.name] = var.type.clone(dtype=dtype)
+            elif o.find('procedure-declaration-stmt').get('hasProcInterface'):
+                if o.find('proc-interface').get('id'):
+                    # This is (presumably!) an external function with explicit interface that we
+                    # don't know because the type information is not available, e.g., because it's been
+                    # imported from another module or sits in an intfb.h header file.
+                    # So, we create a ProcedureType object with the proc-interface name and use that
+                    dtype = ProcedureType(o.find('proc-interface').get('id'))
+                    _type = _type.clone(dtype=dtype)
+                    scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in symbols})
+                else:
+                    # This is (presumably!) an external or dummy function with implicit interface,
+                    # which is declared as `PROCEDURE(<return_type>) [::] <name>`. Easy, isn't it...?
+                    # Great, now we have to update each symbol's type one-by-one...
+                    interface = _type.dtype
+                    for var in symbols:
+                        dtype = ProcedureType(var.name, is_function=True, return_type=_type)
+                        scope.symbol_attrs[var.name] = _type.clone(dtype=dtype)
 
             # Rescope variables so they know their type
             symbols = tuple(var.rescope(scope=scope) for var in symbols)

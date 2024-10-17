@@ -944,6 +944,13 @@ class FParser2IR(GenericVisitor):
         if return_type is None:
             interface = self.visit(o.children[0], **kwargs)
             interface = AttachScopesMapper()(interface, scope=scope)
+            if interface.type.dtype is BasicType.DEFERRED:
+                # This is (presumably!) an external function with explicit interface that we
+                # don't know because the type information is not available, e.g., because it's been
+                # imported from another module or sits in an intfb.h header file.
+                # So, we create a ProcedureType object with the interface name and use that
+                dtype = ProcedureType(interface.name)
+                interface = interface.clone(type=interface.type.clone(dtype=dtype))
             _type = interface.type.clone(**attrs)
         else:
             interface = return_type.dtype
@@ -978,7 +985,7 @@ class FParser2IR(GenericVisitor):
         * attribute name (`str`)
         * attribute value (such as ``IN``, ``OUT``, ``INOUT``) or `None`
         """
-        return (o.children[0].lower(), o.children[1].lower() if o.children[1] is not None else True)
+        return (o.children[0].lower(), str(o.children[1]).lower() if o.children[1] is not None else True)
 
     visit_Proc_Decl_List = visit_List
 
