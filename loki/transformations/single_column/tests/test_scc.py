@@ -247,16 +247,16 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     INTEGER, INTENT(IN)   :: nproma, nlev  ! Aliases of horizontal and vertical sizes
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
-    REAL :: other_var(nlon)
+    REAL :: other_var(nlon), more_var(nlon)
     INTEGER :: b, start, end
 
     start = 1
     end = nlon
     {'!$acc data default(present)' if acc_data == 'default' else ''}
-    {'!$acc data copyin(other_var)' if acc_data == 'copyin' else ''}
+    {'!$acc data copyin(more_var) copyin(other_var)' if acc_data == 'copyin' else ''}
     !
     do b=1, nb
-      call compute_column(start, end, nlon, nproma, nz, q(:,:,b), other_var)
+      call compute_column(start, end, nlon, nproma, nz, q(:,:,b), other_var, more_var)
     end do
     !
     {'!$acc end data' if acc_data else ''}
@@ -264,12 +264,12 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
 """
 
     fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q, other_var)
+  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q, other_var, more_var)
     INTEGER, INTENT(IN) :: start, end   ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz     ! Size of the horizontal and vertical
     INTEGER, INTENT(IN) :: nproma, nlev ! Aliases of horizontal and vertical sizes
     REAL, INTENT(INOUT) :: q(nlon,nz)
-    REAL, INTENT(IN) :: other_var
+    REAL, INTENT(IN) :: other_var(nlon), more_var(nlon)
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: d(nproma)
@@ -317,7 +317,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
     assert pragmas[1].keyword == 'acc'
-    assert pragmas[1].content == 'data present(q)'
+    assert pragmas[1].content == 'data present(q, other_var, more_var)'
     assert pragmas[-1].keyword == 'acc'
     assert pragmas[-1].content == 'end data'
 
@@ -338,7 +338,10 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
         if acc_data:
             assert driver_loops[0].pragma[0].content == 'parallel loop gang vector_length(nlon)'
         else:
-            assert driver_loops[0].pragma[0].content == 'parallel loop gang private(other_var) vector_length(nlon)'
+            assert driver_loops[0].pragma[0].content in (
+                'parallel loop gang private(other_var, more_var) vector_length(nlon)',
+                'parallel loop gang private(more_var, other_var) vector_length(nlon)'
+            )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

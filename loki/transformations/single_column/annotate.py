@@ -226,6 +226,10 @@ class SCCAnnotateTransformation(Transformation):
                     if not driver_loops:
                         continue
 
+                    # When a key is given multiple times, get_pragma_parameters returns a list
+                    # We merge them here into single entries to make our life easier below
+                    parameters = {key: ', '.join(as_tuple(value)) for key, value in parameters.items()}
+
                     if (default := parameters.get('default', None)):
                         if not 'none' in [p.strip().lower() for p in default.split(',')]:
                             for loop in driver_loops:
