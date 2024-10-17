@@ -17,7 +17,7 @@ jobs:
   regression_tests:
     name: Python ${{ matrix.python-version }}
 
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false  # false: try to complete all jobs
       matrix:
@@ -66,7 +66,9 @@ jobs:
 
       - name: Install Loki
         run: |
-          ./install --with-claw --with-ofp --with-tests --without-dace
+          export JAVA_HOME=${JAVA_HOME_11_X64}
+          ./install --with-omni --with-ofp --with-tests --without-dace
+          echo "export JAVA_HOME=${JAVA_HOME_11_X64}" >> loki-activate
 
       - name: Install up-to-date CMake
         run: |
@@ -81,7 +83,6 @@ jobs:
       - name: Run CLOUDSC and ECWAM regression tests
         env:
           CLOUDSC_DIR: ${{ github.workspace }}/cloudsc
-          CLOUDSC_ARCH: ${{ github.workspace }}/cloudsc/arch/github/ubuntu/gnu/9.4.0
           ECWAM_DIR: ${{ github.workspace }}/ecwam
           OMP_STACKSIZE: 4G
         run: |

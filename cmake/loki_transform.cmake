@@ -452,7 +452,7 @@ endfunction()
 #
 #  ..warning::
 #      loki_transform_transpile() was removed!
-# 
+#
 #  Please use
 #       loki_transform( COMMAND convert [...] )
 #   or
@@ -592,7 +592,7 @@ function( generate_xmod )
         endforeach()
     endif()
 
-    if( TARGET clawfc )
+    if( TARGET clawfc AND NOT TARGET F_Front )
         get_target_property( _CLAWFC_EXECUTABLE clawfc IMPORTED_LOCATION )
         get_filename_component( _CLAWFC_LOCATION ${_CLAWFC_EXECUTABLE} DIRECTORY )
         set( _F_FRONT_EXECUTABLE ${_CLAWFC_LOCATION}/F_Front )

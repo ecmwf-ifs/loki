@@ -10,11 +10,11 @@
 set -euo pipefail
 
 # Configuration of package versions:
-loki_ant_version=1.10.13
+loki_ant_version=1.10.15
 
 hpc2020_java_version=11.0.6
-hpc2020_python_version=3.10.10-01
-hpc2020_cmake_version=3.25.2
+hpc2020_python_version=3.11.8-01
+hpc2020_cmake_version=3.28.3
 
 # Determine base path for loki
 # Either take the root of the current git tree or, if not inside a git repository, then
@@ -35,6 +35,7 @@ with_jdk=false
 with_ant=false
 with_claw=false
 claw_install_env=""
+with_omni=false
 with_ofp=false
 with_docs=false
 with_dace=true
@@ -61,6 +62,7 @@ print_usage_with_options() {
   echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
   echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
   echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
+  echo "  --with[out]-omni             Install OMNI Compiler; cannot be combined with --with-claw (default: disabled)"
   echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
   echo "  --with[out]-dace             Install DaCe (default: enabled)"
   echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
@@ -137,6 +139,12 @@ while getopts "$optspec" optchar; do
         without-claw) # Disable installation of OMNI+CLAW
           with_claw=false
           ;;
+        with-omni)   # Enable installation of OMNI
+          with_omni=true
+          ;;
+        without-omni) # Disable installation of OMNI
+          with_omni=false
+          ;;
         with-dace)    # Enable installation of DaCe
           with_dace=true
           ;;
@@ -189,6 +197,13 @@ while getopts "$optspec" optchar; do
   esac
 done
 
+if [ "$with_omni" == true ]; then
+  if [ "$with_claw" == true ]; then
+    echo "ERROR: Cannot combine --with-claw and --with-omni"
+    exit 1
+  fi
+fi
+
 # Print configuration
 if [ "$verbose" == true ]; then
   print_step "Installation configuration:"
@@ -198,6 +213,7 @@ if [ "$verbose" == true ]; then
   [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
   [[ "$with_ant" == true ]]  && echo "    --with-ant"
   [[ "$with_claw" == true ]] && echo "    --with-claw"
+  [[ "$with_omni" == true ]] && echo "    --with-omni"
   [[ "$with_ofp" == false ]] && echo "    --without-ofp"
   [[ "$with_dace" == false ]] && echo "    --without-dace"
   [[ "$with_tests" == false ]] && echo "    --without-tests"
@@ -205,7 +221,6 @@ if [ "$verbose" == true ]; then
   [[ "$with_examples" == false ]] && echo "    --without-examples"
   [[ "$proxy_certificate" != "" ]] && echo "    --proxy-certificate='$proxy_certificate'"
   [[ "$jdk_certificate" != "" ]]   && echo "    --jdk-certificate='$jdk_certificate'"
-  [[ "$claw_install_env" != "" ]]  && echo "    --claw_install_env='$claw_install_env'"
 fi
 
 if [ "x$proxy_certificate" != "x" ]; then
@@ -379,21 +394,48 @@ if [ "$with_claw" == true ]; then
   mkdir -p "${CLAW_INSTALL_DIR}"
   cd "${CLAW_INSTALL_DIR}"
   rm -rf claw-compiler
-  # git clone --recursive https://github.com/claw-project/claw-compiler.git claw-compiler
+  # git clone --recursive --single-branch https://github.com/claw-project/claw-compiler.git claw-compiler
 
-  # Note that our current regression tests (CLOUDSC) will fail due to faulty offload
+  # Note that the deprecated CLAW variants in CLOUDSC will fail due to faulty offload
   # directives with current CLAW-master. The fixes exist in this pinned branch:
+  # However, this branch fails to build with recent GNU versions (GNU 10+)
   git clone --recursive --single-branch --branch=mlange-dev https://github.com/mlange05/claw-compiler.git claw-compiler
   cd claw-compiler
 
   (
     set -a
     eval ${claw_install_env}
-    cmake -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}" .
+    cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}"
+    cmake --build build
+    cmake --install build
   )
+fi
 
-  make
-  make install
+#
+# Install OMNI
+#
+
+if [ "$with_omni" == true ]; then
+  print_step "Downloading and installing OMNI Compiler"
+
+  OMNI_INSTALL_DIR=${venv_path}/opt/omni
+  mkdir -p "${OMNI_INSTALL_DIR}"
+  cd "${OMNI_INSTALL_DIR}"
+  rm -rf xcodeml-tools
+  git clone --recursive --single-branch https://github.com/omni-compiler/xcodeml-tools.git xcodeml-tools
+
+  cd xcodeml-tools
+
+  omni_opts=()
+  [[ ! -z "${JAVA_HOME}" ]] && omni_opts+=("JAVA_HOME=${JAVA_HOME}")
+
+  # A CMake install would be cleaner but they inject without good reason a -Werror for
+  # GNU and Clang without writing good enough code that actually avoids any warnings...
+  # cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${OMNI_INSTALL_DIR}" "${omni_opts[@]}"
+  # cmake --build build
+  # cmake --install build
+  ./configure --prefix="${OMNI_INSTALL_DIR}" "${omni_opts[@]}"
+  make && make install
 fi
 
 #
@@ -496,6 +538,11 @@ if [ "$with_claw" == true ]; then
   path_var=${CLAW_INSTALL_DIR}/bin:$path_var
 fi
 
+# Inject OMNI into env
+if [ "$with_omni" == true ]; then
+  path_var=${OMNI_INSTALL_DIR}/bin:$path_var
+fi
+
 # Update path variable
 echo "
 export PATH=\"$path_var\"
@@ -513,7 +560,10 @@ echo "Activate the Loki environment with"
 echo
 echo "    source loki-activate"
 echo
-echo "You can then test the Loki installation by running"
-echo
-echo "    pytest --pyargs loki lint_rules"
-echo
+
+if [ "$with_tests" == true ]; then
+  echo "You can test the Loki installation by running"
+  echo
+  echo "    pytest --pyargs loki lint_rules"
+  echo
+fi

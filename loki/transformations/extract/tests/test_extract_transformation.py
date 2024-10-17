@@ -17,7 +17,7 @@ from loki.transformations.extract import ExtractTransformation
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('outline_regions', [False, True])
 @pytest.mark.parametrize('extract_internals', [False, True])
-def test_extract_transformation_module(extract_internals, outline_regions, frontend):
+def test_extract_transformation_module(extract_internals, outline_regions, frontend, tmp_path):
     """
     Test basic subroutine extraction from marker pragmas in modules.
     """
@@ -59,7 +59,7 @@ contains
 end subroutine outer
 end module test_extract_mod
 """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     ExtractTransformation(
         extract_internals=extract_internals, outline_regions=outline_regions
