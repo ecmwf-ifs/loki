@@ -217,21 +217,21 @@ def remove_field_api_view_updates(routine, field_group_types):
     routine.body = RemoveFieldAPITransformer().visit(routine.body)
 
 
-def add_field_api_view_updates(routine, field_group_types):
+def add_field_api_view_updates(routine, dimension, field_group_types):
     """
     Add FIELD API boilerplate calls for view updates
     """
 
     def _create_dim_update(scope):
-        jkglo = scope.get_symbol('JKGLO')
-        icend = scope.get_symbol('ICEND')
-        ibl = scope.get_symbol('IBL')
+        index = parse_expr(dimension.index, scope)
+        upper = parse_expr(dimension.bounds_expressions[1][1], scope)
+        bindex = parse_expr(dimension.index_expressions[1], scope)
         idims = scope.get_symbol('IDIMS')
         csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
-        return ir.CallStatement(name=csym, arguments=(ibl, icend, jkglo), kwarguments=())
+        return ir.CallStatement(name=csym, arguments=(bindex, upper, index), kwarguments=())
 
     def _create_view_updates(section, scope):
-        ibl = scope.get_symbol('IBL')
+        bindex = parse_expr(dimension.index_expressions[1], scope)
 
         fgroup_vars = sorted(tuple(
             v for v in FindVariables(unique=True).visit(section)
@@ -241,7 +241,7 @@ def add_field_api_view_updates(routine, field_group_types):
         for fgvar in fgroup_vars:
             fgsym = scope.get_symbol(fgvar.name)
             csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
-            calls += (ir.CallStatement(name=csym, arguments=(ibl,), kwarguments=()),)
+            calls += (ir.CallStatement(name=csym, arguments=(bindex,), kwarguments=()),)
 
         return calls
 
@@ -629,7 +629,8 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             add_block_loops(ec_phys_parallel, dimension=blocking)
 
             add_field_api_view_updates(
-                ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+                ec_phys_parallel, dimension=blocking,
+                field_group_types=field_group_types+fgroup_firstprivates
             )
 
             # Re-insert explicit firstprivate copies
@@ -654,7 +655,8 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             add_block_loops(routine=driver, dimension=blocking)
 
             add_field_api_view_updates(
-                routine=driver, field_group_types=field_group_types+fgroup_firstprivates
+                routine=driver, dimension=blocking,
+                field_group_types=field_group_types+fgroup_firstprivates
             )
 
             # Re-insert explicit firstprivate copies

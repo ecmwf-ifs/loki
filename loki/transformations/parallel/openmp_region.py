@@ -9,6 +9,7 @@
 Sub-package with utilities to remove and manipulate parallel OpenMP regions.
 """
 
+from loki.expression import parse_expr
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, SubstituteStringExpressions,
     pragma_regions_attached, is_loki_pragma, FindVariables
@@ -118,8 +119,8 @@ def create_explicit_firstprivatisation(routine, fprivate_map):
             lvars = FindVariables(unique=True).visit(region.body)
             assigns = ()
             for lcl, gbl in fprivate_map.items():
-                lhs = routine.get_symbol(lcl)
-                rhs = routine.get_symbol(gbl)
+                lhs = parse_expr(lcl, scope=routine)
+                rhs = parse_expr(gbl, scope=routine)
                 if rhs in lvars:
                     assigns += (ir.Assignment(lhs=lhs, rhs=rhs),)
 
