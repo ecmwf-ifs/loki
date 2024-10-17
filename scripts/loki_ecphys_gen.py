@@ -275,7 +275,7 @@ def add_field_api_view_updates(routine, field_group_types):
     routine.body = InsertFieldAPIViewsTransformer().visit(routine.body, scope=routine)
 
 
-def add_block_loops(routine):
+def add_block_loops(routine, dimension):
     """
     Insert IFS-style driver block-loops (NPROMA).
     """
@@ -284,24 +284,27 @@ def add_block_loops(routine):
         """
         Generate block loop object, including indexing preamble
         """
-        jkglo = scope.get_symbol('JKGLO')
-        icend = scope.get_symbol('ICEND')
-        ibl = scope.get_symbol('IBL')
+        # TODO: This includes some back-bending hackery due to the
+        # funcky way in which the block-loop bounds are done in IFS!
+        index = parse_expr(dimension.index, scope)
+        upper_alt = parse_expr(dimension.bounds_expressions[1][1], scope)
+        index_alt = parse_expr(dimension.index_expressions[1], scope)
 
-        ngptot = sym.Scalar('NGPTOT', parent=scope.get_symbol('YDGEM'), scope=scope)
-        nproma = sym.Scalar('NPROMA', parent=scope.get_symbol('YDDIM'), scope=scope)
-        lrange = sym.LoopRange((sym.Literal(1), ngptot, nproma))
+        # This is a hack; it's meant to be the upper limit, but we use it as stride!
+        bsize = parse_expr(dimension.bounds_expressions[1][0], scope=scope)
+        size = parse_expr(dimension.size, scope=scope)
+        lrange = sym.LoopRange((sym.Literal(1), size, bsize))
 
-        expr_tail = parse_expr('YDGEM%NGPTOT-JKGLO+1', scope=scope)
+        expr_tail = parse_expr(f'{size}-{index}+1', scope=scope)
         expr_max = sym.InlineCall(
-            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(nproma, expr_tail)
+            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(bsize, expr_tail)
         )
-        preamble = (ir.Assignment(lhs=icend, rhs=expr_max),)
+        preamble = (ir.Assignment(lhs=upper_alt, rhs=expr_max),)
         preamble += (ir.Assignment(
-            lhs=ibl, rhs=parse_expr('(JKGLO-1)/YDDIM%NPROMA+1', scope=scope)
+            lhs=index_alt, rhs=parse_expr(f'({index}-1)/{bsize}+1', scope=scope)
         ),)
 
-        return ir.Loop(variable=jkglo, bounds=lrange, body=preamble + body)
+        return ir.Loop(variable=index, bounds=lrange, body=preamble + body)
 
     class InsertBlockLoopTransformer(Transformer):
         """ Creates a block loop per marked parallel region """
@@ -598,6 +601,13 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
 
+    blocking = Dimension(
+        name='block', index='JKGLO', index_aliases='IBL',
+        size='YDGEM%NGPTOT', aliases='YDDIM%NGPBLKS',
+        bounds=('YDGEM%NGPTOT', 'YDDIM%NPROMA'),
+        bounds_aliases=('ICST', 'ICEND')
+    )
+
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
         do_remove_marked_regions(ec_phys_parallel)
 
@@ -616,7 +626,7 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             )
 
             # The add them back in according to parallel region
-            add_block_loops(ec_phys_parallel)
+            add_block_loops(ec_phys_parallel, dimension=blocking)
 
             add_field_api_view_updates(
                 ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
@@ -641,7 +651,7 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
         driver_routines = extract_driver_routines(ec_phys_parallel)
         for driver in driver_routines:
             # Re-insert block loop with FIELD API view updates
-            add_block_loops(routine=driver)
+            add_block_loops(routine=driver, dimension=blocking)
 
             add_field_api_view_updates(
                 routine=driver, field_group_types=field_group_types+fgroup_firstprivates
