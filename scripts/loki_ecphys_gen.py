@@ -208,7 +208,65 @@ def remove_field_api_view_updates(routine, field_group_types):
     routine.body = RemoveFieldAPITransformer().visit(routine.body)
 
 
-def add_block_loops(routine, field_group_types={}):
+def add_field_api_view_updates(routine, field_group_types):
+    """
+    Add FIELD API boilerplate calls for view updates
+    """
+
+    def _create_dim_update(scope):
+        jkglo = scope.get_symbol('JKGLO')
+        icend = scope.get_symbol('ICEND')
+        ibl = scope.get_symbol('IBL')
+        idims = scope.get_symbol('IDIMS')
+        csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
+        return ir.CallStatement(name=csym, arguments=(ibl, icend, jkglo), kwarguments=())
+
+    def _create_view_updates(section, scope):
+        ibl = scope.get_symbol('IBL')
+
+        fgroup_vars = sorted(tuple(
+            v for v in FindVariables(unique=True).visit(section)
+            if str(v.type.dtype) in field_group_types
+        ), key=lambda v: str(v))
+        calls = ()
+        for fgvar in fgroup_vars:
+            fgsym = scope.get_symbol(fgvar.name)
+            csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
+            calls += (ir.CallStatement(name=csym, arguments=(ibl,), kwarguments=()),)
+
+        return calls
+
+    class InsertFieldAPIViewsTransformer(Transformer):
+        """ Injects FIELD-API view updates into block loops """
+
+        def visit_Loop(self, loop, **kwargs):
+            if not loop.variable == 'JKGLO':
+                return loop
+
+            scope = kwargs.get('scope')
+
+            # Find the loop-setup assignments
+            _loop_symbols = ('JKGLO', 'IBL', 'ICST', 'ICEND')
+            loop_setup = tuple(
+                a for a in FindNodes(ir.Assignment).visit(loop.body)
+                if a.lhs in _loop_symbols
+            )
+            idx = max(loop.body.index(a) for a in loop_setup) + 1
+
+            # Prepend FIELD API boilerplate
+            preamble = (
+                ir.Comment(''), ir.Comment('! Set up thread-local view pointers')
+            )
+            preamble += (_create_dim_update(scope),)
+            preamble += _create_view_updates(loop.body, scope)
+
+            loop._update(body=loop.body[:idx] + preamble + loop.body[idx:])
+            return loop
+
+    routine.body = InsertFieldAPIViewsTransformer().visit(routine.body, scope=routine)
+
+
+def add_block_loops(routine):
     """
     Insert IFS-style driver block-loops (NPROMA).
     """
@@ -236,29 +294,6 @@ def add_block_loops(routine, field_group_types={}):
 
         return ir.Loop(variable=jkglo, bounds=lrange, body=preamble + body)
 
-    def _create_dim_update(scope):
-        jkglo = scope.get_symbol('JKGLO')
-        icend = scope.get_symbol('ICEND')
-        ibl = scope.get_symbol('IBL')
-        idims = scope.get_symbol('IDIMS')
-        csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
-        return ir.CallStatement(name=csym, arguments=(ibl, icend, jkglo), kwarguments=())
-
-    def _create_view_updates(section, scope):
-        ibl = scope.get_symbol('IBL')
-
-        fgroup_vars = sorted(tuple(
-            v for v in FindVariables(unique=True).visit(section)
-            if str(v.type.dtype) in field_group_types
-        ), key=lambda v: str(v))
-        calls = ()
-        for fgvar in fgroup_vars:
-            fgsym = scope.get_symbol(fgvar.name)
-            csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
-            calls += (ir.CallStatement(name=csym, arguments=(ibl,), kwarguments=()),)
-
-        return calls
-
     class InsertBlockLoopTransformer(Transformer):
 
         def visit_PragmaRegion(self, region, **kwargs):
@@ -280,19 +315,10 @@ def add_block_loops(routine, field_group_types={}):
 
             # Create a block loop per marked parallel region
             scope = kwargs.get('scope')
-            body = region.body[idx:]
 
-            # Prepend FIELD API boilerplate
-            preamble = (
-                ir.Comment(''), ir.Comment('! Set up thread-local view pointers')
-            )
-            preamble += (_create_dim_update(scope),)
-            preamble += _create_view_updates(body, scope)
+            loop = _create_block_loop(body=region.body, scope=scope)
 
-            loop = _create_block_loop(body=preamble + body, scope=scope)
-            region._update(
-                body=region.body[:idx] + (ir.Comment(''), loop)
-            )
+            region._update(body=(ir.Comment(''), loop))
             return region
 
     with pragma_regions_attached(routine):
@@ -458,7 +484,9 @@ def parallel(source, build, remove_block_loop, log_level):
             )
 
             # The add them back in according to parallel region
-            add_block_loops(
+            add_block_loops(ec_phys_parallel)
+
+            add_field_api_view_updates(
                 ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
             )
 
