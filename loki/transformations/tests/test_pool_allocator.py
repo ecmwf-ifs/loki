@@ -10,7 +10,7 @@ import pytest
 from loki import Dimension
 from loki.batch import Scheduler, SchedulerConfig
 from loki.expression import InlineCall, simplify
-from loki.frontend import available_frontends, OMNI, FP, OFP
+from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import (
     FindNodes, CallStatement, Assignment, Allocation, Deallocation,
     Loop, Pragma, get_pragma_parameters, FindVariables, FindInlineCalls
@@ -1170,20 +1170,19 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
     assert calls[0].arguments == ('klon', 'temp1', 'temp2')
     assert calls[0].kwarguments == expected_kwarguments
 
-    if not frontend == OFP:
-        # Now repeat the checks for the inline call
-        calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('max', 'c_sizeof', 'real')]
-        if cray_ptr_loc_rhs:
-            assert len(calls) == 2
-            if calls[0].name == 'inline_kernel':
-                relevant_call = calls[0]
-            else:
-                relevant_call = calls[1]
-        else:
-            assert len(calls) == 1
+    # Now repeat the checks for the inline call
+    calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('max', 'c_sizeof', 'real')]
+    if cray_ptr_loc_rhs:
+        assert len(calls) == 2
+        if calls[0].name == 'inline_kernel':
             relevant_call = calls[0]
-        assert relevant_call.arguments == ('jl',)
-        assert relevant_call.kwarguments == expected_kwarguments
+        else:
+            relevant_call = calls[1]
+    else:
+        assert len(calls) == 1
+        relevant_call = calls[0]
+    assert relevant_call.arguments == ('jl',)
+    assert relevant_call.kwarguments == expected_kwarguments
 
     assert 'Derived-type vars in Subroutine:: kernel not supported in pool allocator' in caplog.text
 

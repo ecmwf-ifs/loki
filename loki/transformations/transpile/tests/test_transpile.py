@@ -12,7 +12,7 @@ import numpy as np
 from loki import Subroutine, Module, cgen, cppgen, cudagen, FindNodes, Dimension, Scheduler, read_file
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 import loki.expression.symbols as sym
-from loki.frontend import available_frontends, OFP
+from loki.frontend import available_frontends
 from loki import ir
 
 from loki.transformations.transpile import FortranCTransformation
@@ -793,9 +793,7 @@ end subroutine multibody_cond
 
 
 @pytest.mark.parametrize('use_c_ptr', (False, True))
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OFP, 'Prefix/elemental support not implemented')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_inline_elemental_functions(tmp_path, builder, frontend, use_c_ptr):
     """
     Test correct inlining of elemental functions in C transpilation.
@@ -854,9 +852,7 @@ end subroutine inline_elemental
 
 
 @pytest.mark.parametrize('use_c_ptr', (False, True))
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OFP, 'Prefix/elemental support not implemented')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_inline_elementals_recursive(tmp_path, builder, frontend, use_c_ptr):
     """
     Test correct inlining of nested elemental functions.
@@ -1212,9 +1208,7 @@ end subroutine multi_cond_simple
         assert out_var == expected_results[i]
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OFP, 'OFP got problems with RangeIndex as case value!')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_multiconditional(tmp_path, builder, frontend):
     """
     A test to verify multiconditionals/select case statements.

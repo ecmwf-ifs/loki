@@ -27,7 +27,7 @@ from loki import (
 )
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OMNI, OFP, FP, REGEX
+from loki.frontend import available_frontends, OMNI, FP, REGEX
 from loki.ir import nodes as ir, FindNodes
 
 
@@ -364,9 +364,7 @@ end subroutine test_enum
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OFP, 'OFP fails to parse parameterized types')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.usefixtures('reset_frontend_mode')
 def test_frontend_strict_mode(frontend, tmp_path):
     """
@@ -1622,7 +1620,7 @@ END SUBROUTINE DOT_PROD_SP_2D
     assert 'dot_product_ecv' in routine.variables
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for prefix implemented')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_regex_prefix(frontend, tmp_path):
     fcode = """
 module some_mod
@@ -1842,12 +1840,9 @@ end subroutine test_inline_comments
     assert assigns[3].comment.text == '! wall !'
 
     comments = FindNodes(ir.Comment).visit(routine.body)
-    assert len(comments) == 1 if frontend == OFP else 4
-    if frontend == OFP:
-        assert comments[0].text == '! Who said that?'
-    else:
-        assert comments[1].text == '! Who said that?'
-        assert comments[0].text == comments[2].text == comments[3].text == ''
+    assert len(comments) == 4
+    assert comments[1].text == '! Who said that?'
+    assert comments[0].text == comments[2].text == comments[3].text == ''
 
 
 @pytest.mark.parametrize('from_file', (True, False))

@@ -15,7 +15,7 @@ from loki import (
     FindNodes, ProcedureDeclaration
 )
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OFP, OMNI
+from loki.frontend import available_frontends, OMNI
 
 
 @pytest.fixture(scope='module', name='here')

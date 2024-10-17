@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import CallStatement, Import, FindNodes, FindInlineCalls
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
@@ -558,9 +558,7 @@ def test_extract_internal_procedures_basic_scalar_function(frontend):
     call = list(FindInlineCalls().visit(outer.body))[0]
     assert 'x' in call.kw_parameters
 
-@pytest.mark.parametrize(
-    'frontend', available_frontends(skip=(OFP, "ofp fails for unknown reason, likely frontend issue"))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_extract_internal_procedures_basic_scalar_function_both(frontend):
     """
     Basic test for scalars highlighting that the outer and inner procedure may be functions.

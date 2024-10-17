@@ -15,7 +15,7 @@ from codetiming import Timer
 from loki.backend.fgen import fgen
 from loki.backend.cufgen import cufgen
 from loki.frontend import (
-    Frontend, OMNI, OFP, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
+    Frontend, OMNI, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
     parse_omni_source, parse_ofp_source, parse_fparser_source,
     parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source,
     RegexParserClass
@@ -30,6 +30,9 @@ from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Sourcefile']
+
+
+OFP = Frontend.OFP
 
 
 class Sourcefile:

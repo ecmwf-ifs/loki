@@ -68,7 +68,7 @@ from loki.batch import (
 )
 from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
-    available_frontends, OMNI, OFP, FP, REGEX, HAVE_FP, HAVE_OFP, HAVE_OMNI
+    available_frontends, OMNI, FP, REGEX, HAVE_FP, HAVE_OMNI
 )
 from loki.ir import nodes as ir, FindNodes, FindInlineCalls
 from loki.transformations import (
@@ -76,7 +76,7 @@ from loki.transformations import (
 )
 
 
-pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
+pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
 @pytest.fixture(scope='module', name='here')
@@ -116,7 +116,7 @@ def fixture_frontend():
     independent from the specific frontend used. Cannot use OMNI for this
     as not all tests have dependencies fully resolved.
     """
-    return FP if HAVE_FP else OFP
+    return FP
 
 
 @pytest.fixture(name='driverA_dependencies')

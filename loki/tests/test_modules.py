@@ -14,7 +14,7 @@ from loki import (
     Scalar, DeferredTypeSymbol, FindVariables, SubstituteExpressions, Literal
 )
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OFP, OMNI
+from loki.frontend import available_frontends, OMNI
 from loki.sourcefile import Sourcefile
 
 
@@ -933,9 +933,7 @@ end module some_mod
         assert use_name is None or f'{s} => {use_name}' in fcode
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OFP, 'hasModuleNature on use-stmt but without conveying actual nature')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_module_use_module_nature(frontend, tmp_path):
     """
     Test module natures attributes in ``USE`` statements

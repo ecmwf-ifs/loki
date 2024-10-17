@@ -8,16 +8,14 @@
 import pytest
 
 from loki import Module, Subroutine
-from loki.frontend import available_frontends, OFP
+from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 from loki.batch import Scheduler, SchedulerConfig
 
 from loki.transformations.inline import InlineTransformation
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    (OFP, 'Prefix/elemental support not implemented'))
-)
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('pass_as_kwarg', (False, True))
 def test_inline_transformation(tmp_path, frontend, pass_as_kwarg):
     """Test combining recursive inlining via :any:`InliningTransformation`."""

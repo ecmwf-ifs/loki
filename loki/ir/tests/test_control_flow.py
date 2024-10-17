@@ -11,7 +11,7 @@ import numpy as np
 from loki import Subroutine
 from loki.backend import fgen
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
 
@@ -610,7 +610,6 @@ end subroutine forall_masked_stmt
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[
     (OMNI, 'Renames index variable to omnitmp000'),
-    (OFP, 'Parser fails to parse'),
 ]))
 def test_multi_line_forall_construct(tmp_path, frontend):
     fcode = """
