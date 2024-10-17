@@ -9,7 +9,7 @@ import pytest
 
 from loki import Sourcefile
 from loki.batch import Scheduler, SchedulerConfig
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     FindNodes, CallStatement, Import, Interface, Intrinsic, FindInlineCalls
 )
@@ -445,8 +445,7 @@ END SUBROUTINE kernel
         assert intfs[0].symbols == ('kernel_test',)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-                         xfail=[(OFP, 'OFP does not correctly handle result variable declaration.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_inline_call(frontend):
     """
     Test injection of suffixed kernel, accessed through inline function call.

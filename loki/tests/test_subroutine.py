@@ -18,7 +18,7 @@ from loki import (
     ProcedureSymbol, StatementFunction, DeferredTypeSymbol
 )
 from loki.build import jit_compile, jit_compile_lib, clean_test
-from loki.frontend import available_frontends, OFP, OMNI, REGEX
+from loki.frontend import available_frontends, OMNI, REGEX
 from loki.types import BasicType, DerivedType, ProcedureType
 from loki.ir import nodes as ir
 
@@ -1465,7 +1465,7 @@ end subroutine test_subroutine_rescope_clone
         )
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for statement functions')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_stmt_func(tmp_path, frontend):
     """
     Test the correct identification of statement functions
@@ -1537,7 +1537,7 @@ end subroutine valid_fortran
     assert "Declarations must have intents" in str(error.value)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'Prefix support not implemented')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_prefix(frontend):
     """
     Test various prefixes that can occur in function/subroutine definitions
@@ -1852,7 +1852,7 @@ END SUBROUTINE CLOUDSC
     assert all(isinstance(arg, Array) for arg in routine.arguments[4:])
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'Prefix support not implemented')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_lazy_prefix(frontend):
     """
     Test that prefixes for functions are correctly captured when the object is made

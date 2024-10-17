@@ -16,7 +16,7 @@ import pytest
 from loki.tools import (
     execute, write_env_launch_script, local_loki_setup, local_loki_cleanup
 )
-from loki.frontend import available_frontends, OMNI, OFP, HAVE_FP
+from loki.frontend import available_frontends, OMNI, HAVE_FP
 from loki.logging import warning
 
 pytestmark = pytest.mark.skipif('CLOUDSC_DIR' not in os.environ, reason='CLOUDSC_DIR not set')
@@ -49,7 +49,6 @@ def fixture_bundle_create(here, local_loki_bundle):
 
 @pytest.mark.usefixtures('bundle_create')
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OFP, 'Lack of elemental support makes C-transpilation impossible')],
     skip=[(OMNI, 'OMNI needs FParser for parsing headers')] if not HAVE_FP else None
 ))
 def test_cloudsc(here, frontend):

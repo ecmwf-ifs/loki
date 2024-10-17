@@ -10,7 +10,7 @@ import pytest
 from loki import Module, Subroutine, Sourcefile
 from loki.backend import fgen
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import Intrinsic, DataDeclaration
 from loki.types import ProcedureType, BasicType
 
@@ -107,10 +107,7 @@ end subroutine data_stmt
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    if frontend == OFP:
-        assert isinstance(routine.spec.body[-1], Intrinsic)
-    else:
-        assert isinstance(routine.spec.body[-1], DataDeclaration)
+    assert isinstance(routine.spec.body[-1], DataDeclaration)
     spec_code = fgen(routine.spec)
     assert spec_code.lower().count('data ') == 2
     assert spec_code.count('/') == 4
