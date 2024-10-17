@@ -14,8 +14,9 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.sanitise import (
-    resolve_associates, transform_sequence_association,
-    ResolveAssociatesTransformer, SanitiseTransformation
+    resolve_associates, merge_associates,
+    transform_sequence_association, ResolveAssociatesTransformer,
+    SanitiseTransformation
 )
 
 
@@ -251,6 +252,113 @@ end subroutine transform_associates_partial
     assert assigns[1].rhs == 'some_obj%a(i) + 1.'
     assert assigns[2].lhs == 'some_obj%b(i)'
     assert assigns[2].rhs == 'some_obj%b(i) + 1.'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_start_depth(frontend):
+    """
+    Test resolving associated symbols, but only for a part of an
+    associate's body.
+    """
+    fcode = """
+subroutine transform_associates_partial
+  use some_module, only: some_obj
+  implicit none
+
+  integer :: i
+  real :: local_var
+
+  associate (a=>some_obj%a, b=>some_obj%b)
+  associate (c=>a%b, d=>b%d)
+    local_var = a(1)
+
+    do i=1, some_obj%n
+      c(i) = c(i) + 1.
+      d(i) = d(i) + 1.
+    end do
+  end associate
+  end associate
+end subroutine transform_associates_partial
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    # Resolve all expect the outermost associate block
+    resolve_associates(routine, start_depth=1)
+
+    # Check that associated symbols have been resolved in loop body only
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'local_var'
+    assert assigns[0].rhs == 'a(1)'
+    assert assigns[1].lhs == 'a%b(i)'
+    assert assigns[1].rhs == 'a%b(i) + 1.'
+    assert assigns[2].lhs == 'b%d(i)'
+    assert assigns[2].rhs == 'b%d(i) + 1.'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_merge_associates_nested(frontend):
+    """
+    Test association merging for nested mappings.
+    """
+    fcode = """
+subroutine merge_associates_simple(base)
+  use some_module, only: some_type
+  implicit none
+
+  type(some_type), intent(inout) :: base
+  integer :: i
+  real :: local_var
+
+  associate(a => base%a)
+  associate(b => base%other%symbol)
+  associate(d => base%other%symbol%really%deep, &
+   &        a => base%a, c => a%more)
+    do i=1, 5
+      call another_routine(i, n=b(c)%n)
+
+      d(i) = 42.0
+    end do
+  end associate
+  end associate
+  end associate
+end subroutine merge_associates_simple
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assocs = FindNodes(ir.Associate).visit(routine.body)
+    assert len(assocs) == 3
+    assert len(assocs[0].associations) == 1
+    assert len(assocs[1].associations) == 1
+    assert len(assocs[2].associations) == 3
+
+    # Move associate mapping around
+    merge_associates(routine, max_parents=2)
+
+    assocs = FindNodes(ir.Associate).visit(routine.body)
+    assert len(assocs) == 3
+    assert len(assocs[0].associations) == 2
+    assert assocs[0].associations[0] == ('base%a', 'a')
+    assert assocs[0].associations[1] == ('base%other%symbol', 'b')
+    assert len(assocs[1].associations) == 1
+    assert assocs[1].associations[0] == ('a%more', 'c')
+    assert len(assocs[2].associations) == 1
+    assert assocs[2].associations[0] == ('base%other%symbol%really%deep', 'd')
+
+    # Check that body symbols have been rescoped correctly
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+    b_c_n = call.kwarguments[0][1]  # b(c)%n
+    assert b_c_n.scope == assocs[0]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -292,3 +292,35 @@ def test_callstatement(scope, one, i, n, a_i):
         )
 
     # TODO: Test pragmas, active and chevron
+
+
+def test_associate(scope, a_i):
+    """
+    Test constructors and scoping bahviour of :any:`Associate`.
+    """
+    b = sym.Scalar(name='b', scope=scope)
+    b_a = sym.Array(name='a', parent=b, scope=scope)
+    a = sym.Array(name='a', scope=scope)
+    assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    assign2 = ir.Assignment(lhs=a_i.clone(parent=b), rhs=sym.Literal(66.6))
+
+    assoc = ir.Associate(associations=((b_a, a),), body=(assign, assign2), parent=scope)
+    assert isinstance(assoc.associations, tuple)
+    assert all(isinstance(n, tuple) and len(n) == 2 for n in assoc.associations)
+    assert isinstance(assoc.body, tuple)
+    assert all(isinstance(n, ir.Node) for n in assoc.body)
+
+    # TODO: Check constructor failures, auto-casting and frozen status
+
+    # Check provided symbol maps
+    assert 'B%a' in assoc.association_map and assoc.association_map['B%a'] == a
+    assert b_a in assoc.association_map and assoc.association_map[b_a] == a
+    assert 'a' in assoc.inverse_map and assoc.inverse_map['a'] == b_a
+    assert a in assoc.inverse_map and assoc.inverse_map[a] == b_a
+
+    # Check rescoping facility
+    assert assign.lhs.scope == scope
+    assert assign2.lhs.scope == scope
+    assoc.rescope_symbols()
+    assert assign.lhs.scope == assoc
+    assert assign2.lhs.scope == scope
