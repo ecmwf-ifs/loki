@@ -113,6 +113,8 @@ def available_frontends(xfail=None, skip=None, include_regex=False):
     # Build the list of parameters
     params = []
     for f in Frontend:
+        if f == OFP:
+            continue  # OFP is now deprecated!
         if f in skip:
             params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
         elif f in xfail:
