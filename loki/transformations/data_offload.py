@@ -1235,8 +1235,8 @@ class FieldOffloadTransformation(Transformation):
         device_to_host = tuple(field_sync_host(self._get_field_ptr_from_view(inarg), driver)
                                for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
         # field_deletes = tuple(field_delete(field_ptr_map[var], routine) for var in blocking_arrays)
-        region.prepend(host_to_device)
-        region.append(device_to_host)
+        update_map = {region: host_to_device + (region,) + device_to_host}
+        Transformer(update_map, inplace=True).visit(driver.body)
         return field_group_updates
 
     def _is_field_group_update(self, driver, call):
