@@ -10,10 +10,13 @@ import pytest
 from loki import Subroutine
 from loki.frontend import available_frontends
 from loki.ir import (
-    nodes as ir, FindNodes, pragma_regions_attached, is_loki_pragma
+    nodes as ir, FindNodes, pragmas_attached, pragma_regions_attached,
+    is_loki_pragma
 )
 
-from loki.transformations.parallel import remove_openmp_regions
+from loki.transformations.parallel import (
+    remove_openmp_regions, add_openmp_regions
+)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -76,3 +79,61 @@ end subroutine test_driver_openmp
             for region in pragma_regions:
                 assert is_loki_pragma(region.pragma, starts_with='parallel')
                 assert is_loki_pragma(region.pragma_post, starts_with='end parallel')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_add_openmp_regions(frontend):
+    """
+    A simple test for :any:`add_openmp_regions`
+    """
+    fcode = """
+subroutine test_add_openmp_loop(npoints, arr)
+  real(kind=8), intent(inout) :: arr(:,:,:)
+  integer :: JKGLO, IBL, ICEND
+
+  !$loki parallel
+
+  DO JKGLO=1,YDGEM%NGPTOT,YDDIM%NPROMA
+    ICEND = MIN(YDDIM%NPROMA, YDGEM%NGPTOT - JKGLO + 1)
+    IBL = (JKGLO - 1) / YDDIM%NPROMA + 1
+
+    CALL MY_KERNEL(ARR(:,:,IBL))
+  END DO
+
+  !$loki end parallel
+
+end subroutine test_add_openmp_loop
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Pragma).visit(routine.body)) == 2
+    with pragma_regions_attached(routine):
+        regions = FindNodes(ir.PragmaRegion).visit(routine.body)
+        assert len(regions) == 1
+        assert regions[0].pragma.keyword == 'loki' and regions[0].pragma.content == 'parallel'
+        assert regions[0].pragma_post.keyword == 'loki' and regions[0].pragma_post.content == 'end parallel'
+
+    add_openmp_regions(routine)
+
+    # Ensure pragmas have been inserted
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    assert len(pragmas) == 4
+    assert all(p.keyword == 'OMP' for p in pragmas)
+
+    with pragmas_attached(routine, node_type=ir.Loop):
+        with pragma_regions_attached(routine):
+            # Ensure pragma region has been created
+            regions = FindNodes(ir.PragmaRegion).visit(routine.body)
+            assert len(regions) == 1
+            assert regions[0].pragma.keyword == 'OMP'
+            assert regions[0].pragma.content.startswith('PARALLEL')
+            assert regions[0].pragma_post.keyword == 'OMP'
+            assert regions[0].pragma_post.content == 'END PARALLEL'
+
+            # Ensure loops has been annotated
+            loops = FindNodes(ir.Loop).visit(routine.body)
+            assert len(loops) == 1
+            assert loops[0].pragma[0].keyword == 'OMP'
+            assert loops[0].pragma[0].content == 'DO SCHEDULE(DYNAMIC,1)'
+
+    # TODO: Test field_group_types and known global variables
