@@ -25,7 +25,28 @@ from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
 from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.build_system import ModuleWrapTransformation
-from loki.transformations.parallel import remove_openmp_regions
+from loki.transformations.parallel import (
+    remove_openmp_regions, add_openmp_regions
+)
+
+
+field_group_types = [
+    'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+    'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
+    'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
+    'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
+    'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
+    # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
+]
+
+global_variables = [
+    'PGFL', 'PGFLT1', 'YDGSGEOM', 'YDMODEL',
+    'YDDIM', 'YDSTOPH', 'YDGEOMETRY',
+    'YDSURF', 'YDGMV', 'SAVTEND',
+    'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
+    'ZCONVCTY', 'YDDIMV', 'YDPHY2',
+    'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURFACE'
+]
 
 
 @click.group()
@@ -97,10 +118,18 @@ def inline(source, build, remove_regions, remove_openmp, log_level):
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
             do_remove_marked_regions(ec_phys_fc)
 
-    if remove_openmp:
-        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
-            # Now remove OpenMP regions, as their symbols are not remapped
-            remove_openmp_regions(ec_phys_fc, insert_loki_parallel=True)
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
+        # Now remove OpenMP regions, as their symbols are not remapped
+        remove_openmp_regions(ec_phys_fc, insert_loki_parallel=True)
+
+    if not remove_openmp:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
+            # Re-insert OpenMP parallel regions after inlining
+            add_openmp_regions(
+                routine=ec_phys_fc,
+                field_group_types=field_group_types,
+                global_variables=global_variables
+            )
 
     # Replace the docstring to mark routine as auto-generated
     ec_phys_fc.docstring = """
