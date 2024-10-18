@@ -313,14 +313,14 @@ def test_associate(scope, a_i):
     # TODO: Check constructor failures, auto-casting and frozen status
 
     # Check provided symbol maps
-    assert 'B%a' in assoc.association_map and assoc.association_map['B%a'] == a
-    assert b_a in assoc.association_map and assoc.association_map[b_a] == a
-    assert 'a' in assoc.inverse_map and assoc.inverse_map['a'] == b_a
-    assert a in assoc.inverse_map and assoc.inverse_map[a] == b_a
+    assert 'B%a' in assoc.association_map and assoc.association_map['B%a'] is a
+    assert b_a in assoc.association_map and assoc.association_map[b_a] is a
+    assert 'a' in assoc.inverse_map and assoc.inverse_map['a'] is b_a
+    assert a in assoc.inverse_map and assoc.inverse_map[a] is b_a
 
     # Check rescoping facility
-    assert assign.lhs.scope == scope
-    assert assign2.lhs.scope == scope
+    assert assign.lhs.scope is scope
+    assert assign2.lhs.scope is scope
     assoc.rescope_symbols()
-    assert assign.lhs.scope == assoc
-    assert assign2.lhs.scope == scope
+    assert assign.lhs.scope is assoc
+    assert assign2.lhs.scope is scope
