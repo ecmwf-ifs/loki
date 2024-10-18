@@ -16,14 +16,43 @@ from pathlib import Path
 import click
 from codetiming import Timer
 
-from loki import config as loki_config, Sourcefile, info
+from loki import config as loki_config, Sourcefile, Dimension, info
 from loki.batch import Scheduler, Pipeline
 
 from loki.transformations.build_system import ModuleWrapTransformation
 from loki.transformations.inline import InlineTransformation
+from loki.transformations.parallel import (
+    remove_openmp_regions, add_openmp_regions
+)
 from loki.transformations.remove_code import RemoveCodeTransformation
 from loki.transformations.sanitise import (
     SequenceAssociationTransformation, SubstituteExpressionTransformation
+)
+
+
+# List of types that we know to be FIELD API groups
+field_group_types = [
+    'FIELD_VARIABLES', 'DIMENSION_TYPE', 'STATE_TYPE',
+    'PERTURB_TYPE', 'AUX_TYPE', 'AUX_RAD_TYPE', 'FLUX_TYPE',
+    'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
+    'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
+    'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
+    # 'SURF_AND_MORE_TYPE', 'MODEL_STATE_TYPE',
+]
+
+# List of variables that we know to have global scope
+shared_variables = [
+    'PGFL', 'PGFLT1', 'YDGSGEOM', 'YDMODEL',
+    'YDDIM', 'YDSTOPH', 'YDGEOMETRY',
+    'YDSURF', 'YDGMV', 'SAVTEND',
+    'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
+    'ZCONVCTY', 'YDDIMV', 'YDPHY2',
+    'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURFACE'
+]
+
+
+blocking = Dimension(
+    name='block', index=('JKGLO', 'IBL'), size='YDDIM%NGPBLKS'
 )
 
 
@@ -37,10 +66,12 @@ def cli():
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--remove-openmp/--no-remove-openmp', default=True,
+              help='Flag to replace OpenMP loop annotations with Loki pragmas.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def inline(source, build, log_level):
+def inline(source, build, remove_openmp, log_level):
     """
     Inlines EC_PHYS and CALLPAR into EC_PHYS_DRV to expose the parallel loop.
     """
@@ -98,6 +129,19 @@ def inline(source, build, log_level):
     info(pipeline)
 
     scheduler.process(pipeline)
+
+    with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
+        # Now remove OpenMP regions, as their symbols are not remapped
+        remove_openmp_regions(ec_phys_fc, insert_loki_parallel=True)
+
+    if not remove_openmp:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
+            # Re-insert OpenMP parallel regions after inlining
+            add_openmp_regions(
+                routine=ec_phys_fc, dimension=blocking,
+                field_group_types=field_group_types,
+                shared_variables=shared_variables
+            )
 
     # Change subroutine name
     ec_phys_fc.name = 'EC_PHYS_FC'
