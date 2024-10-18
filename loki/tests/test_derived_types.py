@@ -21,7 +21,7 @@ from loki import (
     FindVariables
 )
 from loki.build import jit_compile, jit_compile_lib, clean_test, Obj
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 
 
 @pytest.fixture(name='builder')
@@ -1204,9 +1204,7 @@ def test_derived_type_rescope_symbols_shadowed(tmp_path, shadowed_typedef_symbol
         clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
-    (OFP, 'OFP cannot parse the Fortran')
-]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_types_character_array_subscript(frontend, tmp_path):
     fcode = """
 module derived_type_char_arr_mod

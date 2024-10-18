@@ -10,7 +10,7 @@ import numpy as np
 
 from loki import Module, Subroutine
 from loki.build import jit_compile_lib, Builder, Obj
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls
 )
@@ -243,8 +243,7 @@ end subroutine transform_inline_elemental_functions_extended_array
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
-          OMNI: "OMNI automatically inlines Statement Functions"}
+    skip={OMNI: "OMNI automatically inlines Statement Functions"}
 ))
 @pytest.mark.parametrize('stmt_decls', (True, False))
 def test_inline_statement_functions(frontend, stmt_decls):
@@ -290,8 +289,7 @@ end subroutine stmt_func
         assert FindInlineCalls().visit(routine.body)
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    skip={OFP: "OFP apparently has problems dealing with those Statement Functions",
-          OMNI: "OMNI automatically inlines Statement Functions"}
+    skip={OMNI: "OMNI automatically inlines Statement Functions"}
 ))
 @pytest.mark.parametrize('provide_myfunc', ('import', 'module', 'interface', 'intfb', 'routine'))
 def test_inline_statement_functions_inline_call(frontend, provide_myfunc, tmp_path):

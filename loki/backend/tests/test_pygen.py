@@ -15,7 +15,7 @@ import numpy as np
 from loki import Subroutine
 from loki.backend import pygen
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OFP, OMNI
+from loki.frontend import available_frontends, OMNI
 from loki.transformations.transpile import FortranPythonTransformation
 
 
@@ -452,7 +452,7 @@ end subroutine pygen_logical_statements
     f2p.py_path.unlink()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'OFP cannot handle stmt functions')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_pygen_downcasing(tmp_path, frontend):
     """
     A simple test routine to test the conversion to lower case.

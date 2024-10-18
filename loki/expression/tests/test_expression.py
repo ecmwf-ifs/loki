@@ -22,7 +22,7 @@ from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
 from loki.frontend import (
-    available_frontends, OFP, OMNI, FP, HAVE_FP, parse_fparser_expression
+    available_frontends, OMNI, FP, HAVE_FP, parse_fparser_expression
 )
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindExpressions,
@@ -208,9 +208,7 @@ end subroutine boz_literals
         assert stmts[5].rhs.parameters[0].value == 'z"babe"'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip={OFP: "Not implemented because too stupid in OFP parse tree"})
-)
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_complex_literals(tmp_path, frontend):
     """
     Test complex literal values.
@@ -310,9 +308,7 @@ end subroutine logical_array
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OFP, 'Not implemented')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_array_constructor(tmp_path, frontend):
     """
     Test various array constructor formats
@@ -796,9 +792,7 @@ end subroutine expression_masked_statements
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
-    (OFP, 'Current implementation does not handle nested where constructs')
-]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_masked_statements_nested(tmp_path, frontend):
     """
     Nested masked statements (WHERE(...) ... [ELSEWHERE ...] ENDWHERE)
@@ -1607,7 +1601,7 @@ end module typebound_resolution_type_info_mod
 ))
 def test_stmt_func_heuristic(frontend, tmp_path):
     """
-    Our Fparser/OFP translation has a heuristic to detect statement function declarations,
+    Our Fparser translation has a heuristic to detect statement function declarations,
     but that falsely misinterpreted some assignments as statement functions due to
     missing shape information (reported in #326)
     """

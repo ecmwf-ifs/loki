@@ -10,7 +10,7 @@ import pytest
 from loki import Subroutine, Sourcefile, Dimension, fgen
 from loki.batch import ProcedureItem
 from loki.expression import Scalar, Array, IntLiteral
-from loki.frontend import available_frontends, OMNI, OFP
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Conditional, Loop,
     Pragma, PragmaRegion, pragmas_attached, is_loki_pragma,
@@ -633,8 +633,7 @@ def test_scc_variable_demotion(frontend, horizontal):
     assert isinstance(kernel.variable_map['c'], Scalar)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP,
-                         'OFP fails to parse multiconditional with embedded call.')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_multicond(frontend, horizontal, blocking):
     """
     Test if horizontal loops in multiconditionals with CallStatements are

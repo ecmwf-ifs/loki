@@ -26,7 +26,7 @@ from loki.types import ProcedureType
 
 
 __all__ = [
-    'Frontend', 'OFP', 'OMNI', 'FP', 'REGEX', 'available_frontends',
+    'Frontend', 'OMNI', 'FP', 'REGEX', 'available_frontends',
     'read_file', 'InlineCommentTransformer',
     'ClusterCommentTransformer', 'CombineMultilinePragmasTransformer',
     'sanitize_ir'
@@ -50,7 +50,6 @@ class Frontend(IntEnum):
         return self.name.lower()  # pylint: disable=no-member
 
 OMNI = Frontend.OMNI
-OFP = Frontend.OFP
 FP = Frontend.FP
 REGEX = Frontend.REGEX
 
@@ -113,6 +112,8 @@ def available_frontends(xfail=None, skip=None, include_regex=False):
     # Build the list of parameters
     params = []
     for f in Frontend:
+        if f == Frontend.OFP:
+            continue  # OFP is now deprecated!
         if f in skip:
             params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
         elif f in xfail:
@@ -381,10 +382,10 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
         # Revert OMNI's array dimension expansion from `a(n)` => `arr(1:n)`
         _ir = RangeIndexTransformer(invalidate_source=False).visit(_ir)
 
-    if frontend in (OMNI, OFP):
+    if frontend in (OMNI, Frontend.OFP):
         _ir = inline_labels(_ir)
 
-    if frontend in (FP, OFP):
+    if frontend in (FP, Frontend.OFP):
         _ir = CombineMultilinePragmasTransformer(inplace=True, invalidate_source=False).visit(_ir)
         _ir = RemoveDuplicateVariableDeclarationsForExternalProcedures(inplace=True, invalidate_source=False).visit(_ir)
 

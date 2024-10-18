@@ -16,7 +16,7 @@ from loki import (
     StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
 from loki.build import jit_compile, clean_test
-from loki.frontend import available_frontends, OFP, OMNI, FP, REGEX
+from loki.frontend import available_frontends, OMNI, FP, REGEX
 
 
 @pytest.fixture(scope='module', name='here')
@@ -120,7 +120,7 @@ def test_sourcefile_pp_macros(here, frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[
-    (OFP, 'Cannot handle directives'), (OMNI, 'Files are preprocessed')
+    (OMNI, 'Files are preprocessed')
 ]))
 def test_sourcefile_pp_directives(here, frontend):
     filepath = here/'sources/sourcefile_pp_directives.F90'
@@ -193,7 +193,7 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
     assert 'b = 6' in fgen(routine)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OFP, 'No support for statement functions')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_sourcefile_cpp_stmt_func(here, frontend, tmp_path):
     """
     Test the correct identification of statement functions
