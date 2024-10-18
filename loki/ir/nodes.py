@@ -23,7 +23,10 @@ from pymbolic.primitives import Expression
 from pydantic.dataclasses import dataclass as dataclass_validated
 from pydantic import model_validator
 
-from loki.expression import Variable, parse_expr
+from loki.expression import (
+    symbols as sym, Variable, parse_expr, AttachScopesMapper,
+    ExpressionDimensionsMapper
+)
 from loki.frontend.source import Source
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
@@ -501,18 +504,48 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
         """
         An :any:`collections.OrderedDict` of associated expressions.
         """
-        return CaseInsensitiveDict((str(k), v) for k, v in self.associations)
+        return CaseInsensitiveDict((k, v) for k, v in self.associations)
 
     @property
     def inverse_map(self):
         """
         An :any:`collections.OrderedDict` of associated expressions.
         """
-        return CaseInsensitiveDict((str(v), k) for k, v in self.associations)
+        return CaseInsensitiveDict((v, k) for k, v in self.associations)
 
     @property
     def variables(self):
         return tuple(v for _, v in self.associations)
+
+    def _derive_local_symbol_types(self, parent_scope):
+        """ Derive the types of locally defined symbols from their associations. """
+
+        rescoped_associations = ()
+        for expr, name in self.associations:
+            # Put symbols in associated expression into the right scope
+            expr = AttachScopesMapper()(expr, scope=parent_scope)
+
+            # Determine type of new names
+            if isinstance(expr, (sym.TypedSymbol, sym.MetaSymbol)):
+                # Use the type of the associated variable
+                _type = expr.type.clone(parent=None)
+                if isinstance(expr, sym.Array) and expr.dimensions is not None:
+                    shape = ExpressionDimensionsMapper()(expr)
+                    if shape == (sym.IntLiteral(1),):
+                        # For a scalar expression, we remove the shape
+                        shape = None
+                    _type = _type.clone(shape=shape)
+            else:
+                # TODO: Handle data type and shape of complex expressions
+                shape = ExpressionDimensionsMapper()(expr)
+                if shape == (sym.IntLiteral(1),):
+                    # For a scalar expression, we remove the shape
+                    shape = None
+                _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
+            name = name.clone(scope=self, type=_type)
+            rescoped_associations += ((expr, name),)
+
+        self._update(associations=rescoped_associations)
 
     def __repr__(self):
         if self.associations:
