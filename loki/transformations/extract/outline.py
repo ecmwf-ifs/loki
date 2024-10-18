@@ -73,9 +73,9 @@ def outline_region(region, name, imports, intent_map=None):
         for v in FindVariables().visit(region.body)
         if v.clone(dimensions=None) not in imported_symbols
     )
-    pragma_in_args = {region_var_map[v.lower()] for v in intent_map.get('in', '').split(',') if v}
-    pragma_inout_args = {region_var_map[v.lower()] for v in intent_map.get('inout', '').split(',') if v}
-    pragma_out_args = {region_var_map[v.lower()] for v in intent_map.get('out', '').split(',') if v}
+    pragma_in_args = {v.clone(scope=region_routine) for v in intent_map['in']}
+    pragma_inout_args = {v.clone(scope=region_routine) for v in intent_map['inout']}
+    pragma_out_args = {v.clone(scope=region_routine) for v in intent_map['out']}
 
     # Override arguments according to pragma annotations
     region_in_args = (region_in_args - (pragma_inout_args | pragma_out_args)) | pragma_in_args
@@ -109,8 +109,12 @@ def outline_region(region, name, imports, intent_map=None):
     region_routine_arguments = []
     for intent, args in zip(('in', 'inout', 'out'), (region_in_args, region_inout_args, region_out_args)):
         for arg in args:
-            local_var = region_routine_var_map[arg.name]
-            local_var = local_var.clone(type=local_var.type.clone(intent=intent))
+            local_var = region_routine_var_map.get(arg.name, arg)
+            # Sanitise argument types
+            local_var = local_var.clone(
+                type=local_var.type.clone(intent=intent, allocatable=None, target=None)
+            )
+
             region_routine_var_map[arg.name] = local_var
             region_routine_arguments += [local_var]
 
@@ -155,6 +159,7 @@ def outline_pragma_regions(routine):
     counter = 0
     routines = []
     imports = FindNodes(Import).visit(routine.spec)
+    parent_vmap = routine.variable_map
     mapper = {}
     with pragma_regions_attached(routine):
         with dataflow_analysis_attached(routine):
@@ -167,7 +172,13 @@ def outline_pragma_regions(routine):
                 name = parameters.get('name', f'{routine.name}_outlined_{counter}')
                 counter += 1
 
-                call, region_routine = outline_region(region, name, imports, intent_map=parameters)
+                # Extract explicitly requested symbols from context
+                intent_map = {}
+                intent_map['in'] = tuple(parent_vmap[v.lower()] for v in parameters.get('in', '').split(',') if v)
+                intent_map['inout'] = tuple(parent_vmap[v.lower()] for v in parameters.get('inout', '').split(',') if v)
+                intent_map['out'] = tuple(parent_vmap[v.lower()] for v in parameters.get('out', '').split(',') if v)
+
+                call, region_routine = outline_region(region, name, imports, intent_map=intent_map)
 
                 # insert into list of new routines
                 routines.append(region_routine)
