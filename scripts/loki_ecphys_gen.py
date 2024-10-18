@@ -19,7 +19,7 @@ from codetiming import Timer
 from loki import config as loki_config, Sourcefile, info
 from loki.expression import symbols as sym, parse_expr
 from loki.ir import (
-    FindNodes, SubstituteStringExpressions, Transformer, CallStatement
+    nodes as ir, FindNodes, SubstituteStringExpressions, Transformer, CallStatement
 )
 from loki.tools import as_tuple, flatten
 
@@ -27,6 +27,7 @@ from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.sanitise import transform_sequence_association_append_map
 from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.build_system import ModuleWrapTransformation
+from loki.transformations.parallel import remove_openmp_regions
 
 
 @click.group()
@@ -41,10 +42,12 @@ def cli():
               help='Path to build directory for source generation.')
 @click.option('--remove-regions/--no-remove-regions', default=True,
               help='Remove pragma-marked code regions.')
+@click.option('--remove-openmp/--no-remove-openmp', default=True,
+              help='Flag to replace OpenMP loop annotations with Loki pragmas.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def inline(source, build, remove_regions, log_level):
+def inline(source, build, remove_regions, remove_openmp, log_level):
     """
     Inlines EC_PHYS and CALLPAR into EC_PHYS_DRV to expose the parallel loop.
     """
@@ -95,6 +98,11 @@ def inline(source, build, remove_regions, log_level):
     if remove_regions:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove marked regions in {s:.2f}s'):
             do_remove_marked_regions(ec_phys_fc)
+
+    if remove_openmp:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
+            # Now remove OpenMP regions, as their symbols are not remapped
+            remove_openmp_regions(ec_phys_fc)
 
     # Replace the docstring to mark routine as auto-generated
     ec_phys_fc.docstring = """
