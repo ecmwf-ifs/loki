@@ -156,6 +156,7 @@ def outline_driver_routines(routine):
     imports = FindNodes(ir.Import).visit(routine.spec)
     mapper = {}
     driver_routines = []
+    parent_vmap = routine.variable_map
     with pragma_regions_attached(routine):
         with dataflow_analysis_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
@@ -166,7 +167,12 @@ def outline_driver_routines(routine):
                 parameters = get_pragma_parameters(region.pragma, starts_with='outline')
                 name = parameters['name']
 
-                call, region_routine = outline_region(region, name, imports, intent_map=parameters)
+                intent_map = {}
+                intent_map['in'] = tuple(parent_vmap[v.lower()] for v in parameters.get('in', '').split(',') if v)
+                intent_map['inout'] = tuple(parent_vmap[v.lower()] for v in parameters.get('inout', '').split(',') if v)
+                intent_map['out'] = tuple(parent_vmap[v.lower()] for v in parameters.get('out', '').split(',') if v)
+
+                call, region_routine = outline_region(region, name, imports, intent_map=intent_map)
 
                 do_remove_unused_imports(region_routine)
 
