@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 from codetiming import Timer
 
-from loki import config as loki_config, Sourcefile, info
+from loki import config as loki_config, Sourcefile, Dimension, info
 from loki.ir import (
     FindNodes, SubstituteStringExpressions, Transformer, CallStatement
 )
@@ -30,7 +30,8 @@ from loki.transformations.remove_code import do_remove_marked_regions
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.build_system import ModuleWrapTransformation
 from loki.transformations.parallel import (
-    remove_openmp_regions, add_openmp_regions
+    remove_openmp_regions, add_openmp_regions,
+    remove_block_loops, add_block_loops
 )
 
 
@@ -183,10 +184,12 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--remove-block-loop/--no-remove-block-loop', default=True,
+              help='Flag to replace OpenMP loop annotations with Loki pragmas.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def parallel(source, build, log_level):
+def parallel(source, build, remove_block_loop, log_level):
     """
     Generate parallel regions with OpenMP and OpenACC dispatch.
     """
@@ -200,6 +203,21 @@ def parallel(source, build, log_level):
 
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
+
+    blocking = Dimension(
+        name='block', index='JKGLO', index_aliases='IBL',
+        size='YDGEM%NGPTOT', aliases='YDDIM%NGPBLKS',
+        bounds=('YDGEM%NGPTOT', 'YDDIM%NPROMA'),
+        bounds_aliases=('ICST', 'ICEND')
+    )
+
+    if remove_block_loop:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
+            # First, strip the outer block loop
+            remove_block_loops(ec_phys_parallel)
+
+            # The add them back in according to parallel region
+            add_block_loops(ec_phys_parallel, dimension=blocking)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
