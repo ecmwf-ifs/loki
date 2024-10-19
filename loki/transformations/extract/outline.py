@@ -54,11 +54,15 @@ def outline_region(region, name, imports, intent_map=None):
     body = Section(body=Transformer().visit(region.body))
     region_routine = Subroutine(name, spec=spec, body=body)
 
+    # Filter derived-type component accesses and only use the root parent
+    region_uses_symbols = {s.parents[0] if s.parent else s for s in region.uses_symbols}
+    region_defines_symbols = {s.parents[0] if s.parent else s for s in region.defines_symbols}
+
     # Use dataflow analysis to find in, out and inout variables to that region
     # (ignoring any symbols that are external imports)
-    region_in_args = region.uses_symbols - region.defines_symbols - imported_symbols
-    region_inout_args = region.uses_symbols & region.defines_symbols - imported_symbols
-    region_out_args = region.defines_symbols - region.uses_symbols - imported_symbols
+    region_in_args = region_uses_symbols - region_defines_symbols - imported_symbols
+    region_inout_args = region_uses_symbols & region_defines_symbols - imported_symbols
+    region_out_args = region_defines_symbols - region_uses_symbols - imported_symbols
 
     # Remove any parameters from in args
     region_in_args = {arg for arg in region_in_args if not arg.type.parameter}
@@ -85,10 +89,19 @@ def outline_region(region, name, imports, intent_map=None):
 
     # Set the list of variables used in region routine (to create declarations)
     # and put all in the new scope
-    region_routine_variables = {v.clone(dimensions=v.type.shape or None)
-                                for v in FindVariables().visit(region_routine.body)
-                                if v.name in region_var_map}
-    region_routine.variables = as_tuple(region_routine_variables)
+    region_routine_variables = {
+        v.clone(dimensions=v.type.shape or None)
+        for v in FindVariables().visit(region_routine.body)
+        if v.name in region_var_map
+    }
+    # Filter out derived-type component variables from declarations
+    region_routine_variables = {
+        v.parents[0] if v.parent else v for v in region_routine_variables
+    }
+    # Order the local devlaration list to put arguments first
+    region_routine_args = tuple(v for v in region_routine_variables if v.type.intent)
+    region_routine_locals = tuple(v for v in region_routine_variables if not v.type.intent)
+    region_routine.variables = region_routine_args + region_routine_locals
     region_routine.rescope_symbols()
 
     # Build the call signature
