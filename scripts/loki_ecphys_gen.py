@@ -32,7 +32,8 @@ from loki.transformations.build_system import ModuleWrapTransformation
 from loki.transformations.parallel import (
     remove_openmp_regions, add_openmp_regions,
     remove_block_loops, add_block_loops,
-    remove_field_api_view_updates, add_field_api_view_updates
+    remove_field_api_view_updates, add_field_api_view_updates,
+    remove_explicit_firstprivatisation, create_explicit_firstprivatisation
 )
 
 
@@ -43,11 +44,12 @@ field_group_types = [
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY'
+    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY', 'ECPHYS_OPTS_TYPE'
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
 fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
+lcopies_firstprivates = {'ZSURF': 'ZSURFACE'}
 
 # List of variables that we know to have global scope
 global_variables = [
@@ -218,6 +220,11 @@ def parallel(source, build, remove_block_loop, log_level):
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
+            # Remove explicit firstprivatisation
+            remove_explicit_firstprivatisation(
+                ec_phys_parallel.body, fprivate_map=lcopies_firstprivates, routine=ec_phys_parallel
+            )
+
             # Strip the outer block loop and FIELD-API boilerplate
             remove_block_loops(ec_phys_parallel)
 
@@ -232,6 +239,9 @@ def parallel(source, build, remove_block_loop, log_level):
                 ec_phys_parallel, dimension=blocking,
                 field_group_types=field_group_types+fgroup_firstprivates
             )
+
+            # Re-insert explicit firstprivate copies
+            create_explicit_firstprivatisation(ec_phys_parallel, fprivate_map=lcopies_firstprivates)
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
