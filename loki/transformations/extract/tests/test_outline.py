@@ -361,3 +361,82 @@ end module test_outline_imps_mod
     mod_function(a, b)
     assert np.all(a == [1] * 10)
     assert np.all(b == range(1,11))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_outline_pragma_regions_derived_args(tmp_path, builder, frontend):
+    """
+    Test subroutine extraction with derived-type arguments.
+    """
+
+    fcode = """
+module test_outline_dertype_mod
+  implicit none
+
+  type rick
+    integer :: a(10), b(10)
+  end type rick
+contains
+
+  subroutine test_outline_imps(a, b)
+    integer, intent(out) :: a(10), b(10)
+    type(rick) :: dave
+    integer :: j
+
+    dave%a(:) = a(:)
+    dave%b(:) = b(:)
+
+!$loki outline
+    do j=1,10
+      dave%a(j) = j + 1
+    end do
+
+    dave%b(:) = dave%b(:) + 42
+!$loki end outline
+
+    a(:) = dave%a(:)
+    b(:) = dave%b(:)
+  end subroutine test_outline_imps
+end module test_outline_dertype_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    refname = f'ref_{module.name}_{frontend}'
+    reference = jit_compile_lib([module], path=tmp_path, name=refname, builder=builder)
+    function = getattr(getattr(reference, module.name), module.subroutines[0].name)
+
+    # Test the reference solution
+    a = np.zeros(shape=(10,), dtype=np.int32)
+    b = np.zeros(shape=(10,), dtype=np.int32)
+    function(a, b)
+    assert np.all(a == range(2,12))
+    assert np.all(b == 42)
+    (tmp_path/f'{module.name}.f90').unlink()
+
+    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 6
+    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 0
+
+    # Apply transformation
+    routines = outline_pragma_regions(module.subroutines[0])
+
+    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 4
+    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 1
+
+    # Check for a single derived-type argument
+    assert len(routines) == 1
+    assert len(routines[0].arguments) == 1
+    assert routines[0].arguments[0] == 'dave'
+    assert routines[0].arguments[0].type.dtype.name == 'rick'
+    assert routines[0].arguments[0].type.intent == 'inout'
+
+    # Insert created routines into module
+    module.contains.append(routines)
+
+    obj = jit_compile_lib([module], path=tmp_path, name=f'{module.name}_{frontend}', builder=builder)
+    mod_function = getattr(getattr(obj, module.name), module.subroutines[0].name)
+
+    # Test the transformed module solution
+    a = np.zeros(shape=(10,), dtype=np.int32)
+    b = np.zeros(shape=(10,), dtype=np.int32)
+    mod_function(a, b)
+    assert np.all(a == range(2,12))
+    assert np.all(b == 42)
