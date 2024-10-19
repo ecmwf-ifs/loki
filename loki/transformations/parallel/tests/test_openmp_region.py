@@ -8,14 +8,16 @@
 import pytest
 
 from loki import Subroutine, Module
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, pragma_regions_attached,
     is_loki_pragma
 )
 
 from loki.transformations.parallel import (
-    remove_openmp_regions, add_openmp_regions
+    remove_openmp_regions, add_openmp_regions,
+    remove_explicit_firstprivatisation,
+    create_explicit_firstprivatisation
 )
 
 
@@ -149,3 +151,126 @@ end subroutine test_add_openmp_loop
             assert loops[0].pragma[0].content == 'DO SCHEDULE(DYNAMIC,1)'
 
     # TODO: Test field_group_types and known global variables
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_remove_explicit_firstprivatisation(frontend):
+    """
+    A simple test for :any:`remove_explicit_firstprivatisation`
+    """
+    fcode = """
+subroutine test_add_openmp_loop(ydgeom, state, arr)
+  use geom_mod, only: geom_type
+  implicit none
+  type(geom_type), intent(in) :: ydgeom
+  real(kind=8), intent(inout) :: arr(:,:,:)
+  type(state_type), intent(in) :: state
+  type(state_type) :: ydstate
+  integer :: jkglo, ibl, icend
+
+  !$loki parallel
+
+  ydstate = state
+
+  do jkglo=1,ydgeom%ngptot,ydgeom%nproma
+    icend = min(ydgeom%nproma, ydgeom%ngptot - jkglo + 1)
+    ibl = (jkglo - 1) / ydgeom%nproma + 1
+
+    call ydstate%update_view(ibl)
+
+    call my_kernel(ydstate%u(:,:), arr(:,:,ibl))
+  end do
+
+  !$loki end parallel
+end subroutine test_add_openmp_loop
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    fprivate_map = {'ydstate' : 'state'}
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'ydstate' and assigns[0].rhs == 'state'
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert str(calls[0].name).startswith('ydstate%')
+    assert calls[1].arguments[0].parent == 'ydstate'
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+
+    # Remove the explicit copy of `ydstate = state` and adjust symbols
+    routine.body = remove_explicit_firstprivatisation(
+        region=routine.body, fprivate_map=fprivate_map, scope=routine
+    )
+
+    # Check removal and symbol replacement
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'icend'
+    assert assigns[1].lhs == 'ibl'
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert str(calls[0].name).startswith('state%')
+    assert calls[1].arguments[0].parent == 'state'
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_create_explicit_firstprivatisation(tmp_path, frontend):
+    """
+    A simple test for :any:`create_explicit_firstprivatisation`
+    """
+    
+    fcode = """
+subroutine test_add_openmp_loop(ydgeom, state, arr)
+  use geom_mod, only: geom_type
+  implicit none
+  type(geom_type), intent(in) :: ydgeom
+  real(kind=8), intent(inout) :: arr(:,:,:)
+  type(state_type), intent(in) :: state
+  integer :: jkglo, ibl, icend
+
+  !$loki parallel
+
+  do jkglo=1,ydgeom%ngptot,ydgeom%nproma
+    icend = min(ydgeom%nproma, ydgeom%ngptot - jkglo + 1)
+    ibl = (jkglo - 1) / ydgeom%nproma + 1
+
+    call state%update_view(ibl)
+
+    call my_kernel(state%u(:,:), arr(:,:,ibl))
+  end do
+
+  !$loki end parallel
+end subroutine test_add_openmp_loop
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    fprivate_map = {'ydstate' : 'state'}
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'icend'
+    assert assigns[1].lhs == 'ibl'
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert str(calls[0].name).startswith('state%')
+    assert calls[1].arguments[0].parent == 'state'
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    
+    # Put the explicit firstprivate copies back in
+    create_explicit_firstprivatisation(
+        routine=routine, fprivate_map=fprivate_map
+    )
+    
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'ydstate' and assigns[0].rhs == 'state'
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert str(calls[0].name).startswith('ydstate%')
+    assert calls[1].arguments[0].parent == 'ydstate'
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
