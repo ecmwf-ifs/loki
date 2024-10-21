@@ -451,7 +451,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             else:
                 if var.name_parts[0] not in not_field_array:
                     if routine.variable_map[var.name_parts[0]].type.dtype.name!="CPG_BNDS_TYPE":
-                        not_field_array.append(var.name_parts[0])
+                        if isinstance(routine.variable_map[var.name_parts[0]].type.dtype, sym.DerivedType):
+                            not_field_array.append(var.name_parts[0])
         not_field_array_ = [var for var in not_field_array if var not in basename_derived]
         return(region_map_derived, not_field_array_)
 
