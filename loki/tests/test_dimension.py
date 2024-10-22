@@ -8,6 +8,7 @@
 import pytest
 
 from loki import Subroutine, Dimension, FindNodes, Loop
+from loki.batch import SchedulerConfig
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.scope import Scope, SymbolAttributes
@@ -110,3 +111,48 @@ end subroutine test_dimension_index
 
     # Test the correct creation of horizontal dim with aliased bounds vars
     _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'bnds%end'))
+
+
+def test_dimension_config(tmp_path):
+    """
+    Test that :any:`Dimension` objects get created from
+    :any:`SchedulerConfig` correctly.
+    """
+    scope = Scope()
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    type_deferred = SymbolAttributes(dtype=BasicType.DEFERRED)
+    ibl = sym.Variable(name='ibl', type=type_int, scope=scope)
+    nblocks = sym.Variable(name='nblocks', type=type_int, scope=scope)
+    start = sym.Variable(name='start', type=type_int, scope=scope)
+    end = sym.Variable(name='end', type=type_int, scope=scope)
+    dim = sym.Variable(name='dim', type=type_deferred, scope=scope)
+    one = sym.IntLiteral(1)
+
+    config_str = """
+[dimensions.dim_a]
+  size = 'NBLOCKS'
+  index = 'IBL'
+  bounds = ['START', 'END']
+  aliases = ['DIM%START', 'DIM%END']
+
+[dimensions.dim_b]
+  size = 'nblocks'
+  index = 'ibl'
+  lower = ['1', 'start', 'dim%start']
+  upper = ['nblocks', 'end', 'dim%end']
+"""
+    cfg_path = tmp_path/'test_config.yml'
+    cfg_path.write_text(config_str)
+
+    config = SchedulerConfig.from_file(cfg_path)
+    dim_a = config.dimensions['dim_a']
+    assert dim_a.size == nblocks
+    assert dim_a.index == ibl
+    assert dim_a.bounds == (start, end)
+
+    dim_b = config.dimensions['dim_b']
+    assert dim_b.size == nblocks
+    assert dim_b.index == ibl
+    assert dim_b.bounds == (sym.IntLiteral(1), nblocks)
+    assert dim_b.lower == (one, start, start.clone(parent=dim))
+    assert dim_b.upper == (nblocks, end, end.clone(parent=dim))
