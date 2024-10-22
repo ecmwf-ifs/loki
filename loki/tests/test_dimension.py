@@ -8,7 +8,50 @@
 import pytest
 
 from loki import Subroutine, Dimension, FindNodes, Loop
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends
+from loki.scope import Scope, SymbolAttributes
+from loki.types import BasicType
+
+
+def test_dimension_properties():
+    """
+    Test that :any:`Dimension` objects store the correct strings.
+    """
+    scope = Scope()
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    i = sym.Variable(name='i', type=type_int, scope=scope)
+    n = sym.Variable(name='n', type=type_int, scope=scope)
+    z = sym.Variable(name='z', type=type_int, scope=scope)
+    one = sym.IntLiteral(1)
+    two = sym.IntLiteral(2)
+
+    simple = Dimension('simple', index='i', upper='n', size='z')
+    assert simple.index == i
+    assert simple.upper == n
+    assert simple.size == z
+
+    detail = Dimension(index='i', lower='1', upper='n', step='2', size='z')
+    assert detail.index == i
+    assert detail.lower == one
+    assert detail.upper == n
+    assert detail.step == two
+    assert detail.size == z
+    # Check derived properties
+    assert detail.bounds == (one, n)
+    assert detail.range == sym.LoopRange((1, n))
+
+    multi = Dimension(
+        index=('i', 'idx'), lower=('1', 'start'), upper=('n', 'end'), size='z'
+    )
+    assert multi.index == i
+    assert multi.indices == (i, sym.Variable(name='idx', type=type_int, scope=scope))
+    assert multi.lower == (one, sym.Variable(name='start', type=type_int, scope=scope))
+    assert multi.upper == (n, sym.Variable(name='end', type=type_int, scope=scope))
+    assert multi.size == z
+    # Check derived properties
+    assert multi.bounds ==  (one, n)
+    assert multi.range == sym.LoopRange((1, n))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -133,13 +133,26 @@ class Dimension:
     def bounds(self):
         """
         Tuple of expression string that represent the bounds of an iteration space.
+
+        .. note:
+
+        If mutiple lower or upper bound string have been provided,
+        only the first pair will be used.
         """
-        return (self.lower, self.upper)
+        return (
+            self.lower[0] if isinstance(self.lower, tuple) else self.lower,
+            self.upper[0] if isinstance(self.upper, tuple) else self.upper
+        )
 
     @property
     def range(self):
         """
         String that matches the range expression of an iteration space (loop).
+
+        .. note:
+
+        If mutiple lower or upper bound string have been provided,
+        only the first pair will be used.
         """
         return f'{self.bounds[0]}:{self.bounds[1]}'
 
