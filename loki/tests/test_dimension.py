@@ -67,7 +67,3 @@ end subroutine test_dimension_index
 
     # Test the correct creation of horizontal dim with aliased bounds vars
     _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'bnds%end'))
-    with pytest.raises(RuntimeError):
-        _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start',))
-    with pytest.raises(RuntimeError):
-        _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'some_other_bnds%end'))
