@@ -39,12 +39,25 @@ class Dimension:
         with this dimension.
     """
 
-    def __init__(self, name=None, index=None, bounds=None, size=None, aliases=None,
-                 bounds_aliases=None, index_aliases=None):
+    def __init__(
+            self, name=None, index=None, size=None, lower=None,
+            upper=None, step=None, aliases=None, bounds=None,
+            bounds_aliases=None, index_aliases=None
+    ):
         self.name = name
-        self._index = index
-        self._bounds = as_tuple(bounds)
-        self._size = size
+
+        if bounds:
+            # Backward compat for ``bounds`` contructor argument
+            assert not lower and not upper and len(bounds) == 2
+            lower, upper = bounds
+
+        # Store one or more strings for dimension variables
+        self._index = as_tuple(index)
+        self._size = as_tuple(size)
+        self._lower = as_tuple(lower)
+        self._upper = as_tuple(upper)
+        self._step = as_tuple(step)
+
         self._aliases = as_tuple(aliases)
         self._index_aliases = as_tuple(index_aliases)
 
@@ -67,28 +80,49 @@ class Dimension:
         """
         String that matches the size expression of a data space (variable allocation).
         """
-        return self._size
+        return self._size[0] if len(self._size) == 1 else self._size
 
     @property
     def index(self):
         """
         String that matches the primary index expression of an iteration space (loop).
         """
-        return self._index
+        return self._index[0] if len(self._index) == 1 else self._index
+
+    @property
+    def lower(self):
+        """
+        String or tuple of strings that matches the lower bound of the iteration space.
+        """
+        return self._lower[0] if len(self._lower) == 1 else self._lower
+
+    @property
+    def upper(self):
+        """
+        String or tuple of strings that matches the upper bound of the iteration space.
+        """
+        return self._upper[0] if len(self._upper) == 1 else self._upper
+
+    @property
+    def step(self):
+        """
+        String or tuple of strings that matches the step size of the iteration space.
+        """
+        return self._step[0] if len(self._step) == 1 else self._step
 
     @property
     def bounds(self):
         """
         Tuple of expression string that represent the bounds of an iteration space.
         """
-        return self._bounds
+        return (self.lower, self.upper)
 
     @property
     def range(self):
         """
         String that matches the range expression of an iteration space (loop).
         """
-        return f'{self._bounds[0]}:{self._bounds[1]}'
+        return f'{self.bounds[0]}:{self.bounds[1]}'
 
     @property
     def size_expressions(self):
@@ -101,30 +135,6 @@ class Dimension:
         if self._aliases:
             exprs += as_tuple(self._aliases)
         exprs += (f'1:{self.size}', )
-        if self._bounds:
-            exprs += (f'{self._bounds[1]} - {self._bounds[0]} + 1', )
+        if self.bounds:
+            exprs += (f'{self.bounds[1]} - {self.bounds[0]} + 1', )
         return exprs
-
-    @property
-    def bounds_expressions(self):
-        """
-        A list of all expression strings representing the bounds of a data space.
-        """
-
-        exprs = [(b,) for b in self.bounds]
-        if self._bounds_aliases:
-            exprs = [expr + (b,) for expr, b in zip(exprs, self._bounds_aliases)]
-
-        return as_tuple(exprs)
-
-    @property
-    def index_expressions(self):
-        """
-        A list of all expression strings representing the index expression of an iteration space (loop).
-        """
-
-        exprs = [self.index,]
-        if self._index_aliases:
-            exprs += list(self._index_aliases)
-
-        return as_tuple(exprs)
