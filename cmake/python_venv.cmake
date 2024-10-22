@@ -50,7 +50,7 @@ function( find_python_venv VENV_PATH PYTHON_VERSION )
     set( Python3_ROOT_DIR "${VENV_PATH}" )
 
     # Launch a new search
-    find_package( Python3 ${PYTHON_VERSION} COMPONENTS Interpreter Development REQUIRED )
+    find_package( Python3 ${PYTHON_VERSION} COMPONENTS Interpreter REQUIRED )
 
     # Find the binary directory of the virtual environment
     execute_process(
