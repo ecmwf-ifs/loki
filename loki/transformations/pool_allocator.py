@@ -626,7 +626,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # If the array size is not a multiple of NPROMA, then we pad the allocation to avoid
         # potential alignment issues on device
-        if not self.horizontal or not any(s in dim for s in self.horizontal.size_expressions):
+        if not self.horizontal or not any(s in dim for s in self.horizontal.sizes):
             arr_type_bytes = InlineCall(function=Variable(name='MAX'),
                         parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
         if self.cray_ptr_loc_rhs:
