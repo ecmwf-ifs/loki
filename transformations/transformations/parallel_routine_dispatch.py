@@ -444,7 +444,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     # YL%A becomes YL%FA
                     field_name = f"{'%'.join(var.name_parts[:-1])}%F{var.name_parts[-1]}"
                     if var.name_parts[-1]=="P": #YL%FP = YL%FT0
-                        field_name = f"{field_name[-1]}T0"
+                        field_name = f"FT0"
                 else:
                     # YL%A becomes YL%F_A
                     field_name = f"{'%'.join(var.name_parts[:-1])}%F_{var.name_parts[-1]}"
