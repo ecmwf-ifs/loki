@@ -368,17 +368,18 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             )
 
             # Strip the outer block loop and FIELD-API boilerplate
-            remove_block_loops(ec_phys_parallel)
+            remove_block_loops(ec_phys_parallel, dimension=blocking_outer)
 
             remove_field_api_view_updates(
-                ec_phys_parallel, field_group_types=field_group_types+fgroup_firstprivates
+                ec_phys_parallel, dim_object='IDIMS',
+                field_group_types=field_group_types+fgroup_firstprivates
             )
 
             # The add them back in according to parallel region
             add_block_loops(ec_phys_parallel, dimension=blocking_outer)
 
             add_field_api_view_updates(
-                ec_phys_parallel, dimension=blocking_outer,
+                ec_phys_parallel, dim_object='IDIMS', dimension=blocking_outer,
                 field_group_types=field_group_types+fgroup_firstprivates
             )
 
@@ -393,7 +394,7 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             add_block_loops(routine=driver, dimension=blocking_driver)
 
             add_field_api_view_updates(
-                routine=driver, dimension=blocking_driver,
+                routine=driver, dim_object='IDIMS', dimension=blocking_driver,
                 field_group_types=field_group_types+fgroup_firstprivates
             )
 
