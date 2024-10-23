@@ -559,8 +559,8 @@ def get_loop_bounds(routine, dimension):
 
     bounds = ()
     variable_map = routine.variable_map
-    for name, _bounds in zip(['start', 'end'], dimension.bounds_expressions):
-        for bound in _bounds:
+    for name, _bounds in zip(['start', 'end'], [dimension.lower, dimension.upper]):
+        for bound in as_tuple(_bounds):
             if bound.split('%', maxsplit=1)[0] in variable_map:
                 bounds += (routine.resolve_typebound_var(bound, variable_map),)
                 break
