@@ -345,17 +345,19 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
 
     blocking_outer = Dimension(
-        name='block', index='JKGLO', index_aliases='IBL',
-        size='YDGEM%NGPTOT', aliases='YDDIM%NGPBLKS',
-        bounds=('YDGEM%NGPTOT', 'YDDIM%NPROMA'),
-        bounds_aliases=('ICST', 'ICEND')
+        name='block', index=('JKGLO', 'IBL'),
+        lower=('1', 'ICST'),
+        upper=('YDGEM%NGPTOT', 'ICEND'),
+        step='YDDIM%NPROMA',
+        size='YDDIM%NGPBLKS',
     )
 
     blocking_driver = Dimension(
-        name='block', index='JKGLO', index_aliases='IBL',
-        size='YDGEOMETRY%YRGEM%NGPTOT', aliases='YDGEOMETRY%YRDIM%NGPBLKS',
-        bounds=('YDGEOMETRY%YRGEM%NGPTOT', 'YDGEOMETRY%YRDIM%NPROMA'),
-        bounds_aliases=('ICST', 'ICEND')
+        name='block', index=('JKGLO', 'IBL'),
+        lower=('1', 'ICST'),
+        upper=('YDGEOMETRY%YRGEM%NGPTOT', 'ICEND'),
+        step='YDGEOMETRY%YRDIM%NPROMA',
+        size='YDGEOMETRY%YRDIM%NGPBLKS',
     )
 
     if remove_block_loop:
