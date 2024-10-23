@@ -790,15 +790,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         #TODO : generate lst_private !!!! see LLHMT in CALL ACSOL
         # ==============================================================
         # ==============================================================
-        lst_private = "JBLK, "
- #        for scalar in map_region["scalar"]: 
- #            if scalar not in lst_private:
- #                lst_private += f"{scalar}, "
+        lst_private = ["JBLK"]
         for private in map_region["private"]:
             if private not in lst_private:
-                lst_private += f"{private}, "
-        lst_private = lst_private[:-2] #rm the coma
-        pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private}) FIRSTPRIVATE ({lcpg_bnds.name})")
+                lst_private += [private]
+        lst_private = sorted(lst_private)
+        str_private =  ", ".join(lst_private)
+        pragma = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({str_private}) FIRSTPRIVATE ({lcpg_bnds.name})")
         update = ir.CallStatement(  
             name=routine.resolve_typebound_var(f"{lcpg_bnds.name}%UPDATE"), 
             arguments=(self.jblk,)
@@ -902,12 +900,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
 
     def create_compute_openmpscc(self, routine, region, region_name, map_routine, map_region):
-        lst_private = f"JBLK, JLON, YLCPG_BNDS, YLSTACK, "
+        lst_private = ["JBLK", "JLON", "YLCPG_BNDS", "YLSTACK"]
         for private in map_region["private"]:
             if private not in lst_private:
-                lst_private += f"{private}, "
-        lst_private = lst_private[:-2] #rm coma
-        pragma1 = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({lst_private})")
+                lst_private += [private]
+        lst_private = sorted(lst_private)
+        str_private =  ", ".join(lst_private)
+        pragma1 = ir.Pragma(keyword="OMP", content=f"PARALLEL DO PRIVATE ({str_private})")
         pragma2 = None
         compute_openmpscc = self.create_scc(routine, region, region_name, map_routine, map_region, pragma1, pragma2)
         return compute_openmpscc
@@ -916,27 +915,26 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region_map_var_sorted = map_region["var_sorted"]
         not_field_array = map_region['not_field_array']
         cpg_opts = map_routine["cpg_opts"]
-        lst_private1 = f"JBLK"
-        lst_private2 = f"JLON, YLCPG_BNDS, YLSTACK, "
+        lst_private = ["JLON", "YLCPG_BNDS", "YLSTACK"]
+        lst_private = sorted(lst_private)
+        str_private =  ", ".join(lst_private)
         for private in map_region["private"]:
-            if private not in lst_private2:
-                lst_private2 += f"{private}, "
-        lst_private2 = lst_private2[:-2] #rm the coma
-#        lst_present = "YDCPG_OPTS, YDMODEL, YSTACK, "
-        lst_present = "YDCPG_OPTS, YSTACK,"
-        #lst_present = "YDCPG_OPTS, YDGEOMETRY, YDMODEL, YSTACK, "
+            if private not in lst_private:
+                lst_private += [private]
+        lst_present = ["YDCPG_OPTS", "YSTACK"]
         for var_name in not_field_array:
             if var_name not in lst_present:
-                lst_present += f"{var_name}, "
+                lst_present += [var_name]
 
 
         for var in region_map_var_sorted:
             if var[1].name not in lst_present:
-                lst_present += f"{var[1].name}, "
-        lst_present = lst_present[:-2]+" " #rm the coma
+                lst_present +=  [var[1].name]
+        lst_present = sorted(lst_present)
+        str_present =  ", ".join(lst_present)
         acc_vector_length = f"{cpg_opts}%KLON"
-        pragma1 = ir.Pragma(keyword="ACC", content=f"PARALLEL LOOP GANG PRESENT ({lst_present}) PRIVATE ({lst_private1}) VECTOR_LENGTH({acc_vector_length})")
-        pragma2 = ir.Pragma(keyword="ACC", content=f"LOOP VECTOR PRIVATE ({lst_private2})")
+        pragma1 = ir.Pragma(keyword="ACC", content=f"PARALLEL LOOP GANG PRESENT ({str_present}) PRIVATE (JBLK) VECTOR_LENGTH({acc_vector_length})")
+        pragma2 = ir.Pragma(keyword="ACC", content=f"LOOP VECTOR PRIVATE ({str_private})")
         compute_openaccscc = self.create_scc(routine, region, region_name, map_routine, map_region, pragma1, pragma2)
         return compute_openaccscc
 
