@@ -329,6 +329,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 name_prefix = "YL_"
 
             # The FIELD_{d}RB variable
+            if var.type.dtype.name=="LOGICAL":
+                field_name = 'LM'
             if var.type.dtype.name=="REAL":
                 field_name = 'RB'
             if var.type.dtype.name=="INTEGER":
