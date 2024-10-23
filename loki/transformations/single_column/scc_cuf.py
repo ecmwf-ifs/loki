@@ -292,10 +292,10 @@ class SccLowLevelLaunchConfiguration(Transformation):
         loop_map = {}
         for loop in FindNodes(ir.Loop).visit(routine.body):
             if loop.variable == self.block_dim.index or loop.variable.name.lower()\
-                    in [_.lower() for _ in self.block_dim._aliases]:
+                    in [_.lower() for _ in self.block_dim.sizes]:
                 loop_map[loop] = loop.body
             if loop.variable == self.horizontal.index or loop.variable.name.lower()\
-                    in [_.lower() for _ in self.horizontal._aliases]:
+                    in [_.lower() for _ in self.horizontal.sizes]:
                 loop_map[loop] = loop.body
         routine.body = Transformer(loop_map).visit(routine.body)
 
