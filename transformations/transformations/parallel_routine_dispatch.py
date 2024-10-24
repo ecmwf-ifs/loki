@@ -165,8 +165,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         pragma_attrs["target"] = pragma_attrs["target"].split("/")
         region_name = pragma_attrs["name"]
 
-        region_map_arrays = self.decl_arrays(
-            routine, map_routine, region, map_region
+        region_map_arrays = self.get_region_arrays(
+            map_routine, region
         )  # map_region to store field_new and field_delete
         region_map_derived, region_map_not_field = self.decl_derived_types(
             routine, region
@@ -414,9 +414,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
             # Create a pointer instead of the array
             shape = (sym.RangeIndex((None, None)),) * dim
             #  var.type = var_type.clone(pointer=True, shape=shape)
-            local_ptr_var = var.clone(dimensions=shape)
+            ptr_var = var.clone(dimensions=shape)
 
-            routine_map_arrays[var.name] = [field_api_ptr, local_ptr_var]
+            routine_map_arrays[var.name] = [field_api_ptr, ptr_var]
             if var.name not in routine.argnames:
                 self.create_field_new(
                     routine, map_routine, var, field_api_ptr
@@ -427,25 +427,18 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
         map_routine["map_arrays"] = routine_map_arrays
 
-    def decl_arrays(self, routine, map_routine, region, map_region):
-        """Finds arrays for each region in map_routine
-
-        Return:
+    def get_region_arrays(self, map_routine, region):
+        """Finds arrays in map_routine["map_arrays"] for the region.
+        region : parallel region or call statement (call outside of parallel region)
         return : region_map_arrays
         """
-        arrays = [
-            var
-            for var in FindVariables(Array).visit(region)
-            if isinstance(var, Array)
-            and var.name_parts[0] not in routine.arguments
-            and var.shape[0] in self.horizontal
-        ]
+        arrays = [var for var in FindVariables(Array).visit(region)]
         region_map_arrays = {}
         for var in arrays:
             if var.name in map_routine["map_arrays"]:
                 field_api_ptr = map_routine["map_arrays"][var.name][0]
-                local_ptr_var = map_routine["map_arrays"][var.name][1]
-                region_map_arrays[var.name] = [field_api_ptr, local_ptr_var]
+                ptr_var = map_routine["map_arrays"][var.name][1]
+                region_map_arrays[var.name] = [field_api_ptr, ptr_var]
         return region_map_arrays
 
     def add_arrays(self, routine, map_routine):
@@ -1239,8 +1232,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         call_mapper = {}  # mapper for transformation
         for call in calls:
             if call.name != "DR_HOOK" and call.name != "ABOR1":
-                region_map_arrays = self.decl_arrays(
-                    routine, map_routine, call, map_region
+                region_map_arrays = self.get_region_arrays(
+                    map_routine, call
                 )  # map_region to store field_new and field_delete
                 #                region_map_derived = self.decl_derived_types(routine, call)
                 region_map_derived, region_map_not_field = self.decl_derived_types(
@@ -1254,7 +1247,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 )
                 # TODO 2 cases : derived type used just outside acdc region : no field, or use in both : field...
                 #                map_region['map_derived'][1] = None #no field to add to routine dcl
-                # TODO fix the field_new = map_region[...] .... this is because map_region['field_new'] is init in decl_arrays.
+                # TODO fix the field_new = map_region[...] .... this is because map_region['field_new'] is init in get_region_arrays.
                 # an other part of the code needs this initialization ...
 
                 new_arguments = []
