@@ -307,7 +307,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ]
         return dr_hook_calls
 
-    def create_field_new_and_field_delete(self, routine, map_routine, var, field_ptr_var):
+    def create_field_new(self, routine, map_routine, var, field_ptr_var):
         """
         Create field_new calls for initializing pointers on field_api objects.
 
