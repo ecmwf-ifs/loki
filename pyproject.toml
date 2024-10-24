@@ -91,6 +91,7 @@ testpaths = [
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+    "PLR0913", # Trop d'arguments 
     "C416", # Garde liste en comprehension
     "ANN", # Désactive le typage pour l'instant
     "CPY001", # Vérifie qu'un copyright est présent dans le fichier

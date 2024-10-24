@@ -198,15 +198,19 @@ class ParallelRoutineDispatchTransformation(Transformation):
             )
 
         self.create_new_region(
-            routine, region, region_name, map_routine, map_region, targets
+            routine, region, region_name, map_region, targets
         )
 
         self.add_to_map_routine(map_routine, map_region)
 
 
     def create_new_region(
-        self, routine, region, region_name, map_routine, map_region, targets
+        self, routine, region, region_name, map_region, targets
     ):
+        """
+        Gather the different pieces of the region.
+        """
+        #todo : nettoyer
         # IF (LPARALLELMETHOD ('OPENMP','APL_ARPEGE_PARALLEL:CPPHINP')) THEN
         if len(targets) == 1:
             cond = ir.Conditional(
@@ -253,13 +257,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
         new_region = (dr_hook_calls[0], cond, dr_hook_calls[1])
         region._update(pragma=None, pragma_post=None, body=new_region)
 
-    #        map_routine['map_transformation'][region] = tuple(new_region)
 
     def process_target(
         self, routine, region, region_name, map_routine, map_region, target
     ):
+        """
+        Build the parallel region for the target (where the target (=lparallelmethod) is openmp, openmpscc or openaccscc).
+        IF LPARALLELMETHOD ...
+            do computation
+        END IF
+        """
+        #todo : clean
+        get_data = True
         map_region["get_data"][target] = self.create_pt_sync(
-            routine, target, region_name, True, map_region
+            routine, target, region_name, get_data, map_region
         )
         map_region["compute"][target] = self.map_call_compute[target](
             routine, region, region_name, map_routine, map_region
@@ -296,17 +307,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ]
         return dr_hook_calls
 
-    def create_field_new_delete(self, routine, map_routine, var, field_ptr_var):
+    def create_field_new_and_field_delete(self, routine, map_routine, var, field_ptr_var):
+        """
+        Create field_new calls for initializing pointers on field_api objects.
 
-    # CALL FIELD_NEW (YL_ZA, UBOUNDS=[KLON, KFLEVG, KGPBLKS], LBOUNDS=[1, 0, 1], PERSISTENT=.TRUE.)
-    # IF (ASSOCIATED (YL_ZA)) CALL FIELD_DELETE (YL_ZA)
-    # map[name] = [field_ptr, ptr]
-    # where :
-    # field_ptr : pointer on field api object
-    # ptr : pointer to the data
+        CALL FIELD_NEW (YL_ZA, UBOUNDS=[KLON, KFLEVG, KGPBLKS], LBOUNDS=[1, 0, 1], PERSISTENT=.TRUE.)
+        """
+
         field_new = map_routine["field_new"]
-        field_delete = map_routine["field_delete"]
-        # Create the FIELD_NEW call
         var_shape = var.shape
         ubounds = [d.upper if isinstance(d, sym.RangeIndex) else d for d in var_shape]
         ubounds += [
@@ -345,7 +353,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
             )
         ]
 
-        # Create the FIELD_DELETE CALL
+
+    def create_field_delete(self, routine, map_routine, field_ptr_var):
+        """
+        Create field_delete calls for deleting pointers on field_api objects.
+
+        IF (ASSOCIATED (YL_ZA)) CALL FIELD_DELETE (YL_ZA)
+        """
+        field_delete = map_routine["field_delete"]
         call = ir.CallStatement(
             sym.Variable(name="FIELD_DELETE", scope=routine), arguments=(field_ptr_var,)
         )
@@ -356,7 +371,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
     def decl_arrays_routine(self, routine, map_routine):
         """Creates the pointers by wich the arrays declarations will be replaced.
-        Creates field_new/field_delete calls (call to self.create_field_new_delete).
+        Creates field_new/field_delete calls (call to self.create_field_new and self.create_field_delete).
         """
         arrays = [
             var
@@ -403,9 +418,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
             routine_map_arrays[var.name] = [field_ptr_var, local_ptr_var]
             if var.name not in routine.argnames:
-                self.create_field_new_delete(
+                self.create_field_new(
                     routine, map_routine, var, field_ptr_var
-                )  # file in map_routine['field_new'/'field_delete']
+                )  # file in map_routine['field_new']
+                self.create_field_delete(
+                    routine, map_routine, var, field_ptr_var
+                )  # file in map_routine['field_delete']
         return routine_map_arrays
 
     def decl_arrays(self, routine, map_routine, region, map_region):
@@ -668,7 +686,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return sync_data
 
     def create_synchost(self, routine, region_name, map_region):
-        synchost = self.create_pt_sync(routine, None, region_name, False, map_region)
+        get_data = False
+        synchost = self.create_pt_sync(routine, None, region_name, get_data, map_region)
         condition = sym.InlineCall(
             sym.Variable(name="LSYNCHOST"),
             parameters=(sym.StringLiteral(value=f"{routine.name}:{region_name}"),),
