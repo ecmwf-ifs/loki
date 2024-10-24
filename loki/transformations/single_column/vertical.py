@@ -135,8 +135,10 @@ class SCCFuseVerticalLoops(Transformation):
         # local/temporary arrays
         local_arrays = get_local_arrays(routine, routine.body)
         # only those with the vertical size within shape
-        relevant_local_arrays = [arr for arr in local_arrays if self.vertical.size.lower()
-                in FindVariables().visit(arr.shape)]
+        relevant_local_arrays = [
+            arr for arr in local_arrays
+            if any(s in self.vertical.sizes for s in FindVariables().visit(arr.shape))
+        ]
         # filter arrays to be ignored (for whatever reason)
         ignore_names = self.find_local_arrays_to_be_ignored(routine)
         if ignore_names:
