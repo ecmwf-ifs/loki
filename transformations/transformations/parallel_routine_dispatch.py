@@ -628,7 +628,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine['imports'] = imports
 
 
-    def update_args(self, arg, region_map):
+    def update_arg_dims(self, arg, region_map):
         new_arg = region_map[arg.name][1]
         dim = len(new_arg.dimensions)
         #dim = len(new_arg.shape)
@@ -717,6 +717,31 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         return loop_map 
 
+    def process_argument(self, routine, arg, region_map_arrays, region_map_derived, cpg_bnds, lcpg_bnds, vars_call):
+         if arg not in vars_call:
+             vars_call.append(arg)
+         if not (
+             isinstance(arg, sym.LogicalOr) 
+             or isinstance(arg, sym.LogicalAnd) 
+             or isinstance(arg, sym.IntLiteral)
+             or isinstance(arg, sym.LogicLiteral)
+             or isinstance(arg, sym.Product)
+             or isinstance(arg, sym.Sum)):
+#             or isinstance(arg, sym.StringLiteral)):
+
+             if arg.name in region_map_arrays:
+                 return self.update_arg_dims(arg, region_map_arrays)
+             elif arg.name in region_map_derived:
+                 return self.update_arg_dims(arg, region_map_derived)
+             elif arg.name_parts[0]==cpg_bnds.name:
+                 if len(arg.name_parts)==2:
+                     return routine.resolve_typebound_var(f"{lcpg_bnds}%{arg.name_parts[1]}")
+                 else:
+                     return lcpg_bnds
+             else:
+                 return arg
+         else: 
+             return arg
     def process_call(self, routine, region, map_routine, map_region, scc):
         region_map_arrays = map_region["map_arrays"]
         region_map_derived = map_region["map_derived"]
@@ -729,36 +754,21 @@ class ParallelRoutineDispatchTransformation(Transformation):
         for call in calls:
             if call.name!="DR_HOOK" and call.name!="ABOR1":
                 new_arguments = []
+                new_kwarguments = []
                 for arg in call.arguments:
-                    if arg not in vars_call:
-                        vars_call.append(arg)
-                    if not (
-                        isinstance(arg, sym.LogicalOr) 
-                        or isinstance(arg, sym.LogicalAnd) 
-                        or isinstance(arg, sym.IntLiteral)
-                        or isinstance(arg, sym.LogicLiteral)
-                        or isinstance(arg, sym.Sum)):
-#                        or isinstance(arg, sym.StringLiteral)):
+                    new_arg = self.process_argument(routine, arg, region_map_arrays, region_map_derived, cpg_bnds, lcpg_bnds, vars_call)
+                    new_arguments.append(new_arg)
+                for arg in call.kwarguments:
+                    new_kwarg = self.process_argument(routine, arg[1], region_map_arrays, region_map_derived, cpg_bnds, lcpg_bnds, vars_call)
+                    new_kwarguments.append((arg[0],new_kwarg,))
 
-                        if arg.name in region_map_arrays:
-                            new_arguments += [self.update_args(arg, region_map_arrays)]
-                        elif arg.name in region_map_derived:
-                            new_arguments += [self.update_args(arg, region_map_derived)]
-                        elif arg.name_parts[0]==cpg_bnds.name:
-                            if len(arg.name_parts)==2:
-                                new_arguments += [routine.resolve_typebound_var(f"{lcpg_bnds}%{arg.name_parts[1]}")]
-                            else:
-                                new_arguments += [lcpg_bnds]
-                        else:
-                            new_arguments += [arg]
-                    else: 
-                        new_arguments += [arg]
                 if scc:
-                    new_kwarguments = call.kwarguments + (("YDSTACK", routine.variable_map["YLSTACK"]),)
+                    new_kwarguments += (("YDSTACK", routine.variable_map["YLSTACK"]),)
                     new_call = call.clone(
                             name=sym.ProcedureSymbol(name=f"{call.name.name}_OPENACC"), 
                             arguments=as_tuple(new_arguments), 
-                            kwarguments=new_kwarguments)
+                            kwarguments=as_tuple(new_kwarguments))
+                    
                     map_new_calls[call] = new_call
                     c_import_name = f"{call.name.name.lower()}.intfb.h"
                     if c_import_name not in c_imports:
@@ -772,7 +782,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                             map_routine["imports_mapper"][c_import] = (c_import,new_c_import)
         
                 else:
-                    new_call = call.clone(arguments=as_tuple(new_arguments))
+                    new_call = call.clone(arguments=as_tuple(new_arguments), 
+                                          kwarguments=as_tuple(new_kwarguments))
                     map_new_calls[call] = new_call
 
         #map_region["vars_call"] = vars_call
