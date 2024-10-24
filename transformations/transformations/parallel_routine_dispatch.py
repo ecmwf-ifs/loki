@@ -422,7 +422,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     routine, map_routine, var, field_ptr_var
                 )  # file in map_routine['field_new']
                 self.create_field_delete(
-                    routine, map_routine, var, field_ptr_var
+                    routine, map_routine, field_ptr_var
                 )  # file in map_routine['field_delete']
         return routine_map_arrays
 
