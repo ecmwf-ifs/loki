@@ -6,7 +6,6 @@
 # nor does it submit to any jurisdiction.
 
 
-import os
 import pickle
 from itertools import chain
 
@@ -25,7 +24,6 @@ from loki import (
 from loki.expression import symbols as sym
 from loki.ir import (
     FindNodes,
-    get_pragma_parameters,
     is_loki_pragma,
     pragma_regions_attached,
 )
@@ -43,16 +41,14 @@ class SubstituteExpressionsIgnoreCallstatements(SubstituteExpressions):
 
 
 class ParallelRoutineDispatchTransformation(Transformation):
+    """
+    Applying the transformation to create _parallel.F90 routine.
+    """
     def __init__(self, is_intent, horizontal, path_map_index):
         self.is_intent = (
             is_intent  # set to True if the intent are read for interface block
         )
-        # self.is_intent = False #set to True if the intent are read for interface block
         self.horizontal = horizontal
-        #        self.horizontal = [
-        #            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-        #            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-        #    ]
 
         self.map_call_compute = {
             "OpenMP": self.create_compute_openmp,
@@ -62,21 +58,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         self.path_map_index = path_map_index
         with open(path_map_index, "rb") as fp:
-            # with open(os.getcwd()+path_map_index, 'rb') as fp:
             self.map_index = pickle.load(fp)
 
-    #        with open(os.getcwd()+"/transformations/transformations/field_index.pkl", 'rb') as fp:
-    #            self.map_index = pickle.load(fp)
 
-    # CALL FIELD_NEW (YL_ZA, UBOUNDS=[KLON, KFLEVG, KGPBLKS], LBOUNDS=[1, 0, 1], PERSISTENT=.TRUE.)
-    # self.new_calls = []
-    # IF (ASSOCIATED (YL_ZA)) CALL FIELD_DELETE (YL_ZA)
-    # self.delete_calls = []
-    # map[name] = [field_ptr, ptr]
-    # where :
-    # field_ptr : pointer on field api object
-    # ptr : pointer to the data
-    # self.routine_map_arrays = {}
 
     def transform_subroutine(self, routine, **kwargs):
         item = kwargs.get("item")
@@ -89,7 +73,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         map_routine = {}
         map_region = {}
-        #        map_routine['map_arrays'] = {}
         map_routine["field_new"] = []
         map_routine["field_delete"] = []
         map_routine["map_derived"] = {}
@@ -97,7 +80,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine["c_imports"] = {
             imp.module: imp
             for imp in FindNodes(ir.Import).visit(routine.spec)
-            if imp.c_import == True
+            if imp.c_import
         }
         map_routine["field_new"] = []
         map_routine["field_delete"] = []
@@ -109,12 +92,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine["imports_mapper"] = {}
         map_routine["call_mapper"] = {}
 
-        imports = self.create_imports(routine, map_routine)
-        dcls = self.create_variables(routine, map_routine)
+        self.create_imports(routine, map_routine)
+        self.create_variables(routine, map_routine)
         calls = FindNodes(ir.CallStatement).visit(routine.body)
         routine_map_arrays = self.decl_arrays_routine(routine, map_routine)
         map_routine["map_arrays"] = routine_map_arrays
         in_pragma_calls = []
+        # TODO : Voir plus tard si on transforme en fonction 
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if is_loki_pragma(region.pragma):
@@ -146,16 +130,15 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 map_imports[imp] = None
         routine.spec = Transformer(map_imports).visit(routine.spec)
 
-        # self.process_not_region_loop(routine, map_routine)
 
-        # call add_arrays etc...
         if item:
-            #            item.trafo_data['create_parallel']['imports'] = imports
-            #            item.trafo_data['create_parallel']['dcls'] = dcls
             item.trafo_data["create_parallel"]["map_routine"] = map_routine
             item.trafo_data["create_parallel"]["map_region"] = map_region
 
     def process_parallel_region(self, routine, region, map_routine, map_region):
+        """
+        Transform the code in acdc pragmas, creating openmp, openmpscc and openaccscc sections.
+        """
         map_region["get_data"] = {}
         map_region["compute"] = {}
         map_region["region"] = {}
@@ -174,23 +157,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         }
         if "parallel" not in pragma_attrs:
             return
-        if "target" not in pragma_attrs:
+        if "target" not in pragma_attrs: #default value
             pragma_attrs["target"] = "OpenMP"
-            # pragma_attrs['target'] = 'OpenMP/OpenMPSingleColumn/OpenACCSingleColumn'
         if "name" not in pragma_attrs:
             pragma_attrs["name"] = str(map_routine["nb_no_name"])
             map_routine["nb_no_name"] += 1
 
         pragma_attrs["target"] = pragma_attrs["target"].split("/")
         region_name = pragma_attrs["name"]
-        dr_hook_calls = self.create_dr_hook_calls(
-            routine,
-            f"{routine.name}:{region_name}",
-            sym.Variable(name="ZHOOK_HANDLE_FIELD_API", scope=routine),
-        )
-
-        #        region.prepend(dr_hook_calls[0])
-        #        region.append(dr_hook_calls[1])
 
         region_map_arrays = self.decl_arrays(
             routine, map_routine, region, map_region
@@ -199,12 +173,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
             routine, region
         )
         region_map_private = self.get_private(region)
-        # region_map_not_field = self.get_not_field_array(routine, region)
         region_map_var = [
             var
             for var in chain(region_map_arrays.values(), region_map_derived.values())
         ]
-        region_map_var_sorted = sorted(region_map_var, key=lambda X: X[1].name)
+        region_map_var_sorted = sorted(region_map_var, key=lambda x: x[1].name)
 
         map_region["var_sorted"] = region_map_var_sorted
         map_region["map_arrays"] = region_map_arrays
@@ -230,8 +203,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         self.add_to_map_routine(map_routine, map_region)
 
-        # map_routine['routine_map_arrays'] = routine_map_arrays
-        # map_routine['routine_map_derived'] = routine_map_derived
 
     def create_new_region(
         self, routine, region, region_name, map_routine, map_region, targets
@@ -326,6 +297,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return dr_hook_calls
 
     def create_field_new_delete(self, routine, map_routine, var, field_ptr_var):
+
+    # CALL FIELD_NEW (YL_ZA, UBOUNDS=[KLON, KFLEVG, KGPBLKS], LBOUNDS=[1, 0, 1], PERSISTENT=.TRUE.)
+    # IF (ASSOCIATED (YL_ZA)) CALL FIELD_DELETE (YL_ZA)
+    # map[name] = [field_ptr, ptr]
+    # where :
+    # field_ptr : pointer on field api object
+    # ptr : pointer to the data
         field_new = map_routine["field_new"]
         field_delete = map_routine["field_delete"]
         # Create the FIELD_NEW call

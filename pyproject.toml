@@ -88,3 +88,29 @@ readme = {file = ["README.md", "INSTALL.md"], content-type = "test/markdown"}
 testpaths = [
   "tests"
 ]
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "C416", # Garde liste en comprehension
+    "ANN", # Désactive le typage pour l'instant
+    "CPY001", # Vérifie qu'un copyright est présent dans le fichier
+    "E501", # Lignes trop longues
+    "D104", # Package non documentés
+    "EXE002", # Shebang pour les fichiers python
+    "ANN401", # any autorisés en tant que type
+    "S310", # Ouvrir des données provenant d'urllib
+    "S101", # Assert interdits, utiles pour pytest quand même
+    "PT011", # Règle pour pytest.raises
+    "TD002", # Mettre le nom dans un todo
+    "TD003", # Mettre un lien dans un todo
+    "COM812", # Problème avec le formatter
+    "ISC001", # Problème avec le formatter
+]
+fixable = ["ALL"]
+unfixable = ["F401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
