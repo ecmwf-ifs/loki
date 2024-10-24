@@ -91,6 +91,7 @@ testpaths = [
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+    "FBT003", # Boolean positional value in fonction call
     "PLR0913", # Trop d'arguments 
     "C416", # Garde liste en comprehension
     "ANN", # Désactive le typage pour l'instant

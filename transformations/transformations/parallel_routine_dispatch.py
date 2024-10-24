@@ -95,8 +95,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.create_imports(routine, map_routine)
         self.create_variables(routine, map_routine)
         calls = FindNodes(ir.CallStatement).visit(routine.body)
-        routine_map_arrays = self.decl_arrays_routine(routine, map_routine)
-        map_routine["map_arrays"] = routine_map_arrays
+        self.handle_arrays_routine(routine, map_routine)
         in_pragma_calls = []
         # TODO : Voir plus tard si on transforme en fonction 
         with pragma_regions_attached(routine):
@@ -307,7 +306,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ]
         return dr_hook_calls
 
-    def create_field_new(self, routine, map_routine, var, field_ptr_var):
+    def create_field_new(self, routine, map_routine, var, field_api_ptr):
         """
         Create field_new calls for initializing pointers on field_api objects.
 
@@ -348,13 +347,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         field_new += [
             ir.CallStatement(
                 name=sym.Variable(name="FIELD_NEW", scope=routine),
-                arguments=(field_ptr_var,),
+                arguments=(field_api_ptr,),
                 kwarguments=kwarguments,
             )
         ]
 
 
-    def create_field_delete(self, routine, map_routine, field_ptr_var):
+    def create_field_delete(self, routine, map_routine, field_api_ptr):
         """
         Create field_delete calls for deleting pointers on field_api objects.
 
@@ -362,17 +361,18 @@ class ParallelRoutineDispatchTransformation(Transformation):
         """
         field_delete = map_routine["field_delete"]
         call = ir.CallStatement(
-            sym.Variable(name="FIELD_DELETE", scope=routine), arguments=(field_ptr_var,)
+            sym.Variable(name="FIELD_DELETE", scope=routine), arguments=(field_api_ptr,)
         )
         condition = sym.InlineCall(
-            sym.Variable(name="ASSOCIATED"), parameters=(field_ptr_var,)
+            sym.Variable(name="ASSOCIATED"), parameters=(field_api_ptr,)
         )
         field_delete += [ir.Conditional(condition=condition, inline=True, body=(call,))]
 
-    def decl_arrays_routine(self, routine, map_routine):
-        """Creates the pointers by wich the arrays declarations will be replaced.
-        Creates field_new/field_delete calls (call to self.create_field_new and self.create_field_delete).
+    def handle_arrays_routine(self, routine, map_routine):
+        """Creates the pointers on data by wich the arrays declarations will be replaced, creates pointers on field_api objects.
+        Creates field_new/field_delete calls (call to self.create_field_new and self.create_field_delete), to init/delete the pointers on field_api objects.
         """
+        #todo : check when var.name_parts[0] in routine.arguments
         arrays = [
             var
             for var in FindVariables(Array).visit(routine.spec)
@@ -407,7 +407,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 polymorphic=True,
                 initial=init,
             )
-            field_ptr_var = sym.Variable(
+            field_api_ptr = sym.Variable(
                 name=f"{name_prefix}{var.name}", type=field_ptr_type, scope=routine
             )
 
@@ -416,15 +416,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
             #  var.type = var_type.clone(pointer=True, shape=shape)
             local_ptr_var = var.clone(dimensions=shape)
 
-            routine_map_arrays[var.name] = [field_ptr_var, local_ptr_var]
+            routine_map_arrays[var.name] = [field_api_ptr, local_ptr_var]
             if var.name not in routine.argnames:
                 self.create_field_new(
-                    routine, map_routine, var, field_ptr_var
+                    routine, map_routine, var, field_api_ptr
                 )  # file in map_routine['field_new']
                 self.create_field_delete(
-                    routine, map_routine, field_ptr_var
+                    routine, map_routine, field_api_ptr
                 )  # file in map_routine['field_delete']
-        return routine_map_arrays
+        
+        map_routine["map_arrays"] = routine_map_arrays
 
     def decl_arrays(self, routine, map_routine, region, map_region):
         """Finds arrays for each region in map_routine
@@ -442,9 +443,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region_map_arrays = {}
         for var in arrays:
             if var.name in map_routine["map_arrays"]:
-                field_ptr_var = map_routine["map_arrays"][var.name][0]
+                field_api_ptr = map_routine["map_arrays"][var.name][0]
                 local_ptr_var = map_routine["map_arrays"][var.name][1]
-                region_map_arrays[var.name] = [field_ptr_var, local_ptr_var]
+                region_map_arrays[var.name] = [field_api_ptr, local_ptr_var]
         return region_map_arrays
 
     def add_arrays(self, routine, map_routine):
@@ -583,8 +584,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     field_name = (
                         f"{'%'.join(var.name_parts[:-1])}%F_{var.name_parts[-1]}"
                     )
-                field_ptr_var = var.clone(name=field_name, dimensions=None)
-                region_map_derived[var.name] = [field_ptr_var, ptr_var]
+                field_api_ptr = var.clone(name=field_name, dimensions=None)
+                region_map_derived[var.name] = [field_api_ptr, ptr_var]
             elif var.name_parts[0] not in not_field_array:
                 if (
                     routine.variable_map[var.name_parts[0]].type.dtype.name
