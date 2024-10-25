@@ -79,8 +79,14 @@ end subroutine math_intrinsics
 """
     filepath = tmp_path/(f'expression_math_intrinsics_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
 
+    for assign in FindNodes(ir.Assignment).visit(routine.body):
+        assert isinstance(assign.rhs, sym.InlineCall)
+        assert isinstance(assign.rhs.function, sym.ProcedureSymbol)
+        assert assign.rhs.function.type.dtype.is_intrinsic
+
+    # Test full functionality via JIT example
+    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
     vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)

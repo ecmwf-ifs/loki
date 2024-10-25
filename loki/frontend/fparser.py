@@ -2547,7 +2547,17 @@ class FParser2IR(GenericVisitor):
 
 
     def visit_Intrinsic_Function_Reference(self, o, **kwargs):
+
+        # Register the ProcedureType in the scope before the name lookup
+        pname = o.children[0].string
+        proc_type = ProcedureType(
+            name=pname, is_function=True, is_intrinsic=True, procedure=None
+        )
+        kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type)
+
+        # Look up the function symbol
         name = self.visit(o.children[0], **kwargs)
+
         if o.children[1] is not None:
             arguments = self.visit(o.children[1], **kwargs)
             kwarguments = tuple(arg for arg in arguments if isinstance(arg, tuple))
