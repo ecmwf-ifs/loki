@@ -12,7 +12,7 @@ from loki.ir import (
     FindVariables, Transformer, is_loki_pragma,
     get_pragma_parameters, pragma_regions_attached
 )
-from loki.logging import info
+from loki.logging import info, warning
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 from loki.types import BasicType
@@ -37,6 +37,11 @@ def order_variables_by_type(variables, imports=None):
     if imports:
         # Order derived types by the order of their type in imports
         imported_symbols = tuple(s for i in imports for s in i.symbols if not i.c_import)
+        unknown_types = tuple(
+            d for d in derived if d.type.dtype.name not in imported_symbols
+        )
+        if unknown_types:
+            warning(f'[Loki::outline] Types {unknown_types} not found in imported symbols!')
         derived = tuple(sorted(derived, key=lambda x: imported_symbols.index(x.type.dtype.name)))
 
     # Order declarations by type and put arrays before scalars
