@@ -17,6 +17,7 @@ from loki.transformations import (
         LowerBlockIndexTransformation, LowerBlockLoopTransformation
 )
 from loki.expression import symbols as sym
+from loki.types import DerivedType
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
@@ -320,6 +321,17 @@ def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blo
     # check callstatement was updated correctly
     calls = FindNodes(CallStatement).visit(kernel.body)
     assert 'yda_data%p_field' in calls[1].arg_map.values()
+
+    # check that the dummy definition for field_3rb_array also contains the field pointer
+    driver = scheduler['#driver'].ir
+    yla_data = driver.variable_map['yla_data']
+    _typedef = yla_data.type.dtype.typedef
+    field_ptr = [v for v in _typedef.variables if v.name == 'F_P']
+    assert field_ptr
+    assert isinstance(field_ptr[0].type.dtype, DerivedType)
+    assert field_ptr[0].type.dtype.name.lower() == 'field_3rb'
+    assert field_ptr[0].type.pointer
+    assert field_ptr[0].type.polymorphic
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
