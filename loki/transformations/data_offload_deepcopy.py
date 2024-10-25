@@ -105,7 +105,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 }
 
             if self.debug:
-                with open(f'driver_{calls[0].routine.name}_dataoffload_analysis.yaml', 'w') as file:
+                _successors = [s for s in _successors if isinstance(s, ProcedureItem)]
+                with open(f'driver_{_successors[0].ir.name}_dataoffload_analysis.yaml', 'w') as file:
                     yaml.dump(item.trafo_data[self._key]['analysis'][loop], file)
 
     def process_kernel(self, routine, item, successors, role, targets):
@@ -362,10 +363,17 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
     def _set_field_api_ptrs(self, var, stat, symbol_map, typedef_config, parent, mode):
 
-        field_object = typedef_config['field_prefix'].lower() + var.lower().replace('_field', '')
+        _var = var
+        if (view_prefix := typedef_config.get('view_prefix', None)):
+            _var = re.sub(f'^{view_prefix}', '', var.lower())
+
+        aliased_ptrs = typedef_config.get('aliased_ptrs', {})
+        reverse_alias_map = dict((v, k) for k, v in aliased_ptrs.items())
+
+        field_object = typedef_config['field_prefix'].lower()
+        field_object += reverse_alias_map.get(_var.lower(), _var.lower()).replace('_field', '')
         field_object = symbol_map[field_object].clone(parent=parent)
         field_ptr = symbol_map[var].clone(dimensions=None, parent=parent)
-        aliased_ptrs = typedef_config.get('aliased_ptrs', [])
 
         if stat == 'read':
             access = 'RDONLY'
@@ -512,11 +520,16 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 stat = analysis[var]
                 parent = kwargs['parent']
                 mode = kwargs['mode']
+                field = False
 
-                typedef_config = kwargs['typedef_configs'][parent.type.dtype.typedef.name.lower()] if parent else None
+                if re.search('^field_[0-9][a-z][a-z]_array', parent.type.dtype.typedef.name.lower()):
+                    typedef_config = {'field_prefix': 'F_'}
+                    field = True
+                else:
+                    typedef_config = kwargs['typedef_configs'][parent.type.dtype.typedef.name.lower()] if parent else None
 
                 # check for FIELD_API pointer
-                if re.search('_field$', var, re.IGNORECASE):
+                if re.search('_field$', var, re.IGNORECASE) or field:
                     _copy, _host, _wipe = self._set_field_api_ptrs(var, stat, symbol_map, typedef_config, parent, mode)
 
                 elif mode == 'offload':
