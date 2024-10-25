@@ -56,8 +56,12 @@ field_group_types = [
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
-fgroup_firstprivates = ['SURF_AND_MORE_TYPE']
-lcopies_firstprivates = {'ZSURF': 'ZSURFACE'}
+# The FIELD VARIABLE here would trigger correct PRIVATE markers
+# for YDVARS, despite firstprivatisation trick. However, this triggers
+# Nvidia bug, so let's not for now... Also, once added here, need to
+# remove from field_group_types above
+fgroup_firstprivates = ['SURF_AND_MORE_TYPE']  #'FIELD_VARIABLES'
+lcopies_firstprivates = {'ZSURF': 'ZSURFACE', 'ZDVARS': 'YDVARS'}
 
 # List of variables that we know to have global scope
 shared_variables = [
@@ -66,7 +70,8 @@ shared_variables = [
     'YDSURF', 'YDGMV', 'SAVTEND',
     'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
     'ZCONVCTY', 'YDDIMV', 'YDPHY2',
-    'PHYS_MWAVE', 'ZSPPTGFIX', 'ZSURFACE'
+    'PHYS_MWAVE', 'ZSPPTGFIX',
+    'ZSURFACE', 'YDVARS'
 ]
 
 
