@@ -685,7 +685,7 @@ class ProcedureItem(Item):
         inline_calls = tuple({
             call.function.name: call.function
             for call in FindInlineCalls().visit(self.ir.ir)
-            if isinstance(call.function, ProcedureSymbol)
+            if isinstance(call.function, ProcedureSymbol) and not call.function.type.dtype.is_intrinsic
         }.values())
         imports = tuple(
             imprt for imprt in self.ir.imports
