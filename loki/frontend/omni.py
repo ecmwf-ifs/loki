@@ -1217,7 +1217,7 @@ class OMNI2IR(GenericVisitor):
             proc_type = ProcedureType(
                 name=pname, is_function=True, is_intrinsic=True, procedure=None
             )
-            kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type)
+            kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type, is_intrinsic=True)
 
         if o.find('name') is not None:
             name = self.visit(o.find('name'), **kwargs)
