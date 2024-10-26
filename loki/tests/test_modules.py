@@ -1330,11 +1330,11 @@ module foo
   integer, parameter :: j = 16
 
   contains
-    integer function SUM(v)
+    integer function plus_one(v)
       implicit none
       integer, intent(in) :: v
-      SUM = v + 1
-    end function SUM
+      plus_one = v + 1
+    end function plus_one
 end module foo
 
 module test
@@ -1348,7 +1348,7 @@ contains
         real(kind=rk), intent(inout) :: res
         integer(kind=ik) :: i
         do i = 1, n
-            res = res + SUM(j)
+            res = res + plus_one(j)
         end do
     end subroutine calc
 end module test
@@ -1358,10 +1358,10 @@ end module test
     routine = source['calc']
     calls = list(FindInlineCalls().visit(routine.body))
     assert len(calls) == 1
-    assert calls[0].function == 'sum'
+    assert calls[0].function == 'plus_one'
     assert calls[0].function.type.imported
     assert calls[0].function.type.module is source['foo']
-    assert calls[0].function.type.dtype.procedure is source['sum']
+    assert calls[0].function.type.dtype.procedure is source['plus_one']
     if frontend != OMNI:
         # OMNI inlines parameters
         assert calls[0].arguments[0].type.dtype == BasicType.INTEGER
