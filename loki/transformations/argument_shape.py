@@ -67,10 +67,13 @@ class ArgumentArrayShapeAnalysis(Transformation):
 
             # Create a variable map with new shape information from source
             vmap = {}
+            print(f"routine {routine} | {list(call.arg_iter())}")
             for arg, val in call.arg_iter():
+                # if isinstance(arg, Array) and isinstance(val, Array) and len(arg.shape) > 0:
                 if isinstance(arg, Array) and len(arg.shape) > 0:
                     # Only create new shapes for deferred dimension args
                     if all(d == ':' for d in arg.shape):
+                        print(f"routine {routine} | val {val} | arg {arg}")
                         if len(val.shape) == len(arg.shape):
                             # We're passing the full value array, copy shape
                             vmap[arg] = arg.clone(type=arg.type.clone(shape=val.shape))

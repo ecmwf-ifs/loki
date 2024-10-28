@@ -144,7 +144,9 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
             callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
 
         if call.name in function_map:
-            callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
+            # callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
+            callmap[call] = call.clone(name=function_map[call.name], function=sym.ProcedureSymbol(name=function_map[call.name], scope=routine),
+                    parameters=tuple(sym.Cast(name='REAL', expression=parameter) for parameter in call.parameters))
 
     routine.spec = SubstituteExpressions(callmap).visit(routine.spec)
     routine.body = SubstituteExpressions(callmap).visit(routine.body)
@@ -503,7 +505,11 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
         if isinstance(arg, (tuple, Expression)):
             return mapper(arg)
         if name == 'scope':
-            return expr.scope
+            #     return expr.scope
+            try:
+                return expr.scope
+            except:
+                return arg
         return arg
 
     for _ in range(max_iterations):
@@ -520,8 +526,8 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
         }
 
         # Check for early termination opportunities
-        if prev_map == expr_map:
-            break
+        # if prev_map == expr_map:
+        #     break
 
     return expr_map
 

@@ -18,7 +18,7 @@ from loki.expression import (
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement,
     VariableDeclaration, TypeDef, Assignment, Transformer, FindNodes,
-    Pragma, Comment, SubstituteExpressions
+    Pragma, Comment, SubstituteExpressions, FindInlineCalls
 )
 from loki.logging import debug
 from loki.module import Module
@@ -30,10 +30,11 @@ from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki.transformations.array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_array_shape_and_access,
-    flatten_arrays
+    flatten_arrays, remove_explicit_array_dimensions
 )
 from loki.transformations.utilities import (
-    convert_to_lower_case, replace_intrinsics, sanitise_imports
+    convert_to_lower_case, replace_intrinsics, sanitise_imports,
+    rename_variables
 )
 from loki.transformations.sanitise import resolve_associates
 from loki.transformations.inline import (
@@ -42,6 +43,11 @@ from loki.transformations.inline import (
 
 
 __all__ = ['FortranCTransformation']
+
+class SubstituteExpressionsMapperTest(SubstituteExpressionsMapper):
+
+    def map_inline_call(self, expr, *args, **kwargs):
+        return expr
 
 class DeReferenceTrafo(Transformer):
     """
@@ -73,7 +79,8 @@ class DeReferenceTrafo(Transformer):
             symbol: Dereference(symbol.clone()) for symbol in self.retriever.retrieve(o)
             if symbol.name.lower() in self.vars2dereference
         }
-        return SubstituteExpressionsMapper(symbol_map)(o)
+        # return SubstituteExpressionsMapper(symbol_map)(o)
+        return SubstituteExpressionsMapperTest(symbol_map)(o)
 
     def visit_CallStatement(self, o, **kwargs):
         new_args = ()
@@ -86,7 +93,7 @@ class DeReferenceTrafo(Transformer):
                     or call_arg_map[arg].type.intent.lower() != 'in'):
                 new_args += (Reference(arg.clone()),)
             else:
-                if isinstance(arg, Scalar) and call_arg_map[arg].type.intent.lower() != 'in':
+                if isinstance(arg, Scalar) and call_arg_map[arg].type.intent is not None and call_arg_map[arg].type.intent.lower() != 'in':
                     new_args += (Reference(arg.clone()),)
                 else:
                     new_args += (arg,)
@@ -182,6 +189,28 @@ class FortranCTransformation(Transformation):
             depth = depths[item]
 
         if role == 'driver':
+            ###
+            for call in FindNodes(CallStatement).visit(routine.body):
+                if str(call.name).lower() in as_tuple(targets):
+                    call.convert_kwargs_to_args()
+            intfs = FindNodes(Interface).visit(routine.spec)
+            removal_map = {}
+            for i in intfs:
+                for b in i.body:
+                    if isinstance(b, Subroutine):
+                        if targets and b.name.lower() in targets:
+                            # Create a new module import with explicitly qualified symbol
+                            modname = f'{b.name}_FC_MOD'
+                            new_symbol = Variable(name=f'{b.name}_FC', scope=routine)
+                            new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
+                            routine.spec.prepend(new_import)
+                            # Mark current import for removal
+                            removal_map[i] = None
+
+            # Apply any scheduled interface removals to spec
+            if removal_map:
+                routine.spec = Transformer(removal_map).visit(routine.spec)
+            ###
             return
 
         for arg in routine.arguments:
@@ -191,6 +220,12 @@ class FortranCTransformation(Transformation):
         for call in FindNodes(CallStatement).visit(routine.body):
             if str(call.name).lower() in as_tuple(targets):
                 call.convert_kwargs_to_args()
+
+        ###
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if str(call.name).lower() in as_tuple(targets):
+                call.convert_kwargs_to_args()
+        ###
 
         if role == 'kernel':
             # Generate Fortran wrapper module
@@ -449,7 +484,7 @@ class FortranCTransformation(Transformation):
             else:
                 # Only scalar, intent(in) arguments are pass by value
                 # Pass by reference for array types
-                value = isinstance(arg, Scalar) and arg.type.intent.lower() == 'in' and not arg.type.optional
+                value = isinstance(arg, Scalar) and arg.type.intent is not None and arg.type.intent.lower() == 'in' and not arg.type.optional
                 kind = self.iso_c_intrinsic_kind(arg.type, intf_routine, is_array=isinstance(arg, Array))
                 if self.use_c_ptr:
                     if isinstance(arg, Array):
@@ -532,7 +567,7 @@ class FortranCTransformation(Transformation):
         """
         to_be_dereferenced = []
         for arg in routine.arguments:
-            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)) or arg.type.optional:
+            if not(arg.type.intent is not None and arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)) or arg.type.optional:
                 to_be_dereferenced.append(arg.name.lower())
 
         routine.body = DeReferenceTrafo(to_be_dereferenced).visit(routine.body)
@@ -550,6 +585,7 @@ class FortranCTransformation(Transformation):
 
         # Clean up Fortran vector notation
         resolve_vector_notation(kernel)
+        remove_explicit_array_dimensions(kernel)
         normalize_array_shape_and_access(kernel)
 
         # Convert array indexing to C conventions
@@ -616,7 +652,7 @@ class FortranCTransformation(Transformation):
         # Force pointer on reference-passed arguments (and lower case type names for derived types)
         for arg in kernel.arguments:
 
-            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+            if not(arg.type.intent is not None and arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
                 if isinstance(arg.type.dtype, DerivedType):
                     # Lower case type names for derived types
@@ -627,10 +663,30 @@ class FortranCTransformation(Transformation):
         # apply dereference and reference where necessary
         self.apply_de_reference(kernel)
 
+        ###
+        call_map = {}
+        calls = FindNodes(CallStatement).visit(kernel.body)
+        for call in calls:
+            if call.name not in as_tuple(targets):
+                continue
+            call._update(name=Variable(name=f'{call.name}_c'.lower()))
+
+        callmap = {}
+        for call in FindInlineCalls(unique=False).visit(kernel.body):
+            # if call.function in members:
+            #     continue
+            if targets is None or call.name in as_tuple(targets):
+                # callmap[call] = call.clone(name=f'{call.name}_c')
+                callmap[call.function] = call.function.clone(name=f'{call.name}_c')
+        kernel.body = SubstituteExpressions(callmap).visit(kernel.body)
+        ###
+
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
-                        'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
+                'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign', 'nint': 'rint'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
+        symbol_map = {'const': 'const_var'}
+        rename_variables(kernel, symbol_map=symbol_map)
 
         # Remove redundant imports
         sanitise_imports(kernel)

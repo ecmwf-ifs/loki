@@ -24,6 +24,7 @@ from loki.transformations.utilities import (
     get_loop_bounds, check_routine_sequential
 )
 from loki.transformations.single_column.base import SCCBaseTransformation
+from loki.transformations.array_indexing import add_explicit_array_dimensions
 
 __all__ = ['BlockViewToFieldViewTransformation', 'InjectBlockIndexTransformation',
         'LowerBlockIndexTransformation', 'LowerBlockLoopTransformation']
@@ -236,6 +237,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         self.propagate_defs_to_children(self._key, definitions, successors)
 
         # finally we perform the substitution
+        vmap = recursive_expression_map_update(vmap)
         return SubstituteExpressions(vmap).visit(body)
 
 
@@ -416,6 +418,7 @@ class InjectBlockIndexTransformation(Transformation):
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # finally we perform the substitution
+        vmap = recursive_expression_map_update(vmap)
         return SubstituteExpressions(vmap).visit(body)
 
     def process_kernel(self, routine, targets, exclude_arrays):
@@ -507,6 +510,7 @@ class LowerBlockIndexTransformation(Transformation):
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         # dispatch driver in any case and recurse to kernels if corresponding flag is set
         if role == 'driver' or (self.recurse_to_kernels and role == 'kernel'):
+            add_explicit_array_dimensions(routine)
             self.process(routine, targets, role)
 
     def process(self, routine, targets, role):
@@ -519,10 +523,17 @@ class LowerBlockIndexTransformation(Transformation):
             The injection of the block index for promoted arrays is not part of this
             method (and also not part of this transformation!)
         """
+        print(f"LowerBlockIndexTransformation - process: routine {routine}")
         processed_routines = ()
         variable_map = routine.variable_map
-        block_dim_index = variable_map[self.block_dim.index]
-        block_dim_size = variable_map[self.block_dim.size]
+        try:
+            block_dim_index = variable_map[self.block_dim.index]
+        except:
+            block_dim_index = get_integer_variable(routine, self.block_dim.index)
+        try:
+            block_dim_size = variable_map[self.block_dim.size]
+        except:
+            block_dim_size = get_integer_variable(routine, self.block_dim.size)
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() not in targets:
                 continue
@@ -533,21 +544,36 @@ class LowerBlockIndexTransformation(Transformation):
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
             call_block_dim_size = call_arg_map.get(block_dim_size, block_dim_size)
             new_args = tuple(var for var in [block_dim_index, block_dim_size] if var not in call_arg_map)
+            print(f"LowerBlockIndexTransformation (routine {routine}) | new_args for routine {call.routine} - {new_args} | {[block_dim_index, block_dim_size]} vs {call_arg_map}")
+            print(f"  call.arguments: {call.arguments} | call.kwarguments: {call.kwarguments}")
+            print(f"  call.routine.arguments: {call.routine.arguments}")
             if new_args:
+                print(f"  ADDING to call {call}: {new_args}")
                 call._update(kwarguments=call.kwarguments+tuple((new_arg.name, new_arg) for new_arg in new_args))
                 if call.routine.name not in processed_routines:
-                    call.routine.arguments += tuple((variable_map[new_arg.name].clone(scope=call.routine,
-                        type=new_arg.type.clone(intent='in')) for new_arg in new_args))
+                    # call.routine.arguments += tuple((variable_map[new_arg.name].clone(scope=call.routine,
+                    #     type=new_arg.type.clone(intent='in')) for new_arg in new_args))
+                    print(f" ADDING to routine {call.routine}: {[new_arg for new_arg in new_args if new_arg.name.lower() not in [arg.name.lower() for arg in call.routine.arguments]]}")
+                    call.routine.arguments += tuple((new_arg.clone(scope=call.routine,
+                        type=new_arg.type.clone(intent='in')) for new_arg in new_args if new_arg.name.lower() not in [arg.name.lower() for arg in call.routine.arguments]))
+                    # for new_arg in new_args:
+                    #     try:
+                    #         call.routine.arguments += (variable_map[new_arg.name].clone(scope=call.routine,
+                    #             type=new_arg.type.clone(intent='in')),)
+                    #     except:
+                    #         call.routine.arguments += ()get_integer_variable(routine, self.block_dim.size)
             # update dimensions and shape
             var_map = {}
             call_variable_map = call.routine.variable_map
             for arg, call_arg in call.arg_iter():
-                if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
+                if isinstance(arg, Array) and isinstance(call_arg, Array) and len(call_arg.shape) > len(arg.shape):
+                    print(f"adding block_dim in {call.routine} for arg: {arg}")
                     call_routine_var = call_variable_map[arg.name]
                     new_dims = call_routine_var.dimensions + (call_variable_map[call_block_dim_size.name],)
                     new_shape = call_routine_var.shape + (call_variable_map[call_block_dim_size.name],)
                     new_type = call_routine_var.type.clone(shape=new_shape)
                     var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims, type=new_type)
+            var_map = recursive_expression_map_update(var_map)
             call.routine.spec = SubstituteExpressions(var_map).visit(call.routine.spec)
             if role == 'driver':
                 _arguments = ()
@@ -699,7 +725,8 @@ class LowerBlockLoopTransformation(Transformation):
                     for loop in loops:
                         if loop in pragma_region.body:
                             pragma_region_map[pragma_region] = pragma_region.body
-                routine.body = Transformer(pragma_region_map, inplace=True).visit(routine.body)
+                print(f"LowerBlockIndex: pragma_region_map: {pragma_region_map}")
+                # routine.body = Transformer(pragma_region_map, inplace=True).visit(routine.body)
 
                 driver_loop_map = {}
                 processed_routines = ()
@@ -725,6 +752,7 @@ class LowerBlockLoopTransformation(Transformation):
 
                         # 2. Replace all variables according to the caller-callee argument map
                         call_arg_map = dict((v, k) for k, v in call.arg_map.items())
+                        call_arg_map = recursive_expression_map_update(call_arg_map)
                         loop_to_lower = SubstituteExpressions(call_arg_map).visit(loop_to_lower)
 
                         # 3. Identify local variables that need to be provided as additional arguments to the call
@@ -736,9 +764,10 @@ class LowerBlockLoopTransformation(Transformation):
                             if v.name.lower() != loop.variable and v.name.lower() not in call_routine_variables
                             and v not in call_arg_map and isinstance(v, sym.Scalar) and v not in defined_symbols_loop
                         ]
-                        additional_kwargs[call.routine.name] = {var.name: var for var in loop_variables}
+                        additional_kwargs[call.routine.name] = {var.name: var.clone(type=var.type.clone(intent='in')) for var in loop_variables}
 
                         # 4. Inject the loop body into the called routine
+                        print(f"call.routine {call.routine} arguments += {tuple(additional_kwargs[call.routine.name].values())}")
                         call.routine.arguments += tuple(additional_kwargs[call.routine.name].values())
                         routine_body = Transformer({c: c.routine.body for c in\
                             FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)

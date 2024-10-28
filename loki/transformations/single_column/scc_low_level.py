@@ -24,12 +24,18 @@ from loki.transformations.block_index_transformations import (
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
-    GlobalVariableAnalysis, GlobalVarHoistTransformation
+    GlobalVariableAnalysis, GlobalVarHoistTransformation,
+    GlobalVarOffloadTransformation
 )
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
-    inline_constant_parameters, inline_elemental_functions
+    inline_constant_parameters, inline_elemental_functions,
+    inline_statement_functions
 )
+from loki.transformations.argument_shape import (
+    ExplicitArgumentArrayShapeTransformation, ArgumentArrayShapeAnalysis
+)
+from loki.transformations.array_indexing import add_explicit_array_dimensions
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -41,7 +47,8 @@ def inline_elemental_kernel(routine, **kwargs):
 
     if role == 'kernel':
 
-        inline_constant_parameters(routine, external_only=True)
+        # inline_constant_parameters(routine, external_only=True)
+        inline_statement_functions(routine)
         inline_elemental_functions(routine)
 
 
@@ -51,8 +58,9 @@ class InlineTransformation(Transformation):
         role = kwargs['role']
 
         if role == 'kernel':
-
-            inline_constant_parameters(routine, external_only=True)
+            add_explicit_array_dimensions(routine)
+            # inline_constant_parameters(routine, external_only=True)
+            inline_statement_functions(routine)
             inline_elemental_functions(routine)
 
 
@@ -348,13 +356,15 @@ mode: str
 dic2p: dict
     Dictionary of variable names and corresponding values to be parametrised.
 """
-
 SCCLowLevelHoist = partial(
     Pipeline, classes=(
         InlineTransformation,
         GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -364,10 +374,30 @@ SCCLowLevelHoist = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
+        # ParametriseArrayDimsTransformation,
         HoistTemporaryArraysAnalysis,
         HoistTemporaryArraysPragmaOffloadTransformation
     )
 )
+# SCCLowLevelHoist = partial(
+#     Pipeline, classes=(
+#         InlineTransformation,
+#         GlobalVariableAnalysis,
+#         GlobalVarHoistTransformation,
+#         DerivedTypeArgumentsTransformation,
+#         SCCBaseTransformation,
+#         SCCDevectorTransformation,
+#         SCCDemoteTransformation,
+#         SCCRevectorTransformation,
+#         LowerBlockIndexTransformation,
+#         InjectBlockIndexTransformation,
+#         LowerBlockLoopTransformation,
+#         SccLowLevelLaunchConfiguration,
+#         SccLowLevelDataOffload,
+#         HoistTemporaryArraysAnalysis,
+#         HoistTemporaryArraysPragmaOffloadTransformation
+#     )
+# )
 """
 The Single Column Coalesced low-level GPU via low-level C-style
 kernel language (CUDA, HIP, ...) handling temporaries via parametrisation.

@@ -78,6 +78,8 @@ class CudaCodegen(CppCodegen):
         prefix = ''
         if o.prefix and "global" in o.prefix[0].lower():
             prefix = '__global__ '
+        if o.prefix and "device" in o.prefix[0].lower():
+            prefix = '__device__ '
         if o.is_function:
             return_type = self.symgen.intrinsic_type_mapper(o.return_type)
         else:
@@ -89,6 +91,8 @@ class CudaCodegen(CppCodegen):
 
     def _subroutine_body(self, o, **kwargs):
         self.depth += 1
+        skip_imports_kwargs = kwargs.pop('skip_imports', True)
+        skip_argument_declarations_kwargs = kwargs.pop('skip_argument_declarations', True)
         # ...and generate the spec without imports and argument declarations
         body = [self.visit(o.spec, skip_imports=True, skip_argument_declarations=True, **kwargs)]
         # Fill the body
@@ -115,7 +119,7 @@ class CudaCodegen(CppCodegen):
         if o.kwarguments:
             raise RuntimeError(f'Keyword arguments in call to {o.name} not supported in CUDA code.')
         chevron = f'<<<{",".join([str(elem) for elem in o.chevron])}>>>' if o.chevron is not None else ''
-        return self.format_line(str(o.name), chevron, '(', self.join_items(args), ');')
+        return self.format_line(str(o.name).lower(), chevron, '(', self.join_items(args), ');')
 
 
 def cudagen(ir, **kwargs):

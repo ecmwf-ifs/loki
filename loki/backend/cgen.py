@@ -180,6 +180,9 @@ class CCodegen(Stringifier):
 
     # Handler for outer objects
 
+    def visit_Interface(self, o, **kwargs):
+        return ''
+
     def visit_Sourcefile(self, o, **kwargs):
         """
         Format as
@@ -462,7 +465,7 @@ class CCodegen(Stringifier):
         """
         args = self.visit_all(o.arguments, **kwargs)
         assert not o.kwarguments
-        return self.format_line(str(o.name), '(', self.join_items(args), ');')
+        return self.format_line(str(o.name).lower(), '(', self.join_items(args), ');')
 
     def visit_SymbolAttributes(self, o, **kwargs):  # pylint: disable=unused-argument
         if isinstance(o.dtype, DerivedType):

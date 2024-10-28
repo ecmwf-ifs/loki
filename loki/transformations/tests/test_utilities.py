@@ -141,6 +141,34 @@ end subroutine my_NOT_ALL_lowercase_ROUTINE
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_convert_to_lower_case_2(frontend):
+    fcode = """
+subroutine my_NOT_ALL_lowercase_ROUTINE(VAR1, another_VAR, lower_case, MiXeD_CasE)
+    use kind_mod, only: jwim
+    implicit none
+    integer(kind=jwim), intent(in) :: VAR1, another_VAR
+    integer(kind=jwim), intent(inout) :: lower_case(ANOTHER_VAR)
+    integer(kind=jwim), intent(inout) :: MiXeD_CasE(Var1, ANOTHER_VAR)
+    integer(kind=jwim), parameter :: PARAM_1 = 2
+    integer(kind=jwim), parameter :: PARAM_2 = 2*PAraM_1
+    integer :: J, k
+    do k=1,ANOTHER_VAR
+        do J=1,VAR1
+            mixed_CASE(J, K) = J + K
+        end do
+    end do
+    do K=1,ANOTHER_VAR
+        LOWER_CASE(K) = K - 1
+    end do
+end subroutine my_NOT_ALL_lowercase_ROUTINE
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    convert_to_lower_case(routine)
+    print(fgen(routine))
+    assert all(var.name.islower() and str(var).islower() for var in FindVariables(unique=False).visit(routine.ir))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_utilities_recursive_expression_map_update(frontend, tmp_path):
     fcode = """
 module some_mod

@@ -230,14 +230,16 @@ def convert(
     scheduler.process(transformation=sanitise_trafo)
 
     # Perform source-inlining either from CLI arguments or from config
-    inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
-    if not inline_trafo:
-        inline_trafo = InlineTransformation(
-            inline_internals=inline_members, inline_marked=inline_marked,
-            remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
-            resolve_sequence_association=resolve_sequence_association_inlined_calls
-        )
-    scheduler.process(transformation=inline_trafo)
+    if mode not in ['cuda-hoist', 'cuda-parametrise']:
+        inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
+        if not inline_trafo:
+            inline_trafo = InlineTransformation(
+                inline_internals=inline_members, inline_marked=inline_marked,
+                remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
+                resolve_sequence_association=resolve_sequence_association_inlined_calls,
+                inline_stmt_funcs=True
+            )
+        scheduler.process(transformation=inline_trafo)
 
     # Backward insert argument shapes (for surface routines)
     if derive_argument_array_shape:
@@ -369,7 +371,9 @@ def convert(
             pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive=directive,
                 trim_vector_sections=trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
-                dim_vars=(vertical.size,), as_kwarguments=True, hoist_parameters=True,
+                # dim_vars=(vertical.size,),
+                demote_local_arrays=False,
+                as_kwarguments=True, hoist_parameters=True,
                 ignore_modules=['parkind1'], all_derived_types=True)
         scheduler.process( pipeline )
 

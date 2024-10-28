@@ -27,6 +27,7 @@ from loki.transformations.single_column.vector import SCCDevectorTransformation
 from loki.transformations.utilities import single_variable_declaration
 from loki.ir.pragma_utils import get_pragma_parameters
 from loki.transformations.utilities import get_integer_variable
+from loki.transformations.array_indexing import add_explicit_array_dimensions, remove_explicit_array_dimensions
 
 __all__ = [
     'HoistTemporaryArraysDeviceAllocatableTransformation',
@@ -110,6 +111,7 @@ def remove_non_loki_pragmas(routine):
         The subroutine in which to remove all pragmas
     """
     pragma_map = {p: None for p in FindNodes(ir.Pragma).visit(routine.body) if p.keyword.lower()!="loki"}
+    print(f"remove pragma_map: {pragma_map}")
     routine.body = Transformer(pragma_map).visit(routine.body)
 
 def device_subroutine_prefix(routine, depth):
@@ -250,7 +252,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
             The subroutine (driver) to process
         """
 
-        upper, step, _, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
+        upper, step, num_threads, _, blockdim_var, griddim_var, blockdim_assignment, griddim_assignment =\
                 self.driver_launch_configuration(routine=routine, block_dim=self.block_dim, targets=targets)
 
         if self.mode in ['cuda', 'hip']:
@@ -260,8 +262,10 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     new_args = ()
                     if upper.name not in call.routine.arguments:
                         new_args += (upper.clone(type=upper.type.clone(intent='in'), scope=call.routine),)
-                    if step.name not in call.routine.arguments:
+                    if isinstance(step, sym.Variable) and step.name not in call.routine.arguments:
                         new_args += (step.clone(type=step.type.clone(intent='in'), scope=call.routine),)
+                    if num_threads.name not in call.routine.arguments:
+                        new_args += (num_threads.clone(type=step.type.clone(intent='in')),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
                         call.routine.arguments = list(call.routine.arguments) + list(new_args)
@@ -332,8 +336,14 @@ class SccLowLevelLaunchConfiguration(Transformation):
                                         sym.Comparison(routine.variable_map[horizontal.index], '<=',
                                                        routine.variable_map[horizontal.size])))
 
+            # new
+            horizontal_increment = ir.Assignment(lhs=routine.variable_map[horizontal.index],
+                    rhs=sym.Sum((routine.variable_map[horizontal.index], 1)))
+            block_increment = ir.Assignment(lhs=routine.variable_map[block_dim.index],
+                    rhs=sym.Sum((routine.variable_map[block_dim.index], 1)))
+            # end: new
             routine.body = ir.Section((horizontal_assignment, block_dim_assignment, ir.Comment(''),
-                            ir.Conditional(condition=condition, body=as_tuple(routine.body), else_body=())))
+                            ir.Conditional(condition=condition, body=(horizontal_increment, block_increment) + as_tuple(routine.body), else_body=())))
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if call.routine.name.lower() in targets and not SCCBaseTransformation.is_elemental(call.routine):
                 horizontal_index = routine.variable_map[horizontal.index]
@@ -344,14 +354,14 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     if horizontal_index.name in call.routine.variables:
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
-                    additional_args += (horizontal_index.clone(),)
+                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'), scope=call.routine),)
                 if horizontal_index.name not in call.arg_map:
-                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
+                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
 
                 if block_dim_index.name not in call.routine.arguments:
                     additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in',
                         scope=call.routine)),)
-                    additional_kwargs += ((block_dim_index.name, block_dim_index.clone()),)
+                    additional_kwargs += ((block_dim_index.name, block_dim_index.clone(scope=routine)),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
                 if additional_args:
@@ -392,6 +402,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         # dimension and can thus be privatized.
         variables = [v for v in variables if v.shape is not None]
         variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
+        variables = [v for v in variables if not any(horizontal.size in d for d in v.shape)]
 
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -455,13 +466,23 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
                 parameters=())
 
-            upper = routine.variable_map[parameters['upper']]
+            upper = get_integer_variable(routine, parameters['upper']) # routine.variable_map[parameters['upper']]
+            num_threads = None
             try:
-                step = routine.variable_map[parameters['step']]
+                if parameters['step'] == '1':
+                    raise ValueError
+                step = get_integer_variable(routine, parameters['step']) # routine.variable_map[parameters['step']]
             except Exception as e:
                 print(f"Exception: {e}")
                 step = sym.IntLiteral(1)
-
+                for size_expr in self.horizontal.size_expressions:
+                    if size_expr in routine.symbol_map:
+                        num_threads = routine.symbol_map[size_expr]
+                        break
+            if num_threads is None:
+                step = sym.IntLiteral(1)
+            else:
+                step = num_threads
 
             if self.mode == 'cuf':
                 func_dim3 = sym.ProcedureSymbol(name="DIM3", scope=routine)
@@ -495,15 +516,20 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                 # GRIDDIM
                 lhs = griddim_var
-                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
-                    parameters=as_tuple(
-                        sym.Cast(name="REAL", expression=upper) /
-                        sym.Cast(name="REAL", expression=step))),
-                    sym.IntLiteral(1), sym.IntLiteral(1)))
+                if num_threads is None:
+                    rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
+                        parameters=as_tuple(
+                            sym.Cast(name="REAL", expression=upper) /
+                            sym.Cast(name="REAL", expression=step))),
+                        sym.IntLiteral(1), sym.IntLiteral(1)))
+                else:
+                    rhs = sym.InlineCall(function=func_dim3, parameters=(upper, sym.IntLiteral(1), sym.IntLiteral(1)))
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
-        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+        block_dim_size = get_integer_variable(routine, block_dim.size)
+        # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+        return upper, step, num_threads, block_dim_size, blockdim_var, griddim_var,\
                 blockdim_assignment, griddim_assignment
 
 
@@ -599,6 +625,8 @@ class SccLowLevelDataOffload(Transformation):
             if str(call.name).lower() in as_tuple(targets):
                 call.convert_kwargs_to_args()
 
+        remove_explicit_array_dimensions(routine, calls_only=True)
+
     def process_driver(self, routine, targets=None):
         """
         Driver subroutine specific changes/transformations.
@@ -623,11 +651,11 @@ class SccLowLevelDataOffload(Transformation):
             The subroutine (kernel/device subroutine) to process
         """
 
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
-        resolve_associates(routine)
-        SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
-        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
-        SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
+        # v_index = get_integer_variable(routine, name=self.horizontal.index)
+        # resolve_associates(routine)
+        # SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
+        # SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        # SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)
 
         self.kernel_cuf(
             routine, self.horizontal, self.block_dim, self.transformation_type,
@@ -637,12 +665,15 @@ class SccLowLevelDataOffload(Transformation):
     def kernel_cuf(self, routine, horizontal, block_dim, transformation_type,
                derived_type_variables):
 
+        add_explicit_array_dimensions(routine)
+
         relevant_local_arrays = []
         var_map = {}
+        shape_map = {}
         for var in routine.variables:
             if var in routine.arguments:
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables\
-                        and var.type.intent.lower() == 'in':
+                        and var.type is not None and var.type.intent is not None and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
                 if isinstance(var, sym.Array):
@@ -653,6 +684,7 @@ class SccLowLevelDataOffload(Transformation):
                             dimensions += [routine.variable_map[block_dim.size]]
                             shape = list(var.shape) + [routine.variable_map[block_dim.size]]
                             vtype = var.type.clone(shape=as_tuple(shape))
+                            shape_map[var.name.lower()] = vtype
                             relevant_local_arrays.append(var.name)
                         else:
                             dimensions.remove(horizontal.size)
@@ -663,13 +695,14 @@ class SccLowLevelDataOffload(Transformation):
 
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
+        print(f"kernel_cuf {routine.name} - relevant_local_arrays: {relevant_local_arrays}")
         var_map = {}
         arguments_name = [var.name for var in routine.arguments]
         for var in FindVariables().visit(routine.body):
             if var.name not in arguments_name:
                 if transformation_type == 'hoist':
-                    if var.name in relevant_local_arrays:
-                        var_map[var] = var.clone(dimensions=var.dimensions + (routine.variable_map[block_dim.index],))
+                    if var.name in relevant_local_arrays: # and var.dimensions:
+                        var_map[var] = var.clone(dimensions=var.dimensions + (routine.variable_map[block_dim.index],)) # , type=shape_map[var.name.lower()])
                 else:
                     if var.name in relevant_local_arrays:
                         dimensions = list(var.dimensions)
@@ -773,6 +806,7 @@ class SccLowLevelDataOffload(Transformation):
             outargs = tuple(dict.fromkeys(outargs))
             inoutargs = tuple(dict.fromkeys(inoutargs))
 
+            """
             copy_pragmas = []
             copy_end_pragmas = []
             if outargs:
@@ -799,6 +833,70 @@ class SccLowLevelDataOffload(Transformation):
                         pragma_map[pragma] = as_tuple(copy_end_pragmas)
                 if pragma_map:
                     routine.body = Transformer(pragma_map).visit(routine.body)
+            """
+            use_copy_pragmas = False
+            if use_copy_pragmas:
+                copy_pragmas = []
+                copy_end_pragmas = []
+                if outargs:
+                    copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyout({", ".join(outargs)})')]
+                    copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                if inoutargs:
+                    copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copy({", ".join(inoutargs)})')]
+                    copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                if inargs:
+                    copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
+                    copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+
+                if copy_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(copy_pragmas)
+                    if pragma_map:
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+                if copy_end_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'end data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(copy_end_pragmas)
+                    if pragma_map:
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+            else:
+                print(f"Look for/create field_api and update_device pragmas ...")
+                field_api_device_ptr = ()
+                update_device = ()
+                for arg in inargs + outargs + inoutargs:
+                    if 'dptr' in arg.lower():
+                        field_api_device_ptr += (arg,)
+                    else:
+                        update_device += (arg,)
+                print(f"  field_api_device_ptr: {field_api_device_ptr}")
+                print(f"  update_device: {update_device}")
+                start_pragmas = []
+                end_pragmas = []
+                if field_api_device_ptr:
+                    start_pragmas += [ir.Pragma(keyword='acc', content=f'data present({", ".join(field_api_device_ptr)})')]
+                    end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                if update_device:
+                    start_pragmas += [ir.Pragma(keyword='acc', content=f'update device({", ".join(update_device)})')]
+                if start_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        print(f"  FOUND pragma: {pragma}")
+                        if pragma.content == 'data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(start_pragmas)
+                    if pragma_map:
+                        print(f"    apply pragma map: {pragma_map}")
+                        routine.body = Transformer(pragma_map).visit(routine.body)
+                if end_pragmas:
+                    pragma_map = {}
+                    for pragma in FindNodes(ir.Pragma).visit(routine.body):
+                        if pragma.content == 'end data' and 'loki' == pragma.keyword:
+                            pragma_map[pragma] = as_tuple(end_pragmas)
+                    if pragma_map:
+                        print(f"    apply pragma map: {pragma_map}")
+                        routine.body = Transformer(pragma_map).visit(routine.body)
         else:
             # Declaration
             routine.spec.append(ir.Comment(''))

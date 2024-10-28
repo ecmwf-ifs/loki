@@ -370,7 +370,7 @@ class FortranCodegen(Stringifier):
             # array dimensions from the internal representation of the variable.
             var = self.visit(v, **kwargs) if o.dimensions is None else v.basename
             initial = ''
-            if v.type.initial is not None:
+            if v.type.initial is not None and v.type.intent is None:
                 op = '=>' if v.type.pointer else '='
                 initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
             variables += [f'{var}{initial}']
@@ -847,7 +847,7 @@ class FortranCodegen(Stringifier):
             attributes += ['VALUE']
         if o.optional:
             attributes += ['OPTIONAL']
-        if o.parameter:
+        if o.parameter and not o.intent:
             attributes += ['PARAMETER']
         if o.target:
             attributes += ['TARGET']
