@@ -250,6 +250,8 @@ def add_firstprivate_copies(routine, fprivate_map):
     for lcl, gbl in fprivate_map.items():
         lhs = parse_expr(lcl, scope=routine)
         rhs = parse_expr(gbl, scope=routine)
+        if not rhs in routine.variables:
+            continue
         if not lhs in routine.variable_map:
             routine.variables += (lhs.clone(type=rhs.type.clone(intent=None)),)
 
@@ -267,6 +269,8 @@ def add_firstprivate_copies(routine, fprivate_map):
             for lcl, gbl in fprivate_map.items():
                 lhs = parse_expr(lcl, scope=routine)
                 rhs = parse_expr(gbl, scope=routine)
+                if not rhs in routine.variables:
+                    continue
                 if rhs in lvars:
                     assigns += (ir.Assignment(lhs=lhs, rhs=rhs),)
 
