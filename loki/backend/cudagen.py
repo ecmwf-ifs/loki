@@ -119,7 +119,7 @@ class CudaCodegen(CppCodegen):
         if o.kwarguments:
             raise RuntimeError(f'Keyword arguments in call to {o.name} not supported in CUDA code.')
         chevron = f'<<<{",".join([str(elem) for elem in o.chevron])}>>>' if o.chevron is not None else ''
-        return self.format_line(str(o.name).lower(), chevron, '(', self.join_items(args), ');')
+        return self.format_line(str(o.name), chevron, '(', self.join_items(args), ');')
 
 
 def cudagen(ir, **kwargs):

@@ -53,8 +53,7 @@ class CppCodegen(CCodegen):
 
     def _subroutine_argument_keyword(self, a):
         if isinstance(a, Array) and a.type.intent.lower() == "in":
-            return ''
-            # return 'const '
+            return 'const '
         return ''
 
     def _subroutine_declaration(self, o, **kwargs):

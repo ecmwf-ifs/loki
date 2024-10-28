@@ -162,7 +162,6 @@ class DataOffloadTransformation(Transformation):
                     copyout = f'copyout({", ".join(outargs)})' if outargs else ''
                     pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
                 pragma_post = Pragma(keyword='acc', content='end data')
-                print(f"DATA OFFLOAD WTF is this called!?!?")
                 pragma_map[region.pragma] = (region.pragma.clone(), pragma)
                 pragma_map[region.pragma_post] = (region.pragma_post.clone(), pragma_post)
 
