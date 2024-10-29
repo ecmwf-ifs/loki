@@ -13,7 +13,7 @@ import pymbolic.mapper as pmbl_mapper
 from loki import Subroutine, Module, Scope
 from loki.expression import symbols as sym, parse_expr
 from loki.frontend import (
-    available_frontends, OMNI, HAVE_FP, parse_fparser_expression
+    available_frontends, HAVE_FP, parse_fparser_expression
 )
 from loki.ir import FindVariables
 
