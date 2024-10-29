@@ -1074,10 +1074,10 @@ class FieldOffloadTransformation(Transformation):
                 yield outarg, self.devptrs[i+start]
 
 
-    def __init__(self, devptr_prefix='LOKI_DEVPTR_', **kwargs):
+    def __init__(self, **kwargs):
         self.devptr_prefix = kwargs.get('devptr_prefix', 'loki_devptr')
-        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE'])
         self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
+        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE'])
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
 
     def transform_subroutine(self, routine, **kwargs):
