@@ -953,13 +953,13 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
 
 
 def field_new(field_ptr, data, scope):
-    return ir.CallStatement(sym.ProcedureSymbol('FIELD_NEW', scope=scope),
-                            (field_ptr,), (('DATA', data),))
+    return ir.CallStatement(name=sym.ProcedureSymbol('FIELD_NEW', scope=scope),
+                            arguments=(field_ptr,), kwarguments=(('DATA', data),))
 
 
 def field_delete(field_ptr, scope):
-    return ir.CallStatement(sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
-                            (field_ptr,))
+    return ir.CallStatement(name=sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
+                            arguments=(field_ptr,))
 
 
 class FieldAPITransferType(Enum):
@@ -977,13 +977,13 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
     if transfer_type == FieldAPITransferType.WRITE_ONLY:
         suffix = 'WRONLY'
     procedure_name = 'GET_DEVICE_DATA_' + suffix
-    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            (dev_ptr.clone(dimensions=None),))
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                            arguments=(dev_ptr.clone(dimensions=None),), )
 
 
 def field_sync_host(field_ptr, scope):
     procedure_name = 'SYNC_HOST_RDWR'
-    return ir.CallStatement(sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), ())
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())
 
 
 def find_array_arguments(routine, calls):
