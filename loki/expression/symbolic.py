@@ -518,8 +518,8 @@ class SimplifyMapper(LokiIdentityMapper):
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, enabled_simplifications=Simplification.ALL, invalidate_source=True):
-        super().__init__(invalidate_source=invalidate_source)
+    def __init__(self, enabled_simplifications=Simplification.ALL):
+        super().__init__()
 
         self.enabled_simplifications = enabled_simplifications
 

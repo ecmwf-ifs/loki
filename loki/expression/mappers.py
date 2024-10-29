@@ -515,18 +515,7 @@ class LokiIdentityMapper(IdentityMapper):
     This can serve as basis for any transformation mappers
     that apply changes to the expression tree. Expression nodes that
     are unchanged are returned as is.
-
-    Parameters
-    ----------
-    invalidate_source : bool, optional
-        By default the :attr:`source` property of nodes is discarded
-        when rebuilding the node, setting this to `False` allows to
-        retain that information
     """
-
-    def __init__(self, invalidate_source=True):
-        super().__init__()
-        self.invalidate_source = invalidate_source
 
     @staticmethod
     def _rebuild(expr):
@@ -539,20 +528,7 @@ class LokiIdentityMapper(IdentityMapper):
         if expr is None:
             return None
         kwargs.setdefault('recurse_to_declaration_attributes', False)
-        new_expr = super().__call__(expr, *args, **kwargs)
-        if getattr(expr, 'source', None):
-            if isinstance(new_expr, tuple):
-                for e in new_expr:
-                    if self.invalidate_source:
-                        e.source = None
-                    else:
-                        e.source = deepcopy(expr.source)
-            else:
-                if self.invalidate_source:
-                    new_expr.source = None
-                else:
-                    new_expr.source = deepcopy(expr.source)
-        return new_expr
+        return super().__call__(expr, *args, **kwargs)
 
     rec = __call__
 
@@ -757,15 +733,11 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     ----------
     expr_map : dict
         Expression mapping to apply to the expression tree.
-    invalidate_source : bool, optional
-        By default the :attr:`source` property of nodes is discarded
-        when rebuilding the node, setting this to `False` allows to
-        retain that information
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, expr_map, invalidate_source=True):
-        super().__init__(invalidate_source=invalidate_source)
+    def __init__(self, expr_map):
+        super().__init__()
 
         self.expr_map = expr_map
         for expr in self.expr_map.keys():
@@ -796,7 +768,7 @@ class AttachScopesMapper(LokiIdentityMapper):
     """
 
     def __init__(self, fail=False):
-        super().__init__(invalidate_source=False)
+        super().__init__()
         self.fail = fail
 
     def _update_symbol_scope(self, expr, scope):
@@ -853,9 +825,6 @@ class DetachScopesMapper(LokiIdentityMapper):
     itself, which is useful when storing information for inter-procedural
     analysis passes.
     """
-
-    def __init__(self):
-        super().__init__(invalidate_source=False)
 
     def map_variable_symbol(self, expr, *args, **kwargs):
         new_expr = super().map_variable_symbol(expr, *args, **kwargs)

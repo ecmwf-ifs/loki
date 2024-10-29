@@ -297,7 +297,7 @@ class RangeIndexTransformer(Transformer):
                 _type = _type.clone(shape=shape)
             vmap[v] = v.clone(dimensions=dimensions, type=_type)
 
-        mapper = SubstituteExpressionsMapper(vmap, invalidate_source=self.invalidate_source)
+        mapper = SubstituteExpressionsMapper(vmap)
         return o.clone(symbols=mapper(o.symbols, recurse_to_declaration_attributes=True))
 
 
