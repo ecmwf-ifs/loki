@@ -528,6 +528,13 @@ class LokiIdentityMapper(IdentityMapper):
         super().__init__()
         self.invalidate_source = invalidate_source
 
+    @staticmethod
+    def _rebuild(expr):
+        """ Utility to safely rebuild any symbol """
+        if hasattr(expr, 'clone'):
+            return expr.clone()
+        return deepcopy(expr)
+
     def __call__(self, expr, *args, **kwargs):
         if expr is None:
             return None
@@ -557,7 +564,7 @@ class LokiIdentityMapper(IdentityMapper):
     def map_int_literal(self, expr, *args, **kwargs):
         kind = self.rec(expr.kind, *args, **kwargs)
         if kind is expr.kind:
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(expr.value, kind=kind)
 
     map_float_literal = map_int_literal
@@ -615,11 +622,11 @@ class LokiIdentityMapper(IdentityMapper):
         parent = self.rec(expr.parent, *args, **kwargs)
         if expr.scope is None:
             if parent is expr.parent and not is_type_changed:
-                return expr
+                return self._rebuild(expr)
             return expr.clone(parent=parent, type=new_type)
 
         if parent is expr.parent:
-            return expr
+            return self._rebuild(expr)
         return expr.clone(parent=parent)
 
     map_deferred_type_symbol = map_variable_symbol
@@ -631,7 +638,7 @@ class LokiIdentityMapper(IdentityMapper):
         # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
         # original expression if the underlying symbol is unchanged
         if symbol is expr._symbol:
-            return expr
+            return self._rebuild(expr)
         return symbol
 
     map_scalar = map_meta_symbol
@@ -659,7 +666,7 @@ class LokiIdentityMapper(IdentityMapper):
         if (getattr(symbol, 'symbol', symbol) is expr.symbol and
                 all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
                 all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):
-            return expr
+            return self._rebuild(expr)
         return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape), parent=parent)
 
     def map_array_subscript(self, expr, *args, **kwargs):
@@ -678,14 +685,14 @@ class LokiIdentityMapper(IdentityMapper):
         kind = self.rec(expr.kind, *args, **kwargs)
         if (function is expr.function and kind is expr.kind and
                 all(p is orig_p for p, orig_p in zip_longest(parameters, expr.parameters))):
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(function, parameters, kind=kind)
 
     def map_sum(self, expr, *args, **kwargs):
         # Need to re-implement to avoid application of flattened_sum/flattened_product
         children = self.rec(expr.children, *args, **kwargs)
         if all(c is orig_c for c, orig_c in zip_longest(children, expr.children)):
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(children)
 
     def map_quotient(self, expr, *args, **kwargs):
@@ -707,7 +714,7 @@ class LokiIdentityMapper(IdentityMapper):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
                        for v in expr.elements)
         if all(v is orig_v for v, orig_v in zip_longest(values, expr.elements)):
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(values, dtype=expr.dtype)
 
     def map_inline_do(self, expr, *args, **kwargs):
