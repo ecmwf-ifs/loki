@@ -20,6 +20,9 @@ from loki.transformations import (
     DataOffloadTransformation, GlobalVariableAnalysis,
     GlobalVarOffloadTransformation, GlobalVarHoistTransformation
 )
+from loki.expression import symbols as sym
+from loki.scope import Scope
+from loki.transformations.data_offload import find_array_arguments, find_target_calls
 
 
 @pytest.fixture(scope='module', name='here')
@@ -805,3 +808,75 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
     assert kernel.variable_map['p'].type.dtype.name == 'point'
     assert kernel.variable_map['p0'].type.intent == 'in'
     assert kernel.variable_map['p0'].type.dtype.name == 'point'
+
+
+def test_get_field_type():
+    type_map = ["jprb",
+                "jpit",
+                "jpis",
+                "jpim",
+                "jpib",
+                "jpia",
+                "jprt",
+                "jprs",
+                "jprm",
+                "jprd",
+                "jplm"]
+    type_map += [t.upper() for t in type_map]
+    scope = Scope()
+    for type_name in type_map:
+        for dim in range(1,4):
+            a = sym.Array(name='test_array', dimensions=(dim), scope=scope)
+            # Am I going about this wrong with shape?
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_find_array_arguments(frontend):
+        fcode_driver = """
+      SUBROUTINE driver_routine(nlon, nlev, a, b, c, d, e, f)
+        INTEGER, INTENT(INOUT)  :: nlon, nlev
+        REAL, INTENT(INOUT)     :: a(nlon,nlev)
+        REAL, INTENT(INOUT)     :: b(nlon)
+        REAL, INTENT(INOUT)     :: c(nlon,nlev,nlon)
+        REAL, INTENT(INOUT)     :: d
+        REAL, INTENT(INOUT)     :: e
+        REAL, INTENT(INOUT)     :: f
+        INTEGER                 :: nlon_copy, nlev_copy
+        REAL                    :: a_copy(nlon,nlev)
+        REAL                    :: b_copy(nlon)
+        REAL                    :: c_copy(nlon,nlev,nlon)
+        REAL                    :: d_copy
+        REAL                    :: e_copy
+        REAL                    :: f_copy
+        
+        call kernel_routine(nlon_copy, nlev_copy, a_copy, b_copy, c_copy, d_copy, e_copy, f_copy)
+
+      END SUBROUTINE driver_routine
+    """
+        fcode_kernel = """
+      SUBROUTINE kernel_routine(nlon, nlev, a, b, c, d, e, f)
+        INTEGER, INTENT(IN)     :: nlon, nlev
+        REAL, INTENT(IN)        :: a(nlon,nlev)
+        REAL, INTENT(INOUT)     :: b(nlon)
+        REAL, INTENT(OUT)       :: c(nlon,nlev,nlon)
+        REAL, INTENT(IN)        :: d
+        REAL, INTENT(IN)        :: e
+        REAL, INTENT(IN)        :: f
+        
+        do j=1, nlon
+          do i=1, nlev
+            b_copy(i) = a(i,j) + 0.1
+            c(i,j,i) = 0.1
+          end do
+        end do
+      END SUBROUTINE kernel_routine
+    """
+        driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
+        kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
+        driver.enrich(kernel)
+        targets = find_target_calls(driver.body, [kernel.name])
+        in_vars, inout_vars, out_vars = find_array_arguments(driver, targets)
+
+        assert len(in_vars) == 1 and in_vars[0].name == 'a_copy'
+        assert len(inout_vars) == 1 and inout_vars[0].name == 'b_copy'
+        assert len(out_vars) == 1 and out_vars[0].name == 'c_copy'
+
