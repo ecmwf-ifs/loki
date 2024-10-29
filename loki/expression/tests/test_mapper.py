@@ -10,7 +10,7 @@ import pytest
 from loki import Subroutine, Scope
 from loki.expression import symbols as sym, parse_expr
 from loki.expression.mappers import (
-    ExpressionRetriever, LokiIdentityMapper
+    ExpressionRetriever, LokiIdentityMapper, SubstituteExpressionsMapper
 )
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
@@ -91,3 +91,37 @@ end subroutine test_expr_retriever
     for old, new in zip(get_literals(expr), get_literals(new_expr)):
         assert old == new
         assert not old is new
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_expression_mapper(frontend):
+    """
+    Test for :any:`SubstituteExpressionsMapper`.
+    """
+
+    fcode = """
+subroutine test_expr_retriever(n, a, b, c, d)
+  integer, intent(inout) :: n, a, b(n), c, d
+
+  a = 5 * a + 4 * b(c) + a
+end subroutine test_expr_retriever
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    expr = FindNodes(ir.Assignment).visit(routine.body)[0].rhs
+
+    retriever = ExpressionRetriever(lambda e: isinstance(e, sym.TypedSymbol))
+    symbols = retriever.retrieve(expr)
+    assert symbols == ['a', 'b', 'c', 'a']
+    assert symbols[0] == symbols[3]
+    assert not symbols[0] is symbols[3]
+    a = symbols[0]
+    d = routine.variable_map['d']
+
+    new_expr = SubstituteExpressionsMapper(expr_map={a: d})(expr)
+
+    assert new_expr == '5*d + 4*b(c) + d'
+    new_symbols = retriever.retrieve(new_expr)
+    assert new_symbols == ['d', 'b', 'c', 'd']
+    assert new_symbols[0] == new_symbols[3]
+    # Ensure multiple inserted symbols are still unique
+    assert not new_symbols[0] is new_symbols[3]
