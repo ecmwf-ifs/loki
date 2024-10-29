@@ -749,7 +749,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         otherwise continue tree traversal
         """
         if expr in self.expr_map:
-            return self.expr_map[expr]
+            return self._rebuild(self.expr_map[expr])
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
 
