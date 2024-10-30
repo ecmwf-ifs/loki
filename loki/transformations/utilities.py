@@ -510,7 +510,11 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
         # We update the expression map by applying it to the children of each replacement
         # node, thus making sure node replacements are also applied to nested attributes,
         # e.g. call arguments or array subscripts etc.
-        mapper = mapper_cls(expr_map)
+        if issubclass(mapper_cls, SubstituteExpressionsMapper):
+            # Need to check if we should pass the `expr_map` argument
+            mapper = mapper_cls(expr_map)
+        else:
+            mapper = mapper_cls()
         prev_map, expr_map = expr_map, {
             expr: type(replacement)(**{
                 name: apply_to_init_arg(name, arg, expr, mapper)
