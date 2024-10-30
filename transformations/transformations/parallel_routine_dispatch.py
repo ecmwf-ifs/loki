@@ -141,12 +141,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         """
         Transform the code in acdc pragmas, creating openmp, openmpscc and openaccscc sections.
         """
-        map_region["get_data"] = {}
-        map_region["compute"] = {}
-        map_region["region"] = {}
-        map_region["lparallel"] = {}
-        map_region["scalar"] = []
-        map_region["not_field_array"] = []
+        self.init_map_region(map_region)
 
         pragma_content = region.pragma.content.split(maxsplit=1)
         pragma_content = [entry.replace(" ", "") for entry in pragma_content]
@@ -205,6 +200,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         self.add_derived_to_map_routine(map_routine, map_region)
 
+    def init_map_region(self, map_region):
+        map_region["get_data"] = {}
+        map_region["compute"] = {}
+        map_region["region"] = {}
+        map_region["lparallel"] = {}
+        map_region["scalar"] = []
+        map_region["not_field_array"] = []
+        return map_region
 
     def clean_imports(self,routine, map_routine):
         # sanitise_imports(routine) => bug...
