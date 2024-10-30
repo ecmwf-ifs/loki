@@ -807,16 +807,27 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine["dcls"] = dcls
 
     def create_imports(self, routine, map_routine):
-        imports = []
-        imports += [ir.Import(module="ACPY_MOD", scope=routine)]
-        imports += [ir.Import(module="STACK_MOD", scope=routine)]
-        imports += [ir.Import(module="YOMPARALLELMETHOD", scope=routine)]
-        imports += [ir.Import(module="FIELD_ACCESS_MODULE", scope=routine)]
-        imports += [ir.Import(module="FIELD_FACTORY_MODULE", scope=routine)]
-        imports += [ir.Import(module="FIELD_MODULE", scope=routine)]
+        """
+        Add imports to the routine spec.
+        """
+        import_names = ["ACPY_MOD", "STACK_MOD", "YOMPARALLELMETHOD",
+            "FIELD_ACCESS_MODULE", "FIELD_FACTORY_MODULE", "FIELD_MODULE"]
+        imports = [ir.Import(module=module_name, scope=routine) for module_name in import_names]
+
         imports += [ir.Import(module="stack.h", c_import=True)]
         routine.spec.prepend(imports)
         map_routine["imports"] = imports
+
+#        imports = []
+#        imports += [ir.Import(module="ACPY_MOD", scope=routine)]
+#        imports += [ir.Import(module="STACK_MOD", scope=routine)]
+#        imports += [ir.Import(module="YOMPARALLELMETHOD", scope=routine)]
+#        imports += [ir.Import(module="FIELD_ACCESS_MODULE", scope=routine)]
+#        imports += [ir.Import(module="FIELD_FACTORY_MODULE", scope=routine)]
+#        imports += [ir.Import(module="FIELD_MODULE", scope=routine)]
+#        imports += [ir.Import(module="stack.h", c_import=True)]
+#        routine.spec.prepend(imports)
+#        map_routine["imports"] = imports
 
     def update_arg_dims(self, arg, region_map):
         new_arg = region_map[arg.name][1]
