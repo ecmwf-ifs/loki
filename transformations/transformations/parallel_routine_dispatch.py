@@ -44,7 +44,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
     """
     Applying the transformation to create _parallel.F90 routine.
     """
-    def __init__(self, is_intent, horizontal, path_map_index):
+    def __init__(self, is_intent, horizontal, path_map_derived_field):
         self.is_intent = (
             is_intent  # set to True if the intent are read for interface block
         )
@@ -56,9 +56,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
             "OpenACCSingleColumn": self.create_compute_openaccscc,
         }
 
-        self.path_map_index = path_map_index
-        with open(path_map_index, "rb") as fp:
-            self.map_index = pickle.load(fp)
+        self.path_map_derived_field = path_map_derived_field
+        with open(path_map_derived_field, "rb") as fp:
+            self.map_derived_field = pickle.load(fp)
 
 
 
@@ -168,7 +168,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         region_map_arrays = self.get_region_arrays(
             map_routine, region
         )  # map_region to store field_new and field_delete
-        region_map_derived, region_map_not_field = self.decl_derived_types(
+        region_map_derived, region_map_not_field = self.process_derived_types(
             routine, region
         )
         region_map_private = self.get_private(region)
@@ -516,7 +516,31 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ),
         )
 
-    def decl_derived_types(self, routine, region):
+    def process_derived_types(self, routine, region):
+        """
+        I - Finds the derived types of the region that are in map_derived_field and creates:
+
+        1) a pointer on the field api object corresponding to that derived type 
+        2) a pointer on the data
+
+        Example : 
+        
+        derived type :
+        YDMF_PHYS_BASE_STATE%YCPG_PHY%PREHYDF
+        
+        pointer on the field api object : 
+        YDMF_PHYS_BASE_STATE%YCPG_PHY%F_PREHYDF
+        
+        pointer on the data : 
+        REAL(KIND=JPRB), POINTER :: Z_YDMF_PHYS_BASE_STATE_YCPG_PHY_PREHYDF(:, :, :)
+        
+        the pointer on the field api object and the pointer on the data "interact"
+        this way : 
+        Z_YDMF_PHYS_BASE_STATE_YCPG_PHY_PREHYDF => 
+        GET_HOST_DATA_RDWR(YDMF_PHYS_BASE_STATE%YCPG_PHY%F_PREHYDF)
+
+        II - Find derived types that don't contain fields 
+        """
         region_map_derived = {}
         not_field_array = []
         basename_derived = []
@@ -527,11 +551,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
         ]
         for var in derived:
             key = f"{routine.variable_map[var.name_parts[0]].type.dtype.name}%{'%'.join(var.name_parts[1:])}"
-            # TODO : maybe have a global derive typed table, to avoid to many lookup in the map_index???
-            if key in self.map_index:
+            # TODO : maybe have a global derive typed table, to avoid to many lookup in the map_derived_field???
+            if key in self.map_derived_field:
                 if var.name_parts[0] not in basename_derived:
                     basename_derived.append(var.name_parts[0])
-                value = self.map_index[key]
+                value = self.map_derived_field[key]
                 # Creating the pointer on the data : YL_A
                 data_name = f"Z_{var.name.replace('%', '_')}"
                 if "REAL" and "JPRB" in value[0]:
@@ -1218,14 +1242,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         return compute_openaccscc
 
     def process_not_region_call(self, routine, map_routine, map_region):
+        """
+        Process calls that aren't in ACDC pragma regions.
+        """
         c_imports = map_routine["c_imports"]
         map_region["map_arrays"] = {}
         map_region["map_derived"] = {}
-
-        #        map_region['field_new'] = []
-        #        map_region['field_delete'] = []
-        field_new = []
-        field_delete = []
 
         calls = map_routine["not_in_pragma_calls"]
 
@@ -1235,12 +1257,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 region_map_arrays = self.get_region_arrays(
                     map_routine, call
                 )  # map_region to store field_new and field_delete
-                #                region_map_derived = self.decl_derived_types(routine, call)
-                region_map_derived, region_map_not_field = self.decl_derived_types(
+                region_map_derived, region_map_not_field = self.process_derived_types(
                     routine, call
                 )
-                #                map_region['map_arrays'] = region_map_arrays
-                #                map_region['map_derived'] = region_map_derived
                 map_region["map_arrays"] = map_region["map_arrays"] | region_map_arrays
                 map_region["map_derived"] = (
                     map_region["map_derived"] | region_map_derived
@@ -1286,12 +1305,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     arguments=as_tuple(new_arguments),
                 )
                 call_mapper[call] = new_call
-        map_region[
-            "map_derived"
-        ] = []  # pointers on field associated to derived type musn't be added to routine dcl
+        # pointers on field associated to derived type musn't be added to routine dcl
+        map_region["map_derived"] = [] 
 
-        map_region["field_new"] = field_new
-        map_region["field_delete"] = field_delete
 
         self.add_derived_to_map_routine(map_routine, map_region)
         map_routine["call_mapper"] = call_mapper
