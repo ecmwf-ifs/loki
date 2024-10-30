@@ -734,7 +734,7 @@ def test_parallel_routine_dispatch_variables(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    variables = item.trafo_data['create_parallel']['map_routine']['dcls']
+    variables = item.trafo_data['create_parallel']['map_routine']['variable_declarations']
 
     routine_str = fgen(routine)
 

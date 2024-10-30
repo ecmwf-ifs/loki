@@ -760,6 +760,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 raise Exception(f"cpg_bnds unexpected name : {self.cpg_bnds.name}")
 
     def create_variables(self, routine, map_routine):
+        """
+        Add some variables to the routine.
+        """
         #
         #  INTEGER(KIND=JPIM) :: JBLK
         #  TYPE(CPG_BNDS_TYPE) :: YLCPG_BNDS
@@ -771,17 +774,17 @@ class ParallelRoutineDispatchTransformation(Transformation):
         # if not present:
         #  INTEGER(KIND=JPIM) :: JLON
 
-        dcls = []
-        dcls += self.get_cpg(routine, map_routine)
+        variable_declarations = []
+        variable_declarations += self.get_cpg(routine, map_routine)
         stack_type = DerivedType(name="STACK")
         var_type = SymbolAttributes(name="STACK", dtype=stack_type)
         ylstack = sym.Variable(name="YLSTACK", type=var_type, scope=routine)
-        dcls += [ir.VariableDeclaration(symbols=(ylstack,))]
+        variable_declarations += [ir.VariableDeclaration(symbols=(ylstack,))]
         integer_type = SymbolAttributes(
             dtype=BasicType.INTEGER, kind=routine.symbol_map["JPIM"]
         )
         self.jblk = sym.Variable(name="JBLK", type=integer_type, scope=routine)
-        dcls += [ir.VariableDeclaration(symbols=(self.jblk,))]
+        variable_declarations += [ir.VariableDeclaration(symbols=(self.jblk,))]
         hook_type = SymbolAttributes(
             dtype=BasicType.REAL, kind=routine.symbol_map["JPHOOK"]
         )
@@ -789,22 +792,22 @@ class ParallelRoutineDispatchTransformation(Transformation):
         hook_var = sym.Variable(
             name="ZHOOK_HANDLE_FIELD_API", type=hook_type, scope=routine
         )
-        dcls += [ir.VariableDeclaration(symbols=(hook_var,))]
+        variable_declarations += [ir.VariableDeclaration(symbols=(hook_var,))]
         hook_var = sym.Variable(
             name="ZHOOK_HANDLE_PARALLEL", type=hook_type, scope=routine
         )
-        dcls += [ir.VariableDeclaration(symbols=(hook_var,))]
+        variable_declarations += [ir.VariableDeclaration(symbols=(hook_var,))]
         hook_var = sym.Variable(
             name="ZHOOK_HANDLE_COMPUTE", type=hook_type, scope=routine
         )
-        dcls += [ir.VariableDeclaration(symbols=(hook_var,))]
+        variable_declarations += [ir.VariableDeclaration(symbols=(hook_var,))]
 
         if "JLON" not in routine.variable_map:
             jlon = sym.Variable(name="JLON", type=integer_type, scope=routine)
-            dcls += [ir.VariableDeclaration(symbols=(jlon,))]
+            variable_declarations += [ir.VariableDeclaration(symbols=(jlon,))]
 
-        routine.spec.append(dcls)
-        map_routine["dcls"] = dcls
+        routine.spec.append(variable_declarations)
+        map_routine["variable_declarations"] = variable_declarations
 
     def create_imports(self, routine, map_routine):
         """
