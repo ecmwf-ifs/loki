@@ -200,7 +200,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             routine, region, region_name, map_region, targets
         )
 
-        self.add_to_map_routine(map_routine, map_region)
+        self.add_derived_to_map_routine(map_routine, map_region)
 
 
     def create_new_region(
@@ -1293,20 +1293,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region["field_new"] = field_new
         map_region["field_delete"] = field_delete
 
-        self.add_to_map_routine(map_routine, map_region)
+        self.add_derived_to_map_routine(map_routine, map_region)
         map_routine["call_mapper"] = call_mapper
-        # routine.body=Transformer(map_routine['call_mapper']).visit(routine.body)
 
-    def add_to_map_routine(self, map_routine, map_region):
-        routine_map_derived = map_routine["map_derived"]
-
-        region_map_derived = map_region["map_derived"]
-
-        for var_name in region_map_derived:
-            if var_name not in routine_map_derived:
-                routine_map_derived[var_name] = region_map_derived[var_name]
+    def add_derived_to_map_routine(self, map_routine, map_region):
+        """
+        Add derived types that were found in the region to all the derived types of the routine.
+        """
+        if bool(map_region["map_derived"]):
+            map_routine["map_derived"] = map_region["map_derived"]|map_routine["map_derived"]
 
 
-#    def process_not_region_loop(self, routine, map_routine):
 
 # TODO : fix create ylstack!!!!!!!!!!
