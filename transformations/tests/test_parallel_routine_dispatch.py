@@ -254,7 +254,7 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    get_data = item.trafo_data['create_parallel']['map_region']['get_data']
+    get_data = item.trafo_data['create_parallel']['map_routine']['map_region']['get_data']
     
     test_get_data = {}
 #    test_get_data["OpenMP"] = """
@@ -402,7 +402,7 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    synchost = item.trafo_data['create_parallel']['map_region']['synchost']
+    synchost = item.trafo_data['create_parallel']['map_routine']['map_region']['synchost']
     
     test_synchost = """IF (LSYNCHOST('DISPATCH_ROUTINE_PARALLEL:CPPHINP')) THEN
  IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:SYNCHOST', 0, ZHOOK_HANDLE_FIELD_API)
@@ -450,7 +450,7 @@ def test_parallel_routine_dispatch_nullify(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    nullify = item.trafo_data['create_parallel']['map_region']['nullify']
+    nullify = item.trafo_data['create_parallel']['map_routine']['map_region']['nullify']
  
     test_nullify = """
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:NULLIFY', 0, ZHOOK_HANDLE_FIELD_API)
@@ -498,7 +498,7 @@ def test_parallel_routine_dispatch_compute_openmp(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    map_compute = item.trafo_data['create_parallel']['map_region']['compute']
+    map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
     compute_openmp = map_compute['OpenMP']
  
     test_compute= """
@@ -560,7 +560,7 @@ def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    map_compute = item.trafo_data['create_parallel']['map_region']['compute']
+    map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
     compute_openmpscc = map_compute['OpenMPSingleColumn']
 
     test_compute= """
@@ -638,7 +638,7 @@ def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
-    map_compute = item.trafo_data['create_parallel']['map_region']['compute']
+    map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
     compute_openaccscc = map_compute['OpenACCSingleColumn']
 
     test_compute = """

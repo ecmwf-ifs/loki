@@ -67,12 +67,39 @@ class ParallelRoutineDispatchTransformation(Transformation):
         if item:
             item.trafo_data["create_parallel"] = {}
 
+        # change name first to have right name further
+        self.change_routine_name(routine)
+        map_routine = self.init_map_routine(routine)
+
+        self.create_imports(routine, map_routine)
+        self.create_variables(routine, map_routine)
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        self.process_arrays_routine(routine, map_routine)
+        self.process_parallel_regions(routine, map_routine, calls)
+        single_variable_declaration(routine)
+        self.process_not_region_call(routine, map_routine)
+        self.add_arrays(routine, map_routine)
+        self.add_field(routine, map_routine)
+        self.add_derived(routine, map_routine)
+        self.add_routine_imports(routine, map_routine)
+        self.update_routine_args(routine, map_routine)
+        # sanitise_imports(routine) => bug...
+        self.clean_imports(routine, map_routine)
+
+        if item:
+            item.trafo_data["create_parallel"]["map_routine"] = map_routine
+
+    def change_routine_name(self, routine):
         routine.name = (
             routine.name + "_PARALLEL"
-        )  # change name first to have right name further
+        )
 
+    def init_map_routine(self, routine):
+        """
+        Init map_routine dictionnary. This dictionnary contains information useful 
+        through the whole routine transformation.
+        """
         map_routine = {}
-        map_region = {}
         map_routine["field_new"] = []
         map_routine["field_delete"] = []
         map_routine["map_derived"] = {}
@@ -91,13 +118,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine["c_imports_parallel"] = []
         map_routine["imports_mapper"] = {}
         map_routine["call_mapper"] = {}
+    
+        return(map_routine)
+    
 
-        self.create_imports(routine, map_routine)
-        self.create_variables(routine, map_routine)
-        calls = FindNodes(ir.CallStatement).visit(routine.body)
-        self.handle_arrays_routine(routine, map_routine)
+    def process_parallel_regions(self, routine, map_routine, calls):
+        map_region = {}
         in_pragma_calls = []
-        # TODO : Voir plus tard si on transforme en fonction 
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
                 if is_loki_pragma(region.pragma):
@@ -108,31 +135,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine["not_in_pragma_calls"] = [
             call for call in calls if call not in in_pragma_calls
         ]
-        single_variable_declaration(routine)
-        self.process_not_region_call(routine, map_routine, map_region)
-        self.add_arrays(routine, map_routine)
-        self.add_field(routine, map_routine)
-        self.add_derived(routine, map_routine)
-        self.add_routine_imports(routine, map_routine)
-        self.update_routine_args(routine, map_routine)
-
-        # sanitise_imports(routine) => bug...
-        calls = [
-            call.name.name.lower()
-            for call in FindNodes(ir.CallStatement).visit(routine.body)
-        ]
-
-        map_imports = {}
-        for imp in map_routine["c_imports"].values():
-            imp_name = imp.module.replace(".intfb.h", "")
-            if imp_name not in calls:
-                map_imports[imp] = None
-        routine.spec = Transformer(map_imports).visit(routine.spec)
-
-
-        if item:
-            item.trafo_data["create_parallel"]["map_routine"] = map_routine
-            item.trafo_data["create_parallel"]["map_region"] = map_region
+        map_routine["map_region"] = map_region #for pytest
 
     def process_parallel_region(self, routine, region, map_routine, map_region):
         """
@@ -203,6 +206,19 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.add_derived_to_map_routine(map_routine, map_region)
 
 
+    def clean_imports(self,routine, map_routine):
+        # sanitise_imports(routine) => bug...
+        calls = [
+            call.name.name.lower()
+            for call in FindNodes(ir.CallStatement).visit(routine.body)
+        ]
+
+        map_imports = {}
+        for imp in map_routine["c_imports"].values():
+            imp_name = imp.module.replace(".intfb.h", "")
+            if imp_name not in calls:
+                map_imports[imp] = None
+        routine.spec = Transformer(map_imports).visit(routine.spec)
     def create_new_region(
         self, routine, region, region_name, map_region, targets
     ):
@@ -368,7 +384,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         )
         field_delete += [ir.Conditional(condition=condition, inline=True, body=(call,))]
 
-    def handle_arrays_routine(self, routine, map_routine):
+    def process_arrays_routine(self, routine, map_routine):
         """Creates the pointers on data by wich the arrays declarations will be replaced, creates pointers on field_api objects.
         Creates field_new/field_delete calls (call to self.create_field_new and self.create_field_delete), to init/delete the pointers on field_api objects.
         """
@@ -715,6 +731,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
         )
 
     def create_nullify(self, routine, region_name, map_region):
+        """
+        Create the piece of code that null the pointers on the data at the end of each parallel region.
+
+        Example:
+
+        IF (LHOOK) CALL DR_HOOK ('APL_ARPEGE_PARALLEL:CPPHINP:NULLIFY',0,ZHOOK_HANDLE_FIELD_API)
+        ZRDG_CVGQ => NULL ()
+        ...
+        IF (LHOOK) CALL DR_HOOK ('APL_ARPEGE_PARALLEL:CPPHINP:NULLIFY',1,ZHOOK_HANDLE_FIELD_API)
+        """
         region_map_var_sorted = map_region["var_sorted"]
         dr_hook_calls = self.create_dr_hook_calls(
             routine,
@@ -734,6 +760,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region["nullify"] = nullify
 
     def get_cpg(self, routine, map_routine):
+        """
+        I  - Find objects with CPG_OPTS_TYPE and CPG_BNDS_TYPE types. 
+        II - Create lcpg_bnds and return lcpg_bnds_declaration
+        """
         # Assuming CPG_OPTS_TYPE and CPG_BNDS_TYPE are the same in all the routine.
         found_opts = False
         found_bnds = False
@@ -749,30 +779,29 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if found_opts and found_bnds:
                 if "YD" in cpg_bnds.name:
                     lcpg_bnds_name = cpg_bnds.name.replace("YD", "YL")
-                    # self.lcpg_bnds = self.cpg_bnds.clone(name=lcpg_bnds_name)
                     lcpg_bnds_type = cpg_bnds.type.clone(intent=None)
                     lcpg_bnds = sym.Variable(
                         name=lcpg_bnds_name, type=lcpg_bnds_type, scope=routine
                     )
                     map_routine["lcpg_bnds"] = lcpg_bnds
-                    dcl = ir.VariableDeclaration(symbols=(lcpg_bnds,))
-                    return [dcl]
+                    lcpg_bnds_declaration = ir.VariableDeclaration(symbols=(lcpg_bnds,))
+                    return [lcpg_bnds_declaration]
                 raise Exception(f"cpg_bnds unexpected name : {self.cpg_bnds.name}")
 
     def create_variables(self, routine, map_routine):
         """
-        Add some variables to the routine.
+        Add some variables to the end of the routine spec.
+        
+          TYPE(CPG_BNDS_TYPE) :: YLCPG_BNDS
+          TYPE(STACK) :: YLSTACK
+          INTEGER(KIND=JPIM) :: JBLK
+          REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_FIELD_API
+          REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_PARALLEL
+          REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_COMPUTE
+        
+         if not present:
+          INTEGER(KIND=JPIM) :: JLON
         """
-        #
-        #  INTEGER(KIND=JPIM) :: JBLK
-        #  TYPE(CPG_BNDS_TYPE) :: YLCPG_BNDS
-        #  REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_FIELD_API
-        #  REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_PARALLEL
-        #  REAL(KIND=JPHOOK) :: ZHOOK_HANDLE_COMPUTE
-        #  TYPE(STACK) :: YLSTACK
-        #
-        # if not present:
-        #  INTEGER(KIND=JPIM) :: JLON
 
         variable_declarations = []
         variable_declarations += self.get_cpg(routine, map_routine)
@@ -1247,11 +1276,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         )
         return compute_openaccscc
 
-    def process_not_region_call(self, routine, map_routine, map_region):
+    def process_not_region_call(self, routine, map_routine):
         """
         Process calls that aren't in ACDC pragma regions.
         """
         c_imports = map_routine["c_imports"]
+        map_region = {}
         map_region["map_arrays"] = {}
         map_region["map_derived"] = {}
 
