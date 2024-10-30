@@ -182,6 +182,7 @@ class FortranCTransformation(Transformation):
             depth = depths[item]
 
         if role == 'driver':
+            self.interface_to_import(routine, targets)
             return
 
         for arg in routine.arguments:
@@ -242,6 +243,30 @@ class FortranCTransformation(Transformation):
                 inline_call_map[inline_call] = inline_call.clone_with_kwargs_as_args()
         if inline_call_map:
             routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
+
+    def interface_to_import(self, routine, targets):
+        """
+        Convert interface to import.
+        """
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if str(call.name).lower() in as_tuple(targets):
+                call.convert_kwargs_to_args()
+        intfs = FindNodes(Interface).visit(routine.spec)
+        removal_map = {}
+        for i in intfs:
+            for b in i.body:
+                if isinstance(b, Subroutine):
+                    if targets and b.name.lower() in targets:
+                        # Create a new module import with explicitly qualified symbol
+                        modname = f'{b.name}_FC_MOD'
+                        new_symbol = Variable(name=f'{b.name}_FC', scope=routine)
+                        new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
+                        routine.spec.prepend(new_import)
+                        # Mark current import for removal
+                        removal_map[i] = None
+        # Apply any scheduled interface removals to spec
+        if removal_map:
+            routine.spec = Transformer(removal_map).visit(routine.spec)
 
     def c_struct_typedef(self, derived):
         """
