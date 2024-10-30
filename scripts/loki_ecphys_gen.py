@@ -415,13 +415,16 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             )
 
             # Create a new source file for the extracted routine
-            filename = driver.name.lower() + '.F90'
+            filename = driver.name.lower() + '_mod.F90'
             sourcefile = Sourcefile(ir=ir.Section(driver), path=build/filename)
+
+            ModuleWrapTransformation(module_suffix='_MOD').apply(sourcefile, role='kernel')
             sourcefile.write()
 
             # Add an implicit C-style import to the control-flow routine
-            imprt = ir.Import(module=f'{driver.name.lower()}.intfb.h', c_import=True)
-            ec_phys_parallel.spec.append(imprt)
+            symbols = (sym.DeferredTypeSymbol(name=driver.name), )
+            imprt = ir.Import(module=f'{driver.name}_MOD', symbols=symbols)
+            ec_phys_parallel.spec.prepend(imprt)
 
     if promote_local_arrays:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Promoted local arrays in {s:.2f}s'):
