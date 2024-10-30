@@ -7,23 +7,19 @@
 
 from collections import defaultdict
 from itertools import chain
-from enum import Enum
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.expression import Scalar, Array, symbols as sym
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Import, Comment,
-    Transformer, pragma_regions_attached, get_pragma_parameters, pragmas_attached,
-    FindInlineCalls, FindVariables, SubstituteExpressions
+    Transformer, pragma_regions_attached, get_pragma_parameters,
+    FindInlineCalls, SubstituteExpressions
 )
-import loki.ir as ir
-from loki.scope import Scope
-from loki.transformations.utilities import find_driver_loops
 from loki.logging import warning
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
 from loki.types import BasicType, DerivedType
-
+from loki.transformations.parallel import FieldAPITransferType, field_get_device_data, field_sync_host
 
 __all__ = [
     'DataOffloadTransformation', 'GlobalVariableAnalysis',
@@ -925,66 +921,6 @@ class GlobalVarHoistTransformation(Transformation):
 ################################################################################
 # Field API helper routines
 ################################################################################
-def get_field_type(a: sym.Array) -> sym.DerivedType:
-    """
-    Returns the corresponding FIELD API type for an array.
-
-    This transformation is IFS specific and assumes that the
-    type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
-    """
-    type_map = ["jprb",
-                "jpit",
-                "jpis",
-                "jpim",
-                "jpib",
-                "jpia",
-                "jprt",
-                "jprs",
-                "jprm",
-                "jprd",
-                "jplm"]
-
-    type_name = a.type.kind.name
-    assert type_name.lower() in type_map, ('Error array type kind is: '
-                                           f'"{type_name}" which is not a valid IFS type specifier')
-    rank = len(a.shape)
-    field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4])
-    return field_type
-
-
-def field_new(field_ptr, data, scope):
-    return ir.CallStatement(name=sym.ProcedureSymbol('FIELD_NEW', scope=scope),
-                            arguments=(field_ptr,), kwarguments=(('DATA', data),))
-
-
-def field_delete(field_ptr, scope):
-    return ir.CallStatement(name=sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
-                            arguments=(field_ptr,))
-
-
-class FieldAPITransferType(Enum):
-    READ_ONLY = 1
-    READ_WRITE = 2
-    WRITE_ONLY = 3
-
-
-def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope):
-    assert isinstance(transfer_type, FieldAPITransferType)
-    if transfer_type == FieldAPITransferType.READ_ONLY:
-        suffix = 'RDONLY'
-    if transfer_type == FieldAPITransferType.READ_WRITE:
-        suffix = 'RDWR'
-    if transfer_type == FieldAPITransferType.WRITE_ONLY:
-        suffix = 'WRONLY'
-    procedure_name = 'GET_DEVICE_DATA_' + suffix
-    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            arguments=(dev_ptr.clone(dimensions=None),), )
-
-
-def field_sync_host(field_ptr, scope):
-    procedure_name = 'SYNC_HOST_RDWR'
-    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())
-
 
 def find_array_arguments(routine, calls):
     """
