@@ -487,8 +487,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 _parent = kwargs.pop('parent')
                 parent = symbol_map[var].clone(parent=_parent)
 
-                _copy, _host, _wipe = self.generate_deepcopy(routine, symbol_map[var].type.dtype.typedef.variable_map,
-                                                             analysis=analysis[var], parent=parent, **kwargs)
+                _copy, _host, _wipe = None, None, None
+                if not analysis[var] in ['read', 'readwrite', 'write']:
+                    _copy, _host, _wipe = self.generate_deepcopy(routine, symbol_map[var].type.dtype.typedef.variable_map,
+                                                                 analysis=analysis[var], parent=parent, **kwargs)
 
                 #wrap in loop
                 if symbol_map[var].type.shape:
