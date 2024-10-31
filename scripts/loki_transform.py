@@ -169,7 +169,7 @@ def convert(
     paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
+        paths=paths, config=config, frontend=frontend, definitions=definitions, builddir=build, **build_args
     )
 
     # If requested, apply a custom pipeline from the scheduler config
@@ -352,7 +352,7 @@ def convert(
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim,
                 dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True)
         scheduler.process( pipeline )
-    
+
     if mode == 'cuf-parametrise':
         pipeline = scheduler.config.transformations.get('cuf-parametrise', None)
         if not pipeline:
