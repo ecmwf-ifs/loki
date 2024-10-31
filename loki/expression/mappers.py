@@ -9,7 +9,7 @@
 Mappers for traversing and transforming the
 :ref:`internal_representation:Expression tree`.
 """
-from copy import deepcopy
+
 import re
 from itertools import zip_longest
 import pymbolic.primitives as pmbl
@@ -522,7 +522,10 @@ class LokiIdentityMapper(IdentityMapper):
         """ Utility to safely rebuild any symbol """
         if hasattr(expr, 'clone'):
             return expr.clone()
-        return deepcopy(expr)
+
+        # Re-create symbol Pymbolic-style
+        cargs = dict(zip(expr.init_arg_names, expr.__getinitargs__()))
+        return type(expr)(**cargs)
 
     def __call__(self, expr, *args, **kwargs):
         if expr is None:
