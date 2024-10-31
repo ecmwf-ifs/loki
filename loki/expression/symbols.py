@@ -1420,6 +1420,42 @@ class InlineCall(pmbl.CallWithKwargs):
         kw_parameters = kwargs.get('kw_parameters', self.kw_parameters)
         return InlineCall(function, parameters, kw_parameters)
 
+    def _sort_kwarguments(self):
+        """
+        Helper routine to sort the kwarguments/kw_parameters according to the order of the
+        arguments (``self.routine.arguments``)`.
+        """
+        routine = self.routine
+        assert routine is not BasicType.DEFERRED
+        kwargs = CaseInsensitiveDict(self.kwarguments)
+        r_arg_names = [arg.name for arg in routine.arguments if arg.name in kwargs]
+        new_kwarguments = tuple((arg_name, kwargs[arg_name]) for arg_name in r_arg_names)
+        return new_kwarguments
+
+    def check_kwarguments_order(self):
+        """
+        Check whether kwarguments/kw_parameters are correctly ordered
+        in respect to the arguments (``self.routine.arguments``).
+        """
+        return self.kwarguments == self._sort_kwarguments()
+
+    def sort_kwarguments(self):
+        """
+        Sort and update the kwarguments/kw_parameters according to the order of the
+        arguments (``self.routine.arguments``) and return the
+        conveted clone/copy of the inline call.
+        """
+        new_kwarguments = self._sort_kwarguments()
+        return self.clone(kw_parameters=new_kwarguments)
+
+    def convert_kwargs_to_args(self):
+        """
+        Convert all kwarguments/kw_parameters to arguments and
+        return the converted clone/copy of the inline call.
+        """
+        new_kwarguments = self._sort_kwarguments()
+        new_args = tuple(arg[1] for arg in new_kwarguments)
+        return self.clone(parameters=self.arguments + new_args, kw_parameters=())
 
 class Cast(pmbl.Call):
     """
