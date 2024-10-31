@@ -114,7 +114,8 @@ class RemoveCodeTransformation(Transformation):
                 do_remove_dead_code(routine, use_simplify=self.use_simplify)
 
         if self.remove_unused_args and (item := kwargs['item']):
-            self.do_remove_unused_args(routine, item, kwargs['successors'], kwargs['role'])
+            if item.config.get('remove_unused_args', True):
+                self.do_remove_unused_args(routine, item, kwargs['successors'], kwargs['role'])
 
     def do_remove_unused_args(self, routine, item, successors, role):
 
@@ -152,7 +153,7 @@ class RemoveCodeTransformation(Transformation):
 
         for call in FindNodes(CallStatement).visit(routine.body):
             successor = [s for s in successors if call.routine == s.ir]
-            if not successor:
+            if not successor or not successor[0].trafo_data.get(self._key, None):
                 continue
 
             successor = successor[0]
