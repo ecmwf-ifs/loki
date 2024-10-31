@@ -420,7 +420,7 @@ end subroutine rick
     ricks_path = tmp_path/'rick.loki.F90'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(builddir=tmp_path).apply(source=source, item=item)
+    FileWriteTransformation().apply(source=source, item=item, build_args={'builddir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 
@@ -428,7 +428,8 @@ end subroutine rick
     ricks_path = tmp_path/'rick.roll.java'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(builddir=tmp_path, mode='roll', suffix='.java').apply(source=source, item=item)
+    FileWriteTransformation(mode='roll', suffix='.java').apply(source=source, item=item,
+                                                                                  build_args={'builddir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 
@@ -436,13 +437,13 @@ end subroutine rick
     ricks_path = tmp_path/'rick.loki.F90'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(builddir=tmp_path).apply(source=source, items=(item,))
+    FileWriteTransformation().apply(source=source, items=(item,), build_args={'builddir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 
     # Check error behaviour if no item provided
     with pytest.raises(ValueError):
-        FileWriteTransformation(builddir=tmp_path).apply(source=source)
+        FileWriteTransformation().apply(source=source)
 
 
 def test_transformation_pipeline_simple():

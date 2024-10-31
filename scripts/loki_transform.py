@@ -186,7 +186,7 @@ def convert(
         # Write out all modified source files into the build directory
         file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
         if not file_write_trafo:
-            file_write_trafo = FileWriteTransformation(builddir=build, mode=mode, cuf='cuf' in mode)
+            file_write_trafo = FileWriteTransformation(mode=mode, cuf='cuf' in mode)
         scheduler.process(transformation=file_write_trafo)
 
         return
@@ -406,7 +406,7 @@ def convert(
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(
-        builddir=build, mode=mode, cuf='cuf' in mode,
+        mode=mode, cuf='cuf' in mode,
         include_module_var_imports=global_var_offload
     ))
 

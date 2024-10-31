@@ -23,8 +23,6 @@ class FileWriteTransformation(Transformation):
 
     Parameters
     ----------
-    builddir : str or path
-        Directory for the output to be written to
     mode : str, optional
         "Mode" identifier string to add in front of the file suffix
     suffix : str, optional
@@ -41,10 +39,9 @@ class FileWriteTransformation(Transformation):
     traverse_file_graph = True
 
     def __init__(
-            self, builddir=None, mode='loki', suffix=None, cuf=False,
+            self, mode='loki', suffix=None, cuf=False,
             include_module_var_imports=False
     ):
-        self.builddir = Path(builddir)
         self.mode = mode
         self.suffix = suffix
         self.cuf = cuf
@@ -72,6 +69,6 @@ class FileWriteTransformation(Transformation):
         path = Path(item.path)
         suffix = self.suffix if self.suffix else path.suffix
         sourcepath = Path(item.path).with_suffix(f'.{self.mode}{suffix}')
-        if self.builddir is not None:
-            sourcepath = self.builddir/sourcepath.name
+        if (builddir := kwargs.get('build_args', {}).get('builddir', None)) is not None:
+            sourcepath = Path(builddir)/sourcepath.name
         sourcefile.write(path=sourcepath, cuf=self.cuf)
