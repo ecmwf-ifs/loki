@@ -521,8 +521,8 @@ class LowerBlockIndexTransformation(Transformation):
         """
         processed_routines = ()
         variable_map = routine.variable_map
-        block_dim_index = variable_map[self.block_dim.index]
-        block_dim_size = variable_map[self.block_dim.size]
+        block_dim_index = get_integer_variable(routine, self.block_dim.index)
+        block_dim_size = get_integer_variable(routine, self.block_dim.size)
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() not in targets:
                 continue
