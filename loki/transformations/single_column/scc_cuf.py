@@ -291,11 +291,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
         # find vertical and block loops and replace with implicit "loops"
         loop_map = {}
         for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop.variable == self.block_dim.index or loop.variable.name.lower()\
-                    in [_.lower() for _ in self.block_dim.sizes]:
+            if loop.variable == self.block_dim.index or loop.variable.name in self.block_dim.sizes:
                 loop_map[loop] = loop.body
-            if loop.variable == self.horizontal.index or loop.variable.name.lower()\
-                    in [_.lower() for _ in self.horizontal.sizes]:
+            if loop.variable == self.horizontal.index or loop.variable.name in self.horizontal.sizes:
                 loop_map[loop] = loop.body
         routine.body = Transformer(loop_map).visit(routine.body)
 
@@ -303,8 +301,8 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
             ## bit hacky ...
             assignments = FindNodes(ir.Assignment).visit(routine.body)
-            assignments2remove = [block_dim.index.lower()] + [_.lower() for _ in horizontal.bounds]
-            assignment_map = {assign: None for assign in assignments if assign.lhs.name.lower() in assignments2remove}
+            assignments2remove = as_tuple(block_dim.index) + horizontal.bounds
+            assignment_map = {assign: None for assign in assignments if assign.lhs.name in assignments2remove}
             routine.body = Transformer(assignment_map).visit(routine.body)
             ##end: bit hacky
 
