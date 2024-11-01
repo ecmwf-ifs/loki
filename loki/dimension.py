@@ -18,25 +18,44 @@ class Dimension:
     ----------
     name : string
         Name of the dimension to identify in configurations
-    index : string
+    index : string or tuple of str
         String representation of the predominant loop index variable
-        associated with this dimension.
-    size : string
+        associated with this dimension; can be one or several.
+    size : string or tuple of str
         String representation of the predominant size variable used
-        to declare array shapes using this dimension.
+        to declare array shapes; can be one or several.
+    lower : string or tuple of str
+        String representation of the lower bound variable used to
+        declare iteration spaces; can be one or several.
+    lower : string or tuple of str
+        String representation of the upper bound variable used to
+        declare iteration spaces; can be one or several.
     bounds : tuple of strings
         String representation of the variables usually used to denote
         the iteration bounds of this dimension.
+
+        **WARNING:** This argument is deprecated, instead ``lower``
+        and ``upper`` should be used.
     aliases : list or tuple of strings
         String representations of alternative size variables that are
         used to define arrays shapes of this dimension (eg. alternative
         names used in "driver" subroutines).
+
+        **WARNING:** This argument is deprecated, instead a tuple of
+        variables names should be provided for ``size``.
     bounds_aliases : list or tuple of strings
         String representations of alternative bounds variables that are
         used to define loop ranges.
+
+        **WARNING:** This argument is deprecated, instead a tuple of
+        variables names should be provided for ``lower`` and
+        ``upper``.
     index_aliases : list or tuple of strings
         String representations of alternative loop index variables associated
         with this dimension.
+
+        **WARNING:** This argument is deprecated, instead a tuple of
+        variables names should be provided for ``index``.
     """
 
     def __init__(
@@ -83,7 +102,11 @@ class Dimension:
     @property
     def sizes(self):
         """
-        Tuple of strings that matche the primary size and all secondary size expressions.
+        Tuple of strings that match the primary size and all secondary size expressions.
+
+        .. note::
+            For derived expressions, like ``end - start + 1`` or
+            ``1:size``, please use :any:`size_expressions`.
         """
         return self._size
 
@@ -134,10 +157,9 @@ class Dimension:
         """
         Tuple of expression string that represent the bounds of an iteration space.
 
-        .. note:
-
-        If mutiple lower or upper bound string have been provided,
-        only the first pair will be used.
+        .. note::
+            If mutiple lower or upper bound string have been provided,
+            only the first pair will be used.
         """
         return (
             self.lower[0] if isinstance(self.lower, tuple) else self.lower,
@@ -149,10 +171,9 @@ class Dimension:
         """
         String that matches the range expression of an iteration space (loop).
 
-        .. note:
-
-        If mutiple lower or upper bound string have been provided,
-        only the first pair will be used.
+        .. note::
+            If mutiple lower or upper bound string have been provided,
+            only the first pair will be used.
         """
         return f'{self.bounds[0]}:{self.bounds[1]}'
 

@@ -216,7 +216,7 @@ class BlockViewToFieldViewTransformation(Transformation):
             if call.name in targets:
                 _args = {a: d for d, a in call.arg_map.items() if isinstance(d, Array)}
                 _vars += [a for a, d in _args.items()
-                         if any(v in d.shape for v in self.horizontal.sizes) and a.parents]
+                          if any(v in d.shape for v in self.horizontal.sizes) and a.parents]
 
         # replace per-block view pointers with full field pointers
         vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
