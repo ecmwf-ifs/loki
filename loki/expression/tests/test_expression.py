@@ -94,6 +94,39 @@ end subroutine math_intrinsics
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_general_intrinsics(frontend):
+    """
+    Test general intrinsic functions (size, shape, ubound, lbound,
+    allocated, trim, kind)
+    """
+    fcode = """
+subroutine general_intrinsics(arr, ptr, name)
+  implicit none
+  real(kind=8), intent(inout) :: arr(:,:)
+  real(kind=8), pointer, intent(inout) :: ptr(:,:)
+  character(len=*), intent(inout) :: name
+  integer :: isize, ishape(:), ilower, iupper, mykind
+  logical :: alloc
+  character(len=*) :: myname
+
+  isize = size(arr)
+  ishape = shape(arr)
+  ilower = lbound(arr)
+  iupper = ubound(arr)
+  mykind = kind(arr)
+  alloc = allocated(ptr)
+  myname = trim(name)
+end subroutine general_intrinsics
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    for assign in FindNodes(ir.Assignment).visit(routine.body):
+        assert isinstance(assign.rhs, sym.InlineCall)
+        assert isinstance(assign.rhs.function, sym.ProcedureSymbol)
+        assert assign.rhs.function.type.dtype.is_intrinsic
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_logicals(tmp_path, frontend):
     """
     Test logical expressions (and, or, not, tru, false, equal, not nequal).
