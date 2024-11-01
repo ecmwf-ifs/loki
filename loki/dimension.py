@@ -184,7 +184,7 @@ class Dimension:
 
         This includes generic aliases, like ``end - start + 1`` or ``1:size`` ranges.
         """
-        exprs = as_tuple(self.size)
+        exprs = self.sizes
         exprs += (f'1:{self.size}', )
         if self.bounds:
             exprs += (f'{self.bounds[1]} - {self.bounds[0]} + 1', )
