@@ -165,7 +165,7 @@ def add_openmp_regions(routine, global_variables=None, field_group_types=None):
                 s_firstprivate = f'FIRSTPRIVATE({s_fp_vars})' if firstprivates else ''
                 s_private = f'PRIVATE({", ".join(str(v) for v in privates)})' if privates else ''
                 pragma_parallel = ir.Pragma(
-                    keyword='OMP', content=f'PARALLEL {s_private} {s_firstprivate}'
+                    keyword='OMP', content=f'PARALLEL DEFAULT(SHARED) {s_private} {s_firstprivate}'
                 )
                 region._update(
                     pragma=pragma_parallel,
