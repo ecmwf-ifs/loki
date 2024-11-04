@@ -39,7 +39,7 @@ from loki.transformations.build_system import FileWriteTransformation
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
-@click.option('--num-workers', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+@click.option('--num-workers', type=int, default=0, envvar='LOKI_NUM_WORKERS',
               help='Number of worker processes to use for parallel processing steps.')
 def convert(
         frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level, num_workers
@@ -135,7 +135,7 @@ def convert(
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
-@click.option('--num-workers', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+@click.option('--num-workers', type=int, default=0, envvar='LOKI_NUM_WORKERS',
               help='Number of worker processes to use for parallel processing steps.')
 @click.pass_context
 def plan(ctx, *_args, **_kwargs):
