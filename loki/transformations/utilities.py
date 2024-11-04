@@ -498,7 +498,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
         nesting that can be replaced.
     mapper_cls: :any:`SubstituteExpressionsMapper`
        The underlying mapper to be used (default: :any:`SubstituteExpressionsMapper`).
-    case_senstivie: None, bool
+    case_sensitive: bool (optional)
         Whether to check w/o case-sensitiviy for early termination opportunities
         (default: None, use the default/global case-sensitivy setting).
     """
