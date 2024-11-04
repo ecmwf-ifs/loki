@@ -526,7 +526,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
 
         # Check for early termination opportunities, either with case-sensitivity
         #  being the default (`{}`) or with the provided value (`case-sensitive`)
-        _case_sensitive = {'case-sensitive': case_sensitive} or {}
+        _case_sensitive = {'case-sensitive': case_sensitive} if case_sensitive is not None else {}
         with config_override(_case_sensitive):
             if prev_map == expr_map:
                 break
