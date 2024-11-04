@@ -116,12 +116,14 @@ def cli(debug):
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
+@click.option('--num-workers', type=int, default=0, envvar='LOKI_NUM_WORKERS',
+              help='Number of worker processes to use for parallel processing steps.')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
         data_offload, remove_openmp, assume_deviceptr, frontend, trim_vector_sections,
         global_var_offload, remove_derived_args, inline_members, inline_marked,
         resolve_sequence_association, resolve_sequence_association_inlined_calls,
-        derive_argument_array_shape, eliminate_dead_code, log_level
+        derive_argument_array_shape, eliminate_dead_code, log_level, num_workers
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -169,7 +171,8 @@ def convert(
     paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
+        paths=paths, config=config, frontend=frontend,
+        definitions=definitions, num_workers=num_workers, **build_args
     )
 
     # If requested, apply a custom pipeline from the scheduler config
@@ -437,9 +440,11 @@ def convert(
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
+@click.option('--num-workers', type=int, default=0, envvar='LOKI_NUM_WORKERS',
+              help='Number of worker processes to use for parallel processing steps.')
 def plan(
          mode, config, header, source, build, root, cpp, directive,
-         frontend, callgraph, plan_file, log_level
+         frontend, callgraph, plan_file, log_level, num_workers
 ):
     """
     Create a "plan", a schedule of files to inject and transform for a
@@ -453,7 +458,10 @@ def plan(
 
     paths = [Path(s).resolve() for s in source]
     paths += [Path(h).resolve().parent for h in header]
-    scheduler = Scheduler(paths=paths, config=config, frontend=frontend, full_parse=False, preprocess=cpp)
+    scheduler = Scheduler(
+        paths=paths, config=config, frontend=frontend,
+        full_parse=False, preprocess=cpp, num_workers=num_workers
+    )
 
     mode = mode.replace('-', '_')  # Sanitize mode string
 

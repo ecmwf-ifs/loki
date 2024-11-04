@@ -5,11 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from concurrent.futures import ProcessPoolExecutor
 from os.path import commonpath
 from pathlib import Path
+
 from codetiming import Timer
 
 from loki.batch.configure import SchedulerConfig
+from loki.batch.executor import SerialExecutor
 from loki.batch.item import (
     FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
     InterfaceItem, TypeDefItem, ExternalItem, ItemFactory
@@ -20,6 +23,7 @@ from loki.batch.sgraph import SGraph
 from loki.batch.transformation import Transformation
 
 from loki.frontend import FP, REGEX, RegexParserClass
+from loki.sourcefile import Sourcefile
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 from loki.logging import info, perf, warning, debug, error
 
@@ -118,6 +122,9 @@ class Scheduler:
     full_parse: bool, optional
         Flag indicating whether a full parse of all sourcefiles is required.
         By default a full parse is executed, use this flag to suppress.
+    num_workers : int, default: 0
+        Number of processes to use for parallel processing. Use the default
+        value ``0`` to bypass parallel processing and process serially.
     frontend : :any:`Frontend`, optional
         Frontend to use for full parse of source files (default :any:`FP`).
     """
@@ -127,7 +134,7 @@ class Scheduler:
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
                  includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, frontend=FP):
+                 omni_includes=None, full_parse=True, num_workers=0, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -137,6 +144,13 @@ class Scheduler:
             self.config = SchedulerConfig.from_dict(config or {})
 
         self.full_parse = full_parse
+
+        if num_workers > 0:
+            # Create the parallel pool executor for parallel processing
+            self.executor = ProcessPoolExecutor(max_workers=num_workers)
+        else:
+            # Create a dummy executor that mimics the concurrent Exectuor API
+            self.executor = SerialExecutor()
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
@@ -167,6 +181,27 @@ class Scheduler:
             # Attach interprocedural call-tree information
             self._enrich()
 
+    def __del__(self):
+        # Shut down the parallel process pool
+        self.executor.shutdown()
+
+    @staticmethod
+    def _parse_source(source, frontend_args):
+        """
+        Utility function that exposes the parsing step for one
+        :any:`SourceFile` as a pure function for the parallel
+        executor.
+
+        Parameters
+        ----------
+        source : :any:`Sourcefile`
+            The sourcefile object to trigger full parse on
+        frontend_args : dict
+            Dict of arguments to pass to :meth:`make_complete`
+        """
+        source.make_complete(**frontend_args)
+        return source
+
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
         """
@@ -185,8 +220,18 @@ class Scheduler:
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
         # Instantiate FileItem instances for all files in the search path
-        for path in path_list:
-            self.item_factory.get_or_create_file_item_from_path(path, self.config, frontend_args)
+        # TODO: This is essentially item-cache creation, and should live on ItemFactory
+        path_fargs = tuple(
+            (path, self.config.create_frontend_args(path, frontend_args)) for path in path_list
+        )
+        with Timer(logger=info, text='[Loki::Scheduler] Scheduler:: Initial file parse in {:.2f}s'):
+            src_futures = tuple(
+                self.executor.submit(Sourcefile.from_file, path, **frontend_args)
+                for path, fargs in path_fargs
+            )
+            sources = tuple(src.result() for src in src_futures)
+            for source in sources:
+                self.item_factory.get_or_create_file_item_from_source(source, self.config)
 
         # Instantiate the basic list of items for files and top-level program units
         #  in each file, i.e., modules and subroutines
@@ -276,14 +321,27 @@ class Scheduler:
         # Force the parsing of the routines
         default_frontend_args = self.build_args.copy()
         default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
-        for item in SFilter(self.file_graph, reverse=True):
-            frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
-            item.source.make_complete(**frontend_args)
+
+        # Get the iteration order from the Sfilter
+        items = SFilter(self.file_graph, reverse=True)
+
+        # Build the arguments for the parser function and call parallel map
+        with Timer(logger=perf, text='[Loki::Scheduler] Performed the actual parse loop in {:.2f}s'):
+            sources = tuple(item.source for item in items)
+            fargs = tuple(
+                self.config.create_frontend_args(item.name, default_frontend_args)
+                for item in items
+            )
+            f_sources = self.executor.map(self._parse_source, sources, fargs)
+
+        # Set the "completed" Sourcefile on the item
+        for item, source in zip(items, f_sources):
+            item.source = source
 
         # Re-build the SGraph after parsing to pick up all new connections
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
 
-    @Timer(logger=perf, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
+    @Timer(logger=info, text='[Loki::Scheduler] Enriched call tree in {:.2f}s')
     def _enrich(self):
         """
         For items that have a specific enrichment list provided as part of their

@@ -19,7 +19,6 @@ from loki.ir import (
 )
 from loki.logging import warning
 from loki.module import Module
-from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
@@ -1133,39 +1132,6 @@ class ItemFactory:
             item = item_cls(item_name, source=source, config=item_conf)
         self.item_cache[item_name] = item
         return item
-
-    def get_or_create_file_item_from_path(self, path, config, frontend_args=None):
-        """
-        Utility method to create a :any:`FileItem` for a given path
-
-        This is used to instantiate items for the first time during the scheduler's
-        discovery phase. It will use a cached item if it exists, or parse the source
-        file using the given :data:`frontend_args`.
-
-        Parameters
-        ----------
-        path : str or pathlib.Path
-            The file path of the source file
-        config : :any:`SchedulerConfig`
-            The config object from which the item configuration will be derived
-        frontend_args : dict, optional
-            Frontend arguments that are given to :any:`Sourcefile.from_file` when
-            parsing the file
-        """
-        item_name = str(path).lower()
-        if file_item := self.item_cache.get(item_name):
-            return file_item
-
-        if not frontend_args:
-            frontend_args = {}
-        if config:
-            frontend_args = config.create_frontend_args(path, frontend_args)
-
-        source = Sourcefile.from_file(path, **frontend_args)
-        item_conf = config.create_item_config(item_name) if config else None
-        file_item = FileItem(item_name, source=source, config=item_conf)
-        self.item_cache[item_name] = file_item
-        return file_item
 
     def get_or_create_file_item_from_source(self, source, config):
         """

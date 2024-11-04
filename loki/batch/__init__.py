@@ -15,6 +15,7 @@ configuration utilities for large call tree traversals.
 """
 
 from loki.batch.configure import * # noqa
+from loki.batch.executor import * # noqa
 from loki.batch.item import * # noqa
 from loki.batch.pipeline import * # noqa
 from loki.batch.scheduler import * # noqa
