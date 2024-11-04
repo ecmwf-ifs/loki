@@ -414,22 +414,23 @@ end subroutine rick
 """
     source = Sourcefile.from_source(fcode)
     source.path = Path('rick.F90')
-    item = ProcedureItem(name='#rick', source=source)
-
-    # Test default file writes
-    ricks_path = tmp_path/'rick.loki.F90'
-    if ricks_path.exists():
-        ricks_path.unlink()
-    FileWriteTransformation().apply(source=source, item=item, build_args={'output_dir': tmp_path})
-    assert ricks_path.exists()
-    ricks_path.unlink()
+    item = ProcedureItem(name='#rick', source=source, config={'mode': 'roll'})
 
     # Test mode and suffix overrides
     ricks_path = tmp_path/'rick.roll.java'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation(mode='roll', suffix='.java').apply(source=source, item=item,
-                                                               build_args={'output_dir': tmp_path})
+    FileWriteTransformation(suffix='.java').apply(source=source, item=item,
+                                                  build_args={'output_dir': tmp_path})
+    assert ricks_path.exists()
+    ricks_path.unlink()
+
+    item = ProcedureItem(name='#rick', source=source)
+    # Test default file writes
+    ricks_path = tmp_path/'rick.loki.F90'
+    if ricks_path.exists():
+        ricks_path.unlink()
+    FileWriteTransformation().apply(source=source, item=item, build_args={'output_dir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 
