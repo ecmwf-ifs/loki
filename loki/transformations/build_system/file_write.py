@@ -69,6 +69,7 @@ class FileWriteTransformation(Transformation):
         path = Path(item.path)
         suffix = self.suffix if self.suffix else path.suffix
         sourcepath = Path(item.path).with_suffix(f'.{self.mode}{suffix}')
-        if (builddir := kwargs.get('build_args', {}).get('builddir', None)) is not None:
-            sourcepath = Path(builddir)/sourcepath.name
+        build_args = kwargs.get('build_args', {})
+        if build_args and (output_dir := build_args.get('output_dir', None)) is not None:
+            sourcepath = Path(output_dir)/sourcepath.name
         sourcefile.write(path=sourcepath, cuf=self.cuf)

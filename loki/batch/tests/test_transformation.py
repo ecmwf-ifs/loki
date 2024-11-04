@@ -420,7 +420,7 @@ end subroutine rick
     ricks_path = tmp_path/'rick.loki.F90'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation().apply(source=source, item=item, build_args={'builddir': tmp_path})
+    FileWriteTransformation().apply(source=source, item=item, build_args={'output_dir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 
@@ -429,7 +429,7 @@ end subroutine rick
     if ricks_path.exists():
         ricks_path.unlink()
     FileWriteTransformation(mode='roll', suffix='.java').apply(source=source, item=item,
-                                                                                  build_args={'builddir': tmp_path})
+                                                               build_args={'output_dir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 
@@ -437,7 +437,7 @@ end subroutine rick
     ricks_path = tmp_path/'rick.loki.F90'
     if ricks_path.exists():
         ricks_path.unlink()
-    FileWriteTransformation().apply(source=source, items=(item,), build_args={'builddir': tmp_path})
+    FileWriteTransformation().apply(source=source, items=(item,), build_args={'output_dir': tmp_path})
     assert ricks_path.exists()
     ricks_path.unlink()
 

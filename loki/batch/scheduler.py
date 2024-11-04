@@ -120,7 +120,7 @@ class Scheduler:
         By default a full parse is executed, use this flag to suppress.
     frontend : :any:`Frontend`, optional
         Frontend to use for full parse of source files (default :any:`FP`).
-    builddir : str or path
+    output_dir : str or path
         Directory for the output to be written to
     """
 
@@ -129,7 +129,7 @@ class Scheduler:
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
                  includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, frontend=FP, builddir=None):
+                 omni_includes=None, full_parse=True, frontend=FP, output_dir=None):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -156,7 +156,7 @@ class Scheduler:
             'xmods': xmods,
             'omni_includes': omni_includes,
             'frontend': frontend,
-            'builddir': builddir
+            'output_dir': output_dir
         }
 
         # Internal data structures to store the callgraph

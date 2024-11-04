@@ -169,7 +169,7 @@ def convert(
     paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend, definitions=definitions, builddir=build, **build_args
+        paths=paths, config=config, frontend=frontend, definitions=definitions, output_dir=build, **build_args
     )
 
     # If requested, apply a custom pipeline from the scheduler config
