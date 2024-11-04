@@ -10,10 +10,12 @@ import pytest
 from loki import Subroutine, Module, Dimension
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
-
+from loki.expression import symbols as sym
+from loki.scope import Scope
 from loki.transformations.parallel import (
-    remove_field_api_view_updates, add_field_api_view_updates
+    remove_field_api_view_updates, add_field_api_view_updates, get_field_type
 )
+from loki.types import BasicType, SymbolAttributes
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -119,3 +121,52 @@ end subroutine test_remove_block_loop
     assert calls[3].name == 'STATE%UPDATE_VIEW' and calls[3].arguments == ('IBL',)
 
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+
+
+def test_get_field_type():
+    type_map = ["jprb",
+                "jpit",
+                "jpis",
+                "jpim",
+                "jpib",
+                "jpia",
+                "jprt",
+                "jprs",
+                "jprm",
+                "jprd",
+                "jplm"]
+    field_types = [
+                    "field_1rb", "field_2rb", "field_3rb",
+                    "field_1it", "field_2it", "field_3it",
+                    "field_1is", "field_2is", "field_3is",
+                    "field_1im", "field_2im", "field_3im",
+                    "field_1ib", "field_2ib", "field_3ib",
+                    "field_1ia", "field_2ia", "field_3ia",
+                    "field_1rt", "field_2rt", "field_3rt",
+                    "field_1rs", "field_2rs", "field_3rs",
+                    "field_1rm", "field_2rm", "field_3rm",
+                    "field_1rd", "field_2rd", "field_3rd",
+                    "field_1lm", "field_2lm", "field_3lm",
+                  ]
+
+    def generate_fields(types):
+        generated = []
+        for type_name in types:
+            for dim in range(1, 4):
+                shape = tuple(None for _ in range(dim))
+                a = sym.Variable(name='test_array',
+                                 type=SymbolAttributes(BasicType.REAL,
+                                                       shape=shape,
+                                                       kind=sym.Variable(name=type_name)))
+                generated.append(get_field_type(a))
+        return generated
+
+    generated = generate_fields(type_map)
+    for field, field_name in zip(generated, field_types):
+        assert isinstance(field, sym.DerivedType) and field.name == field_name
+
+    generated = generate_fields([t.upper() for t in type_map])
+    for field, field_name in zip(generated, field_types):
+        assert isinstance(field, sym.DerivedType) and field.name == field_name
+
+

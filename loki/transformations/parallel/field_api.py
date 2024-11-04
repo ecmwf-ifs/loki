@@ -173,12 +173,12 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
                 "jprm",
                 "jprd",
                 "jplm"]
-
     type_name = a.type.kind.name
+
     assert type_name.lower() in type_map, ('Error array type kind is: '
                                            f'"{type_name}" which is not a valid IFS type specifier')
     rank = len(a.shape)
-    field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4])
+    field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4].lower())
     return field_type
 
 
@@ -199,7 +199,8 @@ class FieldAPITransferType(Enum):
 
 
 def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope):
-    assert isinstance(transfer_type, FieldAPITransferType)
+    if not isinstance(transfer_type, FieldAPITransferType):
+        raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
     if transfer_type == FieldAPITransferType.READ_ONLY:
         suffix = 'RDONLY'
     if transfer_type == FieldAPITransferType.READ_WRITE:
