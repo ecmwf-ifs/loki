@@ -1094,6 +1094,34 @@ end subroutine add
         assert '#define' not in c_routine
         assert '#endif' not in c_routine
 
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('codegen', (cgen, cppgen, cudagen))
+def test_transpile_routine_with_interface(tmp_path, frontend, codegen):
+    """
+    Test transpilation of 'INTERFACE's.
+    """
+
+    fcode = """
+subroutine some_routine_with_interf(a, b, result)
+  INTERFACE
+    SUBROUTINE KERNEL(a, b, c)
+      INTEGER, INTENT(INOUT) :: a, b, c
+    END SUBROUTINE KERNEL
+  END INTERFACE
+
+    real, intent(in) :: a, b
+    real, intent(out) :: result
+
+    result = a + b
+end subroutine some_routine_with_interf
+""".strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=tmp_path)
+    c_routine = codegen(routine).lower()
+    assert 'interface' not in c_routine
+    assert 'kernel' not in c_routine
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('f_type', ['integer', 'real'])

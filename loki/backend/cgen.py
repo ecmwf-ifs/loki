@@ -273,6 +273,9 @@ class CCodegen(Stringifier):
         footer = [self.format_line('}')]
         return footer
 
+    def visit_Interface(self, o, **kwargs):
+        return None
+
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as:
