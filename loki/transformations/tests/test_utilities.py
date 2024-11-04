@@ -131,7 +131,7 @@ subroutine my_NOT_ALL_lowercase_ROUTINE(VAR1, another_VAR, lower_case, MiXeD_Cas
     end do
 
     do K=1,ANOTHER_VAR
-        LOWER_CASE(K) = K - 1
+        LOWER_CASE(MIXEd_cASE(1, K)) = K - 1
     end do
 end subroutine my_NOT_ALL_lowercase_ROUTINE
     """.strip()
