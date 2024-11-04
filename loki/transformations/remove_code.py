@@ -123,18 +123,26 @@ class RemoveCodeTransformation(Transformation):
         self._update_callstatements(routine, successors)
 
         if role == 'kernel':
-            # find unused args
-            unused_args = self._find_unused_args(routine)
+            item.trafo_data[self._key] = {'unused_args': {}}
 
-            # store unused args
-            item.trafo_data[self._key] = {'unused_args': unused_args}
+            # cache original routine args
+            _routine_args = routine.arguments
 
-            # remove unused args
-            routine.variables = [a for a in routine.variables
-                                 if not (a in unused_args or a.name.lower() in unused_args)]
+            # we repeat to also catch args that are only used to define the size of other
+            # unused args
+            for _ in range(2):
+                # find unused args
+                unused_args = self._find_unused_args(routine, _routine_args)
+
+                # store unused args
+                item.trafo_data[self._key]['unused_args'].update(unused_args)
+
+                # remove unused args
+                routine.variables = [a for a in routine.variables
+                                     if not (a in unused_args or a.name.lower() in unused_args)]
 
     @staticmethod
-    def _find_unused_args(routine):
+    def _find_unused_args(routine, _routine_args):
 
         unused_args = {}
         variable_map = routine.symbol_map
@@ -144,7 +152,7 @@ class RemoveCodeTransformation(Transformation):
 
             used_or_defined_symbols |= set(variable_map.get(v.name_parts[0], v) for v in used_or_defined_symbols)
 
-            unused_args = {a: c for c, a in enumerate(routine.arguments)
+            unused_args = {a: c for c, a in enumerate(_routine_args)
                            if not a.name.lower() in used_or_defined_symbols}
 
         return unused_args
