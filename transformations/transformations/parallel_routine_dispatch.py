@@ -143,6 +143,58 @@ class ParallelRoutineDispatchTransformation(Transformation):
         """
         self.init_map_region(map_region)
 
+        targets, region_name = self.process_pragma(map_routine, region)
+
+        self.get_region_variables(routine, region, map_routine, map_region)
+
+        self.create_synchost(routine, region_name, map_region)
+        self.create_nullify(routine, region_name, map_region)
+
+        for target in targets:
+            self.process_target(
+                routine, region, region_name, map_routine, map_region, target
+            )
+
+        self.create_new_region(
+            routine, region, region_name, map_region, targets
+        )
+
+        self.add_derived_to_map_routine(map_routine, map_region)
+
+    def get_region_variables(self, routine, region, map_routine, map_region):
+        """
+        Creates some entries in map_regegion
+        """
+        self.get_region_arrays(
+            region, map_routine, map_region
+        )  # map_region to store field_new and field_delete
+        self.process_derived_types(region, routine, map_region)
+        region_map_private = self.get_private(region)
+        region_map_var = [
+            var
+            for var in chain(map_region["map_arrays"].values(), map_region["map_derived"].values())
+        ]
+        region_map_var_sorted = sorted(region_map_var, key=lambda x: x[1].name)
+
+        map_region["var_sorted"] = region_map_var_sorted
+        #map_region["map_arrays"] = region_map_arrays
+        #map_region["map_derived"] = region_map_derived
+        map_region["private"] = region_map_private
+        region_map_not_field = sorted(
+            map_region["not_field_array"] 
+        )  # TODO : uniforme names sorted/unsorted; sort at one point, maybe here?
+        map_region["not_field_array"] = region_map_not_field
+
+    def init_map_region(self, map_region):
+        map_region["get_data"] = {}
+        map_region["compute"] = {}
+        map_region["region"] = {}
+        map_region["lparallel"] = {}
+        map_region["scalar"] = []
+        map_region["not_field_array"] = []
+        return map_region
+
+    def process_pragma(self, map_routine, region):
         pragma_content = region.pragma.content.split(maxsplit=1)
         pragma_content = [entry.replace(" ", "") for entry in pragma_content]
         pragma_content = [
@@ -160,54 +212,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
             pragma_attrs["name"] = str(map_routine["nb_no_name"])
             map_routine["nb_no_name"] += 1
 
-        pragma_attrs["target"] = pragma_attrs["target"].split("/")
+        targets = pragma_attrs["target"].split("/")
         region_name = pragma_attrs["name"]
-
-        region_map_arrays = self.get_region_arrays(
-            map_routine, region
-        )  # map_region to store field_new and field_delete
-        region_map_derived, region_map_not_field = self.process_derived_types(
-            routine, region
-        )
-        region_map_private = self.get_private(region)
-        region_map_var = [
-            var
-            for var in chain(region_map_arrays.values(), region_map_derived.values())
-        ]
-        region_map_var_sorted = sorted(region_map_var, key=lambda x: x[1].name)
-
-        map_region["var_sorted"] = region_map_var_sorted
-        map_region["map_arrays"] = region_map_arrays
-        map_region["map_derived"] = region_map_derived
-        map_region["private"] = region_map_private
-        region_map_not_field = sorted(
-            region_map_not_field
-        )  # TODO : uniforme names sorted/unsorted; sort at one point, maybe here?
-        map_region["not_field_array"] = region_map_not_field
-
-        self.create_synchost(routine, region_name, map_region)
-        self.create_nullify(routine, region_name, map_region)
-
-        targets = pragma_attrs["target"]
-        for target in targets:
-            self.process_target(
-                routine, region, region_name, map_routine, map_region, target
-            )
-
-        self.create_new_region(
-            routine, region, region_name, map_region, targets
-        )
-
-        self.add_derived_to_map_routine(map_routine, map_region)
-
-    def init_map_region(self, map_region):
-        map_region["get_data"] = {}
-        map_region["compute"] = {}
-        map_region["region"] = {}
-        map_region["lparallel"] = {}
-        map_region["scalar"] = []
-        map_region["not_field_array"] = []
-        return map_region
+        return targets, region_name
 
     def clean_imports(self,routine, map_routine):
         # sanitise_imports(routine) => bug...
@@ -446,10 +453,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
         map_routine["map_arrays"] = routine_map_arrays
 
-    def get_region_arrays(self, map_routine, region):
+    def get_region_arrays(self, region, map_routine, map_region):
         """Finds arrays in map_routine["map_arrays"] for the region.
         region : parallel region or call statement (call outside of parallel region)
-        return : region_map_arrays
         """
         arrays = [var for var in FindVariables(Array).visit(region)]
         region_map_arrays = {}
@@ -458,7 +464,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 field_api_ptr = map_routine["map_arrays"][var.name][0]
                 ptr_var = map_routine["map_arrays"][var.name][1]
                 region_map_arrays[var.name] = [field_api_ptr, ptr_var]
-        return region_map_arrays
+        map_region["map_arrays"] = region_map_arrays
 
     def add_arrays(self, routine, map_routine):
         routine_map_arrays = map_routine["map_arrays"]
@@ -535,7 +541,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ),
         )
 
-    def process_derived_types(self, routine, region):
+    def process_derived_types(self, region, routine, map_region):
         """
         I - Finds the derived types of the region that are in map_derived_field and creates:
 
@@ -639,7 +645,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         not_field_array_ = [
             var for var in not_field_array if var not in basename_derived
         ]
-        return (region_map_derived, not_field_array_)
+        map_region["map_derived"] = region_map_derived
+        map_region["not_field_array"] = not_field_array_
+        #return (region_map_derived, not_field_array_)
 
     def get_private(self, region):
         lhs = [a.lhs for a in FindNodes(ir.Assignment).visit(region)]
@@ -1293,16 +1301,14 @@ class ParallelRoutineDispatchTransformation(Transformation):
         call_mapper = {}  # mapper for transformation
         for call in calls:
             if call.name != "DR_HOOK" and call.name != "ABOR1":
-                region_map_arrays = self.get_region_arrays(
-                    map_routine, call
+                self.get_region_arrays(
+                    call, map_routine, map_region
                 )  # map_region to store field_new and field_delete
-                region_map_derived, region_map_not_field = self.process_derived_types(
-                    routine, call
-                )
-                map_region["map_arrays"] = map_region["map_arrays"] | region_map_arrays
-                map_region["map_derived"] = (
-                    map_region["map_derived"] | region_map_derived
-                )
+                self.process_derived_types(call, routine, map_region)
+                ###map_region["map_arrays"] = map_region["map_arrays"] | region_map_arrays
+                ###map_region["map_derived"] = (
+                ###    map_region["map_derived"] | region_map_derived
+                ###)
                 # TODO 2 cases : derived type used just outside acdc region : no field, or use in both : field...
                 #                map_region['map_derived'][1] = None #no field to add to routine dcl
                 # TODO fix the field_new = map_region[...] .... this is because map_region['field_new'] is init in get_region_arrays.
@@ -1315,10 +1321,10 @@ class ParallelRoutineDispatchTransformation(Transformation):
                         or isinstance(arg, sym.LogicalAnd)
                         or isinstance(arg, sym.StringLiteral)
                     ):
-                        if arg.name in region_map_arrays:
-                            new_arguments += [region_map_arrays[arg.name][0]]
-                        elif arg.name in region_map_derived:
-                            new_arguments += [region_map_derived[arg.name][0]]
+                        if arg.name in map_region["map_arrays"]:
+                            new_arguments += [map_region["map_arrays"][arg.name][0]]
+                        elif arg.name in map_region["map_derived"]:
+                            new_arguments += [map_region["map_derived"][arg.name][0]]
                         else:
                             new_arguments += [arg]
                     else:
