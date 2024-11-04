@@ -1181,35 +1181,34 @@ end subroutine transform_resolve_vector_notation_common_loops
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('calls_only', (False, True))
-@pytest.mark.parametrize('as_kwargs', (False, True))
-def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only, as_kwargs):
+def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
     """
     Test making dimensions of arrays explicit and undoing this,
     thus removing colon notation from array dimensions either for all
     or for arrays within (inline) calls only.
     """
-    fcode_driver = f"""
+    fcode_driver = """
   SUBROUTINE driver_routine(nlon, nlev, a, b)
     use kernel_explicit_dimensions_mod, only: kernel_routine
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
     INTEGER, INTENT(INOUT)  :: b(nlon,nlev)
 
-    call kernel_routine(nlon, nlev, {'a=' if as_kwargs else ''}a, {'b=' if as_kwargs else ''}b)
+    call kernel_routine(nlon, a, b=b, nlev=nlev)
 
   END SUBROUTINE driver_routine
     """
 
-    fcode_kernel = f"""
+    fcode_kernel = """
   module kernel_explicit_dimensions_mod
   IMPLICIT NONE
   CONTAINS 
-  SUBROUTINE kernel_routine(nlon, nlev, a, b)
+  SUBROUTINE kernel_routine(nlon, a, b, nlev)
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
     INTEGER, INTENT(INOUT) :: b(nlon,nlev)
 
-    A = MYADD({'A=' if as_kwargs else ''}A, {'B=' if as_kwargs else ''}B)
+    A = MYADD(A, B=B)
   END SUBROUTINE kernel_routine
 
   PURE ELEMENTAL FUNCTION MYADD(A, B)
@@ -1260,10 +1259,8 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only, 
         assignments = FindNodes(Assignment).visit(kernel.body)
         assert len(assignments) == 1
         assert len(assignments[0].lhs.dimensions) == 2
-        if not as_kwargs:
-            parameters = assignments[0].rhs.parameters
-        else:
-            parameters = [param[1] for param in assignments[0].rhs.kwarguments]
+        parameters = (assignments[0].rhs.parameters[0],)
+        parameters += (assignments[0].rhs.kwarguments[0][1],)
         assert not parameters[0].dimensions
         assert not parameters[1].dimensions
     else:
