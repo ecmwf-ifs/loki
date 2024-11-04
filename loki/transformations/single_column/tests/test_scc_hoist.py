@@ -433,7 +433,7 @@ end module my_scaling_value_mod
 
     scc_hoist = SCCHoistPipeline(
         horizontal=horizontal, block_dim=blocking,
-        directive='openacc', dim_vars=(vertical.size,)
+        directive='openacc', dim_vars=vertical.sizes
     )
 
     # Apply in reverse order to ensure hoisting analysis gets run on kernel first
@@ -557,7 +557,7 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
 
     scc_hoist = SCCHoistPipeline(
         horizontal=horizontal, block_dim=blocking,
-        dim_vars=(vertical.size,), as_kwarguments=as_kwarguments, directive='openacc'
+        dim_vars=vertical.sizes, as_kwarguments=as_kwarguments, directive='openacc'
     )
 
     # Apply in reverse order to ensure hoisting analysis gets run on kernel first
@@ -736,7 +736,7 @@ def test_scc_hoist_nested_inline_openacc(frontend, horizontal, vertical, blockin
 
     scc_hoist = SCCHoistPipeline(
         horizontal=horizontal, block_dim=blocking,
-        dim_vars=(vertical.size,), directive='openacc'
+        dim_vars=vertical.sizes, directive='openacc'
     )
 
     InlineTransformation(allowed_aliases=horizontal.index).apply(outer_kernel)

@@ -8,7 +8,51 @@
 import pytest
 
 from loki import Subroutine, Dimension, FindNodes, Loop
+from loki.batch import SchedulerConfig
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends
+from loki.scope import Scope, SymbolAttributes
+from loki.types import BasicType
+
+
+def test_dimension_properties():
+    """
+    Test that :any:`Dimension` objects store the correct strings.
+    """
+    scope = Scope()
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    i = sym.Variable(name='i', type=type_int, scope=scope)
+    n = sym.Variable(name='n', type=type_int, scope=scope)
+    z = sym.Variable(name='z', type=type_int, scope=scope)
+    one = sym.IntLiteral(1)
+    two = sym.IntLiteral(2)
+
+    simple = Dimension('simple', index='i', upper='n', size='z')
+    assert simple.index == i
+    assert simple.upper == n
+    assert simple.size == z
+
+    detail = Dimension(index='i', lower='1', upper='n', step='2', size='z')
+    assert detail.index == i
+    assert detail.lower == one
+    assert detail.upper == n
+    assert detail.step == two
+    assert detail.size == z
+    # Check derived properties
+    assert detail.bounds == (one, n)
+    assert detail.range == sym.LoopRange((1, n))
+
+    multi = Dimension(
+        index=('i', 'idx'), lower=('1', 'start'), upper=('n', 'end'), size='z'
+    )
+    assert multi.index == i
+    assert multi.indices == (i, sym.Variable(name='idx', type=type_int, scope=scope))
+    assert multi.lower == (one, sym.Variable(name='start', type=type_int, scope=scope))
+    assert multi.upper == (n, sym.Variable(name='end', type=type_int, scope=scope))
+    assert multi.size == z
+    # Check derived properties
+    assert multi.bounds ==  (one, n)
+    assert multi.range == sym.LoopRange((1, n))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -67,7 +111,48 @@ end subroutine test_dimension_index
 
     # Test the correct creation of horizontal dim with aliased bounds vars
     _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'bnds%end'))
-    with pytest.raises(RuntimeError):
-        _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start',))
-    with pytest.raises(RuntimeError):
-        _ = Dimension('test_dim_alias', bounds_aliases=('bnds%start', 'some_other_bnds%end'))
+
+
+def test_dimension_config(tmp_path):
+    """
+    Test that :any:`Dimension` objects get created from
+    :any:`SchedulerConfig` correctly.
+    """
+    scope = Scope()
+    type_int = SymbolAttributes(dtype=BasicType.INTEGER)
+    type_deferred = SymbolAttributes(dtype=BasicType.DEFERRED)
+    ibl = sym.Variable(name='ibl', type=type_int, scope=scope)
+    nblocks = sym.Variable(name='nblocks', type=type_int, scope=scope)
+    start = sym.Variable(name='start', type=type_int, scope=scope)
+    end = sym.Variable(name='end', type=type_int, scope=scope)
+    dim = sym.Variable(name='dim', type=type_deferred, scope=scope)
+    one = sym.IntLiteral(1)
+
+    config_str = """
+[dimensions.dim_a]
+  size = 'NBLOCKS'
+  index = 'IBL'
+  bounds = ['START', 'END']
+  aliases = ['DIM%START', 'DIM%END']
+
+[dimensions.dim_b]
+  size = 'nblocks'
+  index = 'ibl'
+  lower = ['1', 'start', 'dim%start']
+  upper = ['nblocks', 'end', 'dim%end']
+"""
+    cfg_path = tmp_path/'test_config.yml'
+    cfg_path.write_text(config_str)
+
+    config = SchedulerConfig.from_file(cfg_path)
+    dim_a = config.dimensions['dim_a']
+    assert dim_a.size == nblocks
+    assert dim_a.index == ibl
+    assert dim_a.bounds == (start, end)
+
+    dim_b = config.dimensions['dim_b']
+    assert dim_b.size == nblocks
+    assert dim_b.index == ibl
+    assert dim_b.bounds == (sym.IntLiteral(1), nblocks)
+    assert dim_b.lower == (one, start, start.clone(parent=dim))
+    assert dim_b.upper == (nblocks, end, end.clone(parent=dim))

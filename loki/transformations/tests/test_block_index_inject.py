@@ -241,7 +241,7 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
     aliased_bounds = not blockview_to_fieldview_code[1]
     ibl_expr = blocking.index
     if aliased_bounds:
-        ibl_expr = blocking.index_expressions[1]
+        ibl_expr = blocking.indices[1]
 
     assigns = FindNodes(Assignment).visit(kernel.body)
 
@@ -288,7 +288,7 @@ def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blo
     aliased_bounds = not blockview_to_fieldview_code[1]
     ibl_expr = blocking.index
     if aliased_bounds:
-        ibl_expr = blocking.index_expressions[1]
+        ibl_expr = blocking.indices[1]
 
     assigns = FindNodes(Assignment).visit(kernel.body)
 
@@ -708,11 +708,10 @@ end module compute_mod
     driver_loops = FindNodes(ir.Loop).visit(driver.body)
     kernel_loops = FindNodes(ir.Loop).visit(kernel_mod['kernel'].body)
     another_kernel_loops = FindNodes(ir.Loop).visit(another_kernel_mod['another_kernel'].body)
-    assert any(loop.variable == blocking.index or loop.variable in blocking._index_aliases for loop in driver_loops)
-    assert not any(loop.variable == blocking.index or loop.variable in blocking._index_aliases for loop in kernel_loops)
+    assert any(loop.variable in blocking.indices for loop in driver_loops)
+    assert not any(loop.variable in blocking.indices for loop in kernel_loops)
     if 'another_kernel' in targets:
-        assert not any(loop.variable == blocking.index or loop.variable
-                in blocking._index_aliases for loop in another_kernel_loops)
+        assert not any(loop.variable in blocking.indices for loop in another_kernel_loops)
 
     LowerBlockLoopTransformation(blocking).apply(driver, role='driver', targets=targets)
     LowerBlockLoopTransformation(blocking).apply(kernel_mod['kernel'], role='kernel', targets=targets)
@@ -734,21 +733,18 @@ end module compute_mod
     driver_loops = FindNodes(ir.Loop).visit(driver.body)
     kernel_loops = FindNodes(ir.Loop).visit(kernel_mod['kernel'].body)
     another_kernel_loops = FindNodes(ir.Loop).visit(another_kernel_mod['another_kernel'].body)
-    assert len([loop for loop in driver_loops if loop.variable == blocking.index
-        or loop.variable in blocking._index_aliases]) == 1
-    assert any(loop.variable == blocking.index or loop.variable in blocking._index_aliases
-            for loop in kernel_loops)
+    assert len([loop for loop in driver_loops if loop.variable in blocking.indices]) == 1
+    assert any(loop.variable in blocking.indices for loop in kernel_loops)
     if 'another_kernel' in targets:
-        assert any(loop.variable == blocking.index or loop.variable in blocking._index_aliases
-                for loop in another_kernel_loops)
+        assert any(loop.variable in blocking.indices for loop in another_kernel_loops)
     kernel_call = FindNodes(ir.CallStatement).visit(driver.body)[0]
     assert blocking.size in [kwarg[0] for kwarg in kernel_call.kwarguments]
     assert blocking.index not in [kwarg[0] for kwarg in kernel_call.kwarguments]
-    for index_alias in blocking._index_aliases:
-        assert index_alias not in [kwarg[0] for kwarg in kernel_call.kwarguments]
-        assert index_alias not in kernel_mod['kernel'].arguments
+    for index in blocking.indices:
+        assert index not in [kwarg[0] for kwarg in kernel_call.kwarguments]
+        assert index not in kernel_mod['kernel'].arguments
         if 'another_kernel' in targets:
-            assert index_alias not in another_kernel_mod['another_kernel'].arguments
+            assert index not in another_kernel_mod['another_kernel'].arguments
     assert blocking.size in kernel_mod['kernel'].arguments
     assert blocking.index not in kernel_mod['kernel'].arguments
     assert blocking.index in kernel_mod['kernel'].variable_map

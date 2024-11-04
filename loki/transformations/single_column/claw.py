@@ -155,7 +155,7 @@ class ExtractSCATransformation(Transformation):
         wrap : bool
             Flag to trigger the creation of a loop to wrap the kernel call in.
         """
-        size_expressions = self.horizontal.size_expressions
+        size_expressions = self.horizontal.sizes
         replacements = {}
 
         for call in FindNodes(CallStatement).visit(caller.body):
@@ -274,7 +274,7 @@ class CLAWTransformation(ExtractSCATransformation):
 
         # Store the names of all variables that we are about to remove
         claw_vars = [v.name for v in routine.variables
-                     if isinstance(v, Array) and v.shape[0] in self.horizontal.size_expressions]
+                     if isinstance(v, Array) and v.shape[0] in self.horizontal.sizes]
 
         # The CLAW assumes that variables defining dimension sizes or iteration spaces
         # exist in both driver and kernel as local variables. We often rely on implicit
