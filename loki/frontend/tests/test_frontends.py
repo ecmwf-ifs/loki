@@ -1963,7 +1963,7 @@ end module some_mod
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
 def test_frontend_routine_variables_dimension_pragmas(frontend):
     """
-    Test that `!$loki dimension` pragmas can be used to verride the
+    Test that `!$loki dimension` pragmas can be used to override the
     conceptual `.shape` of local and argument variables.
     """
     fcode = """
@@ -2019,6 +2019,69 @@ end subroutine routine_variables_dimensions
     assert isinstance(routine.variable_map['v6'].shape[0], sym.Quotient)
     assert isinstance(routine.variable_map['v6'].shape[1], sym.Power)
     assert isinstance(routine.variable_map['v6'].shape[2], sym.Quotient)
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
+def test_frontend_module_variables_dimension_pragmas(frontend, tmp_path):
+    """
+    Test that `!$loki dimension` pragmas can be used to override the
+    conceptual `.shape` of module variables.
+    """
+    code_mod = """
+module mod_variable_dimensions
+
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  integer :: x, y
+
+  !$loki dimension(10)
+  real(kind=jprb), intent(inout) :: v0(:)
+  !$loki dimension(x)
+  real(kind=jprb), intent(inout) :: v1(:)
+  !$loki dimension(x,y,:)
+  real(kind=jprb), dimension(:,:,:), intent(inout) :: v2, v3
+  !$loki dimension(x,y)
+  real(kind=jprb), pointer, intent(inout) :: v4(:,:)
+  !$loki dimension(x+y,2*x)
+  real(kind=jprb), allocatable :: v5(:,:)
+  !$loki dimension(x/2, x**2, (x+y)/x)
+  real(kind=jprb), dimension(:, :, :), pointer :: v6 
+end module mod_variable_dimensions
+    """
+
+    def to_str(expr):
+        return str(expr).lower().replace(' ', '')
+
+    mod = Module.from_source(code_mod, frontend=frontend, xmods=[tmp_path])
+    variable_map = mod.variable_map
+    assert variable_map['v0'].shape[0] == 10
+    assert isinstance(variable_map['v0'].shape[0], sym.IntLiteral)
+    assert isinstance(variable_map['v1'].shape[0], sym.Scalar)
+    assert variable_map['v2'].shape[0] == 'x'
+    assert variable_map['v2'].shape[1] == 'y'
+    assert variable_map['v2'].shape[2] == ':'
+    assert isinstance(variable_map['v2'].shape[0], sym.Scalar)
+    assert isinstance(variable_map['v2'].shape[1], sym.Scalar)
+    assert isinstance(variable_map['v2'].shape[2], sym.RangeIndex)
+    assert variable_map['v3'].shape[0] == 'x'
+    assert variable_map['v3'].shape[1] == 'y'
+    assert variable_map['v3'].shape[2] == ':'
+    assert isinstance(variable_map['v3'].shape[0], sym.Scalar)
+    assert isinstance(variable_map['v3'].shape[1], sym.Scalar)
+    assert isinstance(variable_map['v3'].shape[2], sym.RangeIndex)
+    assert variable_map['v4'].shape[0] == 'x'
+    assert variable_map['v4'].shape[1] == 'y'
+    assert isinstance(variable_map['v4'].shape[0], sym.Scalar)
+    assert isinstance(variable_map['v4'].shape[1], sym.Scalar)
+    assert to_str(variable_map['v5'].shape[0]) == 'x+y'
+    assert to_str(variable_map['v5'].shape[1]) == '2*x'
+    assert isinstance(variable_map['v5'].shape[0], sym.Sum)
+    assert isinstance(variable_map['v5'].shape[1], sym.Product)
+    assert to_str(variable_map['v6'].shape[0]) == 'x/2'
+    assert to_str(variable_map['v6'].shape[1]) == 'x**2'
+    assert to_str(variable_map['v6'].shape[2]) == '(x+y)/x'
+    assert isinstance(variable_map['v6'].shape[0], sym.Quotient)
+    assert isinstance(variable_map['v6'].shape[1], sym.Power)
+    assert isinstance(variable_map['v6'].shape[2], sym.Quotient)
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_import_of_private_symbols(tmp_path, frontend):
