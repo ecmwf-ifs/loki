@@ -1011,8 +1011,7 @@ class FieldOffloadTransformation(Transformation):
 
 
     def __init__(self, **kwargs):
-        self.devptr_prefix = kwargs.get('devptr_prefix', 'loki_devptr')
-        self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
+        self.deviceptr_prefix = kwargs.get('devptr_prefix', 'loki_devptr_')
         field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE'])
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
 
@@ -1086,14 +1085,14 @@ class FieldOffloadTransformation(Transformation):
         driver.variables += device_ptrs
         return device_ptrs
 
-    def _devptr_from_array(self, driver, a: sym.Array) -> sym.Variable:
+    def _devptr_from_array(self, driver, a: sym.Array):
         """
         Returns a contiguous pointer :any:`Variable` with types matching the array a
         """
         shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
         devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
-        devptr_name = self.devptr_prefix + base_name
+        devptr_name = self.deviceptr_prefix + base_name
         try:
             driver.variable_map[devptr_name]
             warning(f'[Loki] Field data offload: The routine {driver.name} already has a' +

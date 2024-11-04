@@ -16,12 +16,11 @@ from loki.ir import (
     FindNodes, Pragma, PragmaRegion, Loop, CallStatement, Import,
     pragma_regions_attached, get_pragma_parameters
 )
+import loki.expression.symbols as sym
 from loki.transformations import (
     DataOffloadTransformation, GlobalVariableAnalysis,
-    GlobalVarOffloadTransformation, GlobalVarHoistTransformation
+    GlobalVarOffloadTransformation, GlobalVarHoistTransformation, FieldOffloadTransformation
 )
-from loki.expression import symbols as sym
-from loki.scope import Scope
 from loki.transformations.data_offload import find_array_arguments, find_target_calls
 
 
@@ -810,24 +809,6 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
     assert kernel.variable_map['p0'].type.dtype.name == 'point'
 
 
-def test_get_field_type():
-    type_map = ["jprb",
-                "jpit",
-                "jpis",
-                "jpim",
-                "jpib",
-                "jpia",
-                "jprt",
-                "jprs",
-                "jprm",
-                "jprd",
-                "jplm"]
-    type_map += [t.upper() for t in type_map]
-    scope = Scope()
-    for type_name in type_map:
-        for dim in range(1,4):
-            a = sym.Array(name='test_array', dimensions=(dim), scope=scope)
-            # Am I going about this wrong with shape?
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_find_array_arguments(frontend):
@@ -847,7 +828,7 @@ def test_find_array_arguments(frontend):
         REAL                    :: d_copy
         REAL                    :: e_copy
         REAL                    :: f_copy
-        
+
         call kernel_routine(nlon_copy, nlev_copy, a_copy, b_copy, c_copy, d_copy, e_copy, f_copy)
 
       END SUBROUTINE driver_routine
@@ -861,7 +842,7 @@ def test_find_array_arguments(frontend):
         REAL, INTENT(IN)        :: d
         REAL, INTENT(IN)        :: e
         REAL, INTENT(IN)        :: f
-        
+
         do j=1, nlon
           do i=1, nlev
             b_copy(i) = a(i,j) + 0.1
@@ -879,4 +860,248 @@ def test_find_array_arguments(frontend):
         assert len(in_vars) == 1 and in_vars[0].name == 'a_copy'
         assert len(inout_vars) == 1 and inout_vars[0].name == 'b_copy'
         assert len(out_vars) == 1 and out_vars[0].name == 'c_copy'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload(frontend):
+    fcode = """
+    module driver_mod
+      use state_type_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      implicit none
+
+      type state_type
+        real(kind=jprb), dimension(10,10), pointer :: a, b, c
+        class(field_3rb), pointer :: f_a, f_b, f_c
+      end type state_type
+
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+
+    driver_mod = Sourcefile.from_source(fcode)['driver_mod']
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            field_group_types=['state_type']),
+                 role='driver',
+                 targets=['kernel_routine'])
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    kernel_call = next(c for c in calls if c.name=='kernel_routine')
+
+    # verify that field offloads are generated properly
+    in_calls = [c for c in calls if 'get_device_data_rdonly' in c.name.name.lower()]
+    assert len(in_calls) == 1
+    inout_calls = [c for c in calls if 'get_device_data_rdwr' in c.name.name.lower()]
+    assert len(inout_calls) == 2
+    # verify that field sync host calls are generated properly
+    sync_calls = [c for c in calls if 'sync_host_rdwr' in c.name.name.lower()]
+    assert len(sync_calls) == 2
+
+    # verify that data offload pragmas remain
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 2
+    assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'end data']))
+
+    # verify that new pointer variables are created and used in driver calls
+    for var in ['state_a', 'state_b', 'state_c']:
+        name = deviceptr_prefix + var
+        assert name in driver.variable_map
+        devptr = driver.variable_map[name]
+        assert isinstance(devptr, sym.Array)
+        assert len(devptr.shape) == 3
+        assert devptr.name in (arg.name for arg in kernel_call.arguments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_multiple_calls(frontend):
+    fcode = """
+    module driver_mod
+      use state_type_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      implicit none
+
+      type state_type
+        real(kind=jprb), dimension(10,10), pointer :: a, b, c
+        class(field_3rb), pointer :: f_a, f_b, f_c
+      end type state_type
+
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+
+    driver_mod = Sourcefile.from_source(fcode)['driver_mod']
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            field_group_types=['state_type']),
+                 role='driver',
+                 targets=['kernel_routine'])
+    calls = FindNodes(CallStatement).visit(driver.body)
+    kernel_calls = [c for c in calls if c.name=='kernel_routine']
+    
+    # verify that field offloads are generated properly
+    in_calls = [c for c in calls if 'get_device_data_rdonly' in c.name.name.lower()]
+    assert len(in_calls) == 1
+    inout_calls = [c for c in calls if 'get_device_data_rdwr' in c.name.name.lower()]
+    assert len(inout_calls) == 2
+    # verify that field sync host calls are generated properly
+    sync_calls = [c for c in calls if 'sync_host_rdwr' in c.name.name.lower()]
+    assert len(sync_calls) == 2
+
+    # verify that data offload pragmas remain
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 2
+    assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'end data']))
+    
+    # verify that new pointer variables are created and used in driver calls
+    for var in ['state_a', 'state_b', 'state_c']:
+        name = deviceptr_prefix + var
+        assert name in driver.variable_map
+        devptr = driver.variable_map[name]
+        assert isinstance(devptr, sym.Array)
+        assert len(devptr.shape) == 3
+        assert devptr.name in (arg.name for kernel_call in kernel_calls for arg in kernel_call.arguments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_no_targets(frontend):
+    fcode = """
+    module driver_mod
+      use state_type_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      use another_module, only: another_kernel
+      implicit none
+
+      type state_type
+        real(kind=jprb), dimension(10,10), pointer :: a, b, c
+        class(field_3rb), pointer :: f_a, f_b, f_c
+      end type state_type
+
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+
+            call another_kernel()
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+
+    driver_mod = Sourcefile.from_source(fcode)['driver_mod']
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            field_group_types=['state_type']),
+                 role='driver',
+                 targets=['kernel_routine'])
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert not any(c for c in calls if c.name=='kernel_routine')
+
+    # verify that no field offloads are generated
+    in_calls = [c for c in calls if 'get_device_data_rdonly' in c.name.name.lower()]
+    assert len(in_calls) == 0
+    inout_calls = [c for c in calls if 'get_device_data_rdwr' in c.name.name.lower()]
+    assert len(inout_calls) == 0
+    # verify that no field sync host calls are generated
+    sync_calls = [c for c in calls if 'sync_host_rdwr' in c.name.name.lower()]
+    assert len(sync_calls) == 0
+
+    # verify that data offload pragmas remain
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 2
+    assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'end data']))
 
