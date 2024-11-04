@@ -1351,10 +1351,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 )
                 call_mapper[call] = new_call
         # pointers on field associated to derived type musn't be added to routine dcl
-        map_region["map_derived"] = [] 
-
-
-        self.add_derived_to_map_routine(map_routine, map_region)
         map_routine["call_mapper"] = call_mapper
 
     def add_derived_to_map_routine(self, map_routine, map_region):
