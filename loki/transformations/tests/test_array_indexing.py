@@ -13,7 +13,7 @@ from loki import Module, Subroutine, fgen
 from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import FindNodes, CallStatement, Loop, FindVariables
+from loki.ir import FindNodes, CallStatement, Loop, FindVariables, Assignment
 
 from loki.transformations.array_indexing import (
     promote_variables, demote_variables, invert_array_indices,
@@ -1183,34 +1183,43 @@ end subroutine transform_resolve_vector_notation_common_loops
 @pytest.mark.parametrize('calls_only', (False, True))
 def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
     """
-    Test flattening or arrays, meaning converting multi-dimensional
-    arrays to one-dimensional arrays including corresponding
-    index arithmetic (for calls).
+    Test making dimensions of arrays explicit and undoing this,
+    thus removing colon notation from array dimensions either for all
+    or for arrays within (inline) calls only.
     """
     fcode_driver = """
   SUBROUTINE driver_routine(nlon, nlev, a, b)
-    use kernel_mod, only: kernel_routine
+    use kernel_explicit_dimensions_mod, only: kernel_routine
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
     INTEGER, INTENT(INOUT)  :: b(nlon,nlev)
 
-    call kernel_routine(nlon, nlev, a, b)
+    call kernel_routine(nlon, a, b=b, nlev=nlev)
 
   END SUBROUTINE driver_routine
     """
+
     fcode_kernel = """
-  module kernel_mod
+  module kernel_explicit_dimensions_mod
   IMPLICIT NONE
-  CONTAINS
-  SUBROUTINE kernel_routine(nlon, nlev, a, b)
+  CONTAINS 
+  SUBROUTINE kernel_routine(nlon, a, b, nlev)
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
     INTEGER, INTENT(INOUT) :: b(nlon,nlev)
 
-    a = a + b
+    A = MYADD(A, B=B)
   END SUBROUTINE kernel_routine
-  end module kernel_mod
+
+  PURE ELEMENTAL FUNCTION MYADD(A, B)
+    INTEGER :: MYADD
+    INTEGER, INTENT(IN) :: A, B
+
+    MYADD = A + B
+  END FUNCTION
+  end module kernel_explicit_dimensions_mod
     """
+
     def init_arguments(nlon, nlev):
         a = 2*np.ones(shape=(nlon,nlev,), order='F', dtype=np.int32)
         b = 3*np.ones(shape=(nlon,nlev,), order='F', dtype=np.int32)
@@ -1218,7 +1227,7 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
 
     kernel_module = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
-            definitions=[kernel_module])
+                                     definitions=[kernel_module])
     kernel = kernel_module.subroutines[0]
 
     # compile and test reference
@@ -1242,13 +1251,20 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
     # remove explicit array dimensions (possibly only for calls)
     remove_explicit_array_dimensions(driver, calls_only=calls_only)
     remove_explicit_array_dimensions(kernel, calls_only=calls_only)
+
     kernel_call = FindNodes(CallStatement).visit(driver.body)[0]
     kernel_call_array_args = [arg for arg in kernel_call.arguments if isinstance(arg, sym.Array)]
     assert all(not arg.dimensions for arg in kernel_call_array_args)
-    kernel_arrays = FindVariables().visit(kernel.body)
     if calls_only:
-        assert all(len(arr.dimensions) == 2 for arr in kernel_arrays)
+        assignments = FindNodes(Assignment).visit(kernel.body)
+        assert len(assignments) == 1
+        assert len(assignments[0].lhs.dimensions) == 2
+        parameters = (assignments[0].rhs.parameters[0],)
+        parameters += (assignments[0].rhs.kwarguments[0][1],)
+        assert not parameters[0].dimensions
+        assert not parameters[1].dimensions
     else:
+        kernel_arrays = FindVariables().visit(kernel.body)
         assert all(not arr.dimensions for arr in kernel_arrays)
 
     # compile and test the resulting code
