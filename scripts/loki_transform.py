@@ -116,7 +116,7 @@ def cli(debug):
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
-@click.option('--num-workers', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+@click.option('--num-workers', type=int, default=0, envvar='LOKI_NUM_WORKERS',
               help='Number of worker processes to use for parallel processing steps.')
 def convert(
         mode, config, build, source, header, cpp, directive, include, define, omni_include, xmod,
@@ -440,7 +440,7 @@ def convert(
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
-@click.option('--num-workers', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+@click.option('--num-workers', type=int, default=0, envvar='LOKI_NUM_WORKERS',
               help='Number of worker processes to use for parallel processing steps.')
 def plan(
          mode, config, header, source, build, root, cpp, directive,

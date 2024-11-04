@@ -12,6 +12,7 @@ from pathlib import Path
 from codetiming import Timer
 
 from loki.batch.configure import SchedulerConfig
+from loki.batch.executor import SerialExecutor
 from loki.batch.item import (
     FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
     InterfaceItem, TypeDefItem, ExternalItem, ItemFactory
@@ -121,6 +122,9 @@ class Scheduler:
     full_parse: bool, optional
         Flag indicating whether a full parse of all sourcefiles is required.
         By default a full parse is executed, use this flag to suppress.
+    num_workers : int, default: 0
+        Number of processes to use for parallel processing. Use the default
+        value ``0`` to bypass parallel processing and process serially.
     frontend : :any:`Frontend`, optional
         Frontend to use for full parse of source files (default :any:`FP`).
     """
@@ -130,7 +134,7 @@ class Scheduler:
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
                  includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, num_workers=1, frontend=FP):
+                 omni_includes=None, full_parse=True, num_workers=0, frontend=FP):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -141,8 +145,12 @@ class Scheduler:
 
         self.full_parse = full_parse
 
-        # Create the parallel pool executor for parallel processing
-        self.executor = ProcessPoolExecutor(max_workers=num_workers)
+        if num_workers > 0:
+            # Create the parallel pool executor for parallel processing
+            self.executor = ProcessPoolExecutor(max_workers=num_workers)
+        else:
+            # Create a dummy executor that mimics the concurrent Exectuor API
+            self.executor = SerialExecutor()
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
