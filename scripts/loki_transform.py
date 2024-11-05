@@ -140,6 +140,9 @@ def convert(
 
     config = SchedulerConfig.from_file(config)
 
+    # set default transformation mode in Scheduler config
+    config.default['mode'] = mode
+
     directive = None if directive.lower() == 'none' else directive.lower()
 
     build_args = {
@@ -169,7 +172,7 @@ def convert(
     paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend, definitions=definitions, **build_args
+        paths=paths, config=config, frontend=frontend, definitions=definitions, output_dir=build, **build_args
     )
 
     # If requested, apply a custom pipeline from the scheduler config
@@ -186,7 +189,7 @@ def convert(
         # Write out all modified source files into the build directory
         file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
         if not file_write_trafo:
-            file_write_trafo = FileWriteTransformation(builddir=build, mode=mode, cuf='cuf' in mode)
+            file_write_trafo = FileWriteTransformation(cuf='cuf' in mode)
         scheduler.process(transformation=file_write_trafo)
 
         return
@@ -352,7 +355,7 @@ def convert(
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim,
                 dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True)
         scheduler.process( pipeline )
-    
+
     if mode == 'cuf-parametrise':
         pipeline = scheduler.config.transformations.get('cuf-parametrise', None)
         if not pipeline:
@@ -406,8 +409,7 @@ def convert(
 
     # Write out all modified source files into the build directory
     scheduler.process(transformation=FileWriteTransformation(
-        builddir=build, mode=mode, cuf='cuf' in mode,
-        include_module_var_imports=global_var_offload
+        cuf='cuf' in mode, include_module_var_imports=global_var_offload
     ))
 
 
