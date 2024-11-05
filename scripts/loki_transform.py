@@ -17,7 +17,7 @@ import click
 
 from loki import (
     config as loki_config, Sourcefile, Frontend, as_tuple,
-    set_excepthook, auto_post_mortem_debugger, info
+    set_excepthook, auto_post_mortem_debugger, info, warning
 )
 from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
 
@@ -200,6 +200,12 @@ def convert(
         'cuf-parametrise', 'cuf-hoist', 'cuf-dynamic', 'scc-raw-stack',
         'idem-lower', 'idem-lower-loop', 'cuda-parametrise', 'cuda-hoist'
     ]
+
+    # Add deprecation message to warn about future removal of non-config entry point.
+    # Once we're ready to force config-only mode, everything after this can go.
+    msg = '[Loki] [DEPRECATION WARNING] Custom entry points to loki-transform.py convert are deprecated.\n'
+    msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
+    warning(msg)
 
     # Pull dimension definition from configuration
     horizontal = scheduler.config.dimensions.get('horizontal', None)
