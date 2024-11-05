@@ -52,7 +52,7 @@ field_group_types = [
     'AUX_DIAG_TYPE', 'AUX_DIAG_LOCAL_TYPE', 'DDH_SURF_TYPE',
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
-    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY', 'ECPHYS_OPTS_TYPE'
+    'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY',
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
@@ -71,7 +71,7 @@ shared_variables = [
     'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
     'ZCONVCTY', 'YDDIMV', 'YDPHY2',
     'PHYS_MWAVE', 'ZSPPTGFIX',
-    'ZSURFACE', 'YDVARS'
+    'ZSURFACE', 'YDVARS', 'YLOPTS'
 ]
 
 
