@@ -29,7 +29,7 @@ class RemoveCodeTransformation(Transformation):
     """
     A :any:`Transformation` that provides named call and import
     removal, code removal of pragma-marked regions and Dead Code
-    Elimination for batch processing vis the :any:`Scheduler`.
+    Elimination for batch processing via the :any:`Scheduler`.
 
     The transformation will apply the following methods in order:
 
