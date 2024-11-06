@@ -914,6 +914,7 @@ def test_field_offload(frontend):
     driver = driver_mod['driver_routine']
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            offload_index='i', 
                                             field_group_types=['state_type']),
                  role='driver',
                  targets=['kernel_routine'])
@@ -1000,6 +1001,7 @@ def test_field_offload_multiple_calls(frontend):
     driver = driver_mod['driver_routine']
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            offload_index='i', 
                                             field_group_types=['state_type']),
                  role='driver',
                  targets=['kernel_routine'])
@@ -1084,6 +1086,7 @@ def test_field_offload_no_targets(frontend):
     driver = driver_mod['driver_routine']
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            offload_index='i', 
                                             field_group_types=['state_type']),
                  role='driver',
                  targets=['kernel_routine'])
