@@ -880,16 +880,23 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
     def update_vars(self, routine, var, region_map, scc):
         new_var = region_map[var.name][1]
-        if isinstance(var.dimensions[0], sym.RangeIndex):
-            if scc:
-                jlon = (routine.variable_map["JLON"],)
-                new_dimensions = jlon + var.dimensions[1:]
-            else:
-                new_dimensions = var.dimensions
+        if not bool(var.dimensions):
+            new_dimensions = self.get_dimensions(routine, var, scc)
+        elif isinstance(var.dimensions[0], sym.RangeIndex):
+            new_dimensions = self.get_dimensions(routine, var, scc)
         else:
             new_dimensions = var.dimensions
         new_dimensions += (self.jblk,)
         return new_var.clone(dimensions=new_dimensions)
+
+    def get_dimensions(self, routine, var, scc):
+        jlon = (routine.variable_map["JLON"],)
+        if scc:
+            jlon = (routine.variable_map["JLON"],)
+            new_dimensions = jlon + var.dimensions[1:]
+        else:
+            new_dimensions = var.dimensions
+        return new_dimensions
 
     def process_not_call(self, routine, region, map_routine, map_region, scc):
         verbose = False
@@ -1320,6 +1327,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
                         isinstance(arg, sym.LogicalOr)
                         or isinstance(arg, sym.LogicalAnd)
                         or isinstance(arg, sym.StringLiteral)
+                        or isinstance(arg, sym.LogicLiteral)
+                        or isinstance(arg, sym.FloatLiteral)
                     ):
                         if arg.name in map_region["map_arrays"]:
                             new_arguments += [map_region["map_arrays"][arg.name][0]]
