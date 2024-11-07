@@ -69,9 +69,11 @@ def test_symbol_recreation():
         cargs = dict(zip(expr.init_arg_names, expr.__getinitargs__()))
         clone = type(expr)(**cargs)
         assert clone == expr
+        assert clone is not expr
 
         if isinstance(expr, sym.TypedSymbol):
             # Check that TypedSymbols replicate scope via .clone()
             scoped_clone = expr.clone()
             assert scoped_clone == expr
-            assert scoped_clone.scope == expr.scope
+            assert scoped_clone is not expr
+            assert scoped_clone.scope is expr.scope
