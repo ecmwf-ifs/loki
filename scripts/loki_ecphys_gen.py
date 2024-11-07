@@ -119,8 +119,8 @@ def promote_temporary_arrays(routine, horizontal, blocking):
     """
     Promote remaining block-scoped local temporary arrays to full size.
     """
-    block_size = routine.resolve_typebound_var(blocking.size)
-    block_idx = routine.resolve_typebound_var(blocking.index)
+    block_size = routine.parse_expr(blocking.size)
+    block_idx = routine.parse_expr(blocking.index)
 
     arrays_to_promote = tuple(
         v.name for v in routine.variables
@@ -401,6 +401,17 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             # Re-insert explicit firstprivate copies
             create_explicit_firstprivatisation(ec_phys_parallel, fprivate_map=lcopies_firstprivates)
 
+    if promote_local_arrays:
+        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Promoted local arrays in {s:.2f}s'):
+            # Bit of a hack, but easier that way
+            remove_redundant_declarations(routine=ec_phys_parallel)
+
+            promote_temporary_arrays(
+                routine=ec_phys_parallel,
+                horizontal=Dimension(name='horizontal', index='JL', size='YDGEOMETRY%YRDIM%NPROMA'),
+                blocking=Dimension(name='blocking', index='IBL', size='YDGEOMETRY%YRDIM%NGPBLKS'),
+            )
+
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Extracted driver routines in {s:.2f}s'):
 
         driver_routines = outline_driver_routines(ec_phys_parallel)
@@ -432,17 +443,6 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             symbols = (sym.DeferredTypeSymbol(name=driver.name), )
             imprt = ir.Import(module=f'{driver.name}_MOD', symbols=symbols)
             ec_phys_parallel.spec.prepend(imprt)
-
-    if promote_local_arrays:
-        with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Promoted local arrays in {s:.2f}s'):
-            # Bit of a hack, but easier that way
-            remove_redundant_declarations(routine=ec_phys_parallel)
-
-            promote_temporary_arrays(
-                routine=ec_phys_parallel,
-                horizontal=Dimension(name='horizontal', index='JL', size='YDGEOMETRY%YRDIM%NPROMA'),
-                blocking=Dimension(name='blocking', index='IBL', size='YDGEOMETRY%YRDIM%NGPBLKS'),
-            )
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
