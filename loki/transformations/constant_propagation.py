@@ -189,7 +189,7 @@ class ConstantPropagator(NestedTransformer):
             if any([isinstance(v, FloatLiteral) for v in literals]):
                 # Strange rounding possibility
                 if self.fold_floats:
-                    return FloatLiteral(new_base.value ** new_exponent.value)
+                    return FloatLiteral(str(float(new_base.value) ** float(new_exponent.value)))
                 else:
                     return o
             else:
