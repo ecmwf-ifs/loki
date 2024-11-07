@@ -191,6 +191,7 @@ def outline_driver_routines(routine):
                 intent_map['in'] = tuple(parent_vmap[v.lower()] for v in parameters.get('in', '').split(',') if v)
                 intent_map['inout'] = tuple(parent_vmap[v.lower()] for v in parameters.get('inout', '').split(',') if v)
                 intent_map['out'] = tuple(parent_vmap[v.lower()] for v in parameters.get('out', '').split(',') if v)
+                intent_map['local'] = tuple(parent_vmap[v.lower()] for v in parameters.get('local', '').split(',') if v)
 
                 call, region_routine = outline_region(region, name, imports, intent_map=intent_map)
 
