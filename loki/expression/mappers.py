@@ -9,7 +9,7 @@
 Mappers for traversing and transforming the
 :ref:`internal_representation:Expression tree`.
 """
-from copy import deepcopy
+
 import re
 from itertools import zip_longest
 import pymbolic.primitives as pmbl
@@ -515,37 +515,23 @@ class LokiIdentityMapper(IdentityMapper):
     This can serve as basis for any transformation mappers
     that apply changes to the expression tree. Expression nodes that
     are unchanged are returned as is.
-
-    Parameters
-    ----------
-    invalidate_source : bool, optional
-        By default the :attr:`source` property of nodes is discarded
-        when rebuilding the node, setting this to `False` allows to
-        retain that information
     """
 
-    def __init__(self, invalidate_source=True):
-        super().__init__()
-        self.invalidate_source = invalidate_source
+    @staticmethod
+    def _rebuild(expr):
+        """ Utility to safely rebuild any symbol """
+        if hasattr(expr, 'clone'):
+            return expr.clone()
+
+        # Re-create symbol Pymbolic-style
+        cargs = dict(zip(expr.init_arg_names, expr.__getinitargs__()))
+        return type(expr)(**cargs)
 
     def __call__(self, expr, *args, **kwargs):
         if expr is None:
             return None
         kwargs.setdefault('recurse_to_declaration_attributes', False)
-        new_expr = super().__call__(expr, *args, **kwargs)
-        if getattr(expr, 'source', None):
-            if isinstance(new_expr, tuple):
-                for e in new_expr:
-                    if self.invalidate_source:
-                        e.source = None
-                    else:
-                        e.source = deepcopy(expr.source)
-            else:
-                if self.invalidate_source:
-                    new_expr.source = None
-                else:
-                    new_expr.source = deepcopy(expr.source)
-        return new_expr
+        return super().__call__(expr, *args, **kwargs)
 
     rec = __call__
 
@@ -557,7 +543,7 @@ class LokiIdentityMapper(IdentityMapper):
     def map_int_literal(self, expr, *args, **kwargs):
         kind = self.rec(expr.kind, *args, **kwargs)
         if kind is expr.kind:
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(expr.value, kind=kind)
 
     map_float_literal = map_int_literal
@@ -615,11 +601,11 @@ class LokiIdentityMapper(IdentityMapper):
         parent = self.rec(expr.parent, *args, **kwargs)
         if expr.scope is None:
             if parent is expr.parent and not is_type_changed:
-                return expr
+                return self._rebuild(expr)
             return expr.clone(parent=parent, type=new_type)
 
         if parent is expr.parent:
-            return expr
+            return self._rebuild(expr)
         return expr.clone(parent=parent)
 
     map_deferred_type_symbol = map_variable_symbol
@@ -631,7 +617,7 @@ class LokiIdentityMapper(IdentityMapper):
         # but with no rebuilt it may return VariableSymbol. Therefore we need to return the
         # original expression if the underlying symbol is unchanged
         if symbol is expr._symbol:
-            return expr
+            return self._rebuild(expr)
         return symbol
 
     map_scalar = map_meta_symbol
@@ -659,7 +645,7 @@ class LokiIdentityMapper(IdentityMapper):
         if (getattr(symbol, 'symbol', symbol) is expr.symbol and
                 all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
                 all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):
-            return expr
+            return self._rebuild(expr)
         return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape), parent=parent)
 
     def map_array_subscript(self, expr, *args, **kwargs):
@@ -678,14 +664,14 @@ class LokiIdentityMapper(IdentityMapper):
         kind = self.rec(expr.kind, *args, **kwargs)
         if (function is expr.function and kind is expr.kind and
                 all(p is orig_p for p, orig_p in zip_longest(parameters, expr.parameters))):
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(function, parameters, kind=kind)
 
     def map_sum(self, expr, *args, **kwargs):
         # Need to re-implement to avoid application of flattened_sum/flattened_product
         children = self.rec(expr.children, *args, **kwargs)
         if all(c is orig_c for c, orig_c in zip_longest(children, expr.children)):
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(children)
 
     def map_quotient(self, expr, *args, **kwargs):
@@ -707,7 +693,7 @@ class LokiIdentityMapper(IdentityMapper):
         values = tuple(v if isinstance(v, str) else self.rec(v, *args, **kwargs)
                        for v in expr.elements)
         if all(v is orig_v for v, orig_v in zip_longest(values, expr.elements)):
-            return expr
+            return self._rebuild(expr)
         return expr.__class__(values, dtype=expr.dtype)
 
     def map_inline_do(self, expr, *args, **kwargs):
@@ -750,15 +736,11 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     ----------
     expr_map : dict
         Expression mapping to apply to the expression tree.
-    invalidate_source : bool, optional
-        By default the :attr:`source` property of nodes is discarded
-        when rebuilding the node, setting this to `False` allows to
-        retain that information
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, expr_map, invalidate_source=True):
-        super().__init__(invalidate_source=invalidate_source)
+    def __init__(self, expr_map):
+        super().__init__()
 
         self.expr_map = expr_map
         for expr in self.expr_map.keys():
@@ -770,7 +752,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         otherwise continue tree traversal
         """
         if expr in self.expr_map:
-            return self.expr_map[expr]
+            return self._rebuild(self.expr_map[expr])
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
 
@@ -789,7 +771,7 @@ class AttachScopesMapper(LokiIdentityMapper):
     """
 
     def __init__(self, fail=False):
-        super().__init__(invalidate_source=False)
+        super().__init__()
         self.fail = fail
 
     def _update_symbol_scope(self, expr, scope):
@@ -846,9 +828,6 @@ class DetachScopesMapper(LokiIdentityMapper):
     itself, which is useful when storing information for inter-procedural
     analysis passes.
     """
-
-    def __init__(self):
-        super().__init__(invalidate_source=False)
 
     def map_variable_symbol(self, expr, *args, **kwargs):
         new_expr = super().map_variable_symbol(expr, *args, **kwargs)

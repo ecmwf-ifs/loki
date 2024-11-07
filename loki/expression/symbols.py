@@ -1236,6 +1236,8 @@ class LiteralList(pmbl.AlgebraicLeaf):
     A list of constant literals, e.g., as used in Array Initialization Lists.
     """
 
+    init_arg_names = ('values', 'dtype')
+
     def __init__(self, values, dtype=None, **kwargs):
         self.elements = values
         self.dtype = dtype
@@ -1424,16 +1426,25 @@ class Cast(pmbl.Call):
     Internal representation of a data type cast.
     """
 
+    init_arg_names = ('name', 'expression', 'kind')
+
     def __init__(self, name, expression, kind=None, **kwargs):
         assert kind is None or isinstance(kind, pmbl.Expression)
         self.kind = kind
         super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
+
+    def __getinitargs__(self):
+        return (self.name, self.expression, self.kind)
 
     mapper_method = intern('map_cast')
 
     @property
     def name(self):
         return self.function.name
+
+    @property
+    def expression(self):
+        return self.parameters
 
 
 class Range(StrCompareMixin, pmbl.Slice):

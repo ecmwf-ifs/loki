@@ -252,8 +252,7 @@ def test_is_dimension_constant(frontend):
     assert not is_const[3]
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_normalized_loop_range(tmp_path, frontend):
+def test_normalized_loop_range():
     """
     Tests the num_iterations and normalized_loop_range functions.
     """
@@ -270,12 +269,11 @@ def test_normalized_loop_range(tmp_path, frontend):
                 assert normalized_start == 1, "LoopRange.start should be equal to 1 in a normalized range"
 
                 normalized_stop = floor(LokiEvaluationMapper()(normalized_range.stop))
-                assert normalized_stop == len(
-                    pyrange), "LoopRange.stop should be equal to the total number of iterations of the original LoopRange"
+                assert normalized_stop == len(pyrange), \
+                    "LoopRange.stop should be equal to the total number of iterations of the original LoopRange"
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_iteration_number(tmp_path, frontend):
+def test_iteration_number():
     for start in range(-10, 11):
         for stop in range(start + 1, 50, 4):
             for step in itertools.chain([None], range(1, stop - start)):
@@ -290,8 +288,7 @@ def test_iteration_number(tmp_path, frontend):
                            zip(pyrange, normalized_range))
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_iteration_index(tmp_path, frontend):
+def test_iteration_index():
     for start in range(-10, 11):
         for stop in range(start + 1, 50, 4):
             for step in range(1, stop - start):
@@ -304,6 +301,3 @@ def test_iteration_index(tmp_path, frontend):
                 LEM = LokiEvaluationMapper()
                 assert all(i == LEM(iteration_index(sym.IntLiteral(n), loop_range)) for i, n in
                            zip(pyrange, normalized_range))
-
-
-

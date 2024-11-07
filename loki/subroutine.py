@@ -11,7 +11,7 @@ from loki.frontend import (
     parse_regex_source
 )
 from loki.ir import (
-    nodes as ir, FindNodes, Transformer, is_loki_pragma, pragmas_attached
+    nodes as ir, FindNodes, Transformer, pragmas_attached
 )
 from loki.logging import debug
 from loki.program_unit import ProgramUnit
@@ -449,12 +449,10 @@ class Subroutine(ProgramUnit):
         definitions_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(definitions))
         with pragmas_attached(self, ir.CallStatement, attach_pragma_post=False):
             for call in FindNodes(ir.CallStatement).visit(self.body):
-                # Calls marked as 'reference' are inactive and thus skipped
-                not_active = is_loki_pragma(call.pragma, starts_with='reference')
-                if call.not_active is not not_active:
-                    call._update(not_active=not_active)
 
-                symbol = call.name
+                # Clone symbol to ensure Deferred symbols are
+                # recognised ProcedureSymbols
+                symbol = call.name.clone()
                 routine = definitions_map.get(symbol.name)
 
                 if not routine and symbol.parent:
@@ -471,6 +469,9 @@ class Subroutine(ProgramUnit):
                     symbol.type.dtype is BasicType.DEFERRED or      # Wrong datatype
                     symbol.type.dtype.procedure is not routine      # ProcedureType not linked
                 )
+
+                # Always update the call symbol to ensure it is up-to-date
+                call._update(name=symbol)
 
                 # Skip already enriched symbols and routines without definitions
                 if not (routine and is_not_enriched):

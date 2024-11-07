@@ -246,8 +246,7 @@ class SubstituteExpressions(Transformer):
     def __init__(self, expr_map, invalidate_source=True, **kwargs):
         super().__init__(invalidate_source=invalidate_source, **kwargs)
 
-        self.expr_mapper = SubstituteExpressionsMapper(expr_map,
-                                                       invalidate_source=invalidate_source)
+        self.expr_mapper = SubstituteExpressionsMapper(expr_map)
 
     def visit_Expression(self, o, **kwargs):
         """

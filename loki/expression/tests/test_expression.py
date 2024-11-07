@@ -12,7 +12,6 @@ import pytest
 import numpy as np
 
 import pymbolic.primitives as pmbl
-import pymbolic.mapper as pmbl_mapper
 
 from loki import (
     Sourcefile, Subroutine, Module, Scope, BasicType,
