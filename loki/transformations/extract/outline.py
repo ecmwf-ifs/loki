@@ -186,7 +186,7 @@ def outline_pragma_regions(routine):
     """
     counter = 0
     routines = []
-    imports = FindNodes(Import).visit(routine.spec)
+    imports = routine.imports
     parent_vmap = routine.variable_map
     mapper = {}
     with pragma_regions_attached(routine):
@@ -202,9 +202,9 @@ def outline_pragma_regions(routine):
 
                 # Extract explicitly requested symbols from context
                 intent_map = {}
-                intent_map['in'] = tuple(parent_vmap[v.lower()] for v in parameters.get('in', '').split(',') if v)
-                intent_map['inout'] = tuple(parent_vmap[v.lower()] for v in parameters.get('inout', '').split(',') if v)
-                intent_map['out'] = tuple(parent_vmap[v.lower()] for v in parameters.get('out', '').split(',') if v)
+                intent_map['in'] = tuple(parent_vmap[v] for v in parameters.get('in', '').split(',') if v)
+                intent_map['inout'] = tuple(parent_vmap[v] for v in parameters.get('inout', '').split(',') if v)
+                intent_map['out'] = tuple(parent_vmap[v] for v in parameters.get('out', '').split(',') if v)
 
                 call, region_routine = outline_region(region, name, imports, intent_map=intent_map)
 
