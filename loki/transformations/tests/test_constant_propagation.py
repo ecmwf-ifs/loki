@@ -13,9 +13,7 @@ from loki import (
 from loki.build import jit_compile
 from loki.frontend import available_frontends
 
-from loki.transformations.transform_region import (
-    ConstantPropagator
-)
+from loki.transformations.constant_propagation import ConstantPropagator
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
