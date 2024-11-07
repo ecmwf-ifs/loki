@@ -8,14 +8,14 @@
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import symbols as sym, Variable
 from loki.ir import (
-    CallStatement, Import, PragmaRegion, Section, FindNodes,
+    CallStatement, PragmaRegion, Section, FindNodes,
     FindVariables, Transformer, is_loki_pragma,
     get_pragma_parameters, pragma_regions_attached
 )
 from loki.logging import info
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.types import BasicType, DerivedType
+from loki.types import BasicType
 
 
 
@@ -31,7 +31,7 @@ def order_variables_by_type(variables, imports=None):
 
     derived = tuple(
         v for v in variables
-        if isinstance(v.type.dtype, DerivedType) or v.type.dtype == BasicType.DEFERRED
+        if not isinstance(v, (sym.Scalar, sym.Array)) or not isinstance(v.type.dtype, BasicType)
     )
 
     if imports:
