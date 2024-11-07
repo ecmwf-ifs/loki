@@ -103,11 +103,12 @@ def outline_region(region, name, imports, intent_map=None):
     pragma_in_args = {v.clone(scope=region_routine) for v in intent_map['in']}
     pragma_inout_args = {v.clone(scope=region_routine) for v in intent_map['inout']}
     pragma_out_args = {v.clone(scope=region_routine) for v in intent_map['out']}
+    pragma_locals = {v.clone(scope=region_routine) for v in intent_map.get('local', ())}
 
     # Override arguments according to pragma annotations
-    region_in_args = (region_in_args - (pragma_inout_args | pragma_out_args)) | pragma_in_args
-    region_inout_args = (region_inout_args - (pragma_in_args | pragma_out_args)) | pragma_inout_args
-    region_out_args = (region_out_args - (pragma_in_args | pragma_inout_args)) | pragma_out_args
+    region_in_args = (region_in_args - (pragma_inout_args | pragma_out_args | pragma_locals)) | pragma_in_args
+    region_inout_args = (region_inout_args - (pragma_in_args | pragma_out_args | pragma_locals)) | pragma_inout_args
+    region_out_args = (region_out_args - (pragma_in_args | pragma_inout_args | pragma_locals)) | pragma_out_args
 
     # Now fix the order
     region_inout_args = as_tuple(region_inout_args)
