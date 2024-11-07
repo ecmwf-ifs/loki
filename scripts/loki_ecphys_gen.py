@@ -16,7 +16,9 @@ from pathlib import Path
 import click
 from codetiming import Timer
 
-from loki import config as loki_config, Sourcefile, Dimension, info
+from loki import (
+    config as loki_config, Sourcefile, Dimension, info, flatten
+)
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Scheduler, Pipeline
 from loki.expression import symbols as sym
@@ -367,6 +369,10 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
 
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
+
+    headers = ['convection_layer.F90', 'turbulence_layer.F90', 'cloud_layer.F90']
+    definitions = tuple(flatten(Sourcefile.from_file(source/h).definitions for h in headers))
+    ec_phys_parallel.enrich(definitions)
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
