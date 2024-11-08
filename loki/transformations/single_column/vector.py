@@ -416,7 +416,7 @@ class SCCRevectorTransformation(Transformation):
                 p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
             ]
 
-            loop_pragmas += ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
+            loop_pragmas += [ir.Pragma(keyword='loki', content=f'loop driver{vector_length}'),]
 
         loop._update(pragma=as_tuple(loop_pragmas))
 
