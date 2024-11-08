@@ -398,8 +398,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
         if mode == 'offload':
             if alias:
                 host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
-                wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var})'))
-            wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr})'))
+                wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({alias_var}) finalize'))
+            wipe += as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({field_ptr}) finalize'))
             wipe += as_tuple(ir.CallStatement(name=sym.Variable(name='DELETE_DEVICE_DATA', parent=field_object),
                                                   arguments=()))
         elif alias:
