@@ -46,4 +46,4 @@ class SanitiseTransformation(Transformation):
 
         # Transform arrays passed with scalar syntax to array syntax
         if self.resolve_sequence_association:
-            transform_sequence_association(routine)
+            do_resolve_sequence_association(routine)

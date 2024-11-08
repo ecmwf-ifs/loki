@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.batch import Transformation
 from loki.expression import Array, RangeIndex
 from loki.ir import Transformer
 from loki.tools import as_tuple
@@ -12,8 +13,29 @@ from loki.types import BasicType
 
 
 __all__ = [
-    'transform_sequence_association', 'SequenceAssociationTransformer'
+    'SequenceAssociationTransformation',
+    'do_resolve_sequence_association',
+    'SequenceAssociationTransformer'
 ]
+
+
+class SequenceAssociationTransformation(Transformation):
+    """
+    :any:`Transformation` that resolves sequence association patterns
+    in :any:`CallStatement` nodes.
+
+    Parameters
+    ----------
+    resolve_sequence_associations : bool
+        Flag to trigger or suppress resolution of sequence associations
+    """
+
+    def __init__(self, resolve_sequence_associations=True):
+        self.resolve_sequence_associations = resolve_sequence_associations
+
+    def transform_subroutine(self, routine, **kwargs):  # pylint: disable=unused-argument
+        if self.resolve_sequence_associations:
+            do_resolve_sequence_association(routine)
 
 
 def check_if_scalar_syntax(arg, dummy):
@@ -34,10 +56,10 @@ def check_if_scalar_syntax(arg, dummy):
     return False
 
 
-def transform_sequence_association(routine):
+def do_resolve_sequence_association(routine):
     """
-    Housekeeping routine to replace scalar syntax when passing arrays as arguments
-    For example, a call like
+    Housekeeping routine to replace scalar syntax when passing arrays
+    as arguments For example, a call like
 
     .. code-block::
 

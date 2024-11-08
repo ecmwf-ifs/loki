@@ -11,11 +11,14 @@ from loki import Module, fgen
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 
-from loki.transformations.sanitise import transform_sequence_association
+from loki.transformations.sanitise import (
+    SequenceAssociationTransformation, do_resolve_sequence_association
+)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_sequence_assocaition_scalar_notation(frontend, tmp_path):
+@pytest.mark.parametrize('use_trafo', [False, True])
+def test_resolve_sequence_assocaition_scalar_notation(tmp_path, frontend, use_trafo):
     fcode = """
 module mod_a
     implicit none
@@ -61,7 +64,12 @@ end module mod_a
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['main']
 
-    transform_sequence_association(routine)
+    if use_trafo:
+        SequenceAssociationTransformation(
+            resolve_sequence_associations=True
+        ).apply(routine)
+    else:
+        do_resolve_sequence_association(routine)
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
 
