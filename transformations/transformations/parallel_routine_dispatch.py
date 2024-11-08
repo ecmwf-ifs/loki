@@ -72,6 +72,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine = self.init_map_routine(routine)
 
         self.create_imports(routine, map_routine)
+        self.add_kind_jpim(routine)
         self.create_variables(routine, map_routine)
         calls = FindNodes(ir.CallStatement).visit(routine.body)
         self.process_arrays_routine(routine, map_routine)
@@ -863,6 +864,15 @@ class ParallelRoutineDispatchTransformation(Transformation):
         imports += [ir.Import(module="stack.h", c_import=True)]
         routine.spec.prepend(imports)
         map_routine["imports"] = imports
+
+    def add_kind_jpim(self, routine):
+        """
+        Add kind JPIM if not already present.
+        USE PARKIND1, ONLY: JPRB, JPIM
+        """
+        if 'jpim' not in routine.import_map:
+            routine.spec.prepend(ir.Import(module='parkind1', 
+                                        symbols=(sym.Variable(name='jpim', scope=routine),)))
 
     def update_arg_dims(self, arg, region_map):
         new_arg = region_map[arg.name][1]
