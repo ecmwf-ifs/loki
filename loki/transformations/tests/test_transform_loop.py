@@ -2026,9 +2026,11 @@ end subroutine test_transform_loop_unroll_nested_neighbours
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('loop_trafo', ['loop_interchange', 'loop_fusion', 'loop_fission',
-                                        'loop_unroll'])
-def test_transform_loop_transformation(frontend, loop_trafo):
+@pytest.mark.parametrize('loop_interchange', [False, True])
+@pytest.mark.parametrize('loop_fusion', [False, True])
+@pytest.mark.parametrize('loop_fission', [False, True])
+@pytest.mark.parametrize('loop_unroll', [False, True])
+def test_transform_loop_transformation(frontend, loop_interchange, loop_fusion, loop_fission, loop_unroll):
     fcode = """
 subroutine transform_loop()
   integer, parameter :: m = 8
@@ -2069,38 +2071,37 @@ end subroutine transform_loop
     """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    transform = TransformLoopsTransformation(loop_interchange=loop_interchange, loop_fusion=loop_fusion,
+                                             loop_fission=loop_fission, loop_unroll=loop_unroll)
 
-    option = {
-        'loop_interchange': 'loop_interchange' == loop_trafo,
-        'loop_fusion': 'loop_fusion' == loop_trafo,
-        'loop_fission': 'loop_fission' == loop_trafo,
-        'loop_unroll': 'loop_unroll' == loop_trafo
-    }
-    transform = TransformLoopsTransformation(loop_interchange=option['loop_interchange'],
-                                             loop_fusion=option['loop_fusion'],
-                                             loop_fission=option['loop_fission'],
-                                             loop_unroll=option['loop_unroll'])
+    num_pragmas = len(FindNodes(ir.Pragma).visit(routine.body))
+    num_loops = len(FindNodes(ir.Loop).visit(routine.body))
 
-    # ensure only the correct transformation is enabled
     transform.apply(routine)
     pragmas = FindNodes(ir.Pragma).visit(routine.body)
-    assert len(pragmas) == 4
-    assert not any(loop_trafo.replace('_', '-') in pragma.content for pragma in pragmas)
-    assert all(any(opt.replace('_', '-') in pragma.content for pragma in pragmas)
-               for opt in option if not opt == loop_trafo)
-
     loops = FindNodes(ir.Loop).visit(routine.body)
-    if loop_trafo == 'loop_interchange':
+
+    if loop_interchange:
+        num_pragmas -= 1
         assert loops[0].variable == 'j'
-        inner_loops = FindNodes(ir.Loop).visit(loops[0].body)
-        assert inner_loops[0].variable == 'i'
+        assert not any('loop-interchange' in pragma.content for pragma in pragmas)
+        assert FindNodes(ir.Loop).visit(loops[0].body)[0].variable == 'i'
 
-    elif loop_trafo == 'loop_fusion':
-        assigns = FindNodes(ir.Assignment).visit(loops[2].body)
-        assert len(assigns) == 2
+    if loop_fusion:
+        num_pragmas -= 1
+        num_loops -= 1
+        assert not any('loop-fusion' in pragma.content for pragma in pragmas)
+        assert len(FindNodes(ir.Assignment).visit(loops[2].body)) == 2
 
-    elif loop_trafo == 'loop_fission':
-        assert len(loops) == 7
+    if loop_fission:
+        num_pragmas -= 1
+        num_loops += 1
+        assert not any('loop-fission' in pragma.content for pragma in pragmas)
 
-    elif loop_trafo == 'loop_unroll':
-        assert len(loops) == 5
+    if loop_unroll:
+        num_pragmas -= 1
+        num_loops -= 1
+        assert not any('loop-unroll' in pragma.content for pragma in pragmas)
+
+    assert len(loops) == num_loops
+    assert len(pragmas) == num_pragmas
