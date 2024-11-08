@@ -36,9 +36,11 @@ from loki.tools import (
 from loki.transformations.array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
+from loki.batch import Transformation
 
 
-__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'loop_unroll']
+__all__ = ['do_loop_interchange', 'do_loop_fusion', 'do_loop_fission', 'do_loop_unroll',
+           'TransformLoopsTransformation']
 
 
 from loki.analyse.util_polyhedron import Polyhedron
@@ -181,7 +183,7 @@ def get_loop_components(loops):
     return (as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies))
 
 
-def loop_interchange(routine, project_bounds=False):
+def do_loop_interchange(routine, project_bounds=False):
     """
     Search for loops annotated with the `loki loop-interchange` pragma and attempt
     to reorder them.
@@ -279,7 +281,7 @@ def pragma_ranges_to_loop_ranges(parameters, scope):
     return as_tuple(ranges)
 
 
-def loop_fusion(routine):
+def do_loop_fusion(routine):
     """
     Search for loops annotated with the `loki loop-fusion` pragma and attempt
     to fuse them into a single loop.
@@ -523,7 +525,7 @@ class FissionTransformer(NestedMaskedTransformer):
         return as_tuple(i for i in rebuilt if i)
 
 
-def loop_fission(routine, promote=True, warn_loop_carries=True):
+def do_loop_fission(routine, promote=True, warn_loop_carries=True):
     """
     Search for ``!$loki loop-fission`` pragmas in loops and split them.
 
@@ -686,7 +688,7 @@ class LoopUnrollTransformer(Transformer):
                     )
 
 
-def loop_unroll(routine, warn_iterations_length=True):
+def do_loop_unroll(routine, warn_iterations_length=True):
     """
     Search for ``!$loki loop-unroll`` pragmas in loops and unroll them.
 
@@ -752,3 +754,76 @@ def loop_unroll(routine, warn_iterations_length=True):
 
     with pragmas_attached(routine, Loop):
         routine.body = PragmaLoopUnrollTransformer(warn_iterations_length=warn_iterations_length).visit(routine.body)
+
+
+class TransformLoopsTransformation(Transformation):
+    """
+    A :any:`Transformation` that provides a common location for the various loop transformations to be called
+    in a :any:`Scheduler` pipeline.
+
+    The transformation applies the following methods in order:
+
+    * :any:`do_loop_interchange`
+    * :any:`do_loop_fusion`
+    * :any:`do_loop_fission`
+    * :any:`do_loop_unroll`
+
+    Parameters
+    ----------
+    loop_interchange : bool
+        Run the ``do_loop_interchange`` utility. Default: ``False``.
+    loop_fusion : bool
+        Run the ``do_loop_fusion`` utility. Default: ``False``.
+    loop_fission : bool
+        Run the ``do_loop_fission`` utility. Default: ``False``.
+    loop_unroll : bool
+        Run the ``do_loop_unroll`` utility. Default: ``False``.
+    interchange_project_bounds : bool
+        Project loop bounds whilst performing loop interchange. Default: ``False``.
+    fission_promote : bool
+        Try to automatically detect read-after-write across fission points
+        and promote corresponding variables. Note that this does not affect
+        promotion of variables listed directly in the pragma's ``promote``
+        option. Default: ``True``.
+    fission_warn_loop_carries : bool
+        Try to automatically detect loop-carried dependencies and warn
+        when the fission point sits after the initial read and before the
+        final write. Default: ``True``.
+    unroll_warn_iterations_length : bool
+        This specifies if warnings should be generated when unrolling
+        loops with a large number of iterations (32). It's mainly to
+        disable warnings when loops are being unrolled for internal
+        transformations and analysis. Default: ``True``.
+    """
+
+    def __init__(
+            self, loop_interchange=False, loop_fusion=False, loop_fission=False,
+            loop_unroll=False, interchange_project_bounds=False, fission_promote=True,
+            fission_warn_loop_carries=True, unroll_warn_iterations_length=True
+    ):
+        self.loop_interchange = loop_interchange
+        self.loop_fusion = loop_fusion
+        self.loop_fission = loop_fission
+        self.loop_unroll = loop_unroll
+        self.interchange_project_bounds = interchange_project_bounds
+        self.fission_promote = fission_promote
+        self.fission_warn_loop_carries = fission_warn_loop_carries
+        self.unroll_warn_iterations_length = unroll_warn_iterations_length
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        # Interchange loops
+        if self.loop_interchange:
+            do_loop_interchange(routine, project_bounds=self.interchange_project_bounds)
+
+        # Fuse loops
+        if self.loop_fusion:
+            do_loop_fusion(routine)
+
+        # Split loops
+        if self.loop_fission:
+            do_loop_fission(routine, promote=self.fission_promote, warn_loop_carries=self.fission_warn_loop_carries)
+
+        # Unroll loops
+        if self.loop_unroll:
+            do_loop_unroll(routine, warn_iterations_length=self.unroll_warn_iterations_length)

@@ -15,7 +15,7 @@ from loki.ir import (
     get_pragma_parameters, FindVariables
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.transformations.transform_loop import loop_fusion, loop_interchange
+from loki.transformations.transform_loop import do_loop_fusion, do_loop_interchange
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.utilities import get_local_arrays
 from loki.logging import info
@@ -43,7 +43,7 @@ class SCCFuseVerticalLoops(Transformation):
         :any:`Dimension` object describing the variable conventions used in code
         to define the vertical data dimension and iteration space.
     apply_to : list of str, optional
-        list of routines to apply this transformation to, if not provided or None 
+        list of routines to apply this transformation to, if not provided or None
         apply to all routines (default: None)
     """
 
@@ -85,12 +85,12 @@ class SCCFuseVerticalLoops(Transformation):
         # find "multilevel" thus "jk +/- 1" arrays
         multilevel_relevant_local_arrays = self.identify_multilevel_arrays(relevant_local_arrays)
         # loop interchange to expose vertical loops as outermost loops
-        loop_interchange(routine)
+        do_loop_interchange(routine)
         # handle initialization of arrays "jk +/- 1" arrays
         multilevel_relevant_local_arrays_names = set(arr.name.lower() for arr in multilevel_relevant_local_arrays)
         self.correct_init_of_multilevel_arrays(routine, multilevel_relevant_local_arrays_names)
         # fuse vertical loops
-        loop_fusion(routine)
+        do_loop_fusion(routine)
         # demote in vertical dimension if possible
         relevant_local_arrays_names = set(arr.name.lower() for arr in relevant_local_arrays)
         demote_candidates = relevant_local_arrays_names - multilevel_relevant_local_arrays_names
