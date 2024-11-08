@@ -6,14 +6,13 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import Array, RangeIndex
-from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.ir import Transformer
 from loki.tools import as_tuple
 from loki.types import BasicType
 
 
 __all__ = [
-    'transform_sequence_association',
-    'transform_sequence_association_append_map'
+    'transform_sequence_association', 'SequenceAssociationTransformer'
 ]
 
 
@@ -67,43 +66,49 @@ def transform_sequence_association(routine):
 
     """
 
-    #List calls in routine, but make sure we have the called routine definition
-    calls = (c for c in FindNodes(ir.CallStatement).visit(routine.body) if not c.procedure_type is BasicType.DEFERRED)
-    call_map = {}
+    routine.body = SequenceAssociationTransformer(inplace=True).visit(routine.body)
 
-    # Check all calls and record changes to `call_map` if necessary.
-    for call in calls:
-        transform_sequence_association_append_map(call_map, call)
 
-    # Fix sequence association in all calls in one go.
-    if call_map:
-        routine.body = Transformer(call_map).visit(routine.body)
-
-def transform_sequence_association_append_map(call_map, call):
+class SequenceAssociationTransformer(Transformer):
     """
-    Check if `call` contains the sequence association pattern in one of the arguments,
-    and if so, add the necessary transform data to `call_map`.
+    Transformer that resolves sequence association patterns in
+    :any:`CallStatement` nodes.
     """
-    new_args = []
-    found_scalar = False
-    for dummy, arg in call.arg_map.items():
-        if check_if_scalar_syntax(arg, dummy):
-            found_scalar = True
 
-            n_dims = len(dummy.shape)
-            new_dims = []
-            for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
+    def visit_CallStatement(self, call, **kwargs):  # pylint: disable=unused-argument
+        """
+        Resolve sequence association patterns in arguments and return
+        new :any:`CallStatement` object if any were found.
+        """
+        if call.procedure_type is BasicType.DEFERRED:
+            return call
 
-                if isinstance(s, RangeIndex):
-                    new_dims += [RangeIndex((lower, s.stop))]
+        new_args = []
+        found_scalar = False
+        for dummy, arg in call.arg_map.items():
+            if check_if_scalar_syntax(arg, dummy):
+                found_scalar = True
+
+                n_dims = len(dummy.shape)
+                new_dims = []
+
+                if not arg.shape:
+                    # Hack: If we don't have a shape, short-circuit here
+                    new_dims = tuple(RangeIndex((None, None)) for _ in dummy.shape)
                 else:
-                    new_dims += [RangeIndex((lower, s))]
+                    for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
+                        if isinstance(s, RangeIndex):
+                            new_dims += [RangeIndex((lower, s.stop))]
+                        else:
+                            new_dims += [RangeIndex((lower, s))]
 
-            if len(arg.dimensions) > n_dims:
-                new_dims += arg.dimensions[len(dummy.shape):]
-            new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
-        else:
-            new_args += [arg,]
+                if len(arg.dimensions) > n_dims:
+                    new_dims += arg.dimensions[len(dummy.shape):]
+                new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
+            else:
+                new_args += [arg,]
 
-    if found_scalar:
-        call_map[call] = call.clone(arguments = as_tuple(new_args))
+        if found_scalar:
+            return call.clone(arguments = as_tuple(new_args))
+
+        return call
