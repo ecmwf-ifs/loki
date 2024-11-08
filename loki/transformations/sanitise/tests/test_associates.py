@@ -12,8 +12,8 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.sanitise import (
-    resolve_associates, merge_associates,
-    ResolveAssociatesTransformer,
+    do_resolve_associates, do_merge_associates,
+    ResolveAssociatesTransformer, AssociatesTransformation
 )
 
 
@@ -45,7 +45,7 @@ end subroutine transform_associates_simple
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
@@ -89,7 +89,7 @@ end subroutine transform_associates_nested
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
@@ -134,7 +134,7 @@ end subroutine transform_associates_simple
     assert routine.variable_map['local_arr'].type.shape == ('a%n',)
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
@@ -191,7 +191,7 @@ end subroutine transform_associates_nested_conditional
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Conditional).visit(routine.body)) == 2
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
@@ -286,7 +286,7 @@ end subroutine transform_associates_partial
     assert len(loops) == 1
 
     # Resolve all expect the outermost associate block
-    resolve_associates(routine, start_depth=1)
+    do_resolve_associates(routine, start_depth=1)
 
     # Check that associated symbols have been resolved in loop body only
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
@@ -340,7 +340,7 @@ end subroutine merge_associates_simple
     assert len(assocs[2].associations) == 3
 
     # Move associate mapping around
-    merge_associates(routine, max_parents=2)
+    do_merge_associates(routine, max_parents=2)
 
     assocs = FindNodes(ir.Associate).visit(routine.body)
     assert len(assocs) == 3
@@ -356,3 +356,83 @@ end subroutine merge_associates_simple
     call = FindNodes(ir.CallStatement).visit(routine.body)[0]
     b_c_n = call.kwarguments[0][1]  # b(c)%n
     assert b_c_n.scope == assocs[0]
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+@pytest.mark.parametrize('merge', [False, True])
+@pytest.mark.parametrize('resolve', [False, True])
+def test_associates_transformation(frontend, merge, resolve):
+    """
+    Test association merging paired with partial resolution of inner
+    scopes via :any:`AssociatesTransformation`.
+    """
+    fcode = """
+subroutine merge_associates_simple(base)
+  use some_module, only: some_type
+  implicit none
+
+  type(some_type), intent(inout) :: base
+  integer :: i
+  real :: local_var
+
+  associate(a => base%a)
+  associate(b => base%b)
+  associate(c => a%c)
+  associate(d => c%d)
+    do i=1, 5
+      call another_routine(b(i), c%n)
+
+      d(i) = 42.0
+    end do
+  end associate
+  end associate
+  end associate
+  end associate
+end subroutine merge_associates_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    AssociatesTransformation(
+        resolve_associates=resolve, merge_associates=merge, start_depth=1
+    ).apply(routine)
+
+    assocs = FindNodes(ir.Associate).visit(routine.body)
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
+
+    if not merge and not resolve:
+        assert len(assocs) == 4
+        assert all(len(a.associations) == 1 for a in assocs)
+
+        assert call.arguments[0] == 'b(i)'
+        assert call.arguments[1] == 'c%n'
+        assert assign.lhs == 'd(i)'
+
+    if merge and not resolve:
+        assert len(assocs) == 4
+        assert assocs[0].associations == (('base%a', 'a'), ('base%b', 'b'))
+        assert assocs[1].associations == (('a%c', 'c'), )
+        assert assocs[2].associations == ()
+        assert assocs[3].associations == (('c%d', 'd'), )
+
+        assert call.arguments[0] == 'b(i)'
+        assert call.arguments[1] == 'c%n'
+        assert assign.lhs == 'd(i)'
+
+    if not merge and resolve:
+        assert len(assocs) == 1
+        assert assocs[0].associations == (('base%a', 'a'),)
+
+        assert call.arguments[0] == 'base%b(i)'
+        assert call.arguments[1] == 'a%c%n'
+        assert assign.lhs == 'a%c%d(i)'
+
+    if merge and resolve:
+        assert len(assocs) == 1
+        assert assocs[0].associations == (('base%a', 'a'), ('base%b', 'b'))
+
+        assert call.arguments[0] == 'b(i)'
+        assert call.arguments[1] == 'a%c%n'
+        assert assign.lhs == 'a%c%d(i)'

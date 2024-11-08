@@ -7,7 +7,7 @@
 
 import operator as _op
 from loki import (
-     FindNodes, CallStatement, Assignment, Scalar, RangeIndex, resolve_associates,
+     FindNodes, CallStatement, Assignment, Scalar, RangeIndex, do_resolve_associates,
      simplify, Sum, Product, IntLiteral, as_tuple, SubstituteExpressions, Array,
      symbolic_op, StringLiteral, is_constant, LogicLiteral, VariableDeclaration, flatten,
      FindInlineCalls, Conditional, FindExpressions, Comparison
@@ -113,7 +113,7 @@ class ArgSizeMismatchRule(GenericRule):
         max_indirections = config['max_indirections']
 
         # first resolve associates
-        resolve_associates(subroutine)
+        do_resolve_associates(subroutine)
 
         assign_map = {a.lhs: a.rhs for a in FindNodes(Assignment).visit(subroutine.body)}
         decl_symbols = flatten([decl.symbols for decl in FindNodes(VariableDeclaration).visit(subroutine.spec)])

@@ -21,7 +21,7 @@ from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import SCCDevectorTransformation
 from loki.transformations.utilities import single_variable_declaration
@@ -622,7 +622,7 @@ class SccLowLevelDataOffload(Transformation):
         """
 
         v_index = get_integer_variable(routine, name=self.horizontal.index)
-        resolve_associates(routine)
+        do_resolve_associates(routine)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
         SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)

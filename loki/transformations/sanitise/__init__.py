@@ -42,7 +42,7 @@ class SanitiseTransformation(Transformation):
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
         if self.resolve_associate_mappings:
-            resolve_associates(routine)
+            do_resolve_associates(routine)
 
         # Transform arrays passed with scalar syntax to array syntax
         if self.resolve_sequence_association:

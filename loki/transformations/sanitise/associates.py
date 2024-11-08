@@ -12,6 +12,7 @@ constructs to unify code structure and make reasoning about Fortran
 code easier.
 """
 
+from loki.batch import Transformation
 from loki.expression import LokiIdentityMapper
 from loki.ir import nodes as ir, Transformer, NestedTransformer
 from loki.scope import SymbolTable
@@ -19,12 +20,62 @@ from loki.tools import dict_override
 
 
 __all__ = [
-    'resolve_associates', 'merge_associates',
-    'ResolveAssociatesTransformer'
+    'AssociatesTransformation', 'do_resolve_associates',
+    'ResolveAssociatesTransformer', 'do_merge_associates'
 ]
 
 
-def resolve_associates(routine, start_depth=0):
+class AssociatesTransformation(Transformation):
+    """
+    :any:`Transformation` object to apply code sanitisation steps
+    specific to :any:`Associate` nodes.
+
+    It allows merging in nested :any:`Associate` scopes to move
+    independent assocation pairs to the outermost scope, optionally
+    restricted by a number of ``max_parents`` symbols.
+
+    It also provides partial or full resolution of :any:`Associate`
+    nodes by replacing ``identifier`` symbols with the corresponding
+    ``selector`` in the node's body.
+
+    Parameters
+    ----------
+    resolve_associates : bool, default: True
+        Enable full or partial resolution of only :any:`Associate`
+        scopes.
+    merge_associates : bool, default: False
+        Enable merging :any:`Associate` to the outermost possible
+        scope in nested associate blocks.
+    start_depth : int, optional
+        Starting depth for partial resolution of :any:`Associate`
+        after merging.
+    max_parents : int, optional
+        Maximum number of parent symbols for valid selector to have
+        when merging :any:`Associate` nodes.
+    """
+
+    def __init__(
+            self, resolve_associates=True, merge_associates=False,
+            start_depth=0, max_parents=None
+    ):
+        self.resolve_associates = resolve_associates
+        self.merge_associates = merge_associates
+
+        self.start_depth = start_depth
+        self.max_parents = max_parents
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        # Merge associates first so that remainig ones can be resolved
+        if self.merge_associates:
+            do_merge_associates(routine, max_parents=self.max_parents)
+
+        # Resolve remaining associates depending on start_depth
+        if self.resolve_associates:
+            do_resolve_associates(routine, start_depth=self.start_depth)
+
+
+def do_resolve_associates(routine, start_depth=0):
     """
     Resolve :any:`Associate` mappings in the body of a given routine.
 
@@ -114,8 +165,8 @@ class ResolveAssociatesTransformer(Transformer):
     :any:`Transformer` class to resolve :any:`Associate` nodes in IR trees.
 
     This will replace each :any:`Associate` node with its own body,
-    where all `identifier` symbols have been replaced with the
-    corresponding `selector` expression defined in ``associations``.
+    where all ``identifier`` symbols have been replaced with the
+    corresponding ``selector`` expression defined in ``associations``.
 
     Importantly, this :any:`Transformer` can also be applied over partial
     bodies of :any:`Associate` bodies.
@@ -160,7 +211,7 @@ class ResolveAssociatesTransformer(Transformer):
         return o._rebuild(arguments=arguments, kwarguments=kwarguments)
 
 
-def merge_associates(routine, max_parents=None):
+def do_merge_associates(routine, max_parents=None):
     """
     Moves associate mappings in :any:`Associate` within a
     :any:`Subroutine` to the outermost parent scope.
