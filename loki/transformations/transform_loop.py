@@ -39,7 +39,8 @@ from loki.transformations.array_indexing import (
 from loki.batch import Transformation
 
 
-__all__ = ['loop_interchange', 'loop_fusion', 'loop_fission', 'loop_unroll', 'TransformLoopsTransformation']
+__all__ = ['do_loop_interchange', 'do_loop_fusion', 'do_loop_fission', 'do_loop_unroll',
+           'TransformLoopsTransformation']
 
 
 from loki.analyse.util_polyhedron import Polyhedron
@@ -182,7 +183,7 @@ def get_loop_components(loops):
     return (as_tuple(loop_variables), as_tuple(loop_ranges), as_tuple(loop_bodies))
 
 
-def loop_interchange(routine, project_bounds=False):
+def do_loop_interchange(routine, project_bounds=False):
     """
     Search for loops annotated with the `loki loop-interchange` pragma and attempt
     to reorder them.
@@ -280,7 +281,7 @@ def pragma_ranges_to_loop_ranges(parameters, scope):
     return as_tuple(ranges)
 
 
-def loop_fusion(routine):
+def do_loop_fusion(routine):
     """
     Search for loops annotated with the `loki loop-fusion` pragma and attempt
     to fuse them into a single loop.
@@ -524,7 +525,7 @@ class FissionTransformer(NestedMaskedTransformer):
         return as_tuple(i for i in rebuilt if i)
 
 
-def loop_fission(routine, promote=True, warn_loop_carries=True):
+def do_loop_fission(routine, promote=True, warn_loop_carries=True):
     """
     Search for ``!$loki loop-fission`` pragmas in loops and split them.
 
@@ -687,7 +688,7 @@ class LoopUnrollTransformer(Transformer):
                     )
 
 
-def loop_unroll(routine, warn_iterations_length=True):
+def do_loop_unroll(routine, warn_iterations_length=True):
     """
     Search for ``!$loki loop-unroll`` pragmas in loops and unroll them.
 
@@ -762,13 +763,21 @@ class TransformLoopsTransformation(Transformation):
 
     The transformation applies the following methods in order:
 
-    * :any:`loop_interchange`
-    * :any:`loop_fusion`
-    * :any:`loop_fission`
-    * :any:`loop_unroll`
+    * :any:`do_loop_interchange`
+    * :any:`do_loop_fusion`
+    * :any:`do_loop_fission`
+    * :any:`do_loop_unroll`
 
     Parameters
     ----------
+    loop_interchange : bool
+        Run the ``do_loop_interchange`` utility. Default: ``False``.
+    loop_fusion : bool
+        Run the ``do_loop_fusion`` utility. Default: ``False``.
+    loop_fission : bool
+        Run the ``do_loop_fission`` utility. Default: ``False``.
+    loop_unroll : bool
+        Run the ``do_loop_unroll`` utility. Default: ``False``.
     project_bounds : bool
         Project loop bounds whilst performing loop interchange. Default: ``False``.
     promote : bool
@@ -788,9 +797,14 @@ class TransformLoopsTransformation(Transformation):
     """
 
     def __init__(
-            self, project_bounds=False, promote=True, warn_loop_carries=True,
+            self, loop_interchange=False, loop_fusion=False, loop_fission=False,
+            loop_unroll=False, project_bounds=False, promote=True, warn_loop_carries=True,
             warn_iterations_length=True
     ):
+        self.loop_interchange = loop_interchange
+        self.loop_fusion = loop_fusion
+        self.loop_fission = loop_fission
+        self.loop_unroll = loop_unroll
         self.project_bounds = project_bounds
         self.promote = promote
         self.warn_loop_carries = warn_loop_carries
@@ -799,13 +813,17 @@ class TransformLoopsTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         # Interchange loops
-        loop_interchange(routine, project_bounds=self.project_bounds)
+        if self.loop_interchange:
+            do_loop_interchange(routine, project_bounds=self.project_bounds)
 
         # Fuse loops
-        loop_fusion(routine)
+        if self.loop_fusion:
+            do_loop_fusion(routine)
 
         # Split loops
-        loop_fission(routine, promote=self.promote, warn_loop_carries=self.warn_loop_carries)
+        if self.loop_fission:
+            do_loop_fission(routine, promote=self.promote, warn_loop_carries=self.warn_loop_carries)
 
         # Unroll loops
-        loop_unroll(routine, warn_iterations_length=self.warn_iterations_length)
+        if self.loop_unroll:
+            do_loop_unroll(routine, warn_iterations_length=self.warn_iterations_length)
