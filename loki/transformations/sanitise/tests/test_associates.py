@@ -18,7 +18,7 @@ from loki.transformations.sanitise import (
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_simple(frontend):
     """
@@ -58,7 +58,7 @@ end subroutine transform_associates_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_nested(frontend):
     """
@@ -98,7 +98,7 @@ end subroutine transform_associates_nested
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_array_call(frontend):
     """
@@ -148,7 +148,7 @@ end subroutine transform_associates_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_nested_conditional(frontend):
     """
@@ -205,7 +205,7 @@ end subroutine transform_associates_nested_conditional
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_partial_body(frontend):
     """
@@ -252,7 +252,7 @@ end subroutine transform_associates_partial
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_start_depth(frontend):
     """
@@ -301,7 +301,7 @@ end subroutine transform_associates_partial
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_merge_associates_nested(frontend):
     """
