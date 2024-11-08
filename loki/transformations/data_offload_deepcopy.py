@@ -14,9 +14,9 @@ from loki.backend import fgen
 from loki.batch import Transformation, TypeDefItem, ProcedureItem
 from loki.ir import (
     nodes as ir, FindNodes, pragma_regions_attached, get_pragma_parameters, Transformer,
-    SubstitutePragmaStrings
+    SubstitutePragmaStrings, SubstituteExpressions, FindLiterals
 )
-from loki.expression import symbols as sym, SubstituteExpressions, FindLiterals
+from loki.expression import symbols as sym
 from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki.analyse import dataflow_analysis_attached
 from loki.tools import as_tuple

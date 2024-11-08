@@ -14,7 +14,7 @@ from loki.ir import (
 from loki.logging import warning
 from loki.module import Module
 from loki.tools import as_tuple
-from loki.types import SymbolAttributes, BasicType
+from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.expression import (
     symbols as sym, Variable, Array, RangeIndex
 )
