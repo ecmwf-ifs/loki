@@ -16,11 +16,12 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
-    Assignment, FindVariables
+    Assignment, FindVariables, nodes as ir
 )
 
 from loki.transformations.transform_loop import (
-    do_loop_interchange, do_loop_fusion, do_loop_fission, do_loop_unroll
+    do_loop_interchange, do_loop_fusion, do_loop_fission, do_loop_unroll,
+    TransformLoopsTransformation
 )
 
 
@@ -2022,3 +2023,84 @@ end subroutine test_transform_loop_unroll_nested_neighbours
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('loop_trafo', ['loop_interchange', 'loop_fusion', 'loop_fission',
+                                        'loop_unroll'])
+def test_transform_loop_transformation(frontend, loop_trafo):
+    fcode = """
+subroutine transform_loop()
+  integer, parameter :: m = 8
+  integer, parameter :: n = 16
+
+  integer :: array(m,n)
+  integer :: a(n), b(n)
+  integer :: i, j, s
+
+  !$loki loop-interchange
+  do i=1,n
+    do j=1,m
+      array(j, i) = i + j
+    end do
+  end do
+
+  !$loki loop-fusion
+  do i=1,n
+    a(i) = i
+  end do
+
+  !$loki loop-fusion
+  do i=1,n
+    b(i) = n-i+1
+  end do
+
+  do j=1,n
+    a(j) = j
+    !$loki loop-fission
+    b(j) = n-j
+  end do
+
+  !$loki loop-unroll
+  do i=1, 10
+      s = s + i + 1
+  end do
+end subroutine transform_loop
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    option = {
+        'loop_interchange': 'loop_interchange' == loop_trafo,
+        'loop_fusion': 'loop_fusion' == loop_trafo,
+        'loop_fission': 'loop_fission' == loop_trafo,
+        'loop_unroll': 'loop_unroll' == loop_trafo
+    }
+    transform = TransformLoopsTransformation(loop_interchange=option['loop_interchange'],
+                                             loop_fusion=option['loop_fusion'],
+                                             loop_fission=option['loop_fission'],
+                                             loop_unroll=option['loop_unroll'])
+
+    # ensure only the correct transformation is enabled
+    transform.apply(routine)
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    assert len(pragmas) == 4
+    assert not any(loop_trafo.replace('_', '-') in pragma.content for pragma in pragmas)
+    assert all(any(opt.replace('_', '-') in pragma.content for pragma in pragmas)
+               for opt in option if not opt == loop_trafo)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    if loop_trafo == 'loop_interchange':
+        assert loops[0].variable == 'j'
+        inner_loops = FindNodes(ir.Loop).visit(loops[0].body)
+        assert inner_loops[0].variable == 'i'
+
+    elif loop_trafo == 'loop_fusion':
+        assigns = FindNodes(ir.Assignment).visit(loops[2].body)
+        assert len(assigns) == 2
+
+    elif loop_trafo == 'loop_fission':
+        assert len(loops) == 7
+
+    elif loop_trafo == 'loop_unroll':
+        assert len(loops) == 5

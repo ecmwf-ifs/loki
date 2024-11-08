@@ -778,18 +778,18 @@ class TransformLoopsTransformation(Transformation):
         Run the ``do_loop_fission`` utility. Default: ``False``.
     loop_unroll : bool
         Run the ``do_loop_unroll`` utility. Default: ``False``.
-    project_bounds : bool
+    interchange_project_bounds : bool
         Project loop bounds whilst performing loop interchange. Default: ``False``.
-    promote : bool
+    fission_promote : bool
         Try to automatically detect read-after-write across fission points
         and promote corresponding variables. Note that this does not affect
         promotion of variables listed directly in the pragma's ``promote``
         option. Default: ``True``.
-    warn_loop_carries : bool
+    fission_warn_loop_carries : bool
         Try to automatically detect loop-carried dependencies and warn
         when the fission point sits after the initial read and before the
         final write. Default: ``True``.
-    warn_iterations_length : bool
+    unroll_warn_iterations_length : bool
         This specifies if warnings should be generated when unrolling
         loops with a large number of iterations (32). It's mainly to
         disable warnings when loops are being unrolled for internal
@@ -798,23 +798,23 @@ class TransformLoopsTransformation(Transformation):
 
     def __init__(
             self, loop_interchange=False, loop_fusion=False, loop_fission=False,
-            loop_unroll=False, project_bounds=False, promote=True, warn_loop_carries=True,
-            warn_iterations_length=True
+            loop_unroll=False, interchange_project_bounds=False, fission_promote=True,
+            fission_warn_loop_carries=True, unroll_warn_iterations_length=True
     ):
         self.loop_interchange = loop_interchange
         self.loop_fusion = loop_fusion
         self.loop_fission = loop_fission
         self.loop_unroll = loop_unroll
-        self.project_bounds = project_bounds
-        self.promote = promote
-        self.warn_loop_carries = warn_loop_carries
-        self.warn_iterations_length = warn_iterations_length
+        self.interchange_project_bounds = interchange_project_bounds
+        self.fission_promote = fission_promote
+        self.fission_warn_loop_carries = fission_warn_loop_carries
+        self.unroll_warn_iterations_length = unroll_warn_iterations_length
 
     def transform_subroutine(self, routine, **kwargs):
 
         # Interchange loops
         if self.loop_interchange:
-            do_loop_interchange(routine, project_bounds=self.project_bounds)
+            do_loop_interchange(routine, project_bounds=self.interchange_project_bounds)
 
         # Fuse loops
         if self.loop_fusion:
@@ -822,8 +822,8 @@ class TransformLoopsTransformation(Transformation):
 
         # Split loops
         if self.loop_fission:
-            do_loop_fission(routine, promote=self.promote, warn_loop_carries=self.warn_loop_carries)
+            do_loop_fission(routine, promote=self.fission_promote, warn_loop_carries=self.fission_warn_loop_carries)
 
         # Unroll loops
         if self.loop_unroll:
-            do_loop_unroll(routine, warn_iterations_length=self.warn_iterations_length)
+            do_loop_unroll(routine, warn_iterations_length=self.unroll_warn_iterations_length)
