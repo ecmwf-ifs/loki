@@ -12,6 +12,7 @@ from loki.batch import Transformation
 
 from loki.transformations.sanitise.associates import * # noqa
 from loki.transformations.sanitise.sequence_associations import * # noqa
+from loki.transformations.sanitise.substitute import * # noqa
 
 
 __all__ = ['SanitiseTransformation']
