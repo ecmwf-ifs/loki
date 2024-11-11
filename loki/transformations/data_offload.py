@@ -920,57 +920,6 @@ class GlobalVarHoistTransformation(Transformation):
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))
 
 
-################################################################################
-# Field API helper routines
-################################################################################
-
-def find_array_arguments(routine, calls):
-    """
-    Finds all arguments and sorts them by intents
-
-    Parameters
-    ----------
-    routine : `Subroutine`
-        Subroutine to apply this transformation to.
-    calls : list of `CallStatement`
-        Calls to extract arguments from.
-        This transformation will only apply at the ``'driver'`` level.
-
-
-    Returns
-    -------
-    inargs : tuple of arguments that are only inargs
-    inoutargs : tuples of arguments that are both in and out, or inout
-    outargs : tuples of arguments that are only outargs
-    """
-    inargs = ()
-    inoutargs = ()
-    outargs = ()
-
-    for call in calls:
-        if call.routine is BasicType.DEFERRED:
-            warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched ' +
-                    f'in {str(call.name).lower()}')
-            continue
-        for param, arg in call.arg_iter():
-            if isinstance(param, Array) and param.type.intent.lower() == 'in':
-                inargs += (arg, )
-            if isinstance(param, Array) and param.type.intent.lower() == 'inout':
-                inoutargs += (arg, )
-            if isinstance(param, Array) and param.type.intent.lower() == 'out':
-                outargs += (arg, )
-
-    inoutargs += tuple(v for v in inargs if v in outargs)
-    inargs = tuple(v for v in inargs if v not in inoutargs)
-    outargs = tuple(v for v in outargs if v not in inoutargs)
-
-    # Filter for duplicates TODO: What if we pass different slices of same array!?
-    inargs = tuple(set(inargs))
-    inoutargs = tuple(set(inoutargs))
-    outargs = tuple(set(outargs))
-    return inargs, inoutargs, outargs
-
-
 def find_target_calls(region, targets):
     """Returns a list of all calls to targets inside the region
 
@@ -1030,19 +979,18 @@ class FieldOffloadTransformation(Transformation):
         pass
 
     def process_driver(self, driver, targets):
+        remove_field_api_view_updates(driver, self.field_group_types + tuple(s.upper() for s in self.field_group_types))
         with pragma_regions_attached(driver):
             for region in FindNodes(PragmaRegion).visit(driver.body):
                 # Only work on active `!$loki data` regions
                 if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
                     continue
-                # remove_field_api_view_updates(driver, self.field_group_types) # FIXME: if called here, driver.body will not be updated in subsequent routines
                 kernel_calls = find_target_calls(region, targets)
                 offload_variables = self.find_offload_variables(driver, kernel_calls)
                 device_ptrs = self._declare_device_ptrs(driver, offload_variables)
                 offload_map = self.FieldPointerMap(device_ptrs, *offload_variables)
                 self._add_field_offload_calls(driver, region, offload_map)
                 self._replace_kernel_args(driver, kernel_calls, offload_map)
-                remove_field_api_view_updates(driver, self.field_group_types) # if called here it works
 
     def find_offload_variables(self, driver, calls):
         inargs = ()
@@ -1078,7 +1026,6 @@ class FieldOffloadTransformation(Transformation):
         inargs = tuple(v for v in inargs if v not in inoutargs)
         outargs = tuple(v for v in outargs if v not in inoutargs)
 
-        # Filter for duplicates TODO: What if we pass different slices of same array!?
         inargs = tuple(set(inargs))
         inoutargs = tuple(set(inoutargs))
         outargs = tuple(set(outargs))
