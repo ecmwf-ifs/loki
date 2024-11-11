@@ -10,6 +10,7 @@ import pytest
 from loki import Subroutine, Module, Dimension
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
+from loki.logging import WARNING
 
 from loki.transformations.parallel import (
     remove_field_api_view_updates, add_field_api_view_updates
@@ -19,7 +20,7 @@ from loki.transformations.parallel import (
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
 ))
-def test_field_api_remove_view_updates(frontend):
+def test_field_api_remove_view_updates(caplog, frontend):
     """
     A simple test for :any:`remove_field_api_view_updates`
     """
@@ -29,9 +30,9 @@ subroutine test_remove_block_loop(ngptot, nproma, nflux, dims, state, aux_fields
   implicit none
   integer(kind=4), intent(in) :: ngptot, nproma, nflux
   type(dimension_type), intent(inout) :: dims
-  type(state_type), intent(inout) :: state
+  type(STATE_TYPE), intent(inout) :: state
   type(aux_type), intent(inout) :: aux_fields
-  type(flux_type), intent(inout) :: fluxes(nflux)
+  type(FLUX_type), intent(inout) :: fluxes(nflux)
 
   integer :: JKGLO, IBL, ICEND, JK, JL, JF
 
@@ -40,7 +41,7 @@ subroutine test_remove_block_loop(ngptot, nproma, nflux, dims, state, aux_fields
     ibl = (jkglo - 1) / nproma + 1
 
     CALL DIMS%UPDATE(IBL, ICEND, JKGLO)
-    CALL STATE%UPDATE_VIEW(IBL)
+    CALL STATE%update_VIEW(IBL)
     CALL AUX_FIELDS%UPDATE_VIEW(block_index=IBL)
     DO jf=1, nflux
       CALL FLUXES(JF)%UPDATE_VIEW(IBL)
@@ -55,10 +56,17 @@ end subroutine test_remove_block_loop
     assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 5
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
 
-    field_group_types = ['state_type', 'aux_type', 'flux_type']
-    remove_field_api_view_updates(
-        routine, field_group_types=field_group_types, dim_object='DIMS'
-    )
+    with caplog.at_level(WARNING):
+        field_group_types = ['state_type', 'aux_type', 'flux_type']
+        remove_field_api_view_updates(
+            routine, field_group_types=field_group_types, dim_object='DIMS'
+        )
+
+        assert len(caplog.records) == 2
+        assert '[Loki::ControlFlow] Removing STATE%update_VIEW call, but not in field group types!'\
+            in caplog.records[0].message
+        assert '[Loki::ControlFlow] Removing FLUXES(JF)%UPDATE_VIEW call, but not in field group types!'\
+            in caplog.records[1].message
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
