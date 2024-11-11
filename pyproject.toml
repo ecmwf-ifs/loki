@@ -18,7 +18,7 @@ license = {text = "Apache-2.0"}
 dynamic = ["version", "readme"]
 dependencies = [
   "numpy",  # essential for tests, loop transformations and other dependencies
-  "pymbolic>=2022.1",  # essential for expression tree
+  "pymbolic==2022.2",  # essential for expression tree
   "PyYAML",  # essential for loki-lint
   "pcpp",  # essential for preprocessing
   "more-itertools",  # essential for SCC transformation
