@@ -83,7 +83,9 @@ end subroutine test_driver_openmp
                 assert is_loki_pragma(region.pragma_post, starts_with='end parallel')
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI has trouble mixing Loop and Section pragmas')]
+))
 def test_add_openmp_regions(tmp_path, frontend):
     """
     A simple test for :any:`add_openmp_regions`
