@@ -96,7 +96,7 @@ def do_remove_openmp_regions(routine, insert_loki_parallel=False):
 
 
 def do_add_openmp_regions(
-        routine, dimension, shared_variables=None, field_group_types=None
+        routine, dimension, shared_variables=None, fprivate_variables=None
 ):
     """
     Add the OpenMP directives for a parallel driver region with an
@@ -110,12 +110,11 @@ def do_add_openmp_regions(
         The dimension object describing the block loop variables.
     shared_variables : tuple of str
         Names of variables that should neither be private nor firstprivate
-    field_group_types : tuple of str
-        Names of types designating "field groups", which should be
-        treated as firstprivate
+    fprivate_variables : tuple of str
+        Names of variables should be treated as "firstprivate"
     """
     shared_variables = shared_variables or {}
-    field_group_types = field_group_types or {}
+    fprivate_variables = fprivate_variables or {}
 
     # First get local variables and separate scalars and arrays
     routine_arguments = routine.arguments
@@ -154,7 +153,7 @@ def do_add_openmp_regions(
                 # Also add used symbols that might be field groups
                 local_vars += tuple(dict.fromkeys(
                     v for v in routine_arguments
-                    if v.name in symbols and str(v.type.dtype) in field_group_types
+                    if v.name in symbols and v.name in fprivate_variables
                 ))
 
                 # Filter out known global variables
@@ -162,7 +161,7 @@ def do_add_openmp_regions(
 
                 # Make field group types firstprivate
                 firstprivates = tuple(dict.fromkeys(
-                    v.name for v in local_vars if v.type.dtype.name in field_group_types
+                    v.name for v in local_vars if v.name in fprivate_variables
                 ))
                 # Also make values that have an initial value firstprivate
                 firstprivates += tuple(v.name for v in local_vars if v.type.initial)
