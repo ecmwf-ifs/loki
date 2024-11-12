@@ -8,13 +8,21 @@
 from loki.batch import Transformation
 
 from loki.transformations.parallel.openmp_region import (
-    do_remove_openmp_regions, do_remove_firstprivate_copies
+    do_remove_openmp_regions, do_add_openmp_regions,
+    do_remove_firstprivate_copies,
+    do_add_firstprivate_copies,
 )
-from loki.transformations.parallel.block_loop import do_remove_block_loops
-from loki.transformations.parallel.field_views import do_remove_field_api_view_updates
+from loki.transformations.parallel.block_loop import (
+    do_remove_block_loops, do_add_block_loops
+)
+from loki.transformations.parallel.field_views import (
+    do_remove_field_api_view_updates, do_add_field_api_view_updates
+)
 
 
-__all__ = ['RemoveViewDriverLoopTransformation']
+__all__ = [
+    'RemoveViewDriverLoopTransformation', 'AddViewDriverLoopTransformation'
+]
 
 
 class RemoveViewDriverLoopTransformation(Transformation):
@@ -61,4 +69,54 @@ class RemoveViewDriverLoopTransformation(Transformation):
             do_remove_field_api_view_updates(
                 routine, dim_object=self.dim_object,
                 field_group_types=self.field_group_types
+            )
+
+
+class AddViewDriverLoopTransformation(Transformation):
+    """
+
+    """
+
+    def __init__(
+            self, add_block_loops=True, add_openmp_regions=True,
+            add_field_api_view_updates=True,
+            add_firstprivate_copies=True, dimension=None,
+            dim_object=None, fprivate_map=None,
+            field_group_types=None, shared_variables=None,
+            fprivate_variables=None
+    ):
+        self.add_block_loops = add_block_loops
+        self.add_openmp_regions = add_openmp_regions
+        self.add_field_api_view_updates = add_field_api_view_updates
+        self.add_firstprivate_copies = add_firstprivate_copies
+
+        self.dimension = dimension
+        self.dim_object = dim_object
+        self.fprivate_map = fprivate_map
+        self.field_group_types = field_group_types
+        self.shared_variables = shared_variables
+        self.fprivate_variables = fprivate_variables
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        if self.add_block_loops:
+            do_add_block_loops(routine, dimension=self.dimension)
+
+        if self.add_field_api_view_updates:
+            do_add_field_api_view_updates(
+                routine, dimension=self.dimension,
+                dim_object=self.dim_object,
+                field_group_types=self.field_group_types
+            )
+
+        if self.add_firstprivate_copies:
+            do_add_firstprivate_copies(
+                routine, fprivate_map=self.fprivate_map
+            )
+
+        if self.add_openmp_regions:
+            do_add_openmp_regions(
+                routine, dimension=self.dimension,
+                shared_variables=self.shared_variables,
+                fprivate_variables=self.fprivate_variables
             )

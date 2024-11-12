@@ -18,7 +18,7 @@ from loki.tools import as_tuple
 from loki.types import BasicType, SymbolAttributes
 
 
-__all__ = ['do_remove_block_loops', 'add_block_loops']
+__all__ = ['do_remove_block_loops', 'do_add_block_loops']
 
 
 def do_remove_block_loops(routine, dimension):
@@ -61,7 +61,7 @@ def do_remove_block_loops(routine, dimension):
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
 
 
-def add_block_loops(routine, dimension, default_type=None):
+def do_add_block_loops(routine, dimension, default_type=None):
     """
     Insert IFS-style (NPROMA) driver block-loops in ``!$loki
     parallel`` regions.

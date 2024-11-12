@@ -21,8 +21,8 @@ from loki.types import DerivedType
 
 
 __all__ = [
-    'do_remove_openmp_regions', 'add_openmp_regions',
-    'do_remove_firstprivate_copies', 'add_firstprivate_copies'
+    'do_remove_openmp_regions', 'do_add_openmp_regions',
+    'do_remove_firstprivate_copies', 'do_add_firstprivate_copies'
 ]
 
 
@@ -95,7 +95,7 @@ def do_remove_openmp_regions(routine, insert_loki_parallel=False):
         routine.body = RemoveOpenMPRegionTransformer().visit(routine.body, active=False)
 
 
-def add_openmp_regions(
+def do_add_openmp_regions(
         routine, dimension, shared_variables=None, field_group_types=None
 ):
     """
@@ -230,7 +230,7 @@ def do_remove_firstprivate_copies(region, fprivate_map, scope):
     return SubstituteStringExpressions(fprivate_map, scope=scope).visit(region)
 
 
-def add_firstprivate_copies(routine, fprivate_map):
+def do_add_firstprivate_copies(routine, fprivate_map):
     """
     Injects IFS-specific thread-local copies of named complex derived
     type objects in parallel regions. This is to prevent issues with
