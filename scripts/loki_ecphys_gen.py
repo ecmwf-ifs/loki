@@ -301,11 +301,10 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
     if not remove_openmp:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
             # Re-insert OpenMP parallel regions after inlining
-            fgtypes = field_group_types + fgroup_dimension + fgroup_firstprivates
             add_openmp_regions(
                 routine=ec_phys_fc, dimension=blocking_outer,
-                field_group_types=fgtypes,
-                shared_variables=shared_variables
+                shared_variables=shared_variables,
+                fprivate_variables=fprivate_variables
             )
 
     if sanitize_assoc:
