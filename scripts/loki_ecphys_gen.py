@@ -33,10 +33,9 @@ from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.extract import outline_region
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.parallel import (
-    remove_openmp_regions, add_openmp_regions,
-    do_remove_block_loops, add_block_loops,
-    do_remove_field_api_view_updates, add_field_api_view_updates,
-    do_remove_explicit_firstprivatisation, create_explicit_firstprivatisation
+    add_openmp_regions, add_block_loops, add_field_api_view_updates,
+    create_explicit_firstprivatisation,
+    RemoveViewDriverLoopTransformation
 )
 from loki.transformations.remove_code import (
     RemoveCodeTransformation, do_remove_unused_imports
@@ -291,7 +290,13 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Remove OpenMP regions in {s:.2f}s'):
         # Now remove OpenMP regions, as their symbols are not remapped
-        remove_openmp_regions(ec_phys_fc, insert_loki_parallel=True)
+        RemoveViewDriverLoopTransformation(
+            remove_openmp_regions=True,
+            remove_block_loops=False,
+            remove_field_api_view_updates=False,
+            remove_firstprivate_copies=False,
+            insert_loki_parallel=True
+        ).apply(ec_phys_fc)
 
     if not remove_openmp:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
@@ -377,18 +382,19 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
-            # Remove explicit firstprivatisation
-            remove_explicit_firstprivatisation(
-                ec_phys_parallel.body, fprivate_map=lcopies_firstprivates, scope=ec_phys_parallel
-            )
 
-            # Strip the outer block loop and FIELD-API boilerplate
-            remove_block_loops(ec_phys_parallel, dimension=blocking_outer)
+            # Remove existing view-based priver parallelisation
+            RemoveViewDriverLoopTransformation(
+                remove_openmp_regions=False,
+                remove_block_loops=True,
+                remove_field_api_view_updates=True,
+                remove_firstprivate_copies=True,
+                dimension=blocking_outer, dim_object='IDIMS',
+                fprivate_map=lcopies_firstprivates,
+                field_group_types=field_group_types+fgroup_firstprivates,
+                insert_loki_parallel=False
+            ).apply(ec_phys_parallel)
 
-            remove_field_api_view_updates(
-                ec_phys_parallel, dim_object='IDIMS',
-                field_group_types=field_group_types+fgroup_firstprivates
-            )
 
             # The add them back in according to parallel region
             add_block_loops(ec_phys_parallel, dimension=blocking_outer)
