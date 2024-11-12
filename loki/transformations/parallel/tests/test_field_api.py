@@ -13,7 +13,7 @@ from loki.ir import nodes as ir, FindNodes
 from loki.expression import symbols as sym
 from loki.scope import Scope
 from loki.transformations.parallel import (
-    remove_field_api_view_updates, add_field_api_view_updates,
+    do_remove_field_api_view_updates, add_field_api_view_updates,
     get_field_type, field_get_device_data, FieldAPITransferType
 )
 from loki.types import BasicType, SymbolAttributes
@@ -69,7 +69,7 @@ end subroutine test_remove_block_loop
 
     with caplog.at_level(WARNING):
         field_group_types = ['state_type', 'aux_type', 'flux_type']
-        remove_field_api_view_updates(
+        do_remove_field_api_view_updates(
             routine, field_group_types=field_group_types, dim_object='DIMS'
         )
 

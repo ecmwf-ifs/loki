@@ -34,9 +34,9 @@ from loki.transformations.extract import outline_region
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.parallel import (
     remove_openmp_regions, add_openmp_regions,
-    remove_block_loops, add_block_loops,
-    remove_field_api_view_updates, add_field_api_view_updates,
-    remove_explicit_firstprivatisation, create_explicit_firstprivatisation
+    do_remove_block_loops, add_block_loops,
+    do_remove_field_api_view_updates, add_field_api_view_updates,
+    do_remove_explicit_firstprivatisation, create_explicit_firstprivatisation
 )
 from loki.transformations.remove_code import (
     RemoveCodeTransformation, do_remove_unused_imports

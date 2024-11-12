@@ -21,7 +21,7 @@ from loki.types import BasicType
 from loki.transformations.data_offload.offload import DataOffloadTransformation
 from loki.transformations.parallel import (
     FieldAPITransferType, field_get_device_data, field_sync_host,
-    remove_field_api_view_updates
+    do_remove_field_api_view_updates
 )
 
 

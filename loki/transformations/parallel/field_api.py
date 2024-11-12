@@ -18,13 +18,14 @@ from loki.scope import Scope
 from loki.logging import warning
 from loki.tools import as_tuple
 
+
 __all__ = [
-    'remove_field_api_view_updates', 'add_field_api_view_updates', 'get_field_type',
+    'do_remove_field_api_view_updates', 'add_field_api_view_updates', 'get_field_type',
     'field_get_device_data', 'field_sync_host', 'FieldAPITransferType'
 ]
 
 
-def remove_field_api_view_updates(routine, field_group_types, dim_object=None):
+def do_remove_field_api_view_updates(routine, field_group_types, dim_object=None):
     """
     Remove FIELD API boilerplate calls for view updates of derived types.
 
