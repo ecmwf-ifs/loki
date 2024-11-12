@@ -33,9 +33,8 @@ from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.extract import outline_region
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.parallel import (
-    add_openmp_regions, add_block_loops, add_field_api_view_updates,
-    create_explicit_firstprivatisation,
-    RemoveViewDriverLoopTransformation
+    do_add_openmp_regions,
+    RemoveViewDriverLoopTransformation, AddViewDriverLoopTransformation
 )
 from loki.transformations.remove_code import (
     RemoveCodeTransformation, do_remove_unused_imports
@@ -54,6 +53,15 @@ field_group_types = [
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
     'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY',
+]
+
+fprivate_variables = [
+    'IDIMS', 'ZDVARS', 'ZSLPHY9',
+    'STATE_T0', 'STATE_TMP', 'TENDENCY_CML', 'TENDENCY_DYN',
+    'TENDENCY_SATADJ', 'TENDENCY_LOC', 'TENDENCY_PHY', 'TENDENCY_VDF',
+    'ZAUX', 'ZRAD', 'ZPERT', 'ZFLUX', 'ZDIAG', 'ZDDHS',
+    'ZAUXL', 'ZSURFL', 'ZLLKEYS', 'ZPERTL', 'GEMSL',
+    'YLA_CONVCTY', 'YLA_GFL_DYN', 'YLA_GFLSLP', 'YLA_SAVTEND', 'YLA_TENDENCY_VD9'
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
@@ -301,7 +309,7 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
     if not remove_openmp:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-wrote OpenMP regions in {s:.2f}s'):
             # Re-insert OpenMP parallel regions after inlining
-            add_openmp_regions(
+            do_add_openmp_regions(
                 routine=ec_phys_fc, dimension=blocking_outer,
                 shared_variables=shared_variables,
                 fprivate_variables=fprivate_variables
@@ -394,17 +402,15 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
                 insert_loki_parallel=False
             ).apply(ec_phys_parallel)
 
-
-            # The add them back in according to parallel region
-            add_block_loops(ec_phys_parallel, dimension=blocking_outer)
-
-            add_field_api_view_updates(
-                ec_phys_parallel, dim_object='IDIMS', dimension=blocking_outer,
-                field_group_types=field_group_types+fgroup_firstprivates
-            )
-
-            # Re-insert explicit firstprivate copies
-            create_explicit_firstprivatisation(ec_phys_parallel, fprivate_map=lcopies_firstprivates)
+            # Re-insert parallelisation  according to pragma directives
+            AddViewDriverLoopTransformation(
+                add_block_loops=True, add_field_api_view_updates=True,
+                add_firstprivate_copies=True, add_openmp_regions=False,
+                dimension=blocking_outer, dim_object='IDIMS',
+                fprivate_map=lcopies_firstprivates,
+                field_group_types=field_group_types+fgroup_firstprivates,
+                fprivate_variables=fprivate_variables
+            ).apply(ec_phys_parallel)
 
     if promote_local_arrays:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Promoted local arrays in {s:.2f}s'):
@@ -421,21 +427,17 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
 
         driver_routines = outline_driver_routines(ec_phys_parallel)
         for driver in driver_routines:
-            # Re-insert block loop with FIELD API view updates
-            add_block_loops(routine=driver, dimension=blocking_driver)
 
-            add_field_api_view_updates(
-                routine=driver, dim_object='IDIMS', dimension=blocking_driver,
-                field_group_types=field_group_types+fgroup_firstprivates
-            )
-
-            # Re-insert explicit firstprivate copies
-            create_explicit_firstprivatisation(driver, fprivate_map=lcopies_firstprivates)
-
-            add_openmp_regions(
-                routine=driver, field_group_types=field_group_types + fgroup_dimension,
-                global_variables=global_variables
-            )
+            # Re-insert parallel block loop with FIELD API view updates
+            AddViewDriverLoopTransformation(
+                add_block_loops=True, add_field_api_view_updates=True,
+                add_firstprivate_copies=True, add_openmp_regions=True,
+                dimension=blocking_driver, dim_object='IDIMS',
+                fprivate_map=lcopies_firstprivates,
+                field_group_types=field_group_types+fgroup_firstprivates,
+                shared_variables=shared_variables,
+                fprivate_variables=fprivate_variables
+            ).apply(driver)
 
             # Create a new source file for the extracted routine
             filename = driver.name.lower() + '_mod.F90'
@@ -451,10 +453,11 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
 
     with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Added OpenMP regions in {s:.2f}s'):
         # Add OpenMP pragmas around marked loops
-        add_openmp_regions(
+        do_add_openmp_regions(
             routine=ec_phys_parallel,
-            field_group_types=field_group_types + fgroup_dimension,
-            global_variables=global_variables
+            dimension=blocking_driver,
+            shared_variables=shared_variables,
+            fprivate_variables=fprivate_variables
         )
 
     # Rename DR_HOOK calls to ensure appropriate performance logging
