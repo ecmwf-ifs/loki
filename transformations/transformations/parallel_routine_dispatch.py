@@ -151,13 +151,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.create_synchost(routine, region_name, map_region)
         self.create_nullify(routine, region_name, map_region)
 
-        for target in targets:
-            self.process_target(
-                routine, region, region_name, map_routine, map_region, target
-            )
 
         self.create_new_region(
-            routine, region, region_name, map_region, targets
+            routine, map_routine, region, region_name, map_region, targets
         )
 
         self.add_derived_to_map_routine(map_routine, map_region)
@@ -205,13 +201,20 @@ class ParallelRoutineDispatchTransformation(Transformation):
             entry[0].lower(): entry[1] if len(entry) == 2 else None
             for entry in pragma_content
         }
-        if "parallel" not in pragma_attrs:
-            return
-        if "target" not in pragma_attrs: #default value
-            pragma_attrs["target"] = "OpenMP"
-        if "name" not in pragma_attrs:
-            pragma_attrs["name"] = str(map_routine["nb_no_name"])
-            map_routine["nb_no_name"] += 1
+        if "parallelserial" in pragma_attrs:
+            pragma_attrs["target"] = "Serial"
+            pragma_attrs['name'] = None
+        elif "parallelabort" in pragma_attrs:
+            pragma_attrs["target"] = "Abort"
+            pragma_attrs['name'] = None
+        else:
+            if "parallel" not in pragma_attrs:
+                return
+            if "target" not in pragma_attrs: #default value
+                pragma_attrs["target"] = "OpenMP"
+            if "name" not in pragma_attrs:
+                pragma_attrs["name"] = str(map_routine["nb_no_name"])
+                map_routine["nb_no_name"] += 1
 
         targets = pragma_attrs["target"].split("/")
         region_name = pragma_attrs["name"]
@@ -230,11 +233,46 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if imp_name not in calls:
                 map_imports[imp] = None
         routine.spec = Transformer(map_imports).visit(routine.spec)
+
     def create_new_region(
+        self, routine, map_routine, region, region_name, map_region, targets
+    ):
+        """
+        I - Build the parallel region for the target 
+            1 - where the target (=lparallelmethod) is openmp, openmpscc or openaccscc).
+                    IF LPARALLELMETHOD ...
+                        do computation
+                    END IF
+            2 - target can be serial : do nothing
+            3 - target can be abort : remove the code
+
+
+        II - Replace the acdc pragma by a parallel region. 
+        """
+
+        if targets == ["Abort"]:
+            new_region = ()
+
+        elif targets == ["Serial"]:
+            new_region = region.body
+
+        else: #targets = None, OpenMp, OpenMpScc OpenAccScc
+
+            self.create_lparallelmethod(
+                routine, region, region_name, map_routine, map_region, targets
+            )
+
+            new_region = self.gather_lparallelmethod(
+                routine, region, region_name, map_region, targets
+    )
+
+        region._update(pragma=None, pragma_post=None, body=new_region)
+
+    def gather_lparallelmethod(
         self, routine, region, region_name, map_region, targets
     ):
         """
-        Gather the different pieces of the region.
+        Gather the different parallelmethod in one ELSE/IF construct.
         """
         #todo : nettoyer
         # IF (LPARALLELMETHOD ('OPENMP','APL_ARPEGE_PARALLEL:CPPHINP')) THEN
@@ -281,40 +319,43 @@ class ParallelRoutineDispatchTransformation(Transformation):
         )
 
         new_region = (dr_hook_calls[0], cond, dr_hook_calls[1])
-        region._update(pragma=None, pragma_post=None, body=new_region)
+
+        return new_region
 
 
-    def process_target(
-        self, routine, region, region_name, map_routine, map_region, target
+    def create_lparallelmethod(
+        self, routine, region, region_name, map_routine, map_region, targets
+
     ):
         """
-        Build the parallel region for the target (where the target (=lparallelmethod) is openmp, openmpscc or openaccscc).
-        IF LPARALLELMETHOD ...
-            do computation
-        END IF
+        Build the parallel region for the target where the target (=lparallelmethod) is openmp, openmpscc or openaccscc).
+            IF LPARALLELMETHOD ...
+                do computation
+            END IF
         """
-        #todo : clean
-        get_data = True
-        map_region["get_data"][target] = self.create_pt_sync(
-            routine, target, region_name, get_data, map_region
-        )
-        map_region["compute"][target] = self.map_call_compute[target](
-            routine, region, region_name, map_routine, map_region
-        )
-        map_region["region"][target] = (
-            map_region["get_data"][target]
-            + list(map_region["compute"][target])
-            + [map_region["synchost"]]
-            + map_region["nullify"]
-        )
-        condition_parameters = (
-            sym.StringLiteral(value=f"{target.upper()}"),
-            sym.StringLiteral(value=f"{routine.name}:{region_name}"),
-        )
-        condition = sym.InlineCall(
-            sym.Variable(name="LPARALLELMETHOD"), parameters=condition_parameters
-        )
-        map_region["lparallel"][target] = condition
+        for target in targets:
+            #todo : clean
+            get_data = True
+            map_region["get_data"][target] = self.create_pt_sync(
+                routine, target, region_name, get_data, map_region
+            )
+            map_region["compute"][target] = self.map_call_compute[target](
+                routine, region, region_name, map_routine, map_region
+            )
+            map_region["region"][target] = (
+                map_region["get_data"][target]
+                + list(map_region["compute"][target])
+                + [map_region["synchost"]]
+                + map_region["nullify"]
+            )
+            condition_parameters = (
+                sym.StringLiteral(value=f"{target.upper()}"),
+                sym.StringLiteral(value=f"{routine.name}:{region_name}"),
+            )
+            condition = sym.InlineCall(
+                sym.Variable(name="LPARALLELMETHOD"), parameters=condition_parameters
+            )
+            map_region["lparallel"][target] = condition
 
     @staticmethod
     def create_dr_hook_calls(scope, cdname, handle):
