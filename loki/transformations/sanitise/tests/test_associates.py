@@ -7,21 +7,18 @@
 
 import pytest
 
-from loki import (
-    BasicType, FindNodes, Subroutine, Module, fgen
-)
+from loki import BasicType, Subroutine
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.sanitise import (
-    resolve_associates, merge_associates,
-    transform_sequence_association, ResolveAssociatesTransformer,
-    SanitiseTransformation
+    do_resolve_associates, do_merge_associates,
+    ResolveAssociatesTransformer, AssociatesTransformation
 )
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_simple(frontend):
     """
@@ -48,7 +45,7 @@ end subroutine transform_associates_simple
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
@@ -61,7 +58,7 @@ end subroutine transform_associates_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_nested(frontend):
     """
@@ -92,7 +89,7 @@ end subroutine transform_associates_nested
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
@@ -101,7 +98,7 @@ end subroutine transform_associates_nested
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_array_call(frontend):
     """
@@ -137,7 +134,7 @@ end subroutine transform_associates_simple
     assert routine.variable_map['local_arr'].type.shape == ('a%n',)
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
@@ -151,7 +148,7 @@ end subroutine transform_associates_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_nested_conditional(frontend):
     """
@@ -194,7 +191,7 @@ end subroutine transform_associates_nested_conditional
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
-    resolve_associates(routine)
+    do_resolve_associates(routine)
 
     assert len(FindNodes(ir.Conditional).visit(routine.body)) == 2
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
@@ -208,7 +205,7 @@ end subroutine transform_associates_nested_conditional
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_partial_body(frontend):
     """
@@ -255,7 +252,7 @@ end subroutine transform_associates_partial
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_associates_start_depth(frontend):
     """
@@ -289,7 +286,7 @@ end subroutine transform_associates_partial
     assert len(loops) == 1
 
     # Resolve all expect the outermost associate block
-    resolve_associates(routine, start_depth=1)
+    do_resolve_associates(routine, start_depth=1)
 
     # Check that associated symbols have been resolved in loop body only
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
@@ -304,7 +301,7 @@ end subroutine transform_associates_partial
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_merge_associates_nested(frontend):
     """
@@ -343,7 +340,7 @@ end subroutine merge_associates_simple
     assert len(assocs[2].associations) == 3
 
     # Move associate mapping around
-    merge_associates(routine, max_parents=2)
+    do_merge_associates(routine, max_parents=2)
 
     assocs = FindNodes(ir.Associate).visit(routine.body)
     assert len(assocs) == 3
@@ -361,120 +358,81 @@ end subroutine merge_associates_simple
     assert b_c_n.scope == assocs[0]
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_sequence_assocaition_scalar_notation(frontend, tmp_path):
-    fcode = """
-module mod_a
-    implicit none
-
-    type type_b
-        integer :: c
-        integer :: d
-    end type type_b
-
-    type type_a
-        type(type_b) :: b
-    end type type_a
-
-contains
-
-    subroutine main()
-
-        type(type_a) :: a
-        integer :: k, m, n
-
-        real    :: array(10,10)
-
-        call sub_x(array(1, 1), 1)
-        call sub_x(array(2, 2), 2)
-        call sub_x(array(m, 1), k)
-        call sub_x(array(m-1, 1), k-1)
-        call sub_x(array(a%b%c, 1), a%b%d)
-
-    contains
-
-        subroutine sub_x(array, k)
-
-            integer, intent(in) :: k
-            real, intent(in)    :: array(k:n)
-
-        end subroutine sub_x
-
-    end subroutine main
-
-end module mod_a
-    """.strip()
-
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    routine = module['main']
-
-    transform_sequence_association(routine)
-
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-
-    assert fgen(calls[0]).lower() == 'call sub_x(array(1:10, 1), 1)'
-    assert fgen(calls[1]).lower() == 'call sub_x(array(2:10, 2), 2)'
-    assert fgen(calls[2]).lower() == 'call sub_x(array(m:10, 1), k)'
-    assert fgen(calls[3]).lower() == 'call sub_x(array(m - 1:10, 1), k - 1)'
-    assert fgen(calls[4]).lower() == 'call sub_x(array(a%b%c:10, 1), a%b%d)'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('resolve_associate', [True, False])
-@pytest.mark.parametrize('resolve_sequence', [True, False])
-def test_transformation_sanitise(frontend, resolve_associate, resolve_sequence, tmp_path):
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+@pytest.mark.parametrize('merge', [False, True])
+@pytest.mark.parametrize('resolve', [False, True])
+def test_associates_transformation(frontend, merge, resolve):
     """
-    Test that the selective dispatch of the sanitisations works.
+    Test association merging paired with partial resolution of inner
+    scopes via :any:`AssociatesTransformation`.
     """
-
     fcode = """
-module test_transformation_sanitise_mod
+subroutine merge_associates_simple(base)
+  use some_module, only: some_type
   implicit none
 
-  type rick
-    real :: scalar
-  end type rick
-contains
+  type(some_type), intent(inout) :: base
+  integer :: i
+  real :: local_var
 
-  subroutine test_transformation_sanitise(a, dave)
-    real, intent(inout) :: a(3)
-    type(rick), intent(inout) :: dave
+  associate(a => base%a)
+  associate(b => base%b)
+  associate(c => a%c)
+  associate(d => c%d)
+    do i=1, 5
+      call another_routine(b(i), c%n)
 
-    associate(scalar => dave%scalar)
-      scalar = a(1) + a(2)
-
-      call vadd(a(1), 2.0, 3)
-    end associate
-
-  contains
-    subroutine vadd(x, y, n)
-      real, intent(inout) :: x(n)
-      real, intent(inout) :: y
-      integer, intent(in) :: n
-
-      x = x + 2.0
-    end subroutine vadd
-  end subroutine test_transformation_sanitise
-end module test_transformation_sanitise_mod
+      d(i) = 42.0
+    end do
+  end associate
+  end associate
+  end associate
+  end associate
+end subroutine merge_associates_simple
 """
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    routine = module['test_transformation_sanitise']
+    routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assoc = FindNodes(ir.Associate).visit(routine.body)
-    assert len(assoc) == 1
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    assert len(calls) == 1
-    assert calls[0].arguments[0] == 'a(1)'
+    AssociatesTransformation(
+        resolve_associates=resolve, merge_associates=merge, start_depth=1
+    ).apply(routine)
 
-    trafo = SanitiseTransformation(
-        resolve_associate_mappings=resolve_associate,
-        resolve_sequence_association=resolve_sequence,
-    )
-    trafo.apply(routine)
+    assocs = FindNodes(ir.Associate).visit(routine.body)
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
 
-    assoc = FindNodes(ir.Associate).visit(routine.body)
-    assert len(assoc) == 0 if resolve_associate else 1
+    if not merge and not resolve:
+        assert len(assocs) == 4
+        assert all(len(a.associations) == 1 for a in assocs)
 
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    assert len(calls) == 1
-    assert calls[0].arguments[0] == 'a(1:3)' if resolve_sequence else 'a(1)'
+        assert call.arguments[0] == 'b(i)'
+        assert call.arguments[1] == 'c%n'
+        assert assign.lhs == 'd(i)'
+
+    if merge and not resolve:
+        assert len(assocs) == 4
+        assert assocs[0].associations == (('base%a', 'a'), ('base%b', 'b'))
+        assert assocs[1].associations == (('a%c', 'c'), )
+        assert assocs[2].associations == ()
+        assert assocs[3].associations == (('c%d', 'd'), )
+
+        assert call.arguments[0] == 'b(i)'
+        assert call.arguments[1] == 'c%n'
+        assert assign.lhs == 'd(i)'
+
+    if not merge and resolve:
+        assert len(assocs) == 1
+        assert assocs[0].associations == (('base%a', 'a'),)
+
+        assert call.arguments[0] == 'base%b(i)'
+        assert call.arguments[1] == 'a%c%n'
+        assert assign.lhs == 'a%c%d(i)'
+
+    if merge and resolve:
+        assert len(assocs) == 1
+        assert assocs[0].associations == (('base%a', 'a'), ('base%b', 'b'))
+
+        assert call.arguments[0] == 'b(i)'
+        assert call.arguments[1] == 'a%c%n'
+        assert assign.lhs == 'a%c%d(i)'

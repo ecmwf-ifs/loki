@@ -13,7 +13,7 @@ from loki.ir import (
 )
 from loki.tools import as_tuple
 
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds, check_routine_sequential
 )
@@ -180,7 +180,7 @@ class SCCBaseTransformation(Transformation):
 
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
-        resolve_associates(routine)
+        do_resolve_associates(routine)
 
         # Resolve WHERE clauses
         self.resolve_masked_stmts(routine, loop_variable=v_index)
@@ -202,4 +202,4 @@ class SCCBaseTransformation(Transformation):
         # Resolve associates, since the PGI compiler cannot deal with
         # implicit derived type component offload by calling device
         # routines.
-        resolve_associates(routine)
+        do_resolve_associates(routine)

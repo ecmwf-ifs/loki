@@ -23,7 +23,7 @@ from loki.transformations.transform_derived_types import (
     DerivedTypeArgumentsTransformation,
     TypeboundProcedureCallTransformation
 )
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 #pylint: disable=too-many-lines
 
 @pytest.fixture(scope='module', name='here')
@@ -1266,7 +1266,7 @@ end module some_mod
     assert variable_map['t'].type.intent == 'inout'
     assert variable_map['arr'].type.intent is None
 
-    resolve_associates(source['some_routine'])
+    do_resolve_associates(source['some_routine'])
     variables = FindVariables().visit(source['some_routine'].body)
     assert variables == {'t', 't%arr(:)'}
     variable_map = CaseInsensitiveDict((v.name, v) for v in variables)

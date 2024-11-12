@@ -35,7 +35,7 @@ from loki.transformations.array_indexing import (
 from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics, sanitise_imports
 )
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
@@ -608,7 +608,7 @@ class FortranCTransformation(Transformation):
         kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
 
         # Resolve implicit struct mappings through "associates"
-        resolve_associates(kernel)
+        do_resolve_associates(kernel)
 
         # Force all variables to lower-caps, as C/C++ is case-sensitive
         convert_to_lower_case(kernel)

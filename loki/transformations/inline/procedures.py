@@ -18,7 +18,7 @@ from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import error
 from loki.subroutine import Subroutine
 
-from loki.transformations.sanitise import transform_sequence_association_append_map
+from loki.transformations.sanitise import SequenceAssociationTransformer
 from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update
 )
@@ -37,9 +37,9 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
     or in calls to procedures that have been marked with an inline pragma (if ``inline_marked = True``).
     If both ``inline_internals`` and ``inline_marked`` are ``False``, no processing is done.
     """
-    call_map = {}
-    with pragmas_attached(routine, node_type=CallStatement):
-        for call in FindNodes(CallStatement).visit(routine.body):
+    class SequenceAssociationForInlineCallsTransformer(SequenceAssociationTransformer):
+
+        def visit_CallStatement(self, call, **kwargs):
             condition = (
                 (inline_marked and is_loki_pragma(call.pragma, starts_with='inline')) or
                 (inline_internals and call.routine in routine.routines)
@@ -56,9 +56,11 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
                         "the source code of the procedure. " +
                         "If running in batch processing mode, please recheck Scheduler configuration."
                     )
-                transform_sequence_association_append_map(call_map, call)
-        if call_map:
-            routine.body = Transformer(call_map).visit(routine.body)
+
+            return super().visit_CallStatement(call, **kwargs)
+
+    with pragmas_attached(routine, node_type=CallStatement):
+        routine.body = SequenceAssociationForInlineCallsTransformer(inplace=True).visit(routine.body)
 
 
 def map_call_to_procedure_body(call, caller, callee=None):

@@ -18,7 +18,7 @@ from loki.types import SymbolAttributes, BasicType
 from loki.expression import (
     symbols as sym, Variable, Array, RangeIndex
 )
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     recursive_expression_map_update, get_integer_variable,
     get_loop_bounds, check_routine_sequential
@@ -242,7 +242,7 @@ class BlockViewToFieldViewTransformation(Transformation):
     def process_kernel(self, routine, item, successors, targets, exclude_arrays):
 
         # Sanitize the subroutine
-        resolve_associates(routine)
+        do_resolve_associates(routine)
         v_index = get_integer_variable(routine, name=self.horizontal.index)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
 
