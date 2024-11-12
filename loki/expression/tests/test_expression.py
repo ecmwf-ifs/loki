@@ -691,10 +691,10 @@ end subroutine my_kwargs_routine
 
     # Sort the kwargs and test the transformed code
     inline_call = list(FindInlineCalls().visit(routine.body))[0]
-    call_map = {inline_call: inline_call.sort_kwarguments()}
+    call_map = {inline_call: inline_call.clone_with_sorted_kwargs()}
     routine.body = SubstituteExpressions(call_map).visit(routine.body)
     inline_call = list(FindInlineCalls().visit(routine.body))[0]
-    assert inline_call.check_kwarguments_order()
+    assert inline_call.is_kwargs_order_correct()
     assert not inline_call.arguments
     assert inline_call.kwarguments == (('a', 'v_a'), ('b', 'v_b'), ('c', 'v_c'), ('d', 'v_d'))
     filepath = tmp_path/(f'sorted_expression_kwargs_call_{frontend}.f90')
@@ -703,7 +703,7 @@ end subroutine my_kwargs_routine
     assert res_sorted == 83
 
     # Convert kwargs to args and test the transformed code
-    call_map = {inline_call: inline_call.convert_kwargs_to_args()}
+    call_map = {inline_call: inline_call.clone_with_kwargs_as_args()}
     routine.body = SubstituteExpressions(call_map).visit(routine.body)
     inline_call = list(FindInlineCalls().visit(routine.body))[0]
     assert not inline_call.kwarguments

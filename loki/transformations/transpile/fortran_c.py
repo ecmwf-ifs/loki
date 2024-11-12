@@ -239,7 +239,7 @@ class FortranCTransformation(Transformation):
         inline_call_map = {}
         for inline_call in as_tuple(FindInlineCalls().visit(routine.body)):
             if str(inline_call.name).lower() in as_tuple(targets) and inline_call.routine is not BasicType.DEFERRED:
-                inline_call_map[inline_call] = inline_call.convert_kwargs_to_args()
+                inline_call_map[inline_call] = inline_call.clone_with_kwargs_as_args()
         if inline_call_map:
             routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 

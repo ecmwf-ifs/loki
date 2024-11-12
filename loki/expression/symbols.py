@@ -1432,14 +1432,14 @@ class InlineCall(pmbl.CallWithKwargs):
         new_kwarguments = tuple((arg_name, kwargs[arg_name]) for arg_name in r_arg_names)
         return new_kwarguments
 
-    def check_kwarguments_order(self):
+    def is_kwargs_order_correct(self):
         """
         Check whether kwarguments/kw_parameters are correctly ordered
         in respect to the arguments (``self.routine.arguments``).
         """
         return self.kwarguments == self._sort_kwarguments()
 
-    def sort_kwarguments(self):
+    def clone_with_sorted_kwargs(self):
         """
         Sort and update the kwarguments/kw_parameters according to the order of the
         arguments (``self.routine.arguments``) and return the
@@ -1448,7 +1448,7 @@ class InlineCall(pmbl.CallWithKwargs):
         new_kwarguments = self._sort_kwarguments()
         return self.clone(kw_parameters=new_kwarguments)
 
-    def convert_kwargs_to_args(self):
+    def clone_with_kwargs_as_args(self):
         """
         Convert all kwarguments/kw_parameters to arguments and
         return the converted clone/copy of the inline call.
