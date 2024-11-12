@@ -15,8 +15,8 @@ from loki.ir import (
 )
 
 from loki.transformations.parallel import (
-    remove_openmp_regions, add_openmp_regions,
-    remove_firstprivate_copies, add_firstprivate_copies
+    do_remove_openmp_regions, add_openmp_regions,
+    do_remove_firstprivate_copies, add_firstprivate_copies
 )
 
 
@@ -70,7 +70,7 @@ end subroutine test_driver_openmp
         # Without attaching Loop-pragmas, all are recognised as regions
         assert len(FindNodes(ir.PragmaRegion).visit(routine.body)) == 6
 
-    remove_openmp_regions(routine, insert_loki_parallel=insert_loki_parallel)
+    do_remove_openmp_regions(routine, insert_loki_parallel=insert_loki_parallel)
 
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
     pragmas = FindNodes(ir.Pragma).visit(routine.body)
@@ -242,7 +242,7 @@ end subroutine test_add_openmp_loop
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
 
     # Remove the explicit copy of `ydstate = state` and adjust symbols
-    routine.body = remove_firstprivate_copies(
+    routine.body = do_remove_firstprivate_copies(
         region=routine.body, fprivate_map=fprivate_map, scope=routine
     )
 

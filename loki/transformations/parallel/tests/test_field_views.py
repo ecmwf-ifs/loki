@@ -19,7 +19,7 @@ from loki.transformations.field_api import (
     get_field_type, field_get_device_data, FieldAPITransferType
 )
 from loki.transformations.parallel import (
-    remove_field_api_view_updates, add_field_api_view_updates
+    do_remove_field_api_view_updates, add_field_api_view_updates
 )
 
 
@@ -72,7 +72,7 @@ end subroutine test_remove_block_loop
 
     with caplog.at_level(WARNING):
         field_group_types = ['state_type', 'aux_type', 'flux_type']
-        remove_field_api_view_updates(
+        do_remove_field_api_view_updates(
             routine, field_group_types=field_group_types, dim_object='DIMS'
         )
 
