@@ -13,3 +13,4 @@ regions.
 from loki.transformations.parallel.block_loop import * # noqa
 from loki.transformations.parallel.field_views import * # noqa
 from loki.transformations.parallel.openmp_region import * # noqa
+from loki.transformations.parallel.transformation import * # noqa

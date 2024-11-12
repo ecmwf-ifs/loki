@@ -21,12 +21,12 @@ from loki.types import DerivedType
 
 
 __all__ = [
-    'remove_openmp_regions', 'add_openmp_regions',
-    'remove_firstprivate_copies', 'add_firstprivate_copies'
+    'do_remove_openmp_regions', 'add_openmp_regions',
+    'do_remove_firstprivate_copies', 'add_firstprivate_copies'
 ]
 
 
-def remove_openmp_regions(routine, insert_loki_parallel=False):
+def do_remove_openmp_regions(routine, insert_loki_parallel=False):
     """
     Remove any OpenMP parallel annotations (``!$omp parallel``).
 
@@ -194,7 +194,7 @@ def add_openmp_regions(
                             )
 
 
-def remove_firstprivate_copies(region, fprivate_map, scope):
+def do_remove_firstprivate_copies(region, fprivate_map, scope):
     """
     Removes an IFS-specific workaround, where complex derived-type
     objects are explicitly copied into a local copy of the object to
