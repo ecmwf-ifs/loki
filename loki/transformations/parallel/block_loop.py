@@ -18,10 +18,10 @@ from loki.tools import as_tuple
 from loki.types import BasicType, SymbolAttributes
 
 
-__all__ = ['remove_block_loops', 'add_block_loops']
+__all__ = ['do_remove_block_loops', 'add_block_loops']
 
 
-def remove_block_loops(routine, dimension):
+def do_remove_block_loops(routine, dimension):
     """
     Remove any outer block :any:`Loop` from a given :any:`Subroutine.
 

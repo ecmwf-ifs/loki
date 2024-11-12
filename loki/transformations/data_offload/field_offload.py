@@ -16,7 +16,7 @@ from loki.logging import warning, error
 from loki.types import BasicType
 
 from loki.transformations.field_api import FieldPointerMap
-from loki.transformations.parallel import remove_field_api_view_updates
+from loki.transformations.parallel import do_remove_field_api_view_updates
 
 
 __all__ = [
@@ -69,7 +69,7 @@ class FieldOffloadTransformation(Transformation):
     def process_driver(self, driver):
 
         # Remove the Field-API view-pointer boilerplate
-        remove_field_api_view_updates(driver, self.field_group_types)
+        do_remove_field_api_view_updates(driver, self.field_group_types)
 
         with pragma_regions_attached(driver):
             with dataflow_analysis_attached(driver):
