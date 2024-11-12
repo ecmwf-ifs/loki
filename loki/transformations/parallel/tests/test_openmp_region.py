@@ -156,8 +156,8 @@ end subroutine test_add_openmp_loop
     block_dim = Dimension(index='JKGLO', size='YDGEOM%NGPBLK')
     do_add_openmp_regions(
         routine, dimension=block_dim,
-        field_group_types=('fld_type',),
-        shared_variables=('ydfields',)
+        shared_variables=('ydfields',),
+        fprivate_variables=('ylfields',)
     )
 
     # Ensure pragmas have been inserted
