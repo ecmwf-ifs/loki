@@ -18,7 +18,7 @@ from loki.tools import as_tuple
 
 
 __all__ = [
-    'do_remove_field_api_view_updates', 'add_field_api_view_updates'
+    'do_remove_field_api_view_updates', 'do_add_field_api_view_updates'
 ]
 
 
@@ -74,7 +74,7 @@ def do_remove_field_api_view_updates(routine, field_group_types, dim_object=None
     routine.body = RemoveFieldAPITransformer().visit(routine.body)
 
 
-def add_field_api_view_updates(routine, dimension, field_group_types, dim_object=None):
+def do_add_field_api_view_updates(routine, dimension, field_group_types, dim_object=None):
     """
     Adds FIELD API boilerplate calls for view updates.
 

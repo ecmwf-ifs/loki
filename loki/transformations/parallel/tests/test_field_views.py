@@ -19,7 +19,7 @@ from loki.transformations.field_api import (
     get_field_type, field_get_device_data, FieldAPITransferType
 )
 from loki.transformations.parallel import (
-    do_remove_field_api_view_updates, add_field_api_view_updates
+    do_remove_field_api_view_updates, do_add_field_api_view_updates
 )
 
 
@@ -129,7 +129,7 @@ end subroutine test_remove_block_loop
         lower=('1', 'ICST'), upper=('NGPTOT', 'ICEND')
     )
     field_group_types = ['state_type', 'aux_type', 'flux_type']
-    add_field_api_view_updates(
+    do_add_field_api_view_updates(
         routine, dimension=block, field_group_types=field_group_types,
         dim_object='DIMS'
     )
