@@ -13,7 +13,7 @@ from loki.ir import nodes as ir, FindNodes
 from loki.tools import flatten
 
 from loki.transformations.parallel import (
-    do_remove_block_loops, add_block_loops
+    do_remove_block_loops, do_add_block_loops
 )
 
 
@@ -133,7 +133,7 @@ end subroutine test_add_block_loop
         size='YDGEOM%NGPBLKS',
     )
 
-    add_block_loops(routine, dimension=blocking)
+    do_add_block_loops(routine, dimension=blocking)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 6

@@ -15,8 +15,8 @@ from loki.ir import (
 )
 
 from loki.transformations.parallel import (
-    do_remove_openmp_regions, add_openmp_regions,
-    do_remove_firstprivate_copies, add_firstprivate_copies
+    do_remove_openmp_regions, do_add_openmp_regions,
+    do_remove_firstprivate_copies, do_add_firstprivate_copies
 )
 
 
@@ -154,7 +154,7 @@ end subroutine test_add_openmp_loop
         assert is_loki_pragma(regions[1].pragma_post, starts_with='end not-so-parallel')
 
     block_dim = Dimension(index='JKGLO', size='YDGEOM%NGPBLK')
-    add_openmp_regions(
+    do_add_openmp_regions(
         routine, dimension=block_dim,
         field_group_types=('fld_type',),
         shared_variables=('ydfields',)
@@ -314,7 +314,7 @@ end subroutine test_add_openmp_loop
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
 
     # Put the explicit firstprivate copies back in
-    add_firstprivate_copies(
+    do_add_firstprivate_copies(
         routine=routine, fprivate_map=fprivate_map
     )
 
