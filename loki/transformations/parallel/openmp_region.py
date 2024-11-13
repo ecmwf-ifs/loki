@@ -53,7 +53,7 @@ def remove_openmp_regions(routine, insert_loki_parallel=False):
 
         def visit_PragmaRegion(self, region, **kwargs):
             """
-            Perform the fileterin and removeal of OpenMP pragma regions.
+            Perform the filtering and removal of OpenMP pragma regions.
 
             Parameters
             ----------
@@ -65,7 +65,7 @@ def remove_openmp_regions(routine, insert_loki_parallel=False):
                 return region
 
             if kwargs['active'] and region.pragma.keyword.lower() == 'omp':
-                # Remove other OpenMP pragam regions when in active mode
+                # Remove other OpenMP pragma regions when in active mode
                 region._update(pragma=None, pragma_post=None)
                 return region
 

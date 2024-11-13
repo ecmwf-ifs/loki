@@ -14,9 +14,8 @@ from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragma_regions_attached,
     is_loki_pragma
 )
-from loki.scope import SymbolAttributes
 from loki.tools import as_tuple
-from loki.types import BasicType
+from loki.types import BasicType, SymbolAttributes
 
 
 __all__ = ['remove_block_loops', 'add_block_loops']
@@ -26,9 +25,9 @@ def remove_block_loops(routine, dimension):
     """
     Remove any outer block :any:`Loop` from a given :any:`Subroutine.
 
-    The loops are identified accoerding to a given :any:`Dimension`
+    The loops are identified according to a given :any:`Dimension`
     object, and will remove auxiliary assignments of index and bound
-    variables, as commongly used in IFS-style block loops.
+    variables, as commonly used in IFS-style block loops.
 
     Parameters
     ----------
@@ -71,7 +70,7 @@ def add_block_loops(routine, dimension, default_type=None):
     points, defined by ``dimension.index``, ``dimension.bounds`` and
     ``dimension.step`` is created, alongside assignments that define
     the corresponding block index and upper bound, defined by
-    ``dimension.indices[1]`` and ``dimension.upper[1]`` repsectively.
+    ``dimension.indices[1]`` and ``dimension.upper[1]`` respectively.
 
     Parameters
     ----------
@@ -87,7 +86,6 @@ def add_block_loops(routine, dimension, default_type=None):
     _default = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
     dtype = default_type if default_type else _default
 
-    # TODO: Explain convention in docstring
     lidx = routine.parse_expr(dimension.index)
     bidx = routine.parse_expr(dimension.indices[1])
     bupper = routine.parse_expr(dimension.upper[1])
