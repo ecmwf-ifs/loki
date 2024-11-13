@@ -26,13 +26,15 @@ def test_field_api_remove_view_updates(caplog, frontend):
     """
 
     fcode = """
-subroutine test_remove_block_loop(ngptot, nproma, nflux, dims, state, aux_fields, fluxes)
+subroutine test_remove_block_loop(ngptot, nproma, nflux, dims, state, aux_fields, fluxes, ricks_fields)
+  use type_module, only: dimension_type, state_type, aux_type, flux_type, ricks_type
   implicit none
   integer(kind=4), intent(in) :: ngptot, nproma, nflux
   type(dimension_type), intent(inout) :: dims
   type(STATE_TYPE), intent(inout) :: state
   type(aux_type), intent(inout) :: aux_fields
   type(FLUX_type), intent(inout) :: fluxes(nflux)
+  type(ricks_type), intent(inout) :: ricks_fields
 
   integer :: JKGLO, IBL, ICEND, JK, JL, JF
 
@@ -40,12 +42,17 @@ subroutine test_remove_block_loop(ngptot, nproma, nflux, dims, state, aux_fields
     icend = min(nproma, ngptot - JKGLO + 1)
     ibl = (jkglo - 1) / nproma + 1
 
+    STATE = STATE%CLONE()
+
     CALL DIMS%UPDATE(IBL, ICEND, JKGLO)
     CALL STATE%update_VIEW(IBL)
     CALL AUX_FIELDS%UPDATE_VIEW(block_index=IBL)
-    DO jf=1, nflux
-      CALL FLUXES(JF)%UPDATE_VIEW(IBL)
-    END DO
+    IF (NFLUX > 0) THEN
+      DO jf=1, nflux
+        CALL FLUXES(JF)%UPDATE_VIEW(IBL)
+      END DO
+    END IF
+    CALL RICKS_FIELDS%UPDATE_VIEW(IBL)
 
     CALL MY_KERNEL(STATE%U, STATE%V, AUX_FIELDS%STUFF, FLUXES(1)%FOO, FLUXES(2)%BAR)
   END DO
@@ -53,7 +60,8 @@ end subroutine test_remove_block_loop
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 5
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 6
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 1
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
 
     with caplog.at_level(WARNING):
@@ -63,15 +71,16 @@ end subroutine test_remove_block_loop
         )
 
         assert len(caplog.records) == 2
-        assert '[Loki::ControlFlow] Removing STATE%update_VIEW call, but not in field group types!'\
+        assert '[Loki::ControlFlow] Found LHS field group assign: Assignment:: STATE = STATE%CLONE()'\
             in caplog.records[0].message
-        assert '[Loki::ControlFlow] Removing FLUXES(JF)%UPDATE_VIEW call, but not in field group types!'\
+        assert '[Loki::ControlFlow] Removing RICKS_FIELDS%UPDATE_VIEW call, but not in field group types!'\
             in caplog.records[1].message
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].name == 'MY_KERNEL'
 
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 0
     loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
     assert loops[0].variable == 'jkglo'

@@ -41,16 +41,14 @@ def remove_field_api_view_updates(routine, field_group_types, dim_object=None):
         Optional name of the "dimension" object; if provided it will remove the
         call to ``<dim>%UPDATE(...)`` accordingly.
     """
-    field_group_types = as_tuple(field_group_types)
+    field_group_types = as_tuple(str(fgt).lower() for fgt in field_group_types)
 
     class RemoveFieldAPITransformer(Transformer):
 
         def visit_CallStatement(self, call, **kwargs):  # pylint: disable=unused-argument
 
             if '%update_view' in str(call.name).lower():
-                if not call.name.parent:
-                    warning(f'[Loki::ControlFlow] Removing {call.name} call without parent!')
-                if not str(call.name.parent.type.dtype) in field_group_types:
+                if not str(call.name.parent.type.dtype).lower() in field_group_types:
                     warning(f'[Loki::ControlFlow] Removing {call.name} call, but not in field group types!')
 
                 return None
@@ -61,7 +59,7 @@ def remove_field_api_view_updates(routine, field_group_types, dim_object=None):
             return call
 
         def visit_Assignment(self, assign, **kwargs):  # pylint: disable=unused-argument
-            if assign.lhs.type.dtype in field_group_types:
+            if str(assign.lhs.type.dtype).lower() in field_group_types:
                 warning(f'[Loki::ControlFlow] Found LHS field group assign: {assign}')
             return assign
 
