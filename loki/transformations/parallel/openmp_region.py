@@ -97,7 +97,7 @@ def remove_openmp_regions(routine, insert_loki_parallel=False):
 
 
 def add_openmp_regions(
-        routine, dimension, global_variables=None, field_group_types=None
+        routine, dimension, shared_variables=None, field_group_types=None
 ):
     """
     Add the OpenMP directives for a parallel driver region with an
@@ -109,13 +109,13 @@ def add_openmp_regions(
         The routine to which to add OpenMP parallel regions.
     dimension : :any:`Dimension`
         The dimension object describing the block loop variables.
-    global_variables : tuple of str
+    shared_variables : tuple of str
         Names of variables that should neither be private nor firstprivate
     field_group_types : tuple of str
         Names of types designating "field groups", which should be
         treated as firstprivate
     """
-    global_variables = global_variables or {}
+    shared_variables = shared_variables or {}
     field_group_types = field_group_types or {}
 
     # First get local variables and separate scalars and arrays
@@ -159,7 +159,7 @@ def add_openmp_regions(
                 ))
 
                 # Filter out known global variables
-                local_vars = tuple(v for v in local_vars if v.name not in global_variables)
+                local_vars = tuple(v for v in local_vars if v.name not in shared_variables)
 
                 # Make field group types firstprivate
                 firstprivates = tuple(dict.fromkeys(
