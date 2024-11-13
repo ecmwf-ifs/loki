@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import Subroutine, Module
+from loki import Subroutine, Module, Dimension
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, pragma_regions_attached,
@@ -101,6 +101,7 @@ end module geom_mod
     fcode = """
 subroutine test_add_openmp_loop(ydgeom, arr)
   use geom_mod, only: geom_type
+  use kernel_mod, only: my_kernel, my_non_kernel
   implicit none
   type(geom_type), intent(in) :: ydgeom
   real(kind=8), intent(inout) :: arr(:,:,:)
@@ -117,40 +118,55 @@ subroutine test_add_openmp_loop(ydgeom, arr)
 
   !$loki end parallel
 
+  !$loki not-so-parallel
+
+  DO JKGLO=1,YDGEOM%NGPTOT,YDGEOM%NPROMA
+    call my_non_kernel(arr(1,1,1))
+  END DO
+
+  !$loki end not-so-parallel
+
 end subroutine test_add_openmp_loop
 """
     _ = Module.from_source(fcode_type, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    assert len(FindNodes(ir.Pragma).visit(routine.body)) == 2
+    assert len(FindNodes(ir.Pragma).visit(routine.body)) == 4
     with pragma_regions_attached(routine):
         regions = FindNodes(ir.PragmaRegion).visit(routine.body)
-        assert len(regions) == 1
-        assert regions[0].pragma.keyword == 'loki' and regions[0].pragma.content == 'parallel'
-        assert regions[0].pragma_post.keyword == 'loki' and regions[0].pragma_post.content == 'end parallel'
+        assert len(regions) == 2
+        assert is_loki_pragma(regions[0].pragma, starts_with='parallel')
+        assert is_loki_pragma(regions[0].pragma_post, starts_with='end parallel')
+        assert is_loki_pragma(regions[1].pragma, starts_with='not-so-parallel')
+        assert is_loki_pragma(regions[1].pragma_post, starts_with='end not-so-parallel')
 
-    add_openmp_regions(routine)
+    block_dim = Dimension(index='JKGLO', size='YDGEOM%NGPBLK')
+    add_openmp_regions(routine, dimension=block_dim)
 
     # Ensure pragmas have been inserted
     pragmas = FindNodes(ir.Pragma).visit(routine.body)
-    assert len(pragmas) == 4
-    assert all(p.keyword == 'OMP' for p in pragmas)
+    assert len(pragmas) == 6
+    assert all(p.keyword == 'OMP' for p in pragmas[0:4])
+    assert all(p.keyword == 'loki' for p in pragmas[5:6])
 
     with pragmas_attached(routine, node_type=ir.Loop):
         with pragma_regions_attached(routine):
             # Ensure pragma region has been created
             regions = FindNodes(ir.PragmaRegion).visit(routine.body)
-            assert len(regions) == 1
+            assert len(regions) == 2
             assert regions[0].pragma.keyword == 'OMP'
             assert regions[0].pragma.content.startswith('PARALLEL')
             assert regions[0].pragma_post.keyword == 'OMP'
             assert regions[0].pragma_post.content == 'END PARALLEL'
+            assert is_loki_pragma(regions[1].pragma, starts_with='not-so-parallel')
+            assert is_loki_pragma(regions[1].pragma_post, starts_with='end not-so-parallel')
 
             # Ensure loops has been annotated
             loops = FindNodes(ir.Loop).visit(routine.body)
-            assert len(loops) == 1
+            assert len(loops) == 2
             assert loops[0].pragma[0].keyword == 'OMP'
             assert loops[0].pragma[0].content == 'DO SCHEDULE(DYNAMIC,1)'
+            assert not loops[1].pragma
 
     # TODO: Test field_group_types and known global variables
 

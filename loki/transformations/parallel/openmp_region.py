@@ -96,13 +96,25 @@ def remove_openmp_regions(routine, insert_loki_parallel=False):
         routine.body = RemoveOpenMPRegionTransformer().visit(routine.body, active=False)
 
 
-def add_openmp_regions(routine, global_variables=None, field_group_types=None):
+def add_openmp_regions(
+        routine, dimension, global_variables=None, field_group_types=None
+):
     """
     Add the OpenMP directives for a parallel driver region with an
     outer block loop.
-    """
-    block_dim_size = 'YDGEOMETRY%YRDIM%NGPBLKS'
 
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The routine to which to add OpenMP parallel regions.
+    dimension : :any:`Dimension`
+        The dimension object describing the block loop variables.
+    global_variables : tuple of str
+        Names of variables that should neither be private nor firstprivate
+    field_group_types : tuple of str
+        Names of types designating "field groups", which should be
+        treated as firstprivate
+    """
     global_variables = global_variables or {}
     field_group_types = field_group_types or {}
 
@@ -117,7 +129,7 @@ def add_openmp_regions(routine, global_variables=None, field_group_types=None):
     # Filter arrays by block-dim size, as these are global
     local_arrays = tuple(
         v for v in local_variables
-        if isinstance(v, sym.Array) and not v.dimensions[-1] == block_dim_size
+        if isinstance(v, sym.Array) and not v.dimensions[-1] == dimension.size
     )
 
     with pragma_regions_attached(routine):
@@ -176,7 +188,7 @@ def add_openmp_regions(routine, global_variables=None, field_group_types=None):
                 with pragmas_attached(routine, node_type=ir.Loop):
                     for loop in FindNodes(ir.Loop).visit(region.body):
                         # Add OpenMP DO directives onto block loops
-                        if loop.variable == 'JKGLO':
+                        if loop.variable == dimension.index:
                             loop._update(
                                 pragma=ir.Pragma(keyword='OMP', content='DO SCHEDULE(DYNAMIC,1)'),
                                 pragma_post=ir.Pragma(keyword='OMP', content='END DO'),
