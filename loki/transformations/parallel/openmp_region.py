@@ -22,7 +22,8 @@ from loki.types import DerivedType
 
 __all__ = [
     'do_remove_openmp_regions', 'do_add_openmp_regions',
-    'do_remove_firstprivate_copies', 'do_add_firstprivate_copies'
+    'add_openmp_parallel_region', 'do_remove_firstprivate_copies',
+    'do_add_firstprivate_copies'
 ]
 
 
@@ -95,6 +96,103 @@ def do_remove_openmp_regions(routine, insert_loki_parallel=False):
         routine.body = RemoveOpenMPRegionTransformer().visit(routine.body, active=False)
 
 
+def add_openmp_parallel_region(
+        region, dimension, routine, shared_variables=None,
+        fprivate_variables=None,
+):
+    """
+    Add OpenMP parallel directives around a given set of nodes.
+
+    Parameters
+    ----------
+    region : :any:`PragmaRegion`
+        The region to mark as OpenMP parallel by updating pragmas.
+    dimension : :any:`Dimension`
+        The dimension object describing the block loop variables.
+    routine : :any:`Subroutine`
+        The subroutine in which the parallel region is embedded.
+    shared_variables : tuple of str
+        Names of variables that should neither be private nor firstprivate
+    fprivate_variables : tuple of str
+        Names of variables should be treated as "firstprivate"
+    """
+    shared_variables = shared_variables or {}
+    fprivate_variables = fprivate_variables or {}
+
+    routine_arguments = routine.arguments
+
+    # First get local variables and separate scalars and arrays
+    local_variables = tuple(
+        v for v in routine.variables if v not in routine_arguments
+    )
+
+    local_scalars = tuple(
+        v for v in local_variables if isinstance(v, sym.Scalar)
+    )
+    # Filter arrays by block-dim size, as these are global
+    local_arrays = tuple(
+        v for v in local_variables
+        if isinstance(v, sym.Array) and v.dimensions and \
+        not v.dimensions[-1] == dimension.size
+    )
+
+    # Accumulate the set of locally used symbols and chase parents
+    symbols = tuple(region.uses_symbols | region.defines_symbols)
+    symbols = tuple(dict.fromkeys(flatten(
+        s.parents if s.parent else s for s in symbols
+    )))
+
+    # Start with loop variables and add local scalars and arrays
+    local_vars = tuple(dict.fromkeys(flatten(
+        loop.variable for loop in FindNodes(ir.Loop).visit(region.body)
+    )))
+
+    local_vars += tuple(v for v in local_scalars if v.name in symbols)
+    local_vars += tuple(v for v in local_arrays if v.name in symbols )
+
+    # Also add used symbols that might be field groups
+    local_vars += tuple(dict.fromkeys(
+        v for v in routine_arguments
+        if v.name in symbols and v.name in fprivate_variables
+    ))
+
+    # Filter out known global variables
+    local_vars = tuple(v for v in local_vars if v.name not in shared_variables)
+
+    # Make field group types firstprivate
+    firstprivates = tuple(dict.fromkeys(
+        v.name for v in local_vars if v.name in fprivate_variables
+    ))
+    # Also make values that have an initial value firstprivate
+    firstprivates += tuple(v.name for v in local_vars if v.type.initial)
+
+    # Mark all other variables as private
+    privates = tuple(dict.fromkeys(
+        v.name for v in local_vars if v.name not in firstprivates
+    ))
+
+    s_fp_vars = ", ".join(str(v) for v in firstprivates)
+    s_firstprivate = f'FIRSTPRIVATE({s_fp_vars})' if firstprivates else ''
+    s_private = f'PRIVATE({", ".join(str(v) for v in privates)})' if privates else ''
+    pragma_parallel = ir.Pragma(
+        keyword='OMP', content=f'PARALLEL DEFAULT(SHARED) {s_private} {s_firstprivate}'
+    )
+    region._update(
+        pragma=pragma_parallel,
+        pragma_post=ir.Pragma(keyword='OMP', content='END PARALLEL')
+    )
+
+    # And finally mark all block-dimension loops as parallel
+    with pragmas_attached(routine, node_type=ir.Loop):
+        for loop in FindNodes(ir.Loop).visit(region.body):
+            # Add OpenMP DO directives onto block loops
+            if loop.variable == dimension.index:
+                loop._update(
+                    pragma=ir.Pragma(keyword='OMP', content='DO SCHEDULE(DYNAMIC,1)'),
+                    pragma_post=ir.Pragma(keyword='OMP', content='END DO'),
+                )
+
+
 def do_add_openmp_regions(
         routine, dimension, shared_variables=None, fprivate_variables=None
 ):
@@ -113,22 +211,6 @@ def do_add_openmp_regions(
     fprivate_variables : tuple of str
         Names of variables should be treated as "firstprivate"
     """
-    shared_variables = shared_variables or {}
-    fprivate_variables = fprivate_variables or {}
-
-    # First get local variables and separate scalars and arrays
-    routine_arguments = routine.arguments
-    local_variables = tuple(
-        v for v in routine.variables if v not in routine_arguments
-    )
-    local_scalars = tuple(
-        v for v in local_variables if isinstance(v, sym.Scalar)
-    )
-    # Filter arrays by block-dim size, as these are global
-    local_arrays = tuple(
-        v for v in local_variables
-        if isinstance(v, sym.Array) and not v.dimensions[-1] == dimension.size
-    )
 
     with pragma_regions_attached(routine):
         with dataflow_analysis_attached(routine):
@@ -136,61 +218,11 @@ def do_add_openmp_regions(
                 if not is_loki_pragma(region.pragma, starts_with='parallel'):
                     return
 
-                # Accumulate the set of locally used symbols and chase parents
-                symbols = tuple(region.uses_symbols | region.defines_symbols)
-                symbols = tuple(dict.fromkeys(flatten(
-                    s.parents if s.parent else s for s in symbols
-                )))
-
-                # Start with loop variables and add local scalars and arrays
-                local_vars = tuple(dict.fromkeys(flatten(
-                    loop.variable for loop in FindNodes(ir.Loop).visit(region.body)
-                )))
-
-                local_vars += tuple(v for v in local_scalars if v.name in symbols)
-                local_vars += tuple(v for v in local_arrays if v.name in symbols )
-
-                # Also add used symbols that might be field groups
-                local_vars += tuple(dict.fromkeys(
-                    v for v in routine_arguments
-                    if v.name in symbols and v.name in fprivate_variables
-                ))
-
-                # Filter out known global variables
-                local_vars = tuple(v for v in local_vars if v.name not in shared_variables)
-
-                # Make field group types firstprivate
-                firstprivates = tuple(dict.fromkeys(
-                    v.name for v in local_vars if v.name in fprivate_variables
-                ))
-                # Also make values that have an initial value firstprivate
-                firstprivates += tuple(v.name for v in local_vars if v.type.initial)
-
-                # Mark all other variables as private
-                privates = tuple(dict.fromkeys(
-                    v.name for v in local_vars if v.name not in firstprivates
-                ))
-
-                s_fp_vars = ", ".join(str(v) for v in firstprivates)
-                s_firstprivate = f'FIRSTPRIVATE({s_fp_vars})' if firstprivates else ''
-                s_private = f'PRIVATE({", ".join(str(v) for v in privates)})' if privates else ''
-                pragma_parallel = ir.Pragma(
-                    keyword='OMP', content=f'PARALLEL DEFAULT(SHARED) {s_private} {s_firstprivate}'
+                add_openmp_parallel_region(
+                    region, dimension, routine,
+                    shared_variables=shared_variables,
+                    fprivate_variables=fprivate_variables
                 )
-                region._update(
-                    pragma=pragma_parallel,
-                    pragma_post=ir.Pragma(keyword='OMP', content='END PARALLEL')
-                )
-
-                # And finally mark all block-dimension loops as parallel
-                with pragmas_attached(routine, node_type=ir.Loop):
-                    for loop in FindNodes(ir.Loop).visit(region.body):
-                        # Add OpenMP DO directives onto block loops
-                        if loop.variable == dimension.index:
-                            loop._update(
-                                pragma=ir.Pragma(keyword='OMP', content='DO SCHEDULE(DYNAMIC,1)'),
-                                pragma_post=ir.Pragma(keyword='OMP', content='END DO'),
-                            )
 
 
 def do_remove_firstprivate_copies(region, fprivate_map, scope):
