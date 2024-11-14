@@ -22,8 +22,7 @@ from loki.types import DerivedType
 
 __all__ = [
     'remove_openmp_regions', 'add_openmp_regions',
-    'remove_explicit_firstprivatisation',
-    'create_explicit_firstprivatisation'
+    'remove_firstprivate_copies', 'add_firstprivate_copies'
 ]
 
 
@@ -195,7 +194,7 @@ def add_openmp_regions(
                             )
 
 
-def remove_explicit_firstprivatisation(region, fprivate_map, scope):
+def remove_firstprivate_copies(region, fprivate_map, scope):
     """
     Removes an IFS-specific workaround, where complex derived-type
     objects are explicitly copied into a local copy of the object to
@@ -231,7 +230,7 @@ def remove_explicit_firstprivatisation(region, fprivate_map, scope):
     return SubstituteStringExpressions(fprivate_map, scope=scope).visit(region)
 
 
-def create_explicit_firstprivatisation(routine, fprivate_map):
+def add_firstprivate_copies(routine, fprivate_map):
     """
     Injects IFS-specific thread-local copies of named complex derived
     type objects in parallel regions. This is to prevent issues with

@@ -16,8 +16,7 @@ from loki.ir import (
 
 from loki.transformations.parallel import (
     remove_openmp_regions, add_openmp_regions,
-    remove_explicit_firstprivatisation,
-    create_explicit_firstprivatisation
+    remove_firstprivate_copies, add_firstprivate_copies
 )
 
 
@@ -195,9 +194,9 @@ end subroutine test_add_openmp_loop
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
 ))
-def test_remove_explicit_firstprivatisation(frontend):
+def test_remove_firstprivate_copies(frontend):
     """
-    A simple test for :any:`remove_explicit_firstprivatisation`
+    A simple test for :any:`remove_firstprivate_copies`
     """
     fcode = """
 subroutine test_add_openmp_loop(ydgeom, state, arr)
@@ -243,7 +242,7 @@ end subroutine test_add_openmp_loop
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
 
     # Remove the explicit copy of `ydstate = state` and adjust symbols
-    routine.body = remove_explicit_firstprivatisation(
+    routine.body = remove_firstprivate_copies(
         region=routine.body, fprivate_map=fprivate_map, scope=routine
     )
 
@@ -263,9 +262,9 @@ end subroutine test_add_openmp_loop
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
 ))
-def test_create_explicit_firstprivatisation(tmp_path, frontend):
+def test_add_firstprivate_copies(tmp_path, frontend):
     """
-    A simple test for :any:`create_explicit_firstprivatisation`
+    A simple test for :any:`add_firstprivate_copies`
     """
     
     fcode = """
@@ -315,7 +314,7 @@ end subroutine test_add_openmp_loop
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
     
     # Put the explicit firstprivate copies back in
-    create_explicit_firstprivatisation(
+    add_firstprivate_copies(
         routine=routine, fprivate_map=fprivate_map
     )
 
