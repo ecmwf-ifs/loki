@@ -47,14 +47,16 @@ def remove_block_loops(routine, dimension):
         """
 
         def visit_Loop(self, loop, **kwargs):  # pylint: disable=unused-argument
+            body = self.visit(loop.body, **kwargs)
+
             if not loop.variable == idx:
-                return loop
+                return loop._rebuild(body=body)
 
             to_remove = tuple(
-                a for a in FindNodes(ir.Assignment).visit(loop.body)
+                a for a in FindNodes(ir.Assignment).visit(body)
                 if a.lhs in variables
             )
-            return tuple(n for n in loop.body if n not in to_remove)
+            return tuple(n for n in body if n not in to_remove)
 
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
 
