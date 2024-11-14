@@ -16,6 +16,7 @@ from loki.ir import (
     SubstituteStringExpressions, is_loki_pragma, pragmas_attached,
     pragma_regions_attached
 )
+from loki.subroutine import Subroutine
 from loki.tools import dict_override, flatten
 from loki.types import DerivedType
 
@@ -23,7 +24,7 @@ from loki.types import DerivedType
 __all__ = [
     'do_remove_openmp_regions', 'do_add_openmp_regions',
     'add_openmp_parallel_region', 'do_remove_firstprivate_copies',
-    'do_add_firstprivate_copies'
+    'do_add_firstprivate_copies', 'InjectFirstprivateCopyTransformer'
 ]
 
 
@@ -261,6 +262,57 @@ def do_remove_firstprivate_copies(region, fprivate_map, scope):
     return SubstituteStringExpressions(fprivate_map, scope=scope).visit(region)
 
 
+class InjectFirstprivateCopyTransformer(Transformer):
+    """" Inject assignments that match the firstprivate map in parallel regions """
+
+    def __init__(self, fprivate_map, **kwargs):
+        super().__init__(**kwargs)
+
+        self.fprivate_map = fprivate_map
+        self.inverse_map = {v: k for k, v in fprivate_map.items()}
+
+    def ensure_local_variables(self, routine):
+        """ Ensure the local object copies are declared """
+
+        for lcl, gbl in self.fprivate_map.items():
+            lhs = routine.parse_expr(lcl)
+            rhs = routine.parse_expr(gbl)
+            if not rhs in routine.variables:
+                continue
+            if not lhs in routine.variable_map:
+                routine.variables += (lhs.clone(type=rhs.type.clone(intent=None)),)
+
+    def visit_PragmaRegion(self, region, **kwargs):  # pylint: disable=unused-argument
+        # Apply to pragma-marked "parallel" regions only
+        if not is_loki_pragma(region.pragma, starts_with='parallel'):
+            return region
+
+        # Ensure local variable declarations in closest subroutine
+        scope = kwargs['scope']
+        while not isinstance(scope, Subroutine):
+            scope = scope.parent
+        self.ensure_local_variables(routine=scope)
+
+        # Collect the explicit privatisation copies
+        lvars = FindVariables(unique=True).visit(region.body)
+        assigns = ()
+        for lcl, gbl in self.fprivate_map.items():
+            lhs = scope.parse_expr(lcl)
+            rhs = scope.parse_expr(gbl)
+            if not rhs in scope.variables:
+                continue
+            if rhs in lvars:
+                assigns += (ir.Assignment(lhs=lhs, rhs=rhs),)
+
+        # Remap from global to local name in marked regions
+        SubstituteStringExpressions(
+            inplace=True, str_map=self.inverse_map, scope=scope
+        ).visit(region)
+
+        # Add the copies and return
+        region.prepend(assigns)
+
+
 def do_add_firstprivate_copies(routine, fprivate_map):
     """
     Injects IFS-specific thread-local copies of named complex derived
@@ -275,43 +327,8 @@ def do_add_firstprivate_copies(routine, fprivate_map):
         String mapping of local-to-global names for explicitly
         privatised objects
     """
-    inverse_map = {v: k for k, v in fprivate_map.items()}
-
-    # Ensure the local object copies are declared
-    for lcl, gbl in fprivate_map.items():
-        lhs = parse_expr(lcl, scope=routine)
-        rhs = parse_expr(gbl, scope=routine)
-        if not rhs in routine.variables:
-            continue
-        if not lhs in routine.variable_map:
-            routine.variables += (lhs.clone(type=rhs.type.clone(intent=None)),)
-
-    class InjectExplicitCopyTransformer(Transformer):
-        """" Inject assignments that match the firstprivate map in parallel regions """
-
-        def visit_PragmaRegion(self, region, **kwargs):  # pylint: disable=unused-argument
-            # Apply to pragma-marked "parallel" regions only
-            if not is_loki_pragma(region.pragma, starts_with='parallel'):
-                return region
-
-            # Collect the explicit privatisation copies
-            lvars = FindVariables(unique=True).visit(region.body)
-            assigns = ()
-            for lcl, gbl in fprivate_map.items():
-                lhs = parse_expr(lcl, scope=routine)
-                rhs = parse_expr(gbl, scope=routine)
-                if not rhs in routine.variables:
-                    continue
-                if rhs in lvars:
-                    assigns += (ir.Assignment(lhs=lhs, rhs=rhs),)
-
-            # Remap from global to local name in marked regions
-            region = SubstituteStringExpressions(inverse_map, scope=routine).visit(region)
-
-            # Add the copies and return
-            region.prepend(assigns)
-            return region
 
     with pragma_regions_attached(routine):
         # Inject assignments of local copies
-        routine.body = InjectExplicitCopyTransformer().visit(routine.body)
+        transformer = InjectFirstprivateCopyTransformer(fprivate_map=fprivate_map)
+        routine.body = transformer.visit(routine.body, scope=routine)
