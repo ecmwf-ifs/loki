@@ -18,7 +18,8 @@ from loki.tools import as_tuple
 
 
 __all__ = [
-    'do_remove_field_api_view_updates', 'do_add_field_api_view_updates'
+    'do_remove_field_api_view_updates', 'do_add_field_api_view_updates',
+    'InsertFieldAPIViewsTransformer'
 ]
 
 
@@ -74,6 +75,66 @@ def do_remove_field_api_view_updates(routine, field_group_types, dim_object=None
     routine.body = RemoveFieldAPITransformer().visit(routine.body)
 
 
+class InsertFieldAPIViewsTransformer(Transformer):
+    """ Injects FIELD-API view updates into block loops """
+
+    def __init__(self, dimension, field_group_types, dim_object=None, **kwargs):
+        super().__init__(**kwargs)
+        self.dimension = dimension
+        self.field_group_types = field_group_types
+        self.dim_object = dim_object
+
+    def _create_dim_update(self, scope):
+        index = scope.parse_expr(self.dimension.index)
+        upper = scope.parse_expr(self.dimension.upper[1])
+        bindex = scope.parse_expr(self.dimension.indices[1])
+        idims = scope.get_symbol(self.dim_object)
+        csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
+        return ir.CallStatement(name=csym, arguments=(bindex, upper, index), kwarguments=())
+
+    def _create_view_updates(self, section, scope):
+        bindex = scope.parse_expr(self.dimension.indices[1])
+
+        fgroup_vars = sorted(tuple(
+            v for v in FindVariables(unique=True).visit(section)
+            if str(v.type.dtype) in self.field_group_types
+        ), key=str)
+        calls = ()
+        for fgvar in fgroup_vars:
+            fgsym = scope.get_symbol(fgvar.name)
+            csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
+            calls += (ir.CallStatement(name=csym, arguments=(bindex,), kwarguments=()),)
+
+        return calls
+
+    def visit_Loop(self, loop, **kwargs):  # pylint: disable=unused-argument
+        if not loop.variable == 'JKGLO':
+            return loop
+
+        scope = kwargs.get('scope')
+
+        # Find the loop-setup assignments
+        loop_symbols = self.dimension.indices
+        loop_symbols += as_tuple(self.dimension.lower)
+        loop_symbols += as_tuple(self.dimension.upper)
+        loop_setup = tuple(
+            a for a in FindNodes(ir.Assignment).visit(loop.body)
+            if a.lhs in loop_symbols
+        )
+        idx = max(loop.body.index(a) for a in loop_setup) + 1
+
+        # Prepend FIELD API boilerplate
+        preamble = (
+            ir.Comment(''), ir.Comment('! Set up thread-local view pointers')
+        )
+        if self.dim_object:
+            preamble += (self._create_dim_update(scope),)
+        preamble += self._create_view_updates(loop.body, scope)
+
+        loop._update(body=loop.body[:idx] + preamble + loop.body[idx:])
+        return loop
+
+
 def do_add_field_api_view_updates(routine, dimension, field_group_types, dim_object=None):
     """
     Adds FIELD API boilerplate calls for view updates.
@@ -97,56 +158,7 @@ def do_add_field_api_view_updates(routine, dimension, field_group_types, dim_obj
         call to ``<dim>%UPDATE(...)`` accordingly.
     """
 
-    def _create_dim_update(scope, dim_object):
-        index = scope.parse_expr(dimension.index)
-        upper = scope.parse_expr(dimension.upper[1])
-        bindex = scope.parse_expr(dimension.indices[1])
-        idims = scope.get_symbol(dim_object)
-        csym = sym.ProcedureSymbol(name='UPDATE', parent=idims, scope=idims.scope)
-        return ir.CallStatement(name=csym, arguments=(bindex, upper, index), kwarguments=())
-
-    def _create_view_updates(section, scope):
-        bindex = scope.parse_expr(dimension.indices[1])
-
-        fgroup_vars = sorted(tuple(
-            v for v in FindVariables(unique=True).visit(section)
-            if str(v.type.dtype) in field_group_types
-        ), key=str)
-        calls = ()
-        for fgvar in fgroup_vars:
-            fgsym = scope.get_symbol(fgvar.name)
-            csym = sym.ProcedureSymbol(name='UPDATE_VIEW', parent=fgsym, scope=fgsym.scope)
-            calls += (ir.CallStatement(name=csym, arguments=(bindex,), kwarguments=()),)
-
-        return calls
-
-    class InsertFieldAPIViewsTransformer(Transformer):
-        """ Injects FIELD-API view updates into block loops """
-
-        def visit_Loop(self, loop, **kwargs):  # pylint: disable=unused-argument
-            if not loop.variable == 'JKGLO':
-                return loop
-
-            scope = kwargs.get('scope')
-
-            # Find the loop-setup assignments
-            _loop_symbols = dimension.indices
-            _loop_symbols += as_tuple(dimension.lower) + as_tuple(dimension.upper)
-            loop_setup = tuple(
-                a for a in FindNodes(ir.Assignment).visit(loop.body)
-                if a.lhs in _loop_symbols
-            )
-            idx = max(loop.body.index(a) for a in loop_setup) + 1
-
-            # Prepend FIELD API boilerplate
-            preamble = (
-                ir.Comment(''), ir.Comment('! Set up thread-local view pointers')
-            )
-            if dim_object:
-                preamble += (_create_dim_update(scope, dim_object=dim_object),)
-            preamble += _create_view_updates(loop.body, scope)
-
-            loop._update(body=loop.body[:idx] + preamble + loop.body[idx:])
-            return loop
-
-    routine.body = InsertFieldAPIViewsTransformer().visit(routine.body, scope=routine)
+    routine.body = InsertFieldAPIViewsTransformer(
+        dimension=dimension, field_group_types=field_group_types,
+        dim_object=dim_object
+    ).visit(routine.body, scope=routine)
