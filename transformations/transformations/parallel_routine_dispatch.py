@@ -1062,7 +1062,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_new_calls = {}
         calls = [call for call in FindNodes(ir.CallStatement).visit(region)]
         for call in calls:
-            if call.name != "DR_HOOK" and call.name != "ABOR1":
+            if call.name != "DR_HOOK" and call.name != "ABOR1" and call.name != "GETENV":
                 new_arguments = []
                 new_kwarguments = []
                 for arg in call.arguments:
@@ -1358,7 +1358,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         call_mapper = {}  # mapper for transformation
         for call in calls:
-            if call.name != "DR_HOOK" and call.name != "ABOR1":
+            if call.name != "DR_HOOK" and call.name != "ABOR1" and call.name != "GETENV":
                 self.get_region_arrays(
                     call, map_routine, map_region
                 )  # map_region to store field_new and field_delete
