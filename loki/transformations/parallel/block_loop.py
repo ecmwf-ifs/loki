@@ -14,11 +14,15 @@ from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragma_regions_attached,
     is_loki_pragma
 )
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 from loki.types import BasicType, SymbolAttributes
 
 
-__all__ = ['do_remove_block_loops', 'do_add_block_loops']
+__all__ = [
+    'do_remove_block_loops', 'do_add_block_loops',
+    'InsertBlockLoopTransformer'
+]
 
 
 def do_remove_block_loops(routine, dimension):
@@ -61,6 +65,65 @@ def do_remove_block_loops(routine, dimension):
     routine.body = RemoveBlockLoopTransformer().visit(routine.body)
 
 
+class InsertBlockLoopTransformer(Transformer):
+
+    def __init__(self, dimension, default_type=None, **kwargs):
+        super().__init__(**kwargs)
+
+        self.dimension = dimension
+        self.default_type = default_type
+
+    def _create_block_loop(self, body, scope):
+        """
+        Generate block loop object, including indexing preamble
+        """
+        _default = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
+        dtype = self.default_type if self.default_type else _default
+
+        # Get the closest subroutine scope
+        while not isinstance(scope, Subroutine):
+            scope = scope.parent
+        routine = scope
+
+        lidx = routine.parse_expr(self.dimension.index)
+        bidx = routine.parse_expr(self.dimension.indices[1])
+        bupper = routine.parse_expr(self.dimension.upper[1])
+
+        bsize = scope.parse_expr(self.dimension.step)
+        lupper = scope.parse_expr(self.dimension.upper[0])
+        lrange = sym.LoopRange((sym.Literal(1), lupper, bsize))
+
+        expr_tail = scope.parse_expr(f'{lupper}-{lidx}+1')
+        expr_max = sym.InlineCall(
+            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(bsize, expr_tail)
+        )
+        preamble = (ir.Assignment(lhs=bupper, rhs=expr_max),)
+        preamble += (ir.Assignment(
+            lhs=bidx, rhs=scope.parse_expr(f'({lidx}-1)/{bsize}+1')
+        ),)
+
+        # Ensure that local integer variables are declared
+        for v in (lidx, bupper, bidx):
+            if not v in routine.variable_map:
+                scope.variables += (v.clone(type=dtype),)
+
+        return ir.Loop(variable=lidx, bounds=lrange, body=preamble + body)
+
+    def visit_PragmaRegion(self, region, **kwargs):
+        """
+        (Re-)insert driver-level block loops into marked parallel region.
+        """
+        if not is_loki_pragma(region.pragma, starts_with='parallel'):
+            return region
+
+        scope = kwargs.get('scope')
+
+        loop = self._create_block_loop(body=region.body, scope=scope)
+
+        region._update(body=(ir.Comment(''), loop))
+        return region
+
+
 def do_add_block_loops(routine, dimension, default_type=None):
     """
     Insert IFS-style (NPROMA) driver block-loops in ``!$loki
@@ -85,53 +148,7 @@ def do_add_block_loops(routine, dimension, default_type=None):
         ``integer(kind=JPIM)``.
     """
 
-    _default = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
-    dtype = default_type if default_type else _default
-
-    lidx = routine.parse_expr(dimension.index)
-    bidx = routine.parse_expr(dimension.indices[1])
-    bupper = routine.parse_expr(dimension.upper[1])
-
-    # Ensure that local integer variables are declared
-    for v in (lidx, bupper, bidx):
-        if not v in routine.variable_map:
-            routine.variables += (v.clone(type=dtype),)
-
-    def _create_block_loop(body, scope):
-        """
-        Generate block loop object, including indexing preamble
-        """
-
-        bsize = scope.parse_expr(dimension.step)
-        lupper = scope.parse_expr(dimension.upper[0])
-        lrange = sym.LoopRange((sym.Literal(1), lupper, bsize))
-
-        expr_tail = scope.parse_expr(f'{lupper}-{lidx}+1')
-        expr_max = sym.InlineCall(
-            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(bsize, expr_tail)
-        )
-        preamble = (ir.Assignment(lhs=bupper, rhs=expr_max),)
-        preamble += (ir.Assignment(
-            lhs=bidx, rhs=scope.parse_expr(f'({lidx}-1)/{bsize}+1')
-        ),)
-
-        return ir.Loop(variable=lidx, bounds=lrange, body=preamble + body)
-
-    class InsertBlockLoopTransformer(Transformer):
-
-        def visit_PragmaRegion(self, region, **kwargs):
-            """
-            (Re-)insert driver-level block loops into marked parallel region.
-            """
-            if not is_loki_pragma(region.pragma, starts_with='parallel'):
-                return region
-
-            scope = kwargs.get('scope')
-
-            loop = _create_block_loop(body=region.body, scope=scope)
-
-            region._update(body=(ir.Comment(''), loop))
-            return region
-
     with pragma_regions_attached(routine):
-        routine.body = InsertBlockLoopTransformer().visit(routine.body, scope=routine)
+        routine.body = InsertBlockLoopTransformer(
+            dimension=dimension, default_type=default_type
+        ).visit(routine.body, scope=routine)
