@@ -8,8 +8,9 @@
 import pytest
 
 from loki import Subroutine, Module, Dimension
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
+from loki.tools import flatten
 
 from loki.transformations.parallel import (
     remove_block_loops, add_block_loops
@@ -92,7 +93,7 @@ def test_add_block_loops(frontend):
 subroutine test_add_block_loop(ydgeom, npoints, nlev, arr)
   integer(kind=4), intent(in) :: npoints, nlev
   real(kind=8), intent(inout) :: arr(:,:,:)
-  integer :: JKGLO, IBL, ICEND
+  integer :: JKGLO
 
 !$loki parallel
   call my_kernel(arr(:,:,ibl))
@@ -105,15 +106,24 @@ subroutine test_add_block_loop(ydgeom, npoints, nlev, arr)
     end do
   end do
 !$loki end parallel
+
+!$omp parallel
+  do jk=1, nlev
+    do jl=1, npoints
+      arr(jl, jk, ibl) = 42.0
+    end do
+  end do
+!$omp end parallel
+
 end subroutine test_add_block_loop
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
-    assert len(loops) == 2
+    assert len(loops) == 4
     assert loops[0].variable == 'jk'
     assert loops[1].variable == 'jl'
-    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 2
 
     blocking = Dimension(
         name='block', index=('JKGLO', 'IBL'),
@@ -126,11 +136,13 @@ end subroutine test_add_block_loop
     add_block_loops(routine, dimension=blocking)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
-    assert len(loops) == 4
+    assert len(loops) == 6
     assert loops[0].variable == 'jkglo'
     assert loops[1].variable == 'jkglo'
     assert loops[2].variable == 'jk'
     assert loops[3].variable == 'jl'
+    assert loops[4].variable == 'jk'
+    assert loops[5].variable == 'jl'
 
     assigns1 = FindNodes(ir.Assignment).visit(loops[0].body)
     assert len(assigns1) == 2
@@ -147,3 +159,9 @@ end subroutine test_add_block_loop
     assert assigns2[1].rhs == '(JKGLO - 1) / YDGEOM%NPROMA + 1'
     assert assigns2[2].lhs == 'arr(jl, jk, ibl)'
     assert assigns2[2].rhs == 42.0
+
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    assert len(decls) == 9 if frontend == OMNI else 5
+    decl_symbols = tuple(flatten(d.symbols for d in decls))
+    for v in ['JKGLO', 'IBL', 'ICEND']:
+        assert v in decl_symbols

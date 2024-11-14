@@ -36,6 +36,7 @@ subroutine test_driver_openmp(n, arr)
   !$omp parallel private(i)
   !$omp do schedule dynamic(1)
   do i=1, n
+    !$loki foo-bar
     arr(i) = arr(i) + 1.0
   end do
   !$omp end do
@@ -45,7 +46,9 @@ subroutine test_driver_openmp(n, arr)
   !$OMP PARALLEL PRIVATE(i)
   !$OMP DO SCHEDULE DYNAMIC(1)
   do i=1, n
+    !$loki foo-baz
     arr(i) = arr(i) + 1.0
+    !$loki end foo-baz
   end do
   !$OMP END DO
   !$OMP END PARALLEL
@@ -62,25 +65,30 @@ end subroutine test_driver_openmp
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
-    assert len(FindNodes(ir.Pragma).visit(routine.body)) == 11
+    assert len(FindNodes(ir.Pragma).visit(routine.body)) == 14
 
     with pragma_regions_attached(routine):
         # Without attaching Loop-pragmas, all are recognised as regions
-        assert len(FindNodes(ir.PragmaRegion).visit(routine.body)) == 5
+        assert len(FindNodes(ir.PragmaRegion).visit(routine.body)) == 6
 
     remove_openmp_regions(routine, insert_loki_parallel=insert_loki_parallel)
 
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
     pragmas = FindNodes(ir.Pragma).visit(routine.body)
-    assert len(pragmas) == (6 if insert_loki_parallel else 0)
+    assert len(pragmas) == (9 if insert_loki_parallel else 3)
 
     if insert_loki_parallel:
         with pragma_regions_attached(routine):
             pragma_regions = FindNodes(ir.PragmaRegion).visit(routine.body)
-            assert len(pragma_regions) == 3
-            for region in pragma_regions:
-                assert is_loki_pragma(region.pragma, starts_with='parallel')
-                assert is_loki_pragma(region.pragma_post, starts_with='end parallel')
+            assert len(pragma_regions) == 4
+            assert is_loki_pragma(pragma_regions[0].pragma, starts_with='parallel')
+            assert is_loki_pragma(pragma_regions[0].pragma_post, starts_with='end parallel')
+            assert is_loki_pragma(pragma_regions[1].pragma, starts_with='parallel')
+            assert is_loki_pragma(pragma_regions[1].pragma_post, starts_with='end parallel')
+            assert is_loki_pragma(pragma_regions[2].pragma, starts_with='foo-baz')
+            assert is_loki_pragma(pragma_regions[2].pragma_post, starts_with='end foo-baz')
+            assert is_loki_pragma(pragma_regions[3].pragma, starts_with='parallel')
+            assert is_loki_pragma(pragma_regions[3].pragma_post, starts_with='end parallel')
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -99,19 +107,25 @@ end module geom_mod
 """
 
     fcode = """
-subroutine test_add_openmp_loop(ydgeom, arr)
-  use geom_mod, only: geom_type
+subroutine test_add_openmp_loop(ydgeom, ydfields, arr)
+  use geom_mod, only: geom_type, fld_type
   use kernel_mod, only: my_kernel, my_non_kernel
   implicit none
   type(geom_type), intent(in) :: ydgeom
+  type(fld_type), intent(inout) :: ydfields
+  type(fld_type), intent(inout) :: ylfields
   real(kind=8), intent(inout) :: arr(:,:,:)
   integer :: JKGLO, IBL, ICEND
 
   !$loki parallel
 
+  ylfields = ydfields
+
   DO JKGLO=1,YDGEOM%NGPTOT,YDGEOM%NPROMA
     ICEND = MIN(YDGEOM%NPROMA, YDGEOM%NGPTOT - JKGLO + 1)
     IBL = (JKGLO - 1) / YDGEOM%NPROMA + 1
+
+    CALL YDFIELDS%UPDATE_STUFF()
 
     CALL MY_KERNEL(ARR(:,:,IBL))
   END DO
@@ -141,7 +155,11 @@ end subroutine test_add_openmp_loop
         assert is_loki_pragma(regions[1].pragma_post, starts_with='end not-so-parallel')
 
     block_dim = Dimension(index='JKGLO', size='YDGEOM%NGPBLK')
-    add_openmp_regions(routine, dimension=block_dim)
+    add_openmp_regions(
+        routine, dimension=block_dim,
+        field_group_types=('fld_type',),
+        shared_variables=('ydfields',)
+    )
 
     # Ensure pragmas have been inserted
     pragmas = FindNodes(ir.Pragma).visit(routine.body)
@@ -161,14 +179,17 @@ end subroutine test_add_openmp_loop
             assert is_loki_pragma(regions[1].pragma, starts_with='not-so-parallel')
             assert is_loki_pragma(regions[1].pragma_post, starts_with='end not-so-parallel')
 
+            # Ensure shared, private and firstprivate have been set right
+            assert 'PARALLEL DEFAULT(SHARED)' in regions[0].pragma.content
+            assert 'PRIVATE(JKGLO, IBL, ICEND)' in regions[0].pragma.content
+            assert 'FIRSTPRIVATE(ylfields)' in regions[0].pragma.content
+
             # Ensure loops has been annotated
             loops = FindNodes(ir.Loop).visit(routine.body)
             assert len(loops) == 2
             assert loops[0].pragma[0].keyword == 'OMP'
             assert loops[0].pragma[0].content == 'DO SCHEDULE(DYNAMIC,1)'
             assert not loops[1].pragma
-
-    # TODO: Test field_group_types and known global variables
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -181,16 +202,20 @@ def test_remove_explicit_firstprivatisation(frontend):
     fcode = """
 subroutine test_add_openmp_loop(ydgeom, state, arr)
   use geom_mod, only: geom_type
+  use type_mod, only: state_type, flux_type, NewFlux
   implicit none
   type(geom_type), intent(in) :: ydgeom
   real(kind=8), intent(inout) :: arr(:,:,:)
   type(state_type), intent(in) :: state
   type(state_type) :: ydstate
+  type(flux_type) :: ydflux
   integer :: jkglo, ibl, icend
 
   !$loki parallel
 
   ydstate = state
+
+  ydflux = NewFlux()
 
   do jkglo=1,ydgeom%ngptot,ydgeom%nproma
     icend = min(ydgeom%nproma, ydgeom%ngptot - jkglo + 1)
@@ -209,7 +234,7 @@ end subroutine test_add_openmp_loop
     fprivate_map = {'ydstate' : 'state'}
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 3
+    assert len(assigns) == 4
     assert assigns[0].lhs == 'ydstate' and assigns[0].rhs == 'state'
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 2
@@ -224,9 +249,10 @@ end subroutine test_add_openmp_loop
 
     # Check removal and symbol replacement
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 2
-    assert assigns[0].lhs == 'icend'
-    assert assigns[1].lhs == 'ibl'
+    assert len(assigns) == 3
+    assert assigns[0].lhs == 'ydflux'
+    assert assigns[1].lhs == 'icend'
+    assert assigns[2].lhs == 'ibl'
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 2
     assert str(calls[0].name).startswith('state%')
@@ -263,6 +289,15 @@ subroutine test_add_openmp_loop(ydgeom, state, arr)
   end do
 
   !$loki end parallel
+
+  !$loki not-so-parallel
+
+  do jkglo=1,ydgeom%ngptot,ydgeom%nproma
+    icend = min(ydgeom%nproma, ydgeom%ngptot - jkglo + 1)
+    ibl = (jkglo - 1) / ydgeom%nproma + 1
+  end do
+
+  !$loki end not-so-parallel
 end subroutine test_add_openmp_loop
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -270,25 +305,25 @@ end subroutine test_add_openmp_loop
     fprivate_map = {'ydstate' : 'state'}
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 2
+    assert len(assigns) == 4
     assert assigns[0].lhs == 'icend'
     assert assigns[1].lhs == 'ibl'
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 2
     assert str(calls[0].name).startswith('state%')
     assert calls[1].arguments[0].parent == 'state'
-    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
     
     # Put the explicit firstprivate copies back in
     create_explicit_firstprivatisation(
         routine=routine, fprivate_map=fprivate_map
     )
-    
+
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 3
+    assert len(assigns) == 5
     assert assigns[0].lhs == 'ydstate' and assigns[0].rhs == 'state'
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 2
     assert str(calls[0].name).startswith('ydstate%')
     assert calls[1].arguments[0].parent == 'ydstate'
-    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
