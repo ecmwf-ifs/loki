@@ -21,7 +21,8 @@ from loki.tools import as_tuple
 
 __all__ = [
     'do_remove_field_api_view_updates', 'do_add_field_api_view_updates', 'get_field_type',
-    'field_get_device_data', 'field_sync_host', 'FieldAPITransferType'
+    'field_get_device_data', 'field_sync_host', 'FieldAPITransferType',
+    'InsertFieldAPIViewsTransformer'
 ]
 
 
