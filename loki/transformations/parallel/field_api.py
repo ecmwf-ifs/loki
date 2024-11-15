@@ -29,7 +29,9 @@ def remove_field_api_view_updates(routine, field_group_types, dim_object=None):
     """
     Remove FIELD API boilerplate calls for view updates of derived types.
 
-    This utility is intended to remove the IFS-specific group type objects that provide block-scope view pointers to deep kernel trees. It will remove all calls to ``UPDATE_VIEW`` on derive-type
+    This utility is intended to remove the IFS-specific group type
+    objects that provide block-scope view pointers to deep kernel
+    trees. It will remove all calls to ``UPDATE_VIEW`` on derive-type
     objects with the respective types.
 
     Parameters
@@ -201,10 +203,12 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
         raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
     if transfer_type == FieldAPITransferType.READ_ONLY:
         suffix = 'RDONLY'
-    if transfer_type == FieldAPITransferType.READ_WRITE:
+    elif transfer_type == FieldAPITransferType.READ_WRITE:
         suffix = 'RDWR'
-    if transfer_type == FieldAPITransferType.WRITE_ONLY:
+    elif transfer_type == FieldAPITransferType.WRITE_ONLY:
         suffix = 'WRONLY'
+    else:
+        suffix = ''
     procedure_name = 'GET_DEVICE_DATA_' + suffix
     return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
                             arguments=(dev_ptr.clone(dimensions=None),), )
@@ -213,5 +217,3 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
 def field_sync_host(field_ptr, scope):
     procedure_name = 'SYNC_HOST_RDWR'
     return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())
-
-

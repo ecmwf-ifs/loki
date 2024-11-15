@@ -135,7 +135,8 @@ class DataOffloadTransformation(Transformation):
                         continue
 
                     for param, arg in call.arg_iter():
-                        if isinstance(param, Array) and param.type.intent.lower() == 'in': inargs += (str(arg.name).lower(),)
+                        if isinstance(param, Array) and param.type.intent.lower() == 'in':
+                            inargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'inout':
                             inoutargs += (str(arg.name).lower(),)
                         if isinstance(param, Array) and param.type.intent.lower() == 'out':
@@ -963,7 +964,9 @@ class FieldOffloadTransformation(Transformation):
 
     def __init__(self, **kwargs):
         self.deviceptr_prefix = kwargs.get('devptr_prefix', 'loki_devptr_')
-        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE', 'CLOUDSC_AUX_TYPE', 'CLOUDSC_FLUX_TYPE'])
+        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE',
+                                                             'CLOUDSC_AUX_TYPE',
+                                                             'CLOUDSC_FLUX_TYPE'])
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
         self.offload_index = kwargs.get('offload_index', 'IBL')
 
@@ -1008,11 +1011,11 @@ class FieldOffloadTransformation(Transformation):
                 try:
                     parent = arg.parent
                     if parent.type.dtype.name.lower() not in self.field_group_types:
-                        warning(f'[Loki] The parent object {parent.name} of type {parent.type.dtype} is not in the list of' +
-                                ' field wrapper types')
+                        warning(f'[Loki] The parent object {parent.name} of type ' +
+                                f'{parent.type.dtype} is not in the list of field wrapper types')
                 except AttributeError:
-                    warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in' +
-                            f'{driver.name} that is not wrapped by a Field API object')  # ofc we cant know this for sure
+                    warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in'
+                            + f'{driver.name} that is not wrapped by a Field API object')
                     continue
 
                 if param.type.intent.lower() == 'in':
@@ -1045,12 +1048,9 @@ class FieldOffloadTransformation(Transformation):
         devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
         devptr_name = self.deviceptr_prefix + base_name
-        try:
-            driver.variable_map[devptr_name]
+        if devptr_name in driver.variable_map:
             warning(f'[Loki] Field data offload: The routine {driver.name} already has a' +
                     f'variable named {devptr_name}')
-        except KeyError:
-            pass
         devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
         return devptr
 
@@ -1068,7 +1068,7 @@ class FieldOffloadTransformation(Transformation):
 
     def _is_field_group_update(self, driver, call):
         try:
-            *_, parent, call_name = call.name.name.split('%')
+            *_, parent, _call_name = call.name.name.split('%')
             parent = driver.variable_map.get(parent)
             if parent is not None and parent.type.dtype.name.lower() in self.field_group_types:
                 return True
@@ -1090,4 +1090,3 @@ class FieldOffloadTransformation(Transformation):
         arg_transformer = SubstituteExpressions(change_map, inplace=True)
         for call in kernel_calls:
             arg_transformer.visit(call)
-
