@@ -806,3 +806,30 @@ def substitute_variables_for_definitions(routine, variables):
         remapped_variables = [var_map[var] if var in var_map else var for var in variables]
         return remapped_variables
     return variables
+
+
+def ensure_imported_symbols(routine, symbols, module):
+    """
+    Check if a particular imported symbol exists, or creates the
+    respective :any:`Import` if not.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine to add symbol imports tp
+    symbols : str or tuple of str
+        Symbol(s) names which to add to the subroutine's imports.
+    module : str
+        Name of the module form which to import symbol(s).
+    """
+    symbols = as_tuple(symbols)
+
+    imprts = tuple(i for i in routine.imports if i.module == module)
+    imprt = imprts[0] if imprts else ir.Import(module=module)
+
+    missing = tuple(s for s in symbols if s not in imprt.symbols)
+    missing = tuple(routine.Variable(name=s, scope=routine) for s in missing)
+    imprt._update(symbols=imprt.symbols + missing)
+
+    if not imprts:
+        routine.spec.prepend(imprt)

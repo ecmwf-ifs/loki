@@ -22,7 +22,8 @@ from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
     find_driver_loops, get_local_arrays, check_routine_sequential,
-    substitute_variables_for_definitions, is_pragma_driver_loop
+    substitute_variables_for_definitions, is_pragma_driver_loop,
+    ensure_imported_symbols
 )
 
 
@@ -727,3 +728,51 @@ end subroutine test_substitute_variables_for_definitions
     remap_vars = [var_map[var] for var in ['n', 'a', 'i', 'j', 'b']]
     remapped_2 = substitute_variables_for_definitions(routine, variables=remap_vars)
     assert remapped_2 == ['derived_var%n', parse_expr('derived_var%a + 1'), '2', 'i', 'b']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_utilites_ensure_imported_symbols(frontend, tmp_path):
+    """ Test :any:`ensure_imported_symbol` utility. """
+    fcode_module = """
+module rick_will
+implicit none
+contains
+  subroutine never(a, b)
+    real(kind=8), intent(inout) :: a(:), b(:)
+  end subroutine
+end module rick_will
+    """
+
+    fcode = """
+subroutine test_ensure_imported_symbols(a, b)
+  use rick_will, only: never
+  implicit none
+  real(kind=8), intent(inout) :: a(:), b(:)
+
+  call never(a, b)
+end subroutine test_ensure_imported_symbols
+"""
+    _ = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    assert len(routine.imports) == 1
+    assert routine.imports[0].symbols == ('never',)
+
+    ensure_imported_symbols(routine, symbols='never', module='rick_will')
+    assert len(routine.imports) == 1
+    assert routine.imports[0].symbols == ('never',)
+
+    ensure_imported_symbols(routine, symbols='gonna', module='rick_will')
+    assert len(routine.imports) == 1
+    assert routine.imports[0].symbols == ('never', 'gonna')
+
+    ensure_imported_symbols(
+        routine, symbols=('never', 'give', 'you', 'up'), module='rick_will'
+    )
+    assert len(routine.imports) == 1
+    assert routine.imports[0].symbols == ('never', 'gonna', 'give', 'you', 'up')
+
+    ensure_imported_symbols(routine, symbols=('just', 'might'), module='dave')
+    assert len(routine.imports) == 2
+    assert routine.imports[0].module == 'dave'
+    assert routine.imports[0].symbols == ('just', 'might')
+    assert routine.imports[1].module == 'rick_will'
