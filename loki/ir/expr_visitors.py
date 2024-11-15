@@ -352,13 +352,13 @@ class SubstituteStringExpressions(SubstituteExpressions):
         when rebuilding the node, setting this to `False` allows to
         retain that information
     """
-    def __init__(self, str_map, scope, invalidate_source=True):
+    def __init__(self, str_map, scope, invalidate_source=True, **kwargs):
         from loki.expression.parser import parse_expr  # pylint: disable=import-outside-toplevel,cyclic-import
         expr_map = {
             parse_expr(k, scope=scope): parse_expr(v, scope=scope)
             for k, v in str_map.items()
         }
-        super().__init__(expr_map=expr_map, invalidate_source=invalidate_source)
+        super().__init__(expr_map=expr_map, invalidate_source=invalidate_source, **kwargs)
 
 
 class AttachScopes(Visitor):
