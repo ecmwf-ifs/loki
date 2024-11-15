@@ -18,6 +18,8 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 from loki.types import BasicType, SymbolAttributes
 
+from loki.transformations.utilities import ensure_imported_symbols
+
 
 __all__ = [
     'do_remove_block_loops', 'do_add_block_loops',
@@ -67,7 +69,7 @@ def do_remove_block_loops(routine, dimension):
 
 class InsertBlockLoopTransformer(Transformer):
 
-    def __init__(self, dimension, default_type=None, **kwargs):
+    def __init__(self, dimension, default_type, **kwargs):
         super().__init__(**kwargs)
 
         self.dimension = dimension
@@ -77,8 +79,7 @@ class InsertBlockLoopTransformer(Transformer):
         """
         Generate block loop object, including indexing preamble
         """
-        _default = SymbolAttributes(BasicType.INTEGER, kind='JPIM')
-        dtype = self.default_type if self.default_type else _default
+        dtype = self.default_type
 
         # Get the closest subroutine scope
         while not isinstance(scope, Subroutine):
@@ -147,6 +148,12 @@ def do_add_block_loops(routine, dimension, default_type=None):
         Default type to use when creating variables; defaults to
         ``integer(kind=JPIM)``.
     """
+    if not default_type:
+        # Ensure and derive default integer type
+        ensure_imported_symbols(routine, symbols='JPIM', module='PARKIND1')
+        default_type = SymbolAttributes(
+            BasicType.INTEGER, kind=routine.Variable(name='JPIM')
+        )
 
     with pragma_regions_attached(routine):
         routine.body = InsertBlockLoopTransformer(
