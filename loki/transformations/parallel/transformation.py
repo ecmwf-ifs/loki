@@ -8,7 +8,8 @@
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.ir import (
-    nodes as ir, FindNodes, pragma_regions_attached, is_loki_pragma
+    nodes as ir, FindNodes, pragma_regions_attached, is_loki_pragma,
+    get_pragma_parameters
 )
 from loki.types import BasicType, SymbolAttributes
 
@@ -26,7 +27,8 @@ from loki.transformations.utilities import ensure_imported_symbols
 
 
 __all__ = [
-    'RemoveViewDriverLoopTransformation', 'AddViewDriverLoopTransformation'
+    'RemoveViewDriverLoopTransformation', 'AddViewDriverLoopTransformation',
+    'AddHostDataDriverLoopTransformation'
 ]
 
 
@@ -82,6 +84,8 @@ class AddViewDriverLoopTransformation(Transformation):
 
     """
 
+    _mode = 'HostView'
+
     def __init__(
             self, add_block_loops=True, add_openmp_regions=True,
             add_field_api_view_updates=True,
@@ -107,7 +111,13 @@ class AddViewDriverLoopTransformation(Transformation):
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 
+                # Skip non-parallel marker regions entirely
                 if not is_loki_pragma(region.pragma, starts_with='parallel'):
+                    continue
+
+                # Skip if a non-default parallisation is chosen
+                mode = get_pragma_parameters(region.pragma)['parallel']
+                if mode and not mode == self._mode:
                     continue
 
                 # Ensure and derive default integer type
@@ -150,4 +160,57 @@ class AddViewDriverLoopTransformation(Transformation):
                             dimension=self.dimension,
                             shared_variables=self.shared_variables,
                             fprivate_variables=self.fprivate_variables
+                        )
+
+
+class AddHostDataDriverLoopTransformation(Transformation):
+    """
+
+    """
+
+    _mode = 'HostData'
+
+    def __init__(
+            self, add_block_loops=True, add_openmp_regions=True,
+            dimension=None,
+    ):
+        self.add_block_loops = add_block_loops
+        self.add_openmp_regions = add_openmp_regions
+
+        self.dimension = dimension
+
+    def transform_subroutine(self, routine, **kwargs):
+
+        with pragma_regions_attached(routine):
+            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+
+                # Skip if mode is not explicitly requested
+                mode = get_pragma_parameters(region.pragma).get('parallel')
+                if not mode or not mode == self._mode:
+                    continue
+
+                # Ensure and derive default integer type
+                ensure_imported_symbols(
+                    routine, symbols='JPIM', module='PARKIND1'
+                )
+                default_type = SymbolAttributes(
+                    BasicType.INTEGER, kind=routine.Variable(name='JPIM')
+                )
+
+                if self.add_block_loops:
+                    # Insert the driver block loop
+                    InsertBlockLoopTransformer(
+                        inplace=True, dimension=self.dimension,
+                        default_type=default_type
+                    ).visit(region, scope=routine)
+
+                if self.add_openmp_regions:
+                    # Need to re-generate dataflow info here, as prior
+                    # transformers might have added new symbols.
+                    with dataflow_analysis_attached(routine):
+
+                        # Add OpenMP parallel region
+                        add_openmp_parallel_region(
+                            region=region, routine=routine,
+                            dimension=self.dimension,
                         )
