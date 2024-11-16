@@ -33,8 +33,8 @@ from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.extract import outline_region
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.parallel import (
-    do_add_openmp_regions,
-    RemoveViewDriverLoopTransformation, AddViewDriverLoopTransformation
+    do_add_openmp_regions, RemoveViewDriverLoopTransformation,
+    AddViewDriverLoopTransformation, AddHostDataDriverLoopTransformation
 )
 from loki.transformations.remove_code import (
     RemoveCodeTransformation, do_remove_unused_imports
@@ -208,7 +208,9 @@ def outline_driver_routines(routine):
 
                 if 'parallel' in parameters:
                     # Propagate any "parallel" pragma marker for further processing
-                    pragma = ir.Pragma(keyword='loki', content='parallel')
+                    pmodes = parameters['parallel']
+                    content = 'parallel' + (f' ({pmodes})' if pmodes else '')
+                    pragma = ir.Pragma(keyword='loki', content=content)
                     pragma_post = ir.Pragma(keyword='loki', content='end parallel')
                     region_routine.body.prepend((ir.Comment(''), ir.Comment(''), pragma))
                     region_routine.body.append((pragma_post, ir.Comment('')))
@@ -437,6 +439,11 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
                 field_group_types=field_group_types+fgroup_firstprivates,
                 shared_variables=shared_variables,
                 fprivate_variables=fprivate_variables
+            ).apply(driver)
+
+            # Re-insert driver loop with FIELD API data pointers extracted
+            AddHostDataDriverLoopTransformation(
+                dimension=blocking_outer
             ).apply(driver)
 
             # Create a new source file for the extracted routine
