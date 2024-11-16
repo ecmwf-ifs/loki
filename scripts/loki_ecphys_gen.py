@@ -385,7 +385,10 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
     # Clone original and change subroutine name
     ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
 
-    headers = ['convection_layer.F90', 'turbulence_layer.F90', 'cloud_layer.F90']
+    headers = [
+        'convection_layer.F90', 'turbulence_layer.F90', 'cloud_layer.F90',
+        'state_copy.F90', 'state_increment.F90'
+    ]
     definitions = tuple(flatten(Sourcefile.from_file(source/h).definitions for h in headers))
     ec_phys_parallel.enrich(definitions)
 
