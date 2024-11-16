@@ -9,10 +9,12 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.ir import (
     nodes as ir, FindNodes, pragma_regions_attached, is_loki_pragma,
-    get_pragma_parameters
+    get_pragma_parameters, Transformer
 )
 from loki.types import BasicType, SymbolAttributes
 
+from loki.transformations.drhook import DrHookTransformation
+from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.parallel.openmp_region import (
     do_remove_openmp_regions, do_remove_firstprivate_copies,
     add_openmp_parallel_region, InjectFirstprivateCopyTransformer
@@ -23,6 +25,7 @@ from loki.transformations.parallel.block_loop import (
 from loki.transformations.parallel.field_views import (
     do_remove_field_api_view_updates, InsertFieldAPIViewsTransformer
 )
+from loki.transformations.remove_code import do_remove_dead_code
 from loki.transformations.utilities import ensure_imported_symbols
 
 
@@ -182,12 +185,36 @@ class AddHostDataDriverLoopTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
 
         with pragma_regions_attached(routine):
+            # Perform inlining step, but only if we have active regions
+            regions = tuple(
+                r for r in FindNodes(ir.PragmaRegion).visit(routine.body)
+                if get_pragma_parameters(r.pragma).get('parallel') == self._mode
+            )
+            if regions:
+                inline_marked_subroutines(
+                    routine, adjust_imports=True, allowed_aliases=['JL', 'JRF']
+                )
+
+                do_remove_dead_code(routine)
+
+                DrHookTransformation(kernel_only=False, remove=True).apply(routine)
+
+        with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 
                 # Skip if mode is not explicitly requested
                 mode = get_pragma_parameters(region.pragma).get('parallel')
                 if not mode or not mode == self._mode:
                     continue
+
+                # Sanitisation step: Remove !DIR$ directives
+                directives = tuple(
+                    block for block in FindNodes(ir.CommentBlock).visit(region.body)
+                    if all(c.text.strip().startswith('!DIR$') for c in block.comments)
+                )
+                region._update(body=Transformer(
+                    mapper={d: None for d in directives}
+                ).visit(region.body))
 
                 # Ensure and derive default integer type
                 ensure_imported_symbols(
