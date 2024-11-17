@@ -7,7 +7,8 @@
 
 import pytest
 
-from loki import BasicType, Subroutine
+from loki import BasicType, Subroutine, Module
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
@@ -436,3 +437,52 @@ end subroutine merge_associates_simple
         assert call.arguments[0] == 'b(i)'
         assert call.arguments[1] == 'a%c%n'
         assert assign.lhs == 'a%c%d(i)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_resolve_associates_stmt_func(frontend):
+    """
+    Test scope management for stmt funcs, either as
+    :any:`ProcedureSymbol` or :any:`DeferredTypeSymbol`.
+    """
+    fcode = f"""
+subroutine test_associates_stmt_func(ydcst, a, b)
+  use yomcst, only: tcst
+  implicit none
+  type(tcst), intent(in) :: ydcst
+  real(kind=8), intent(inout) :: a, b
+#include "some_stmt.func.h"
+  real(kind=8) :: not_an_array
+  not_an_array ( x, y ) =  x * y
+
+associate(RTT=>YDCST%RTT)
+  a = not_an_array(RTT, 1.0) + a
+  b = some_stmt_func(RTT, 1.0) + b
+end associate
+end subroutine test_associates_stmt_func
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    associate = FindNodes(ir.Associate).visit(routine.body)[0]
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert isinstance(assigns[0].rhs.children[0], sym.InlineCall)
+    assert assigns[0].rhs.children[0].function.scope == associate
+    assert isinstance(assigns[1].rhs.children[0], sym.InlineCall)
+    assert assigns[1].rhs.children[0].function.scope == associate
+
+    do_resolve_associates(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].rhs == 'not_an_array(YDCST%RTT, 1.0) + a'
+    assert assigns[1].rhs == 'some_stmt_func(YDCST%RTT, 1.0) + b'
+    assert isinstance(assigns[0].rhs.children[0], sym.InlineCall)
+    assert assigns[0].rhs.children[0].function.scope == routine
+    assert isinstance(assigns[1].rhs.children[0], sym.InlineCall)
+    assert assigns[1].rhs.children[0].function.scope == routine
+
+    # Trigger a full clone, which would fail if scopes are missing
+    routine.clone()
