@@ -1714,7 +1714,7 @@ subroutine test_transform_loop_unroll_step(s)
 
     !Loop A
     !$loki loop-unroll
-    do a=1, 10, 2
+    do a=-2, 7, 2
         s = s + a + 1
     end do
 
@@ -1727,7 +1727,7 @@ end subroutine test_transform_loop_unroll_step
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum(x + 1 for x in range(1, 11, 2))
+    assert s == sum(x + 1 for x in range(-2, 8, 2))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -1740,7 +1740,7 @@ end subroutine test_transform_loop_unroll_step
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum(x + 1 for x in range(1, 11, 2))
+    assert s == sum(x + 1 for x in range(-2, 8, 2))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)

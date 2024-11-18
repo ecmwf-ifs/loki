@@ -20,7 +20,7 @@ from loki.analyse import (
 )
 from loki.expression import (
     symbols as sym, simplify, is_constant, symbolic_op, parse_expr,
-    IntLiteral, FloatLiteral
+    IntLiteral, get_pyrange, LoopRange
 )
 from loki.ir import (
     Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
@@ -658,12 +658,10 @@ class LoopUnrollTransformer(Transformer):
         depth = depth - 1 if depth is not None else None
 
         # Only unroll if we have all literal bounds and step
-        if isinstance(start, (IntLiteral, FloatLiteral)) and\
-                isinstance(stop, (IntLiteral, FloatLiteral)) and\
-                isinstance(step, (IntLiteral, FloatLiteral)):
+        if is_constant(start) and is_constant(stop) and is_constant(step):
 
             #  int() to truncate any floats - which are not invalid in all specs!
-            unroll_range = range(int(start), int(stop) + 1, int(step))
+            unroll_range = get_pyrange(LoopRange((start, stop, step)))
             if self.warn_iterations_length and len(unroll_range) > 32:
                 warning(f"Unrolling loop over 32 iterations ({len(unroll_range)}), this may take a long time & "
                         f"provide few performance benefits.")
