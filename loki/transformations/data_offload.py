@@ -16,7 +16,7 @@ from loki.ir import (
     Transformer, pragma_regions_attached, get_pragma_parameters,
     FindInlineCalls, SubstituteExpressions
 )
-from loki.logging import warning
+from loki.logging import warning, error
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
 from loki.types import BasicType, DerivedType
 from loki.transformations.parallel import (
@@ -53,6 +53,11 @@ class DataOffloadTransformation(Transformation):
         self.remove_openmp = kwargs.get('remove_openmp', False)
         self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
         self.assume_acc_mapped = kwargs.get('assume_acc_mapped', False)
+
+        if self.assume_deviceptr and self.assume_acc_mapped:
+            error("[Loki] Data offload: Can't assume both acc_mapped and " +
+                    "non-mapped device pointers for device data offload")
+            raise RuntimeError
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -152,7 +157,7 @@ class DataOffloadTransformation(Transformation):
                 outargs = tuple(dict.fromkeys(outargs))
                 inoutargs = tuple(dict.fromkeys(inoutargs))
 
-                # Now geenerate the pre- and post pragmas (OpenACC)
+                # Now generate the pre- and post pragmas (OpenACC)
                 if self.assume_deviceptr:
                     offload_args = inargs + outargs + inoutargs
                     if offload_args:
@@ -973,13 +978,8 @@ class FieldOffloadTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'), (None))
-        if role == 'kernel':
-            self.process_kernel(routine)
         if role == 'driver':
             self.process_driver(routine, targets)
-
-    def process_kernel(self, routine):
-        pass
 
     def process_driver(self, driver, targets):
         remove_field_api_view_updates(driver, self.field_group_types + tuple(s.upper() for s in self.field_group_types))
@@ -1002,20 +1002,21 @@ class FieldOffloadTransformation(Transformation):
 
         for call in calls:
             if call.routine is BasicType.DEFERRED:
-                warning(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
+                error(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
                         f'in {str(call.name).lower()}')
-                continue
+                raise RuntimeError
             for param, arg in call.arg_iter():
                 if not isinstance(param, Array):
                     continue
                 try:
                     parent = arg.parent
                     if parent.type.dtype.name.lower() not in self.field_group_types:
-                        warning(f'[Loki] The parent object {parent.name} of type ' +
+                        warning(f'[Loki] Data offload: The parent object {parent.name} of type ' +
                                 f'{parent.type.dtype} is not in the list of field wrapper types')
+                        continue
                 except AttributeError:
-                    warning(f'[Loki] Field data offload: Raw array object {arg.name} encountered in'
-                            + f'{driver.name} that is not wrapped by a Field API object')
+                    warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in'
+                            + f' {driver.name} that is not wrapped by a Field API object')
                     continue
 
                 if param.type.intent.lower() == 'in':
@@ -1049,7 +1050,7 @@ class FieldOffloadTransformation(Transformation):
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
         devptr_name = self.deviceptr_prefix + base_name
         if devptr_name in driver.variable_map:
-            warning(f'[Loki] Field data offload: The routine {driver.name} already has a' +
+            warning(f'[Loki] Data offload: The routine {driver.name} already has a ' +
                     f'variable named {devptr_name}')
         devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
         return devptr
@@ -1065,16 +1066,6 @@ class FieldOffloadTransformation(Transformation):
                                for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
         update_map = {region: host_to_device + (region,) + device_to_host}
         Transformer(update_map, inplace=True).visit(driver.body)
-
-    def _is_field_group_update(self, driver, call):
-        try:
-            *_, parent, _call_name = call.name.name.split('%')
-            parent = driver.variable_map.get(parent)
-            if parent is not None and parent.type.dtype.name.lower() in self.field_group_types:
-                return True
-        except ValueError:
-            return False
-        return False
 
     def _get_field_ptr_from_view(self, field_view):
         type_chain = field_view.name.split('%')

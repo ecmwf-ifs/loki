@@ -9,24 +9,24 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Sourcefile, Scheduler,  FindInlineCalls
+    Sourcefile, Scheduler, FindInlineCalls, warning
 )
 from loki.frontend import available_frontends, OMNI
+from loki.logging import log_levels, logger
 from loki.ir import (
     FindNodes, Pragma, PragmaRegion, Loop, CallStatement, Import,
     pragma_regions_attached, get_pragma_parameters
 )
 import loki.expression.symbols as sym
+from loki.module import Module
 from loki.transformations import (
     DataOffloadTransformation, GlobalVariableAnalysis,
     GlobalVarOffloadTransformation, GlobalVarHoistTransformation, FieldOffloadTransformation
 )
 
-
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
     return Path(__file__).parent
-
 
 @pytest.fixture(name='config')
 def fixture_config():
@@ -43,10 +43,45 @@ def fixture_config():
         },
     }
 
+@pytest.fixture(name="parkind_mod")
+def fixture_parkind_mod(tmp_path, frontend):
+    fcode = """
+    module parkind1
+      integer, parameter :: jprb=4
+    end module
+    """
+    return Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
+@pytest.fixture(name="field_module")
+def fixture_field_module(tmp_path, frontend):
+    fcode = """
+    module field_module
+      implicit none
+
+      type field_2rb
+        real, pointer :: f_ptr(:,:,:)
+      end type field_2rb
+
+      type field_3rb
+        real, pointer :: f_ptr(:,:,:)
+     contains
+        procedure :: update_view
+      end type field_3rb
+
+    contains
+    subroutine update_view(self, idx)
+      class(field_3rb), intent(in)  :: self
+      integer, intent(in)           :: idx
+    end subroutine
+    end module
+    """
+    return Module.from_source(fcode,  frontend=frontend, xmods=[tmp_path])
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('assume_deviceptr', [True, False])
-def test_data_offload_region_openacc(frontend, assume_deviceptr):
+@pytest.mark.parametrize('assume_acc_mapped', [True, False])
+def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, assume_acc_mapped):
     """
     Test the creation of a simple device data offload region
     (`!$acc update`) from a `!$loki data` region with a single
@@ -82,11 +117,25 @@ def test_data_offload_region_openacc(frontend, assume_deviceptr):
     end do
   END SUBROUTINE kernel_routine
 """
-    driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
-    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
-    driver.enrich(kernel)
+    with caplog.at_level(log_levels['ERROR']):
+        driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
+        kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
+        driver.enrich(kernel)
 
-    driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr), role='driver',
+        if assume_deviceptr and assume_acc_mapped:
+            with pytest.raises(RuntimeError):
+                driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
+                                                       assume_acc_mapped=assume_acc_mapped),
+                             role='driver',
+                             targets=['kernel_routine'])
+                assert len(caplog.records) == 1
+                assert ("[Loki] Data offload: Can't assume both acc_mapped and non-mapped device pointers" +
+                        " for device data offload") in caplog.records[0].message
+            return
+
+    driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
+                                           assume_acc_mapped=assume_acc_mapped),
+                 role='driver',
                  targets=['kernel_routine'])
 
     pragmas = FindNodes(Pragma).visit(driver.body)
@@ -96,6 +145,10 @@ def test_data_offload_region_openacc(frontend, assume_deviceptr):
         assert 'deviceptr' in pragmas[0].content
         params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
         assert all(var in params['deviceptr'] for var in ('a', 'b', 'c'))
+    elif assume_acc_mapped:
+        assert 'present' in pragmas[0].content
+        params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
+        assert all(var in params['present'] for var in ('a', 'b', 'c'))
     else:
         transformed = driver.to_fortran()
         assert 'copyin( a )' in transformed
@@ -809,10 +862,9 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_field_offload(frontend):
+def test_field_offload(frontend, parkind_mod, field_module, tmp_path):
     fcode = """
     module driver_mod
-      use state_type_mod, only: state_type
       use parkind1, only: jprb
       use field_module, only: field_2rb, field_3rb
       implicit none
@@ -820,10 +872,16 @@ def test_field_offload(frontend):
       type state_type
         real(kind=jprb), dimension(10,10), pointer :: a, b, c
         class(field_3rb), pointer :: f_a, f_b, f_c
+        contains
+        procedure :: update_view => state_update_view
       end type state_type
 
-
     contains
+
+      subroutine state_update_view(self, idx)
+        class(state_type), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
 
       subroutine kernel_routine(nlon, nlev, a, b, c)
         integer, intent(in)             :: nlon, nlev
@@ -855,12 +913,11 @@ def test_field_offload(frontend):
       end subroutine driver_routine
     end module driver_mod
     """
-
-    driver_mod = Sourcefile.from_source(fcode)['driver_mod']
+    driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
     driver = driver_mod['driver_routine']
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
-                                            offload_index='i', 
+                                            offload_index='i',
                                             field_group_types=['state_type']),
                  role='driver',
                  targets=['kernel_routine'])
@@ -893,10 +950,9 @@ def test_field_offload(frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_field_offload_multiple_calls(frontend):
+def test_field_offload_multiple_calls(frontend, parkind_mod, field_module, tmp_path):
     fcode = """
     module driver_mod
-      use state_type_mod, only: state_type
       use parkind1, only: jprb
       use field_module, only: field_2rb, field_3rb
       implicit none
@@ -904,10 +960,16 @@ def test_field_offload_multiple_calls(frontend):
       type state_type
         real(kind=jprb), dimension(10,10), pointer :: a, b, c
         class(field_3rb), pointer :: f_a, f_b, f_c
+        contains
+        procedure :: update_view => state_update_view
       end type state_type
 
 
     contains
+      subroutine state_update_view(self, idx)
+        class(state_type), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
 
       subroutine kernel_routine(nlon, nlev, a, b, c)
         integer, intent(in)             :: nlon, nlev
@@ -943,17 +1005,17 @@ def test_field_offload_multiple_calls(frontend):
     end module driver_mod
     """
 
-    driver_mod = Sourcefile.from_source(fcode)['driver_mod']
+    driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
     driver = driver_mod['driver_routine']
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
-                                            offload_index='i', 
+                                            offload_index='i',
                                             field_group_types=['state_type']),
                  role='driver',
                  targets=['kernel_routine'])
     calls = FindNodes(CallStatement).visit(driver.body)
     kernel_calls = [c for c in calls if c.name=='kernel_routine']
-    
+
     # verify that field offloads are generated properly
     in_calls = [c for c in calls if 'get_device_data_rdonly' in c.name.name.lower()]
     assert len(in_calls) == 1
@@ -967,7 +1029,7 @@ def test_field_offload_multiple_calls(frontend):
     pragmas = FindNodes(Pragma).visit(driver.body)
     assert len(pragmas) == 2
     assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'end data']))
-    
+
     # verify that new pointer variables are created and used in driver calls
     for var in ['state_a', 'state_b', 'state_c']:
         name = deviceptr_prefix + var
@@ -979,22 +1041,41 @@ def test_field_offload_multiple_calls(frontend):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_field_offload_no_targets(frontend):
+def test_field_offload_no_targets(frontend, parkind_mod, field_module, tmp_path):
+    fother = """
+    module another_module
+      implicit none
+    contains
+      subroutine another_kernel(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real, intent(in)     :: a(nlon,nlev)
+        real, intent(inout)  :: b(nlon,nlev)
+        real, intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+      end subroutine
+    end module
+    """
     fcode = """
     module driver_mod
-      use state_type_mod, only: state_type
       use parkind1, only: jprb
       use field_module, only: field_2rb, field_3rb
       use another_module, only: another_kernel
+
       implicit none
 
       type state_type
         real(kind=jprb), dimension(10,10), pointer :: a, b, c
         class(field_3rb), pointer :: f_a, f_b, f_c
+        contains
+        procedure :: update_view => state_update_view
       end type state_type
 
-
     contains
+
+      subroutine state_update_view(self, idx)
+        class(state_type), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
 
       subroutine kernel_routine(nlon, nlev, a, b, c)
         integer, intent(in)             :: nlon, nlev
@@ -1019,8 +1100,7 @@ def test_field_offload_no_targets(frontend):
         !$loki data
         do i=1,nlev
             call state%update_view(i)
-
-            call another_kernel()
+            call another_kernel(nlon, state%a, state%b, state%c)
         end do
         !$loki end data
 
@@ -1028,11 +1108,12 @@ def test_field_offload_no_targets(frontend):
     end module driver_mod
     """
 
-    driver_mod = Sourcefile.from_source(fcode)['driver_mod']
+    Sourcefile.from_source(fother, frontend=frontend, xmods=[tmp_path])
+    driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
     driver = driver_mod['driver_routine']
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
-                                            offload_index='i', 
+                                            offload_index='i',
                                             field_group_types=['state_type']),
                  role='driver',
                  targets=['kernel_routine'])
@@ -1054,3 +1135,181 @@ def test_field_offload_no_targets(frontend):
     assert len(pragmas) == 2
     assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'end data']))
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_unknown_kernel(caplog, frontend, parkind_mod, field_module, tmp_path):
+    fother = """
+    module another_module
+      implicit none
+    contains
+      subroutine another_kernel(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real, intent(in)     :: a(nlon,nlev)
+        real, intent(inout)  :: b(nlon,nlev)
+        real, intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+      end subroutine
+    end module
+    """
+    fcode = """
+    module driver_mod
+      use parkind1, only: jprb
+      use another_module, only: another_kernel
+      implicit none
+
+      type state_type
+        real(kind=jprb), dimension(10,10), pointer :: a, b, c
+        class(field_3rb), pointer :: f_a, f_b, f_c
+        contains
+        procedure :: update_view => state_update_view
+      end type state_type
+
+    contains
+
+     subroutine state_update_view(self, idx)
+        class(state_type), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+            call another_kernel(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+
+    with caplog.at_level(log_levels['ERROR']):
+        Sourcefile.from_source(fother, frontend=frontend, xmods=[tmp_path])
+        driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
+        driver = driver_mod['driver_routine']
+        deviceptr_prefix = 'loki_devptr_prefix_'
+
+        with pytest.raises(RuntimeError):
+            driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                                    offload_index='i',
+                                                    field_group_types=['state_type']),
+                         role='driver',
+                         targets=['another_kernel'])
+        assert len(caplog.records) == 1
+        assert ('[Loki] Data offload: Routine driver_routine has not been enriched '+
+            'in another_kernel') in caplog.records[0].message
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_warnings(caplog, frontend, parkind_mod, field_module, tmp_path):
+    fother_state = """
+    module state_type_mod
+      implicit none
+      type state_type2
+        real, dimension(10,10), pointer :: a, b, c
+      contains
+        procedure :: update_view => state_update_view
+      end type state_type2
+
+    contains
+
+      subroutine state_update_view(self, idx)
+        class(state_type2), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
+    end module
+    """
+    fother_mod= """
+    module another_module
+      implicit none
+    contains
+      subroutine another_kernel(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real, intent(in)     :: a(nlon,nlev)
+        real, intent(inout)  :: b(nlon,nlev)
+        real, intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+      end subroutine
+    end module
+    """
+    fcode = """
+    module driver_mod
+      use state_type_mod, only: state_type2
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      use another_module, only: another_kernel
+
+      implicit none
+
+      type state_type
+        real(kind=jprb), dimension(10,10), pointer :: a, b, c
+        class(field_3rb), pointer :: f_a, f_b, f_c
+        contains
+        procedure :: update_view => state_update_view
+      end type state_type
+
+    contains
+
+      subroutine state_update_view(self, idx)
+        class(state_type), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state, state2)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        type(state_type2), intent(inout) :: state2
+
+        integer                         :: i
+        real(kind=jprb)                 :: a(nlon,nlev)
+        real, pointer                   :: loki_devptr_prefix_state_b
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, a, state%b, state2%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    with caplog.at_level(log_levels['WARNING']):
+        Sourcefile.from_source(fother_state, frontend=frontend, xmods=[tmp_path])
+        Sourcefile.from_source(fother_mod, frontend=frontend, xmods=[tmp_path])
+        driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
+        driver = driver_mod['driver_routine']
+        deviceptr_prefix = 'loki_devptr_prefix_'
+        driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                                offload_index='i',
+                                                field_group_types=['state_type']),
+                     role='driver',
+                     targets=['kernel_routine'])
+
+        assert len(caplog.records) == 3
+        assert (('[Loki] Data offload: Raw array object a encountered in'
+                 +' driver_routine that is not wrapped by a Field API object')
+                in caplog.records[0].message)
+        assert ('[Loki] Data offload: The parent object state2 of type state_type2 is not in the' +
+                ' list of field wrapper types') in caplog.records[1].message
+        assert ('[Loki] Data offload: The routine driver_routine already has a' +
+                ' variable named loki_devptr_prefix_state_b') in caplog.records[2].message

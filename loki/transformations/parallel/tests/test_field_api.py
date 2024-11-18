@@ -13,7 +13,8 @@ from loki.ir import nodes as ir, FindNodes
 from loki.expression import symbols as sym
 from loki.scope import Scope
 from loki.transformations.parallel import (
-    remove_field_api_view_updates, add_field_api_view_updates, get_field_type
+    remove_field_api_view_updates, add_field_api_view_updates, get_field_type, 
+    field_get_device_data, FieldAPITransferType
 )
 from loki.types import BasicType, SymbolAttributes
 from loki.logging import WARNING
@@ -186,4 +187,15 @@ def test_get_field_type():
     for field, field_name in zip(generated, field_types):
         assert isinstance(field, sym.DerivedType) and field.name == field_name
 
+
+def test_field_get_device_data():
+    scope = Scope()
+    fptr = sym.Variable(name='fptr_var')
+    dev_ptr = sym.Variable(name='data_var')
+    for fttype in FieldAPITransferType:
+        get_dev_data_call = field_get_device_data(fptr, dev_ptr, fttype, scope)
+        assert isinstance(get_dev_data_call, ir.CallStatement)
+        assert get_dev_data_call.name.parent == fptr
+    with pytest.raises(TypeError):
+        _ = field_get_device_data(fptr, dev_ptr, "none_transfer_type", scope)
 

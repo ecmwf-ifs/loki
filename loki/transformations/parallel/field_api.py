@@ -20,8 +20,7 @@ from loki.tools import as_tuple
 
 __all__ = [
     'remove_field_api_view_updates', 'add_field_api_view_updates', 'get_field_type',
-    'field_new', 'field_delete', 'field_get_device_data', 'field_sync_host',
-    'FieldAPITransferType'
+    'field_get_device_data', 'field_sync_host', 'FieldAPITransferType'
 ]
 
 
@@ -181,15 +180,6 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
     field_type = sym.DerivedType(name="field_" + str(rank) + type_name[2:4].lower())
     return field_type
 
-
-def field_new(field_ptr, data, scope):
-    return ir.CallStatement(name=sym.ProcedureSymbol('FIELD_NEW', scope=scope),
-                            arguments=(field_ptr,), kwarguments=(('DATA', data),))
-
-
-def field_delete(field_ptr, scope):
-    return ir.CallStatement(name=sym.ProcedureSymbol('FIELD_DELETE', scope=scope),
-                            arguments=(field_ptr,))
 
 
 class FieldAPITransferType(Enum):
