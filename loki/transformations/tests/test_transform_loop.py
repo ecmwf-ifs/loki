@@ -1876,6 +1876,9 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     unrolled_function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
+    # check unroll pragma has been removed
+    assert not FindNodes(ir.Pragma).visit(routine.body)
+
     clean_test(filepath)
     clean_test(unrolled_filepath)
 
@@ -2105,3 +2108,44 @@ end subroutine transform_loop
 
     assert len(loops) == num_loops
     assert len(pragmas) == num_pragmas
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_before_fuse(frontend):
+    fcode = """
+    subroutine test_loop_unroll_before_fuse(n, map, a, b)
+       integer, intent(in) :: n
+       integer, intent(in) :: map(3,3)
+       real, intent(inout) :: a(n)
+       real, intent(in) :: b(:)
+
+       integer :: i,j,k
+
+       !$loki loop-unroll
+       do k=1,3
+          !$loki loop-unroll
+          do j=1,3
+            !$loki loop-fusion
+            do i=1,n
+              a(i) = a(i) + b(map(j,k))
+            enddo
+          enddo
+       enddo
+
+    end subroutine test_loop_unroll_before_fuse
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
+
+    do_loop_unroll(routine)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 9
+    assert all(loop.variable == 'i' for loop in loops)
+
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    assert len(pragmas) == 9
+    assert all(p.content == 'loop-fusion' for p in pragmas)
+
+    do_loop_fusion(routine)
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1

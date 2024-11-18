@@ -679,11 +679,18 @@ class LoopUnrollTransformer(Transformer):
 
             return as_tuple(flatten(acc))
 
+        _pragma = tuple(
+            p for p in o.pragma if not is_loki_pragma(p, starts_with='loop-unroll')
+        ) if o.pragma else None
+        _pragma_post = tuple(
+            p for p in o.pragma_post if not is_loki_pragma(p, starts_with='loop-unroll')
+        ) if o.pragma_post else None
+
         return Loop(
             variable=o.variable,
             body=self.visit(o.body, depth=depth),
-            bounds=o.bounds
-                    )
+            bounds=o.bounds, pragma=_pragma, pragma_post=_pragma_post
+        )
 
 
 def do_loop_unroll(routine, warn_iterations_length=True):
