@@ -183,6 +183,7 @@ class AddHostDataDriverLoopTransformation(Transformation):
         self.dimension = dimension
 
     def transform_subroutine(self, routine, **kwargs):
+        from loki.transformations.block_index_transformations import InjectBlockIndexTransformation
 
         with pragma_regions_attached(routine):
             # Perform inlining step, but only if we have active regions
@@ -230,6 +231,11 @@ class AddHostDataDriverLoopTransformation(Transformation):
                         inplace=True, dimension=self.dimension,
                         default_type=default_type
                     ).visit(region, scope=routine)
+
+                # Inject the block loop index (IBL)
+                InjectBlockIndexTransformation(
+                    block_dim=self.dimension,
+                ).apply(routine, role='driver')
 
                 if self.add_openmp_regions:
                     # Need to re-generate dataflow info here, as prior
