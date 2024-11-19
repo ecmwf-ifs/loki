@@ -635,8 +635,15 @@ class Scheduler:
         sources_to_transform = []
 
         # Filter the SGraph to get a pure call-tree
-        item_filter = None if self.config.enable_imports else ProcedureItem
-        for item in SFilter(self.sgraph, item_filter=item_filter):
+        item_filter = ProcedureItem
+        if self.config.enable_imports:
+            item_filter = as_tuple(item_filter) + (ModuleItem,)
+        graph = self.sgraph.as_filegraph(
+            self.item_factory, self.config, item_filter=item_filter,
+            exclude_ignored=True
+        )
+        traversal = SFilter(graph, reverse=False, include_external=False)
+        for item in traversal:
             if item.is_ignored:
                 continue
 

@@ -51,7 +51,7 @@ class FileWriteTransformation(Transformation):
         imports are honoured in the :any:`Scheduler` traversal.
         """
         if self.include_module_var_imports:
-            return (ProcedureItem, ModuleItem) #GlobalVariableItem)
+            return (ProcedureItem, ModuleItem)
         return ProcedureItem
 
     def transform_file(self, sourcefile, **kwargs):
