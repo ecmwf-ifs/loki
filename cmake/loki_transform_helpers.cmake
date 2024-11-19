@@ -132,7 +132,7 @@ macro( _loki_transform_env_setup )
     set( _LOKI_TRANSFORM_ENV )
     set( _LOKI_TRANSFORM_PATH )
 
-    if( TARGET clawfc AND ${_PAR_FRONTEND} STREQUAL "omni" )
+    if( TARGET clawfc AND "${_PAR_FRONTEND}" STREQUAL "omni" )
         # Ugly hack but I don't have a better solution: We need to add F_FRONT
         # (which is installed in the same directory as clawfc) to the PATH, if
         # OMNI is used as a frontend. Hence we have to update the environment in the below
@@ -142,7 +142,7 @@ macro( _loki_transform_env_setup )
         list( APPEND _LOKI_TRANSFORM_PATH ${_CLAWFC_LOCATION} )
     endif()
 
-    if( _PAR_OUTPATH AND (${_PAR_FRONTEND} STREQUAL "omni" OR ${_PAR_FRONTEND} STREQUAL "ofp") )
+    if( _PAR_OUTPATH AND ("${_PAR_FRONTEND}" STREQUAL "omni" OR "${_PAR_FRONTEND}" STREQUAL "ofp") )
         # With pre-processing, we may end up having a race condition on the preprocessed
         # source files in parallel builds. Ensuring we use the outpath of the call to Loki
         # should ensure in most cases that parallel builds write to different directories
