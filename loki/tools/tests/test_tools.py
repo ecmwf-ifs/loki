@@ -126,6 +126,10 @@ def test_is_subset_raises(a, b):
      ' ', 8, '\n', 'Hello \nworld!'),
     (('Hello', JoinableStringList(['w', 'o', 'r', 'l', 'd', '!'], '', 8, '\n', separable=True)),
      ' ', 8, '\n', 'Hello w\norld!'),
+    (["'Long word   '", '"list with    "', '"several entries   "', "'that may have'",
+      "' trailing whitespace '", "'characters     '"], ', ', 20, '\n',
+     ("'Long word   ', \n\"list with    \", \n\"several entries   \"\n, 'that may have', \n"
+      "' trailing whitespace '\n, 'characters     '"))
 ])
 def test_joinable_string_list(items, sep, width, cont, ref):
     """
