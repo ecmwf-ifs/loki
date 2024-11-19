@@ -2190,7 +2190,7 @@ def test_call_args_kwargs_conversion(frontend):
 
     # sort kwargs
     for i_call, call in enumerate(FindNodes(ir.CallStatement).visit(driver.body)):
-        assert call.check_kwarguments_order() == kwargs_in_order[i_call]
+        assert call.is_kwargs_order_correct() == kwargs_in_order[i_call]
         call.sort_kwarguments()
 
     # check calls with sorted kwargs

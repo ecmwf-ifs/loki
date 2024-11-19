@@ -18,7 +18,7 @@ from loki.expression import (
 from loki.ir import (
     Section, Import, Intrinsic, Interface, CallStatement,
     VariableDeclaration, TypeDef, Assignment, Transformer, FindNodes,
-    Pragma, Comment, SubstituteExpressions
+    Pragma, Comment, SubstituteExpressions, FindInlineCalls
 )
 from loki.logging import debug
 from loki.module import Module
@@ -188,9 +188,8 @@ class FortranCTransformation(Transformation):
             if isinstance(arg.type.dtype, DerivedType):
                 self.c_structs[arg.type.dtype.name.lower()] = self.c_struct_typedef(arg.type)
 
-        for call in FindNodes(CallStatement).visit(routine.body):
-            if str(call.name).lower() in as_tuple(targets):
-                call.convert_kwargs_to_args()
+        # for calls and inline calls: convert kwarguments to arguments
+        self.convert_kwargs_to_args(routine, targets)
 
         if role == 'kernel':
             # Generate Fortran wrapper module
@@ -230,6 +229,19 @@ class FortranCTransformation(Transformation):
                                path=self.c_path)
             header_path = (path/c_kernel.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=header_path)
+
+    def convert_kwargs_to_args(self, routine, targets):
+        # calls (to subroutines)
+        for call in as_tuple(FindNodes(CallStatement).visit(routine.body)):
+            if str(call.name).lower() in as_tuple(targets):
+                call.convert_kwargs_to_args()
+        # inline calls (to functions)
+        inline_call_map = {}
+        for inline_call in as_tuple(FindInlineCalls().visit(routine.body)):
+            if str(inline_call.name).lower() in as_tuple(targets) and inline_call.routine is not BasicType.DEFERRED:
+                inline_call_map[inline_call] = inline_call.clone_with_kwargs_as_args()
+        if inline_call_map:
+            routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
     def c_struct_typedef(self, derived):
         """
@@ -627,6 +639,9 @@ class FortranCTransformation(Transformation):
         # apply dereference and reference where necessary
         self.apply_de_reference(kernel)
 
+        # adapt call and inline call names -> '<call name>_c'
+        self.convert_call_names(kernel, targets)
+
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
                         'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
@@ -636,6 +651,20 @@ class FortranCTransformation(Transformation):
         sanitise_imports(kernel)
 
         return kernel
+
+    def convert_call_names(self, routine, targets):
+        # calls (to subroutines)
+        calls = FindNodes(CallStatement).visit(routine.body)
+        for call in calls:
+            if call.name not in as_tuple(targets):
+                continue
+            call._update(name=Variable(name=f'{call.name}_c'.lower()))
+        # inline calls (to functions)
+        callmap = {}
+        for call in FindInlineCalls(unique=False).visit(routine.body):
+            if call.routine is not BasicType.DEFERRED and (targets is None or call.name in as_tuple(targets)):
+                callmap[call.function] = call.function.clone(name=f'{call.name}_c')
+        routine.body = SubstituteExpressions(callmap).visit(routine.body)
 
     def generate_c_kernel_launch(self, kernel_launch, kernel, **kwargs):
         import_map = {}

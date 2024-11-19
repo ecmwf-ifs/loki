@@ -663,6 +663,57 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_kwargs_inline_call(frontend, tmp_path):
+    """
+    Test inline call with kwargs and correct sorting as well
+    as correct conversion to args.
+    """
+    fcode_routine = """
+subroutine my_kwargs_routine(var, v_a, v_b, v_c, v_d)
+  implicit none
+  integer, intent(out) :: var
+  integer, intent(in) :: v_a, v_b, v_c, v_d
+  var = my_kwargs_func(c=v_c, b=v_b, a=v_a, d=v_d)
+contains
+  function my_kwargs_func(a, b, c, d)
+    integer, intent(in) :: a, b, c, d
+    integer :: my_kwargs_func
+    my_kwargs_func = a - b - c - d 
+  end function my_kwargs_func
+end subroutine my_kwargs_routine
+    """
+    # Test the original implementation
+    filepath = tmp_path/(f'orig_expression_kwargs_call_{frontend}.f90')
+    routine = Subroutine.from_source(fcode_routine, frontend=frontend, xmods=[tmp_path])
+    function = jit_compile(routine, filepath=filepath, objname='my_kwargs_routine')
+    res_orig = function(100, 10, 5, 2)
+    assert res_orig == 83
+
+    # Sort the kwargs and test the transformed code
+    inline_call = list(FindInlineCalls().visit(routine.body))[0]
+    call_map = {inline_call: inline_call.clone_with_sorted_kwargs()}
+    routine.body = SubstituteExpressions(call_map).visit(routine.body)
+    inline_call = list(FindInlineCalls().visit(routine.body))[0]
+    assert inline_call.is_kwargs_order_correct()
+    assert not inline_call.arguments
+    assert inline_call.kwarguments == (('a', 'v_a'), ('b', 'v_b'), ('c', 'v_c'), ('d', 'v_d'))
+    filepath = tmp_path/(f'sorted_expression_kwargs_call_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='my_kwargs_routine')
+    res_sorted = function(100, 10, 5, 2)
+    assert res_sorted == 83
+
+    # Convert kwargs to args and test the transformed code
+    call_map = {inline_call: inline_call.clone_with_kwargs_as_args()}
+    routine.body = SubstituteExpressions(call_map).visit(routine.body)
+    inline_call = list(FindInlineCalls().visit(routine.body))[0]
+    assert not inline_call.kwarguments
+    filepath = tmp_path/(f'converted_expression_kwargs_call_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='my_kwargs_routine')
+    res_args = function(100, 10, 5, 2)
+    assert res_args == 83
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_call_derived_type_arguments(frontend, tmp_path):
     """
     Check that derived type arguments are correctly represented in
