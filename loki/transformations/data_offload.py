@@ -927,7 +927,8 @@ class GlobalVarHoistTransformation(Transformation):
 
 
 def find_target_calls(region, targets):
-    """Returns a list of all calls to targets inside the region
+    """
+    Returns a list of all calls to targets inside the region.
 
     Parameters
     ----------
@@ -942,38 +943,101 @@ def find_target_calls(region, targets):
 
 
 class FieldOffloadTransformation(Transformation):
+    """
+
+    Transformation to offload arrays owned by Field API fields to the device. **This transformation is IFS specific.**
+
+    The transformation assumes that fields are wrapped in derived types specified in
+    ``field_group_types`` and will only offload arrays that are members of such derived types.
+    In the process this transformation removes calls to Field API ``update_view`` and adds
+    declarations for the device pointers to the driver subroutine.
+
+    The transformation acts on ``!$loki data`` regions and offloads all :any:`Array`
+    symbols that satisfy the following conditions:
+
+    1. The array is a member of an object that is of type specified in ``field_group_types``.
+    
+    2. The array is passed as a parameter to at least one of the kernel targets passed to ``transform_subroutine``.
+
+    Parameters
+    ----------
+    devptr_prefix: str, optional
+        The prefix of device pointers added by this transformation (defaults to ``'loki_devptr_'``).
+    field_froup_types: list or tuple of str, optional
+        Names of the field group types with members that may be offloaded (defaults to ``['']``).
+    offload_index: str, optional
+        Names of index variable to inject in the outmost dimension of offloaded arrays in the kernel
+        calls (defaults to ``'IBL'``).
+    """
+
     class FieldPointerMap:
+        """
+        Helper class to :any:`FieldOffloadTransformation` that is used to store arrays passed to
+        target kernel calls and the corresponding device pointers added by the transformation.
+        The pointer/array variable pairs are exposed through the class properties, based on
+        the intent of the kernel argument.
+        """
         def __init__(self, devptrs, inargs, inoutargs, outargs):
             self.inargs = inargs
             self.inoutargs = inoutargs
             self.outargs = outargs
             self.devptrs = devptrs
 
+
         @property
         def in_pairs(self):
+            """
+            Iterator that yields array/pointer pairs for kernel arguments of intent(in).
+
+            Yields
+            ______
+            :any:`Array`
+                Original kernel call argument
+            :any: `Array`
+                Corresponding device pointer added by the transformation.
+            """
             for i, inarg in enumerate(self.inargs):
                 yield inarg, self.devptrs[i]
 
         @property
         def inout_pairs(self):
+            """
+            Iterator that yields array/pointer pairs for arguments with intent(inout).
+
+            Yields
+            ______
+            :any:`Array`
+                Original kernel call argument
+            :any:`Array`
+                Corresponding device pointer added by the transformation.
+            """
             start = len(self.inargs)
             for i, inoutarg in enumerate(self.inoutargs):
                 yield inoutarg, self.devptrs[i+start]
 
         @property
         def out_pairs(self):
+            """
+            Iterator that yields array/pointer pairs for arguments with intent(out)
+
+            Yields
+            ______
+            :any:`Array`
+                Original kernel call argument
+            :any:`Array`
+                Corresponding device pointer added by the transformation.
+            """
+
             start = len(self.inargs)+len(self.inoutargs)
             for i, outarg in enumerate(self.outargs):
                 yield outarg, self.devptrs[i+start]
 
 
-    def __init__(self, **kwargs):
-        self.deviceptr_prefix = kwargs.get('devptr_prefix', 'loki_devptr_')
-        field_group_types = kwargs.get('field_group_types', ['CLOUDSC_STATE_TYPE',
-                                                             'CLOUDSC_AUX_TYPE',
-                                                             'CLOUDSC_FLUX_TYPE'])
+    def __init__(self, devptr_prefix=None, field_group_types=None, offload_index=None):
+        self.deviceptr_prefix = 'loki_devptr_' if devptr_prefix is None else devptr_prefix
+        field_group_types = [''] if field_group_types is None else field_group_types
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
-        self.offload_index = kwargs.get('offload_index', 'IBL')
+        self.offload_index = 'IBL' if offload_index is None else offload_index
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
@@ -982,7 +1046,7 @@ class FieldOffloadTransformation(Transformation):
             self.process_driver(routine, targets)
 
     def process_driver(self, driver, targets):
-        remove_field_api_view_updates(driver, self.field_group_types + tuple(s.upper() for s in self.field_group_types))
+        remove_field_api_view_updates(driver, self.field_group_types)
         with pragma_regions_attached(driver):
             for region in FindNodes(PragmaRegion).visit(driver.body):
                 # Only work on active `!$loki data` regions

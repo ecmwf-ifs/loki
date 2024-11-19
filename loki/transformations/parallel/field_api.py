@@ -158,7 +158,7 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
     """
     Returns the corresponding FIELD API type for an array.
 
-    This transformation is IFS specific and assumes that the
+    This function is IFS specific and assumes that the
     type is an array declared with one of the IFS type specifiers, e.g. KIND=JPRB
     """
     type_map = ["jprb",
@@ -189,6 +189,21 @@ class FieldAPITransferType(Enum):
 
 
 def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope):
+    """
+    Utility function to generate a :any:`CallStatement` corresponding to a Field API
+    ``GET_DEVICE_DATA`` call.
+    
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``GET_DEVICE_DATA`` from.
+    dev_ptr: :any:`Array`
+        Device pointer array
+    transfer_type: :any:`FieldAPITransferType`
+        Field API transfer type to determine which ``GET_DEVICE_DATA`` method to call.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    """
     if not isinstance(transfer_type, FieldAPITransferType):
         raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
     if transfer_type == FieldAPITransferType.READ_ONLY:
@@ -205,5 +220,17 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
 
 
 def field_sync_host(field_ptr, scope):
+    """
+    Utility function to generate a :any:`CallStatement` corresponding to a Field API
+    ``SYNC_HOST`` call.
+    
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``SYNC_HOST`` from.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    """
+
     procedure_name = 'SYNC_HOST_RDWR'
     return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())

@@ -117,26 +117,24 @@ def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, assume_
     end do
   END SUBROUTINE kernel_routine
 """
-    with caplog.at_level(log_levels['ERROR']):
-        driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
-        kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
-        driver.enrich(kernel)
-
-        if assume_deviceptr and assume_acc_mapped:
+    driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
+    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
+    driver.enrich(kernel)
+    
+    if assume_deviceptr and assume_acc_mapped:
+        caplog.clear()
+        with caplog.at_level(log_levels['ERROR']):
             with pytest.raises(RuntimeError):
-                driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
-                                                       assume_acc_mapped=assume_acc_mapped),
-                             role='driver',
-                             targets=['kernel_routine'])
+                data_offload_trafo = DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
+                                                               assume_acc_mapped=assume_acc_mapped)
                 assert len(caplog.records) == 1
                 assert ("[Loki] Data offload: Can't assume both acc_mapped and non-mapped device pointers" +
                         " for device data offload") in caplog.records[0].message
             return
 
-    driver.apply(DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
-                                           assume_acc_mapped=assume_acc_mapped),
-                 role='driver',
-                 targets=['kernel_routine'])
+    data_offload_trafo = DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
+                                                   assume_acc_mapped=assume_acc_mapped)
+    driver.apply(data_offload_trafo, role='driver', targets=['kernel_routine'])
 
     pragmas = FindNodes(Pragma).visit(driver.body)
     assert len(pragmas) == 2
@@ -964,8 +962,8 @@ def test_field_offload_multiple_calls(frontend, parkind_mod, field_module, tmp_p
         procedure :: update_view => state_update_view
       end type state_type
 
-
     contains
+
       subroutine state_update_view(self, idx)
         class(state_type), intent(in) :: self
         integer, intent(in)           :: idx
@@ -1187,21 +1185,21 @@ def test_field_offload_unknown_kernel(caplog, frontend, parkind_mod, field_modul
     end module driver_mod
     """
 
+    Sourcefile.from_source(fother, frontend=frontend, xmods=[tmp_path])
+    driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    
+    field_offload_trafo = FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                                         offload_index='i',
+                                                         field_group_types=['state_type'])
+    caplog.clear()
     with caplog.at_level(log_levels['ERROR']):
-        Sourcefile.from_source(fother, frontend=frontend, xmods=[tmp_path])
-        driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
-        driver = driver_mod['driver_routine']
-        deviceptr_prefix = 'loki_devptr_prefix_'
-
         with pytest.raises(RuntimeError):
-            driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
-                                                    offload_index='i',
-                                                    field_group_types=['state_type']),
-                         role='driver',
-                         targets=['another_kernel'])
+            driver.apply(field_offload_trafo, role='driver', targets=['another_kernel'])
         assert len(caplog.records) == 1
         assert ('[Loki] Data offload: Routine driver_routine has not been enriched '+
-            'in another_kernel') in caplog.records[0].message
+                'in another_kernel') in caplog.records[0].message
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1293,18 +1291,18 @@ def test_field_offload_warnings(caplog, frontend, parkind_mod, field_module, tmp
       end subroutine driver_routine
     end module driver_mod
     """
+    Sourcefile.from_source(fother_state, frontend=frontend, xmods=[tmp_path])
+    Sourcefile.from_source(fother_mod, frontend=frontend, xmods=[tmp_path])
+    driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    
+    field_offload_trafo = FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                                         offload_index='i',
+                                                         field_group_types=['state_type'])
+    caplog.clear()
     with caplog.at_level(log_levels['WARNING']):
-        Sourcefile.from_source(fother_state, frontend=frontend, xmods=[tmp_path])
-        Sourcefile.from_source(fother_mod, frontend=frontend, xmods=[tmp_path])
-        driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
-        driver = driver_mod['driver_routine']
-        deviceptr_prefix = 'loki_devptr_prefix_'
-        driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
-                                                offload_index='i',
-                                                field_group_types=['state_type']),
-                     role='driver',
-                     targets=['kernel_routine'])
-
+        driver.apply(field_offload_trafo, role='driver', targets=['kernel_routine'])
         assert len(caplog.records) == 3
         assert (('[Loki] Data offload: Raw array object a encountered in'
                  +' driver_routine that is not wrapped by a Field API object')
