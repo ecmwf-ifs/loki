@@ -139,7 +139,8 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             expr = scope.inverse_map[expr.basename]
             return self.rec(expr, *args, **kwargs)
 
-        return expr
+        # Update the scope, as this one will be removed
+        return expr.clone(scope=scope.parent)
 
     def map_array(self, expr, *args, **kwargs):
         """ Special case for arrys: we need to preserve the dimensions """
