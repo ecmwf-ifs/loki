@@ -18,6 +18,7 @@ def truncate_string(string, length=16, continuation='...'):
     """
     Truncates a string to have a maximum given number of characters and indicates the
     truncation by continuation characters '...'.
+
     This is used, for example, in the representation strings of IR nodes.
     """
     if len(string) > length:
@@ -27,25 +28,33 @@ def truncate_string(string, length=16, continuation='...'):
 
 class JoinableStringList:
     """
-    Helper class that takes a list of items and joins them into a long string,
-    when converting the object to a string using custom separators.
+    Helper class that takes a list of :data:`items` and joins them into a long
+    string, when converting the object to a string using custom separator :data:`sep`.
     Long lines are wrapped automatically.
 
-    The behaviour is essentially the same as `sep.join(items)` but with the
-    automatic wrapping of long lines. `items` can contain st
+    The behaviour is essentially the same as ``sep.join(items)`` but with the
+    automatic wrapping of long lines. :data:`items` can contain strings as well
+    as other instances of :class:`JoinableStringList`.
 
-    :param items: the list (or tuple) of items (that can be instances of
-                  `str` or `JoinableStringList`) that is to be joined.
-    :type items: list or tuple
-    :param str sep: the separator to be inserted between consecutive items.
-    :param int width: the line width after which long lines should be wrapped.
-    :param cont: the line continuation string to be inserted on a line break.
-    :type cont: (str, str) or str
-    :param bool separable: an indicator whether this can be split up to fill
-                           lines or should stay as a unit (this is for cosmetic
-                           purposes only, as too long lines will be wrapped
-                           in any case).
+    Parameters
+    ----------
+    items : list of str or :any:`JoinableStringList`
+        The list (or tuple) of items that should be joined into a string.
+    sep : str
+        The separator to be inserted between consecutive items.
+    width : int
+        The line width after which long lines should be wrapped.
+    cont : (str, str) or str
+        The line continuation string to be inserted on a line break, optionally
+        separated as end-of-line and beginning-of-next-line strings
+    separable : bool
+        An indicator whether this object can be split up to fill
+        lines or should stay as a unit (this is for cosmetic
+        purposes only, as too long lines will be wrapped in any case).
     """
+
+    _pattern_quoted_string = re.compile(r'(?:\'.*?\')|(?:".*?")')
+    _pattern_chunk_separator = re.compile(r'(\s|\)(?!%)|\n)')
 
     def __init__(self, items, sep, width, cont, separable=True):
         super().__init__()
@@ -107,10 +116,6 @@ class JoinableStringList:
         # The new item does not fit onto a line at all and it is not a JoinableStringList
         # where the first item fits onto a line, or for which we know how to split it:
         # let's try our best by splitting the string
-        # TODO: This is not safe for strings currently and may still exceed
-        #       the line limit if the chunks are too big! Safest option would
-        #       be to have expression mapper etc. all return JoinableStringList instances
-        #       and accept violations for the remaining cases.
         if isinstance(item, str):
             item_str = item
         elif isinstance(item, type(self)):
@@ -118,7 +123,16 @@ class JoinableStringList:
             item_str = item.sep.join(str(i) for i in item.items)
         else:
             item_str = str(item)
-        chunk_list = re.split(r'(\s|\)(?!%)|\n)', item_str)  # split on ' ', ')' (unless followed by '%') and '\n'
+
+        chunk_list = []
+        offset = 0
+        for string_match in self._pattern_quoted_string.finditer(item_str):
+            if string_match.start() > offset:
+                chunk_list += self._pattern_chunk_separator.split(item_str[offset:string_match.start()])
+            chunk_list += [string_match[0]]
+            offset = string_match.end()
+        if offset < len(item_str):
+            chunk_list += self._pattern_chunk_separator.split(item_str[offset:])
 
         # First, add as much as possible to the previous line
         next_chunk = 0
