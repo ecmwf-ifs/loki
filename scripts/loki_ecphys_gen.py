@@ -379,18 +379,28 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
     source = Path(source)
     build = Path(build)
 
+    config =  {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': False,
+            'strict': True,
+            'enable_imports': False,
+        },
+        'routines' : {
+            'ec_phys_fc' : {'role': 'driver', 'expand': False},
+            'convection_layer' : {'expand': False},
+            'turbulence_layer' : {'expand': False},
+            'cloud_layer' : {'expand': False},
+        }
+    }
+
+    # Parse and enrich the needed source files
+    scheduler = Scheduler(config=config, paths=source, output_dir=build)
+
     # Get everything set up...
-    ec_phys_fc = Sourcefile.from_file(source/'ec_phys_fc_mod.F90')['EC_PHYS_FC']
-
-    # Clone original and change subroutine name
-    ec_phys_parallel = ec_phys_fc.clone(name='EC_PHYS_PARALLEL')
-
-    headers = [
-        'convection_layer.F90', 'turbulence_layer.F90', 'cloud_layer.F90',
-        'state_copy.F90', 'state_increment.F90'
-    ]
-    definitions = tuple(flatten(Sourcefile.from_file(source/h).definitions for h in headers))
-    ec_phys_parallel.enrich(definitions)
+    ec_phys_parallel = scheduler['ec_phys_fc_mod#ec_phys_fc'].ir
+    ec_phys_parallel.name = 'EC_PHYS_PARALLEL'
 
     if remove_block_loop:
         with Timer(logger=info, text=lambda s: f'[Loki::EC-Physics] Re-generated block loops in {s:.2f}s'):
