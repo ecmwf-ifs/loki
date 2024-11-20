@@ -41,6 +41,8 @@ class DataOffloadTransformation(Transformation):
     ----------
     remove_openmp : bool
         Remove any existing OpenMP pragmas inside the marked region.
+    present_on_device : bool
+        Assume arrays are already offloaded and present on device"
     assume_deviceptr : bool
         Mark all offloaded arrays as true device-pointers if data offload
         is being managed outside of structured OpenACC data regions.
@@ -52,11 +54,11 @@ class DataOffloadTransformation(Transformation):
         self.has_data_regions = False
         self.remove_openmp = kwargs.get('remove_openmp', False)
         self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
-        self.assume_acc_mapped = kwargs.get('assume_acc_mapped', False)
+        self.present_on_device = kwargs.get('present_on_device', False)
 
-        if self.assume_deviceptr and self.assume_acc_mapped:
-            error("[Loki] Data offload: Can't assume both acc_mapped and " +
-                    "non-mapped device pointers for device data offload")
+        if self.assume_deviceptr and not self.present_on_device:
+            error("[Loki] Data offload: Can't assume device pointer arrays without arrays being marked" +
+                    "present on device.")
             raise RuntimeError
 
     def transform_subroutine(self, routine, **kwargs):
@@ -158,20 +160,21 @@ class DataOffloadTransformation(Transformation):
                 inoutargs = tuple(dict.fromkeys(inoutargs))
 
                 # Now generate the pre- and post pragmas (OpenACC)
-                if self.assume_deviceptr:
-                    offload_args = inargs + outargs + inoutargs
-                    if offload_args:
-                        deviceptr = f' deviceptr({", ".join(offload_args)})'
+                if self.present_on_device:
+                    if self.assume_deviceptr:
+                        offload_args = inargs + outargs + inoutargs
+                        if offload_args:
+                            deviceptr = f' deviceptr({", ".join(offload_args)})'
+                        else:
+                            deviceptr = ''
+                        pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
                     else:
-                        deviceptr = ''
-                    pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
-                elif self.assume_acc_mapped:
-                    offload_args = inargs + outargs + inoutargs
-                    if offload_args:
-                        present = f' present({", ".join(offload_args)})'
-                    else:
-                        present = ''
-                    pragma = Pragma(keyword='acc', content=f'data{present}')
+                        offload_args = inargs + outargs + inoutargs
+                        if offload_args:
+                            present = f' present({", ".join(offload_args)})'
+                        else:
+                            present = ''
+                        pragma = Pragma(keyword='acc', content=f'data{present}')
                 else:
                     copyin = f'copyin({", ".join(inargs)})' if inargs else ''
                     copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''

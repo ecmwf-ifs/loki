@@ -80,8 +80,8 @@ def fixture_field_module(tmp_path, frontend):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('assume_deviceptr', [True, False])
-@pytest.mark.parametrize('assume_acc_mapped', [True, False])
-def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, assume_acc_mapped):
+@pytest.mark.parametrize('present_on_device', [True, False])
+def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, present_on_device):
     """
     Test the creation of a simple device data offload region
     (`!$acc update`) from a `!$loki data` region with a single
@@ -121,19 +121,19 @@ def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, assume_
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich(kernel)
     
-    if assume_deviceptr and assume_acc_mapped:
+    if assume_deviceptr and not present_on_device:
         caplog.clear()
         with caplog.at_level(log_levels['ERROR']):
             with pytest.raises(RuntimeError):
                 data_offload_trafo = DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
-                                                               assume_acc_mapped=assume_acc_mapped)
+                                                               present_on_device=present_on_device)
                 assert len(caplog.records) == 1
-                assert ("[Loki] Data offload: Can't assume both acc_mapped and non-mapped device pointers" +
-                        " for device data offload") in caplog.records[0].message
+                assert ("[Loki] Data offload: Can't assume device pointer arrays without arrays being marked" +
+                    "present on device.") in caplog.records[0].message
             return
 
     data_offload_trafo = DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
-                                                   assume_acc_mapped=assume_acc_mapped)
+                                                   present_on_device=present_on_device)
     driver.apply(data_offload_trafo, role='driver', targets=['kernel_routine'])
 
     pragmas = FindNodes(Pragma).visit(driver.body)
@@ -143,7 +143,7 @@ def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, assume_
         assert 'deviceptr' in pragmas[0].content
         params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
         assert all(var in params['deviceptr'] for var in ('a', 'b', 'c'))
-    elif assume_acc_mapped:
+    elif present_on_device:
         assert 'present' in pragmas[0].content
         params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
         assert all(var in params['present'] for var in ('a', 'b', 'c'))
