@@ -996,7 +996,7 @@ class FieldOffloadTransformation(Transformation):
             ______
             :any:`Array`
                 Original kernel call argument
-            :any: `Array`
+            :any:`Array`
                 Corresponding device pointer added by the transformation.
             """
             for i, inarg in enumerate(self.inargs):
@@ -1143,8 +1143,12 @@ class FieldOffloadTransformation(Transformation):
         change_map = {}
         offload_idx_expr = driver.variable_map[self.offload_index]
         for arg, devptr in chain(offload_map.in_pairs, offload_map.inout_pairs, offload_map.out_pairs):
-            dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (offload_idx_expr,)
+            if len(arg.dimensions) != 0:
+                dims = arg.dimensions + (offload_idx_expr,)
+            else:
+                dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (offload_idx_expr,)
             change_map[arg] = devptr.clone(dimensions=dims)
+
         arg_transformer = SubstituteExpressions(change_map, inplace=True)
         for call in kernel_calls:
             arg_transformer.visit(call)

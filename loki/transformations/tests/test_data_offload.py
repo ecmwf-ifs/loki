@@ -67,6 +67,12 @@ def fixture_field_module(tmp_path, frontend):
      contains
         procedure :: update_view
       end type field_3rb
+      
+      type field_4rb
+        real, pointer :: f_ptr(:,:,:)
+     contains
+        procedure :: update_view
+      end type field_4rb
 
     contains
     subroutine update_view(self, idx)
@@ -945,6 +951,77 @@ def test_field_offload(frontend, parkind_mod, field_module, tmp_path):
         assert isinstance(devptr, sym.Array)
         assert len(devptr.shape) == 3
         assert devptr.name in (arg.name for arg in kernel_call.arguments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_slices(frontend, parkind_mod, field_module, tmp_path):
+    fcode = """
+    module driver_mod
+      use parkind1, only: jprb
+      use field_module, only: field_4rb
+      implicit none
+
+      type state_type
+        real(kind=jprb), dimension(10,10,10), pointer :: a, b, c, d
+        class(field_4rb), pointer :: f_a, f_b, f_c, f_d
+        contains
+        procedure :: update_view => state_update_view
+      end type state_type
+
+    contains
+
+      subroutine state_update_view(self, idx)
+        class(state_type), intent(in) :: self
+        integer, intent(in)           :: idx
+      end subroutine
+
+      subroutine kernel_routine(nlon, nlev, a, b, c, d)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev,nlon)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon)
+        real(kind=jprb), intent(in)     :: d(nlon,nlev,nlon)
+        integer :: i, j
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+        !$loki data
+        do i=1,nlev
+            call kernel_routine(nlon, nlev, state%a(:,:,1), state%b(:,1,1), state%c(1,1,1), state%d)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    driver_mod = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['driver_mod']
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadTransformation(devptr_prefix=deviceptr_prefix,
+                                            offload_index='i',
+                                            field_group_types=['state_type']),
+                 role='driver',
+                 targets=['kernel_routine'])
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    kernel_call = next(c for c in calls if c.name=='kernel_routine')
+    # verify that new pointer variables are created and used in driver calls
+    for var, rank in zip(['state_d', 'state_a', 'state_b', 'state_c',], [4, 3, 2, 1]):
+        name = deviceptr_prefix + var
+        assert name in driver.variable_map
+        devptr = driver.variable_map[name]
+        assert isinstance(devptr, sym.Array)
+        assert len(devptr.shape) == 4
+        assert devptr.name in (arg.name for arg in kernel_call.arguments)
+        arg = next(arg for arg in kernel_call.arguments if devptr.name in arg.name)
+        assert arg.dimensions == ((sym.RangeIndex((None,None)),)*(rank-1) +
+                                 (sym.IntLiteral(1),)*(4-rank) +
+                                 (sym.Scalar(name='i'),))
+
+
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
