@@ -508,6 +508,120 @@ class Scheduler:
             self._discover()
             self._parse_items()
 
+    def process_plan(self, transformation):
+        """
+        """
+        if isinstance(transformation, Transformation):
+            self.process_plan_transformation(transformation=transformation)
+
+        elif isinstance(transformation, Pipeline):
+            self.process_plan_pipeline(pipeline=transformation)
+
+        else:
+            error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
+            raise RuntimeError('[Loki] Could not batch process {transformation_or_pipeline}')
+
+    def process_plan_pipeline(self, pipeline):
+        """
+        Process a given :any:`Pipeline` by applying its assocaited
+        transformations in turn.
+
+        Parameters
+        ----------
+        transformation : :any:`Pipeline`
+            The transformation pipeline to apply
+        """
+        for transformation in pipeline.transformations:
+            self.process_plan_transformation(transformation)
+
+    def process_plan_transformation(self, transformation):
+        """
+        Process all :attr:`items` in the scheduler's graph
+
+        By default, the traversal is performed in topological order, which
+        ensures that an item is processed before the items it depends upon
+        (e.g., via a procedure call)
+        This order can be reversed in the :any:`Transformation` manifest by
+        setting :any:`Transformation.reverse_traversal` to ``True``.
+
+        The scheduler applies the transformation to the scope corresponding to
+        each item in the scheduler's graph, determined by the :any:`Item.scope_ir`
+        property. For example, for a :any:`ProcedureItem`, the transformation is
+        applied to the corresponding :any:`Subroutine` object.
+
+        Optionally, the traversal can be performed on a source file level only,
+        if the transformation has set :any:`Transformation.traverse_file_graph`
+        to ``True``. This uses the :attr:`filegraph` to process the dependency tree.
+        If combined with a :any:`Transformation.item_filter`, only source files with
+        at least one object corresponding to an item of that type are processed.
+
+        Parameters
+        ----------
+        transformation : :any:`Transformation`
+            The transformation to apply over the dependency tree
+        """
+        def _get_definition_items(_item, sgraph_items):
+            # For backward-compatibility with the DependencyTransform and LinterTransformation
+            if not transformation.traverse_file_graph:
+                return None
+
+            # Recursively obtain all definition items but exclude any that are not part of the original SGraph
+            items = ()
+            for item in _item.create_definition_items(item_factory=self.item_factory, config=self.config):
+                # Recursion gives us only items that are included in the SGraph, or the parent scopes
+                # of items included in the SGraph
+                child_items = _get_definition_items(item, sgraph_items)
+                # If the current item has relevant children, or is included in the SGraph itself, we
+                # include it in the list of items
+                if child_items or item in sgraph_items:
+                    if transformation.process_ignored_items or not item.is_ignored:
+                        items += (item,) + child_items
+            return items
+
+        trafo_name = transformation.__class__.__name__
+        log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
+        with Timer(logger=info, text=log):
+
+            # Extract the graph iteration properties from the transformation
+            item_filter = as_tuple(transformation.item_filter)
+            if transformation.traverse_file_graph:
+                sgraph = self.sgraph
+                graph = sgraph.as_filegraph(
+                    self.item_factory, self.config, item_filter=item_filter,
+                    exclude_ignored=not transformation.process_ignored_items
+                )
+                sgraph_items = sgraph.items
+                traversal = SFilter(
+                    graph, reverse=transformation.reverse_traversal,
+                    include_external=self.config.default.get('strict', True)
+                )
+            else:
+                graph = self.sgraph
+                sgraph_items = graph.items
+                traversal = SFilter(
+                    graph, item_filter=item_filter, reverse=transformation.reverse_traversal,
+                    exclude_ignored=not transformation.process_ignored_items,
+                    include_external=self.config.default.get('strict', True)
+                )
+
+            for _item in traversal:
+                if isinstance(_item, ExternalItem):
+                    raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+
+                transformation.apply_plan(
+                    _item.scope_ir, role=_item.role, mode=_item.mode,
+                    item=_item, targets=_item.targets, items=_get_definition_items(_item, sgraph_items),
+                    successors=graph.successors(_item, item_filter=item_filter),
+                    depths=graph.depths, build_args=self.build_args # , item_factory=self.item_factory
+                )
+
+        if transformation.renames_items:
+            self.rekey_item_cache()
+
+        if transformation.creates_items:
+            self._discover()
+            self._parse_items()
+
     def callgraph(self, path, with_file_graph=False, with_legend=False):
         """
         Generate a callgraph visualization and dump to file.
@@ -640,16 +754,18 @@ class Scheduler:
             if item.is_ignored:
                 continue
 
-            sourcepath = item.path.resolve()
-            newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
+            sourcepath = item.orig_path.resolve()
+            newsource = item.path.resolve()
+            # sourcepath = item.path.resolve()
+            # newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
             if buildpath:
                 newsource = buildpath/newsource.name
-
-            # Make new CMake paths relative to source again
+            # 
+            # # Make new CMake paths relative to source again
             if rootpath is not None:
                 sourcepath = sourcepath.relative_to(rootpath)
-
-            debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
+            # 
+            # debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
 
             # Inject new object into the final binary libs
             if newsource not in sources_to_append:

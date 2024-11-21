@@ -82,6 +82,8 @@ using the transformation
     scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p, replace_by_value=True))
 """
 
+from pathlib import Path
+from loki import ProcedureItem
 from loki.batch import Transformation
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir, Transformer, FindNodes
@@ -90,8 +92,73 @@ from loki.tools.util import as_tuple, CaseInsensitiveDict
 from loki.transformations.inline import inline_constant_parameters
 
 
-__all__ = ['ParametriseTransformation']
+__all__ = ['ParametriseTransformation', 'DuplicateKernel', 'RemoveKernel']
 
+
+class DuplicateKernel(Transformation):
+
+    def __init__(self, kernels=None):
+        self.kernels = tuple(kernel.lower() for kernel in as_tuple(kernels))
+
+    def transform_subroutine(self, routine, **kwargs):
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        call_map = {}
+        for call in calls:
+            if str(call.name).lower() in self.kernels:
+                call_map[call] = (call, call.clone())
+        routine.body = Transformer(call_map).visit(routine.body)
+
+    def plan_subroutine(self, routine, **kwargs):
+        item = kwargs.get('item', None)
+        if not item and 'items' in kwargs:
+            if kwargs['items']:
+                item = kwargs['items'][0]
+
+        successors = as_tuple(kwargs.get('successors'))
+
+        # this only renames, however we want to create a duplicated kernel and not only as duplicate call ...
+        """
+        for child in successors:
+            if not isinstance(child, ProcedureItem):
+                continue
+            print(f"plan_subroutine - child for {routine} : {child}")
+            if child.local_name.lower() in self.kernels:
+                path = Path(child.path)
+                suffix = path.suffix
+                child.source.path = Path(child.path).with_suffix(f'.duplicate{suffix}') 
+        """
+
+class RemoveKernel(Transformation):
+
+    def __init__(self, kernels=None):
+        self.kernels = tuple(kernel.lower() for kernel in as_tuple(kernels))
+
+    def transform_subroutine(self, routine, **kwargs):
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        call_map = {}
+        for call in calls:
+            if str(call.name).lower() in self.kernels:
+                call_map[call] = None
+        routine.body = Transformer(call_map).visit(routine.body)
+
+    """
+    def plan_subroutine(self, sourcefile, **kwargs):
+        item = kwargs.get('item', None)
+        if not item and 'items' in kwargs:
+            if kwargs['items']:
+                item = kwargs['items'][0]
+
+        if not item:
+            raise ValueError('No Item provided; required to determine file write path')
+
+        _mode = item.mode if item.mode else 'loki'
+        _mode = _mode.replace('-', '_')  # Sanitize mode string
+
+        path = Path(item.path)
+        suffix = self.suffix if self.suffix else path.suffix
+        sourcepath = Path(item.path).with_suffix(f'.{_mode}{suffix}')
+        item.source.path = sourcepath
+    """
 
 class ParametriseTransformation(Transformation):
     """

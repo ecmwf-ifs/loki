@@ -412,3 +412,122 @@ class Transformation:
         # Ensure all objects in the IR are in the module's scope.
         if rescope_symbols:
             module.rescope_symbols()
+
+    def plan_subroutine(self, source, **kwargs):
+        """
+        ...
+        """
+
+    def plan_module(self, source, **kwargs):
+        """
+        ...
+        """
+
+    def plan_file(self, source, **kwargs):
+        """
+        ...
+        """
+
+    def apply_plan(self, source, **kwargs):
+        """
+        ...
+        """
+        if isinstance(source, Sourcefile):
+            self.apply_plan_file(source, **kwargs)
+
+        if isinstance(source, Subroutine):
+            self.apply_plan_subroutine(source, **kwargs)
+
+        if isinstance(source, Module):
+            self.apply_plan_module(source, **kwargs)
+
+    def apply_plan_file(self, sourcefile, **kwargs):
+        """
+        """
+        if not isinstance(sourcefile, Sourcefile):
+            raise TypeError('Transformation.apply_file can only be applied to Sourcefile object')
+
+        # if sourcefile._incomplete:
+        #     raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
+
+        item = kwargs.pop('item', None)
+        items = kwargs.pop('items', None)
+        role = kwargs.pop('role', None)
+        targets = kwargs.pop('targets', None)
+
+        # Apply file-level transformations
+        self.plan_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+
+        # Recurse to modules, if configured
+        if self.recurse_to_modules:
+            if items:
+                # Recursion into all module items in the current file
+                for item in items:
+                    if isinstance(item, ModuleItem):
+                        # Currently, we don't get the role for modules correct as 'driver'
+                        # if the role overwrite in the config marks only specific procedures
+                        # as driver, but everything else as kernel by default. This is in particular the
+                        # case, if the ModuleWrapTransformation is applied to a driver routine.
+                        # For that reason, we set the role as unspecified (None) if not the role is
+                        # universally equal throughout the module
+                        item_role = item.role
+                        definitions_roles = {_it.role for _it in items if _it.scope_name == item.name}
+                        if definitions_roles != {item_role}:
+                            item_role = None
+
+                        # Provide the list of items that belong to this module
+                        item_items = tuple(_it for _it in items if _it.scope is item.ir)
+
+                        self.plan_module(
+                            item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                        )
+            else:
+                for module in sourcefile.modules:
+                    self.plan_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+
+        # Recurse into procedures, if configured
+        if self.recurse_to_procedures:
+            if items:
+                # Recursion into all subroutine items in the current file
+                for item in items:
+                    if isinstance(item, ProcedureItem):
+                        self.plan_subroutine(
+                            item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                        )
+            else:
+                for routine in sourcefile.all_subroutines:
+                    self.plan_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+
+    def apply_plan_subroutine(self, subroutine, **kwargs):
+        """
+        """
+        if not isinstance(subroutine, Subroutine):
+            raise TypeError('Transformation.apply_subroutine can only be applied to Subroutine object')
+
+        # if subroutine._incomplete:
+        #     raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
+
+        # Apply the actual transformation for subroutines
+        self.plan_subroutine(subroutine, **kwargs)
+
+        # Recurse to internal procedures
+        if self.recurse_to_internal_procedures:
+            for routine in subroutine.subroutines:
+                self.apply_plan_subroutine(routine, **kwargs)
+
+    def apply_plan_module(self, module, **kwargs):
+        """
+        """
+        if not isinstance(module, Module):
+            raise TypeError('Transformation.apply_module can only be applied to Module object')
+
+        # if module._incomplete:
+        #     raise RuntimeError('Transformation.apply_module requires Module to be complete')
+
+        # Apply the actual transformation for modules
+        self.transform_module(module, **kwargs)
+
+        # Recurse to procedures contained in this module
+        if self.recurse_to_procedures:
+            for routine in module.subroutines:
+                self.apply_plan_subroutine(routine, **kwargs)

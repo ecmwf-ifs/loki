@@ -73,3 +73,21 @@ class FileWriteTransformation(Transformation):
         if build_args and (output_dir := build_args.get('output_dir', None)) is not None:
             sourcepath = Path(output_dir)/sourcepath.name
         sourcefile.write(path=sourcepath, cuf=self.cuf)
+
+    def plan_file(self, sourcefile, **kwargs):
+        item = kwargs.get('item', None)
+        if not item and 'items' in kwargs:
+            if kwargs['items']:
+                item = kwargs['items'][0]
+
+        if not item:
+            raise ValueError('No Item provided; required to determine file write path')
+
+        _mode = item.mode if item.mode else 'loki'
+        _mode = _mode.replace('-', '_')  # Sanitize mode string
+
+        path = Path(item.path)
+        suffix = self.suffix if self.suffix else path.suffix
+        sourcepath = Path(item.path).with_suffix(f'.{_mode}{suffix}')
+        item.source.path = sourcepath
+

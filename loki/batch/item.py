@@ -517,6 +517,12 @@ class Item(ItemConfig):
         """
         return self.source.path
 
+    @property
+    def orig_path(self):
+        """
+        The filepath of the associated source file
+        """
+        return self.source.orig_path
 
 class FileItem(Item):
     """
