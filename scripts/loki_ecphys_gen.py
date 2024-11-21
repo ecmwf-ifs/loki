@@ -384,14 +384,24 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
             'mode': 'idem',
             'role': 'kernel',
             'expand': False,
-            'strict': True,
+            'strict': False,
             'enable_imports': False,
+            'disable': [
+                'dr_hook', 'abor1', 'gstats'
+            ],
+            'block': [
+                'parkind1', 'yomhook', 'yom*', 'yoe*',
+                'field_registry_mod', 'field_variables_mod*',
+                'field_module*', 'field_*_module*',
+                'variable_module', 'fields_mod', 'geometry_mod',
+                'ecphys_*', 'surface_fields_mix', 'trajectory_mod',
+            ],
         },
         'routines' : {
-            'ec_phys_fc' : {'role': 'driver', 'expand': False},
+            'ec_phys_fc' : {'role': 'driver', 'expand': True},
             'convection_layer' : {'expand': False},
             'turbulence_layer' : {'expand': False},
-            'cloud_layer' : {'expand': False},
+            'cloud_layer' : {'expand': True},
         }
     }
 
