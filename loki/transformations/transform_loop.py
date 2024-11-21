@@ -665,19 +665,33 @@ class LoopUnrollTransformer(Transformer):
             if self.warn_iterations_length and len(unroll_range) > 32:
                 warning(f"Unrolling loop over 32 iterations ({len(unroll_range)}), this may take a long time & "
                         f"provide few performance benefits.")
+            neighbour_loops = len([c for c in o.body if isinstance(c, Loop)]) > 1
+            counter_in_bounds = o.variable in [v for l in FindNodes(Loop).visit(o.body)
+                                        for v in FindVariables().visit(l.bounds)]
 
-            acc = functools.reduce(op.add,
-                                   [
-                                       # Create a copy of the loop body for every value of the iterator
-                                       SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body)
-                                       for i in unroll_range
-                                   ],
-                                   ())
+            if not neighbour_loops and not counter_in_bounds:
+                # Use depth first (faster)
+                #     TODO: test
+                if depth is None or depth >= 1:
+                    o = Loop(
+                        variable=o.variable,
+                        body=self.visit(o.body, depth=depth),
+                        bounds=o.bounds
+                    )
+                acc = functools.reduce(op.add,
+                                       [SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body) for i in unroll_range],
+                                       ())
+                return as_tuple(flatten(acc))
+            else:
+                # Use breadth first (slower)
+                acc = functools.reduce(op.add,
+                                       [SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body) for i in unroll_range],
+                                       ())
 
-            if depth is None or depth >= 1:
-                acc = [self.visit(a, depth=depth) for a in acc]
+                if depth is None or depth >= 1:
+                    acc = [self.visit(a, depth=depth) for a in acc]
 
-            return as_tuple(flatten(acc))
+                return as_tuple(flatten(acc))
 
         return Loop(
             variable=o.variable,
