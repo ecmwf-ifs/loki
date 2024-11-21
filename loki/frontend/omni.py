@@ -1210,6 +1210,15 @@ class OMNI2IR(GenericVisitor):
         return sym.LiteralList(values=values, dtype=dtype)
 
     def visit_functionCall(self, o, **kwargs):
+
+        if 'is_intrinsic' in o.attrib:
+            # Register the ProcedureType in the scope before the name lookup
+            pname = o.find('name').text
+            proc_type = ProcedureType(
+                name=pname, is_function=True, is_intrinsic=True, procedure=None
+            )
+            kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type, is_intrinsic=True)
+
         if o.find('name') is not None:
             name = self.visit(o.find('name'), **kwargs)
         elif o.find('FmemberRef') is not None:

@@ -79,12 +79,51 @@ end subroutine math_intrinsics
 """
     filepath = tmp_path/(f'expression_math_intrinsics_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
 
+    for assign in FindNodes(ir.Assignment).visit(routine.body):
+        assert isinstance(assign.rhs, sym.InlineCall)
+        assert isinstance(assign.rhs.function, sym.ProcedureSymbol)
+        assert assign.rhs.function.type.dtype.is_intrinsic
+
+    # Test full functionality via JIT example
+    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
     vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_general_intrinsics(frontend):
+    """
+    Test general intrinsic functions (size, shape, ubound, lbound,
+    allocated, trim, kind)
+    """
+    fcode = """
+subroutine general_intrinsics(arr, ptr, name)
+  implicit none
+  real(kind=8), intent(inout) :: arr(:,:)
+  real(kind=8), pointer, intent(inout) :: ptr(:,:)
+  character(len=*), intent(inout) :: name
+  integer :: isize, ishape(:), ilower, iupper, mykind
+  logical :: alloc
+  character(len=*) :: myname
+
+  isize = size(arr)
+  ishape = shape(arr)
+  ilower = lbound(arr)
+  iupper = ubound(arr)
+  mykind = kind(arr)
+  alloc = allocated(ptr)
+  myname = trim(name)
+end subroutine general_intrinsics
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    for assign in FindNodes(ir.Assignment).visit(routine.body):
+        assert isinstance(assign.rhs, sym.InlineCall)
+        assert isinstance(assign.rhs.function, sym.ProcedureSymbol)
+        assert assign.rhs.function.type.dtype.is_intrinsic
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

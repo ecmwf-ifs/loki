@@ -168,16 +168,22 @@ class ProcedureType(DataType):
         Indicate that this is a function
     is_generic : bool, optional
         Indicate that this is a generic function
+    is_intrinsic : bool, optional
+        Indicate that this is an intrinsic function
     procedure : :any:`Subroutine` or :any:`StatementFunction` or :any:`LazyNodeLookup`, optional
         The procedure this type represents
     """
 
-    def __init__(self, name=None, is_function=None, is_generic=False, procedure=None, return_type=None):
+    def __init__(
+            self, name=None, is_function=None, is_generic=False,
+            is_intrinsic=False, procedure=None, return_type=None
+    ):
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         super().__init__()
         assert name or isinstance(procedure, Subroutine)
-        assert isinstance(return_type, SymbolAttributes) or procedure or not is_function
+        assert isinstance(return_type, SymbolAttributes) or procedure or not is_function or is_intrinsic
         self.is_generic = is_generic
+        self.is_intrinsic = is_intrinsic
         if procedure is None or isinstance(procedure, LazyNodeLookup):
             self._procedure = procedure
             self._name = name
