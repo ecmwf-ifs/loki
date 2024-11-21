@@ -15,7 +15,7 @@ from loki.expression.symbols import (
     _Literal, Array, RangeIndex, IntLiteral, FloatLiteral, LogicLiteral, LoopRange, StringLiteral
 )
 from loki.ir import (
-    Loop, NestedTransformer, Conditional, Assignment
+    Loop, Transformer, Conditional, Assignment
 )
 from loki.tools import as_tuple, flatten
 
@@ -24,7 +24,7 @@ from loki.transformations.transform_loop import LoopUnrollTransformer
 __all__ = ['ConstantPropagator']
 
 
-class ConstantPropagator(NestedTransformer):
+class ConstantPropagator(Transformer):
 
     def __init__(self, fold_floats=True, unroll_loops=True):
         self.fold_floats = fold_floats
