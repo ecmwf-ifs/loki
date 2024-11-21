@@ -363,6 +363,8 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
               help='Path to search for initial input sources.')
 @click.option('--build', '-b', '--out', type=click.Path(), default=None,
               help='Path to build directory for source generation.')
+@click.option('--header', type=click.Path(), default=None,
+              help='Path to header dir.')
 @click.option('--remove-block-loop/--no-remove-block-loop', default=True,
               help='Flag to replace OpenMP loop annotations with Loki pragmas.')
 @click.option('--promote-local-arrays/--no-promote-local-arrays', default=True,
@@ -370,7 +372,7 @@ def inline(source, build, remove_openmp, sanitize_assoc, log_level):
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during processing')
-def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
+def parallel(source, build, header, remove_block_loop, promote_local_arrays, log_level):
     """
     Generate parallel regions with OpenMP and OpenACC dispatch.
     """
@@ -405,8 +407,23 @@ def parallel(source, build, remove_block_loop, promote_local_arrays, log_level):
         }
     }
 
+    header = Path(header).resolve()
+    headers = [
+        header/'ecphys_state_type_mod.F90',
+        header/'ecphys_aux_type_mod.F90',
+        header/'ecphys_aux_rad_type_mod.F90',
+        header/'ecphys_aux_diag_type_mod.F90',
+        header/'ecphys_flux_type_mod.F90',
+        header/'ecphys_perturb_type_mod.F90',
+        # header/'ecphys_surface_type_mod.F90',
+    ]
+    definitions = []
+    for h in headers:
+        sfile = Sourcefile.from_file(filename=h, definitions=definitions)
+        definitions = definitions + list(sfile.definitions)
+
     # Parse and enrich the needed source files
-    scheduler = Scheduler(config=config, paths=source, output_dir=build)
+    scheduler = Scheduler(config=config, paths=source, definitions=definitions, output_dir=build)
 
     # Get everything set up...
     ec_phys_parallel = scheduler['ec_phys_fc_mod#ec_phys_fc'].ir
