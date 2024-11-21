@@ -2550,10 +2550,13 @@ class FParser2IR(GenericVisitor):
 
         # Register the ProcedureType in the scope before the name lookup
         pname = o.children[0].string
-        proc_type = ProcedureType(
-            name=pname, is_function=True, is_intrinsic=True, procedure=None
-        )
-        kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type, is_intrinsic=True)
+        scope = kwargs['scope']
+        if not scope.get_symbol_scope(pname):
+            # No known alternative definition; register a true intrinsic procedure type
+            proc_type = ProcedureType(
+                name=pname, is_function=True, is_intrinsic=True, procedure=None
+            )
+            kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type, is_intrinsic=True)
 
         # Look up the function symbol
         name = self.visit(o.children[0], **kwargs)

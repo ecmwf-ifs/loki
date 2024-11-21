@@ -2127,3 +2127,80 @@ end module mod_main
     assert var.type.imported is True
     # Check if the symbol comes from the mod_public module
     assert var.type.module is mod_public
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not like intrinsic shading for member functions!')]
+))
+def test_intrinsic_shadowing(tmp_path, frontend):
+    """
+    Test that locally defined functions that shadow intrinsics are handled.
+    """
+    fcode_algebra = """
+module algebra_mod
+implicit none
+contains
+  function dot_product(a, b) result(c)
+    real(kind=8), intent(inout) :: a(:), b(:)
+    real(kind=8) :: c
+  end function dot_product
+
+  function min(x, y)
+    real(kind=8), intent(in) :: x, y
+    real(kind=8) :: min
+
+    min = y
+    if (x < y) min = x
+  end function min
+end module algebra_mod
+"""
+
+    fcode = """
+module test_intrinsics_mod
+use algebra_mod, only: dot_product
+implicit none
+
+contains
+
+  subroutine test_intrinsics(a, b, c, d)
+    use algebra_mod, only: min
+    implicit none
+    real(kind=8), intent(inout) :: a(:), b(:)
+    real(kind=8) :: c, d, e
+
+    c = dot_product(a, b)
+    d = max(c, a(1))
+    e = min(c, a(1))
+
+  contains
+
+    function max(x, y)
+      real(kind=8), intent(in) :: x, y
+      real(kind=8) :: max
+
+      max = y
+      if (x > y) max = x
+    end function max
+  end subroutine test_intrinsics
+end module test_intrinsics_mod
+"""
+    algebra = Module.from_source(fcode_algebra, frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(
+        fcode, definitions=algebra, frontend=frontend, xmods=[tmp_path]
+    )
+    routine = module['test_intrinsics']
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+
+    assert isinstance(assigns[0].rhs.function, sym.ProcedureSymbol)
+    assert not assigns[0].rhs.function.type.is_intrinsic
+    assert assigns[0].rhs.function.type.dtype.procedure == algebra['dot_product']
+
+    assert isinstance(assigns[1].rhs.function, sym.ProcedureSymbol)
+    assert not assigns[1].rhs.function.type.is_intrinsic
+    assert assigns[1].rhs.function.type.dtype.procedure == routine.members[0]
+
+    assert isinstance(assigns[2].rhs.function, sym.ProcedureSymbol)
+    assert not assigns[2].rhs.function.type.is_intrinsic
+    assert assigns[2].rhs.function.type.dtype.procedure == algebra['min']
