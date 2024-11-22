@@ -204,3 +204,103 @@ end module d_mod
     assert written_files == {
         f'{name}.foobar{suffix}' for name in expected_files
     }
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_file_write_replicate(tmp_path, frontend):
+    fcode_a = """
+module a_mod
+    implicit none
+    integer :: a
+end module a_mod
+    """
+    fcode_b = """
+module b_mod
+    implicit none
+    integer :: b
+end module b_mod
+    """
+    fcode_c = """
+module c_mod
+contains
+    subroutine c(val)
+        use a_mod, only: a
+        use b_mod, only: b
+        integer, intent(inout) :: val
+        val = val + a + b
+    end subroutine c
+end module c_mod
+    """
+    fcode_d = """
+subroutine d()
+    use c_mod, only: c
+    implicit none
+    integer :: var
+    call c(var)
+end subroutine d
+    """
+
+
+    # Set-up paths and write sources
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    out_path = tmp_path/'build'
+    out_path.mkdir()
+
+    (src_path/'a.F90').write_text(fcode_a)
+    (src_path/'b.F90').write_text(fcode_b)
+    (src_path/'c.F90').write_text(fcode_c)
+    (src_path/'d.F90').write_text(fcode_d)
+
+    # Expected items in the dependency graph
+    expected_items = {'a_mod', 'b_mod', 'c_mod#c', '#d'}
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'enable_imports': True,
+            'mode': 'foobar',
+            'replicate': True
+        },
+        'routines': {
+            'b_mod': {'replicate': False},
+            'd': {'role': 'driver', 'replicate': False},
+        }
+    })
+
+    scheduler = Scheduler(
+        paths=[src_path], config=config, frontend=frontend,
+        output_dir=out_path, xmods=[tmp_path]
+    )
+
+    # Check the dependency graph
+    assert expected_items == {item.name for item in scheduler.items}
+
+    # Generate the CMake plan
+    plan_file = tmp_path/'plan.cmake'
+    scheduler.write_cmake_plan(
+        filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
+        rootpath=tmp_path
+    )
+
+    # Validate the plan file content
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+
+    loki_plan = plan_file.read_text()
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'a', 'b', 'c', 'd'}
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'b', 'd'}
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {'a.foobar', 'b.foobar', 'c.foobar', 'd.foobar'}
+
+    # Write the outputs
+    transformation = FileWriteTransformation(include_module_var_imports=True)
+    scheduler.process(transformation)
+
+    # Validate the list of written files
+    written_files = {f.name for f in out_path.glob('*')}
+    assert written_files == {'a.foobar.F90', 'b.foobar.F90', 'c.foobar.F90', 'd.foobar.F90'}

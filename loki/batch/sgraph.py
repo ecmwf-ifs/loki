@@ -223,10 +223,21 @@ class SGraph:
             if file_item not in self._graph:
                 self.add_node(file_item)
 
-        # Update the "is_ignored" attribute for file items
+        # Update the "is_ignored" and "replicate" attributes for file items
         for items in file_item_2_item_map.values():
+            file_item = item_2_file_item_map[items[0]]
             is_ignored = all(item.is_ignored for item in items)
-            item_2_file_item_map[items[0]].config['is_ignored'] = is_ignored
+            file_item.config['is_ignored'] = is_ignored
+
+            replicate = any(item.replicate for item in items)
+            if replicate:
+                non_replicate_items = [item for item in items if not item.replicate]
+                if non_replicate_items:
+                    warning((
+                        f'File {file_item.name} will be replicated but contains items '
+                        f'that are marked as non-replicated: {", ".join(non_replicate_items)}'
+                    ))
+            file_item.config['replicate'] = replicate
 
         # Insert edges to the file items corresponding to the successors of the items
         for item in SFilter(sgraph, item_filter, exclude_ignored=exclude_ignored):
