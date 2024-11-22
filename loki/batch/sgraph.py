@@ -235,7 +235,7 @@ class SGraph:
                 if non_replicate_items:
                     warning((
                         f'File {file_item.name} will be replicated but contains items '
-                        f'that are marked as non-replicated: {", ".join(non_replicate_items)}'
+                        f'that are marked as non-replicated: {", ".join(item.name for item in non_replicate_items)}'
                     ))
             file_item.config['replicate'] = replicate
 

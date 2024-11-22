@@ -17,6 +17,7 @@ import pytest
 
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
+from loki.logging import log_levels
 from loki.transformations.build_system import FileWriteTransformation
 
 
@@ -207,7 +208,8 @@ end module d_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_file_write_replicate(tmp_path, frontend):
+@pytest.mark.parametrize('have_non_replicate_conflict', [False, True])
+def test_file_write_replicate(tmp_path, caplog, frontend, have_non_replicate_conflict):
     fcode_a = """
 module a_mod
     implicit none
@@ -220,7 +222,11 @@ module b_mod
     integer :: b
 end module b_mod
     """
-    fcode_c = """
+    if have_non_replicate_conflict:
+        other_routine = "subroutine not_c()\n    end subroutine not_c"
+    else:
+        other_routine = ""
+    fcode_c = f"""
 module c_mod
 contains
     subroutine c(val)
@@ -229,6 +235,7 @@ contains
         integer, intent(inout) :: val
         val = val + a + b
     end subroutine c
+    {other_routine}
 end module c_mod
     """
     fcode_d = """
@@ -255,6 +262,9 @@ end subroutine d
     # Expected items in the dependency graph
     expected_items = {'a_mod', 'b_mod', 'c_mod#c', '#d'}
 
+    if have_non_replicate_conflict:
+        expected_items |= {'c_mod#not_c'}
+
     # Create the Scheduler
     config = SchedulerConfig.from_dict({
         'default': {
@@ -267,6 +277,7 @@ end subroutine d
         },
         'routines': {
             'b_mod': {'replicate': False},
+            'not_c': {'replicate': False},
             'd': {'role': 'driver', 'replicate': False},
         }
     })
@@ -281,10 +292,20 @@ end subroutine d
 
     # Generate the CMake plan
     plan_file = tmp_path/'plan.cmake'
-    scheduler.write_cmake_plan(
-        filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
-        rootpath=tmp_path
-    )
+
+    caplog.clear()
+    with caplog.at_level(log_levels['WARNING']):
+        scheduler.write_cmake_plan(
+            filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
+            rootpath=tmp_path
+        )
+        if have_non_replicate_conflict:
+            assert len(caplog.records) == 1
+            assert 'c.f90' in caplog.records[0].message
+            assert 'c_mod#not_c' in caplog.records[0].message
+        else:
+            assert not caplog.records
+
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
