@@ -1489,7 +1489,7 @@ class ItemFactory:
             ``True`` if matched successfully via :data:`config` or :data:`ignore` list,
             otherwise ``False``
         """
-        return (
-            (config and config.is_disabled(name)) or
-            (ignore and SchedulerConfig.match_item_keys(name, ignore, use_pattern_matching=True))
+        keys = as_tuple(config.disable if config else ()) + as_tuple(ignore)
+        return keys and SchedulerConfig.match_item_keys(
+            name, keys, use_pattern_matching=True, match_item_parents=True
         )
