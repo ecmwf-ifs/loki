@@ -59,11 +59,11 @@ end module b_mod
     else:
         import_stmt = "use a_mod\n    use b_mod"
 
+    module_import_stmt = ""
+    routine_import_stmt = ""
     if import_level == 'module':
         module_import_stmt = import_stmt
-        routine_import_stmt = ""
     elif import_level == 'subroutine':
-        module_import_stmt = ""
         routine_import_stmt = import_stmt
 
     fcode_mod_c = f"""
@@ -82,7 +82,7 @@ contains
 end module c_mod
 """
 
-    fcode_mod_d = f"""
+    fcode_mod_d = """
 module d_mod
     implicit none
 contains
