@@ -9,8 +9,15 @@
 import pytest
 import numpy as np
 
-from loki import available_frontends, Subroutine, pragmas_attached, find_driver_loops, Loop, fgen, \
-   ir, FindNodes, jit_compile, clean_test, FindVariables, Array
+from loki import Subroutine
+from loki.build import jit_compile, clean_test
+from loki.expression import Array
+from loki.frontend import available_frontends
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, pragmas_attached
+)
+
+from loki.transformations.utilities import find_driver_loops
 from loki.transformations.loop_blocking import split_loop, block_loop_arrays
 
 
@@ -43,16 +50,17 @@ end subroutine test_1d_splitting
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine.body,
-                                  targets=None)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    with pragmas_attached(routine, ir.Loop):
+        loops = find_driver_loops(routine.body, targets=None)
+    split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -93,16 +101,17 @@ end subroutine test_1d_splitting_multi_var
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine.body,
-                                  targets=None)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    with pragmas_attached(routine, ir.Loop):
+        loops = find_driver_loops(routine.body, targets=None)
+    split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -141,16 +150,17 @@ def test_2d_splitting(tmp_path, frontend, block_size, n):
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine.body,
-                                  targets=None)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    with pragmas_attached(routine, ir.Loop):
+        loops = find_driver_loops(routine.body, targets=None)
+    split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -191,16 +201,17 @@ def test_3d_splitting(tmp_path, frontend, block_size, n):
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine.body,
-                                  targets=None)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    with pragmas_attached(routine, ir.Loop):
+        loops = find_driver_loops(routine.body, targets=None)
+    split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
@@ -249,7 +260,7 @@ end subroutine test_1d_blocking
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
-    with pragmas_attached(routine, Loop):
+    with pragmas_attached(routine, ir.Loop):
         loops = find_driver_loops(routine.body,
                                   targets=None)
 
@@ -258,10 +269,12 @@ end subroutine test_1d_blocking
 
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
     num_vars = len(routine.variable_map)
 
     blocking_indices = ['i']
@@ -308,7 +321,7 @@ end subroutine test_1d_blocking_multi_intent
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
-    with pragmas_attached(routine, Loop):
+    with pragmas_attached(routine, ir.Loop):
         loops = find_driver_loops(routine.body,
                                   targets=None)
 
@@ -316,11 +329,12 @@ end subroutine test_1d_blocking_multi_intent
     num_vars = len(routine.variable_map)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
-
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     num_vars = len(routine.variable_map)
     blocking_indices = ['i']
@@ -371,16 +385,17 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine.body,
-                                  targets=None)
+    with pragmas_attached(routine, ir.Loop):
+        loops = find_driver_loops(routine.body, targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     num_vars = len(routine.variable_map)
     blocking_indices = ['i']
@@ -404,7 +419,6 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
     assert np.array_equal(b, b_ref), "b[:,1] should equal a and a_ref"
 
     clean_test(filepath)
-
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -431,16 +445,17 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    with pragmas_attached(routine, Loop):
-        loops = find_driver_loops(routine.body,
-                                  targets=None)
+    with pragmas_attached(routine, ir.Loop):
+        loops = find_driver_loops(routine.body, targets=None)
     splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
-    assert len(
-        loops) == num_loops + 1, f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
-    assert len(
-        routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, f"Total number of variables after loop splitting is: {len(routine.variable_map)} but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    assert len(loops) == num_loops + 1, \
+        f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
+    assert len(routine.variable_map) == num_vars + LOKI_LOOP_SLIT_VAR_ADDITION, (
+        f"Total number of variables after loop splitting is: {len(routine.variable_map)} "
+        f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
+    )
 
     num_vars = len(routine.variable_map)
     blocking_indices = ['i']

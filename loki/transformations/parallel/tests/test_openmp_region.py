@@ -262,11 +262,11 @@ end subroutine test_add_openmp_loop
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
 ))
-def test_add_firstprivate_copies(tmp_path, frontend):
+def test_add_firstprivate_copies(frontend):
     """
     A simple test for :any:`add_firstprivate_copies`
     """
-    
+
     fcode = """
 subroutine test_add_openmp_loop(ydgeom, state, arr)
   use geom_mod, only: geom_type
@@ -312,7 +312,7 @@ end subroutine test_add_openmp_loop
     assert str(calls[0].name).startswith('state%')
     assert calls[1].arguments[0].parent == 'state'
     assert len(FindNodes(ir.Loop).visit(routine.body)) == 2
-    
+
     # Put the explicit firstprivate copies back in
     add_firstprivate_copies(
         routine=routine, fprivate_map=fprivate_map

@@ -394,7 +394,7 @@ end module test_get_loop_bounds_mod
     y = Dimension(name='y', size='n', index='i', bounds=('a', 'b'))
     z = Dimension(name='y', size='n', index='i', bounds=('dim%a', 'dim%b'))
 
-    start, end = get_loop_bounds(routine, x)
+    start, end = get_loop_bounds(routine, x)  # pylint: disable=unbalanced-tuple-unpacking
     assert isinstance(start, sym.Scalar)
     assert start.type.dtype == BasicType.INTEGER
     assert start.type.intent == 'in'
@@ -403,10 +403,10 @@ end module test_get_loop_bounds_mod
     assert end.type.intent == 'in'
 
     with pytest.raises(RuntimeError):
-        _, _ = get_loop_bounds(routine, y)
+        _, _ = get_loop_bounds(routine, y)  # pylint: disable=unbalanced-tuple-unpacking
 
     # Test type-bound symbol resolution
-    start, end = get_loop_bounds(routine, z)
+    start, end = get_loop_bounds(routine, z)  # pylint: disable=unbalanced-tuple-unpacking
     assert isinstance(start, sym.Scalar)
     assert start.type.dtype == BasicType.INTEGER
     assert start.type.kind == '8'
