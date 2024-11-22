@@ -65,7 +65,7 @@ class FieldOffloadTransformation(Transformation):
     ----------
     devptr_prefix: str, optional
         The prefix of device pointers added by this transformation (defaults to ``'loki_devptr_'``).
-    field_froup_types: list or tuple of str, optional
+    field_group_types: list or tuple of str, optional
         Names of the field group types with members that may be offloaded (defaults to ``['']``).
     offload_index: str, optional
         Names of index variable to inject in the outmost dimension of offloaded arrays in the kernel
