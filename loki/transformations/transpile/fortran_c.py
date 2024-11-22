@@ -381,12 +381,12 @@ class FortranCTransformation(Transformation):
 
         wrapper_body = casts_in
         if self.language in ['cuda', 'hip']:
-            wrapper_body += [Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
+            wrapper_body += [Pragma(keyword='acc', content=f'data present({", ".join(use_device_addr)})'), Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')]
         wrapper_body += [
             CallStatement(name=Variable(name=interface.body[0].name), arguments=call_arguments)  # pylint: disable=unsubscriptable-object
         ]
         if self.language in ['cuda', 'hip']:
-            wrapper_body += [Pragma(keyword='acc', content='end host_data')]
+            wrapper_body += [Pragma(keyword='acc', content='end host_data'), Pragma(keyword='acc', content='end data')]
         wrapper_body += casts_out
         wrapper.body = Section(body=as_tuple(wrapper_body))
 

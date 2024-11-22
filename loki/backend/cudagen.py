@@ -35,8 +35,9 @@ class CudaCodegen(CppCodegen):
     Tree visitor to generate standardized CUDA code from IR.
     """
 
-    standard_imports = ['stdio.h', 'stdbool.h', 'float.h',
-            'math.h', 'cuda.h', 'cuda_runtime.h']
+    # standard_imports = ['stdio.h', 'stdbool.h', 'float.h',
+    #         'math.h', 'cuda.h', 'cuda_runtime.h']
+    standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h', 'hip/hip_runtime.h']
 
     def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
         symgen = kwargs.pop('symgen', CudaCodeMapper(cuda_intrinsic_type))
@@ -99,7 +100,7 @@ class CudaCodegen(CppCodegen):
         body += [self.visit(o.body, **kwargs)]
         opt_extern = kwargs.get('extern', False)
         if opt_extern:
-            body += [self.format_line('cudaDeviceSynchronize();')]
+            body += [self.format_line('hipDeviceSynchronize();')]
         # if something to be returned, add 'return <var>' statement
         if o.result_name is not None:
             body += [self.format_line(f'return {o.result_name.lower()};')]

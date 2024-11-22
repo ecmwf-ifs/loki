@@ -448,7 +448,7 @@ class GlobalVarOffloadTransformation(Transformation):
         acc_pragmas = [pragma for pragma in FindNodes(Pragma).visit(module.spec) if pragma.keyword.lower() == 'acc']
         acc_pragma_parameters = get_pragma_parameters(acc_pragmas, starts_with='declare', only_loki_pragmas=False)
         declared_variables = set(flatten([
-            v.replace(' ','').lower().split()
+            v.replace(' ','').lower().split(',')
             for v in as_tuple(acc_pragma_parameters.get('create'))
         ]))
 
@@ -463,7 +463,11 @@ class GlobalVarOffloadTransformation(Transformation):
 
         # Add ACC declare pragma for offload variables that are not yet declared
         offload_variables = offload_variables - declared_variables
-        if offload_variables:
+        if offload_variables and not list(offload_variables)[0].name.lower() in declared_variables:
+            print(f"adding declare create for module {module.name}")
+            print(f"  offload_variables: {offload_variables}")
+            print(f" vs.")
+            print(f"  declared_variables: {declared_variables}")
             module.spec.append(
                 Pragma(keyword='acc', content=f'declare create({",".join(v.name for v in offload_variables)})')
             )
@@ -616,7 +620,8 @@ class GlobalVarOffloadTransformation(Transformation):
             )))
             for module, variables in missing_imports_map.items():
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
-                routine.spec.prepend(Import(module=module, symbols=symbols))
+                if symbols:
+                    routine.spec.prepend(Import(module=module, symbols=symbols))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarOffloadTransformation] '
@@ -773,7 +778,8 @@ class GlobalVarHoistTransformation(Transformation):
             )))
             for module, variables in missing_imports_map.items():
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
-                routine.spec.prepend(Import(module=module, symbols=symbols))
+                if symbols:
+                    routine.spec.prepend(Import(module=module, symbols=symbols))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarHoistTransformation] '
