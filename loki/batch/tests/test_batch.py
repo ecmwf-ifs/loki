@@ -402,6 +402,7 @@ def test_procedure_item1(testdir):
 
     # To ensure any existing items from the item_cache are re-used, we instantiate one for
     # the procedure binding
+    # pylint: disable=unsupported-binary-operation
     t_mod_t_proc = get_item(
         ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%proc',
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
@@ -805,6 +806,7 @@ def test_interface_item_in_subroutine(testdir):
 
 def test_procedure_binding_item1(testdir):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -830,6 +832,7 @@ def test_procedure_binding_item1(testdir):
 
 def test_procedure_binding_item2(testdir, default_config):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -871,6 +874,7 @@ def test_procedure_binding_item2(testdir, default_config):
 
 def test_procedure_binding_item3(testdir):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -909,6 +913,7 @@ def test_procedure_binding_item3(testdir):
 ])
 def test_procedure_binding_with_config(testdir, config, expected_dependencies):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )

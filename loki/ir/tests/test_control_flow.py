@@ -583,7 +583,6 @@ end subroutine forall_masked_stmt
     assert bound_var == "j"
     assert bound_range == '1:n'
     # Check the array mask
-    mask = statements[0].mask
     assert statements[0].mask == 'a(i, j) != 0.0'
     # Quickly check assignment
     assignments = FindNodes(ir.Assignment).visit(statements[0])

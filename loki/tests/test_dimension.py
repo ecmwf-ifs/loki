@@ -154,5 +154,5 @@ def test_dimension_config(tmp_path):
     assert dim_b.size == nblocks
     assert dim_b.index == ibl
     assert dim_b.bounds == (sym.IntLiteral(1), nblocks)
-    assert dim_b.lower == (one, start, start.clone(parent=dim))
-    assert dim_b.upper == (nblocks, end, end.clone(parent=dim))
+    assert dim_b.lower == (one, start, start.clone(parent=dim))  # pylint: disable=no-member
+    assert dim_b.upper == (nblocks, end, end.clone(parent=dim))  # pylint: disable=no-member

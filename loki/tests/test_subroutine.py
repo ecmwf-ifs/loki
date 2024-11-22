@@ -2274,8 +2274,8 @@ end subroutine
     # Instead, we can creatae a deferred type variable in the scope and
     # resolve members relative to it
     not_tt = Variable(name='not_tt', scope=routine)
-    assert not_tt.type.dtype == BasicType.DEFERRED
-    not_tt_invalid = not_tt.get_derived_type_member('invalid')
+    assert not_tt.type.dtype == BasicType.DEFERRED  # pylint: disable=no-member
+    not_tt_invalid = not_tt.get_derived_type_member('invalid')  # pylint: disable=no-member
     assert not_tt_invalid == 'not_tt%invalid'
     assert not_tt_invalid.type.dtype == BasicType.DEFERRED
 
