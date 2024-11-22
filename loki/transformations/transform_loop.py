@@ -20,7 +20,7 @@ from loki.analyse import (
 )
 from loki.expression import (
     symbols as sym, simplify, is_constant, symbolic_op, parse_expr,
-    IntLiteral, FloatLiteral
+    IntLiteral, get_pyrange, LoopRange
 )
 from loki.ir import (
     Loop, Conditional, Comment, Pragma, FindNodes, Transformer,
@@ -658,12 +658,10 @@ class LoopUnrollTransformer(Transformer):
         depth = depth - 1 if depth is not None else None
 
         # Only unroll if we have all literal bounds and step
-        if isinstance(start, (IntLiteral, FloatLiteral)) and\
-                isinstance(stop, (IntLiteral, FloatLiteral)) and\
-                isinstance(step, (IntLiteral, FloatLiteral)):
+        if is_constant(start) and is_constant(stop) and is_constant(step):
 
             #  int() to truncate any floats - which are not invalid in all specs!
-            unroll_range = range(int(start), int(stop) + 1, int(step))
+            unroll_range = get_pyrange(LoopRange((start, stop, step)))
             if self.warn_iterations_length and len(unroll_range) > 32:
                 warning(f"Unrolling loop over 32 iterations ({len(unroll_range)}), this may take a long time & "
                         f"provide few performance benefits.")
@@ -681,11 +679,18 @@ class LoopUnrollTransformer(Transformer):
 
             return as_tuple(flatten(acc))
 
+        _pragma = tuple(
+            p for p in o.pragma if not is_loki_pragma(p, starts_with='loop-unroll')
+        ) if o.pragma else None
+        _pragma_post = tuple(
+            p for p in o.pragma_post if not is_loki_pragma(p, starts_with='loop-unroll')
+        ) if o.pragma_post else None
+
         return Loop(
             variable=o.variable,
             body=self.visit(o.body, depth=depth),
-            bounds=o.bounds
-                    )
+            bounds=o.bounds, pragma=_pragma, pragma_post=_pragma_post
+        )
 
 
 def do_loop_unroll(routine, warn_iterations_length=True):
