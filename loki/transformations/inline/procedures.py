@@ -10,7 +10,7 @@ from collections import defaultdict, ChainMap
 from loki.ir import (
     Import, Comment, VariableDeclaration, CallStatement, Transformer,
     FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions,
-    pragmas_attached, is_loki_pragma, Interface, Pragma
+    pragmas_attached, is_loki_pragma, Interface, Pragma, AttachScopes
 )
 from loki.expression import symbols as sym
 from loki.types import BasicType
@@ -161,6 +161,9 @@ def map_call_to_procedure_body(call, caller, callee=None):
         {pragma: None for pragma in FindNodes(Pragma).visit(callee_body)
          if is_loki_pragma(pragma, starts_with='routine')}
     ).visit(callee_body)
+
+    # Ensure all symbols are rescoped to the caller
+    AttachScopes().visit(callee_body, scope=caller)
 
     # Inline substituted body within a pair of marker comments
     comment = Comment(f'! [Loki] inlined child subroutine: {callee.name}')
