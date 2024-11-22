@@ -624,7 +624,7 @@ def test_scc_devector_section_special_case(frontend, horizontal, vertical, block
 
         # Check that all else-bodies have been wrapped
         else_bodies = conditional.else_bodies
-        assert(len(else_bodies) == 3)
+        assert len(else_bodies) == 3
         for body in else_bodies:
             assert isinstance(body[0], ir.Comment)
             assert isinstance(body[1], ir.Loop)

@@ -7,14 +7,14 @@
 
 import pytest
 
-from loki import Subroutine, Module, Dimension
+from loki import Subroutine, Dimension
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 from loki.expression import symbols as sym
 from loki.scope import Scope
 from loki.transformations.parallel import (
-    remove_field_api_view_updates, add_field_api_view_updates, get_field_type, 
-    field_get_device_data, FieldAPITransferType
+    remove_field_api_view_updates, add_field_api_view_updates,
+    get_field_type, field_get_device_data, FieldAPITransferType
 )
 from loki.types import BasicType, SymbolAttributes
 from loki.logging import WARNING
@@ -198,4 +198,3 @@ def test_field_get_device_data():
         assert get_dev_data_call.name.parent == fptr
     with pytest.raises(TypeError):
         _ = field_get_device_data(fptr, dev_ptr, "none_transfer_type", scope)
-

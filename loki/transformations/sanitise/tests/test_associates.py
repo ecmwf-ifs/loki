@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import BasicType, Subroutine, Module
+from loki import BasicType, Subroutine
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
@@ -447,7 +447,7 @@ def test_resolve_associates_stmt_func(frontend):
     Test scope management for stmt funcs, either as
     :any:`ProcedureSymbol` or :any:`DeferredTypeSymbol`.
     """
-    fcode = f"""
+    fcode = """
 subroutine test_associates_stmt_func(ydcst, a, b)
   use yomcst, only: tcst
   implicit none
