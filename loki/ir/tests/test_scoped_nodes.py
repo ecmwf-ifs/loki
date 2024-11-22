@@ -50,7 +50,7 @@ end module test_scoped_node_symbols_mod
     assert routine.get_symbol('b') == 'b(n)'
     assert routine.get_symbol('b').scope == routine
     assert routine.get_symbol('c') == 'c'
-    assert routine.get_symbol('c').scope == routine    
+    assert routine.get_symbol('c').scope == routine
     assert routine.get_symbol('jprb') == 'jprb'
     assert routine.get_symbol('jprb').scope == module
     assert routine.get_symbol('jprb').initial == 8

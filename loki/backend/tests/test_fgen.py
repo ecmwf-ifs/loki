@@ -11,7 +11,7 @@ from loki import Module, Subroutine, Sourcefile
 from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import Intrinsic, DataDeclaration
+from loki.ir import DataDeclaration
 from loki.types import ProcedureType, BasicType
 
 

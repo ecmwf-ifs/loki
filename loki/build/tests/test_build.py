@@ -8,9 +8,10 @@
 from pathlib import Path
 import pytest
 
-from loki.build import (
-    Obj, Lib, Builder,
-    Compiler, GNUCompiler, NvidiaCompiler, get_compiler_from_env, _default_compiler
+from loki.build import Obj, Lib, Builder
+from loki.build.compiler import  (
+    Compiler, GNUCompiler, NvidiaCompiler, get_compiler_from_env,
+    _default_compiler
 )
 
 

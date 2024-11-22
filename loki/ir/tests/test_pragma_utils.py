@@ -95,7 +95,7 @@ end subroutine test_pragmas_map
     assert pragmas[0].keyword == 'OMP'
     params = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)
     assert len(params) == 3
-    assert params['PARALLEL'] == None
+    assert params['PARALLEL'] is None
     assert params['PRIVATE'].strip() == 'i, j'
     assert params['FIRSTPRIVATE'].strip() == 'n, a, b'
 
@@ -656,7 +656,7 @@ END SUBROUTINE TEST
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    pragma = Pragma(keyword='acc', content=f'kernels num_gangs ( 1 ) async wait')
+    pragma = Pragma(keyword='acc', content='kernels num_gangs ( 1 ) async wait')
     assert get_pragma_parameters(pragma, only_loki_pragmas=False) == {
         'kernels': None,
         'num_gangs': ' 1 ',

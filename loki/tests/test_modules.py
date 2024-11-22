@@ -872,8 +872,8 @@ module test_other_rename_mod
 end module test_other_rename_mod
     """.strip()
 
-    mod1 = Module.from_source(fcode_mod1, frontend=frontend, xmods=[tmp_path])
-    mod2 = Module.from_source(fcode_mod2, frontend=frontend, xmods=[tmp_path])
+    _ = Module.from_source(fcode_mod1, frontend=frontend, xmods=[tmp_path])
+    _ = Module.from_source(fcode_mod2, frontend=frontend, xmods=[tmp_path])
 
     fcode_mod3 = """
 module some_mod
@@ -1306,7 +1306,9 @@ end module module_all_imports_routine_mod
 
     header_a = Module.from_source(fcode['header_a'], frontend=frontend, xmods=[tmp_path])
     header_b = Module.from_source(fcode['header_b'], frontend=frontend, xmods=[tmp_path])
-    routine_mod = Module.from_source(fcode['routine'], definitions=(header_a, header_b), frontend=frontend, xmods=[tmp_path])
+    routine_mod = Module.from_source(
+        fcode['routine'], definitions=(header_a, header_b), frontend=frontend, xmods=[tmp_path]
+    )
     routine = routine_mod['routine']
 
     assert routine_mod.parents == ()

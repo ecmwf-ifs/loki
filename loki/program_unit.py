@@ -78,7 +78,7 @@ class ProgramUnit(Scope):
             if not isinstance(contains, ir.Section):
                 contains = ir.Section(body=as_tuple(contains))
             for node in contains.body:
-                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
+                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():  # pylint: disable=no-member
                     break
                 if isinstance(node, ProgramUnit):
                     contains.prepend(ir.Intrinsic(text='CONTAINS'))
