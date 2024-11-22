@@ -1118,8 +1118,6 @@ class ItemFactory:
         :any:`Item` or None
             The item object or `None` if disabled or impossible to create
         """
-        if config and config.is_disabled(item_name):
-            return None
         if item_name in self.item_cache:
             return self.item_cache[item_name]
 
