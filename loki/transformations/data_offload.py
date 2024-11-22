@@ -484,7 +484,7 @@ class GlobalVarOffloadTransformation(Transformation):
         offload_variables = offload_variables - declared_variables
         if offload_variables:
             module.spec.append(
-                Pragma(keyword='acc', content=f'declare create({",".join(v.name for v in offload_variables)})')
+                Pragma(keyword='acc', content=f'declare create({", ".join(v.name for v in offload_variables)})')
             )
 
     def transform_subroutine(self, routine, **kwargs):
@@ -575,11 +575,11 @@ class GlobalVarOffloadTransformation(Transformation):
             copyin_variables = {v for v, _ in uses_symbols if v.parent}
             if update_variables:
                 update_device += (
-                    Pragma(keyword='acc', content=f'update device({",".join(v.name for v in update_variables)})'),
+                    Pragma(keyword='acc', content=f'update device({", ".join(v.name for v in update_variables)})'),
                 )
             if copyin_variables:
                 update_device += (
-                    Pragma(keyword='acc', content=f'enter data copyin({",".join(v.name for v in copyin_variables)})'),
+                    Pragma(keyword='acc', content=f'enter data copyin({", ".join(v.name for v in copyin_variables)})'),
                 )
 
         # All variables that are written in a kernel need a device-to-host transfer
@@ -592,15 +592,15 @@ class GlobalVarOffloadTransformation(Transformation):
             }
             if update_variables:
                 update_host += (
-                    Pragma(keyword='acc', content=f'update self({",".join(v.name for v in update_variables)})'),
+                    Pragma(keyword='acc', content=f'update self({", ".join(v.name for v in update_variables)})'),
                 )
             if copyout_variables:
                 update_host += (
-                    Pragma(keyword='acc', content=f'exit data copyout({",".join(v.name for v in copyout_variables)})'),
+                    Pragma(keyword='acc', content=f'exit data copyout({", ".join(v.name for v in copyout_variables)})'),
                 )
             if create_variables:
                 update_device += (
-                    Pragma(keyword='acc', content=f'enter data create({",".join(v.name for v in create_variables)})'),
+                    Pragma(keyword='acc', content=f'enter data create({", ".join(v.name for v in create_variables)})'),
                 )
 
         # Replace Loki pragmas with acc data/update pragmas

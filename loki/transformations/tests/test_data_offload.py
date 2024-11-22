@@ -570,11 +570,11 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
     for pragma in acc_pragmas[:len(expected_h2d_pragmas)]:
         command, variables = pragma.content.lower().split('(')
         assert command.strip() in expected_h2d_pragmas
-        assert set(variables.strip()[:-1].strip().split(',')) == expected_h2d_pragmas[command.strip()]
+        assert set(variables.strip()[:-1].strip().split(', ')) == expected_h2d_pragmas[command.strip()]
     for pragma in acc_pragmas[len(expected_h2d_pragmas):]:
         command, variables = pragma.content.lower().split('(')
         assert command.strip() in expected_d2h_pragmas
-        assert set(variables.strip()[:-1].strip().split(',')) == expected_d2h_pragmas[command.strip()]
+        assert set(variables.strip()[:-1].strip().split(', ')) == expected_d2h_pragmas[command.strip()]
 
     # Verify declarations have been added to the header modules
     expected_declarations = {
@@ -591,7 +591,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
         variables = {
             v.strip()
             for pragma in acc_pragmas
-            for v in pragma.content.lower().split('(')[-1].strip()[:-1].split(',')
+            for v in pragma.content.lower().split('(')[-1].strip()[:-1].split(', ')
         }
         assert variables == expected_declarations[name]
 
