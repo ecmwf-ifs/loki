@@ -816,8 +816,12 @@ class AttachScopesMapper(LokiIdentityMapper):
         return map_fn(new_expr, *args, **kwargs)
 
     map_deferred_type_symbol = map_variable_symbol
-    map_procedure_symbol = map_variable_symbol
 
+    def map_procedure_symbol(self, expr, *args, **kwargs):
+        if expr.type and expr.type.is_intrinsic:
+            # Always rescope intrinsics to the closest scope
+            return expr.clone(scope=kwargs['scope'])
+        return self.map_variable_symbol(expr, *args, **kwargs)
 
 class DetachScopesMapper(LokiIdentityMapper):
     """

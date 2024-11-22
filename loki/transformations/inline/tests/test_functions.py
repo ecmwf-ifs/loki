@@ -10,6 +10,7 @@ import numpy as np
 
 from loki import Module, Subroutine
 from loki.build import jit_compile_lib, Builder, Obj
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls
@@ -405,3 +406,46 @@ end subroutine stmt_func
         # myfunc not inlined
         assert assignments[0].rhs  ==  "arr + arr + 1.0 + myfunc(arr) + myfunc(arr)"
         assert assignments[1].rhs  ==  "3.0 + 1.0 + myfunc(3.0) + val + 1.0 + myfunc(val)"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_elemental_functions_intrinsic_procs(frontend):
+    fcode = """
+subroutine test_inline_elementals(a)
+implicit none
+  integer, parameter :: jprb = 8
+  real(kind=jprb), intent(inout) :: a
+
+  a = fminj(0.5, a)
+contains
+  pure elemental function fminj(x,y) result(m)
+    real(kind=jprb), intent(in) :: x, y
+    real(kind=jprb) :: m
+
+    m = y - 0.5_jprb*(abs(x-y)-(x-y))
+  end function fminj
+end subroutine test_inline_elementals
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assert isinstance(assigns[0].rhs.function, sym.ProcedureSymbol)
+    assert assigns[0].rhs.function.type.dtype.procedure == routine.members[0]
+
+    # Ensure we have an intrinsic in the internal elemental function
+    inline_calls = tuple(FindInlineCalls().visit(routine.members[0].body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].function.type.is_intrinsic
+    assert inline_calls[0].function.scope == routine.members[0]
+
+    inline_elemental_functions(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+
+    # Ensure that the intrinsic function has been rescoped
+    inline_calls = tuple(FindInlineCalls().visit(assigns[0]))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].function.type.is_intrinsic
+    assert inline_calls[0].function.scope == routine
