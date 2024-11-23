@@ -175,15 +175,21 @@ class AddHostDataDriverLoopTransformation(Transformation):
 
     def __init__(
             self, add_block_loops=True, add_openmp_regions=True,
-            dimension=None,
+            dimension=None, field_group_types=None
     ):
         self.add_block_loops = add_block_loops
         self.add_openmp_regions = add_openmp_regions
 
         self.dimension = dimension
+        self.field_group_types = field_group_types
 
     def transform_subroutine(self, routine, **kwargs):
         from loki.transformations.block_index_transformations import InjectBlockIndexTransformation
+        from loki.transformations.data_offload.field_api import (
+            FieldPointerMap, find_target_calls,
+            find_offload_variables, declare_device_ptrs,
+            add_field_offload_calls, replace_kernel_args
+        )
 
         with pragma_regions_attached(routine):
             # Perform inlining step, but only if we have active regions
@@ -231,6 +237,16 @@ class AddHostDataDriverLoopTransformation(Transformation):
                         inplace=True, dimension=self.dimension,
                         default_type=default_type
                     ).visit(region, scope=routine)
+
+                # Use pieces of the FieldOffloadTransformation to generate the field pointers
+                targets = tuple(c.name for c in FindNodes(ir.CallStatement).visit(routine.body))
+                field_group_types = tuple(typename.lower() for typename in self.field_group_types)
+                kernel_calls = find_target_calls(region, targets)
+                offload_variables = find_offload_variables(routine, kernel_calls, field_group_types)
+                device_ptrs = declare_device_ptrs(routine, offload_variables, deviceptr_prefix='')
+                offload_map = FieldPointerMap(device_ptrs, *offload_variables)
+                add_field_offload_calls(routine, region, offload_map)
+                replace_kernel_args(routine, kernel_calls, offload_map, offload_index='IBL')
 
                 # Inject the block loop index (IBL)
                 InjectBlockIndexTransformation(
