@@ -25,23 +25,11 @@ from loki.transformations.parallel import (
 )
 
 
-__all__ = ['FieldOffloadTransformation', 'FieldPointerMap']
-
-
-def find_target_calls(region, targets):
-    """
-    Returns a list of all calls to targets inside the region.
-
-    Parameters
-    ----------
-    :region: :any:`PragmaRegion`
-    :targets: collection of :any:`Subroutine`
-        Iterable object of subroutines or functions called
-    :returns: list of :any:`CallStatement`
-    """
-    calls = FindNodes(CallStatement).visit(region)
-    calls = [c for c in calls if str(c.name).lower() in targets]
-    return calls
+__all__ = [
+    'FieldOffloadTransformation', 'FieldPointerMap',
+    'find_target_calls', 'find_offload_variables',
+    'add_field_offload_calls', 'replace_kernel_args'
+]
 
 
 class FieldOffloadTransformation(Transformation):
@@ -92,103 +80,11 @@ class FieldOffloadTransformation(Transformation):
                 if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
                     continue
                 kernel_calls = find_target_calls(region, targets)
-                offload_variables = self.find_offload_variables(driver, kernel_calls)
-                device_ptrs = self._declare_device_ptrs(driver, offload_variables)
+                offload_variables = find_offload_variables(driver, kernel_calls, self.field_group_types)
+                device_ptrs = declare_device_ptrs(driver, offload_variables, self.deviceptr_prefix)
                 offload_map = FieldPointerMap(device_ptrs, *offload_variables)
-                self._add_field_offload_calls(driver, region, offload_map)
-                self._replace_kernel_args(driver, kernel_calls, offload_map)
-
-    def find_offload_variables(self, driver, calls):
-        inargs = ()
-        inoutargs = ()
-        outargs = ()
-
-        for call in calls:
-            if call.routine is BasicType.DEFERRED:
-                error(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
-                        f'in {str(call.name).lower()}')
-                raise RuntimeError
-            for param, arg in call.arg_iter():
-                if not isinstance(param, Array):
-                    continue
-                try:
-                    parent = arg.parent
-                    if parent.type.dtype.name.lower() not in self.field_group_types:
-                        warning(f'[Loki] Data offload: The parent object {parent.name} of type ' +
-                                f'{parent.type.dtype} is not in the list of field wrapper types')
-                        continue
-                except AttributeError:
-                    warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in'
-                            + f' {driver.name} that is not wrapped by a Field API object')
-                    continue
-
-                if param.type.intent.lower() == 'in':
-                    inargs += (arg, )
-                if param.type.intent.lower() == 'inout':
-                    inoutargs += (arg, )
-                if param.type.intent.lower() == 'out':
-                    outargs += (arg, )
-
-        inoutargs += tuple(v for v in inargs if v in outargs)
-        inargs = tuple(v for v in inargs if v not in inoutargs)
-        outargs = tuple(v for v in outargs if v not in inoutargs)
-
-        # Filter out duplicates and return as tuple
-        inargs = tuple(dict.fromkeys(inargs))
-        inoutargs = tuple(dict.fromkeys(inoutargs))
-        outargs = tuple(dict.fromkeys(outargs))
-
-        return inargs, inoutargs, outargs
-
-    def _declare_device_ptrs(self, driver, offload_variables):
-        device_ptrs = tuple(self._devptr_from_array(driver, a) for a in chain(*offload_variables))
-        driver.variables += device_ptrs
-        return device_ptrs
-
-    def _devptr_from_array(self, driver, a: sym.Array):
-        """
-        Returns a contiguous pointer :any:`Variable` with types matching the array a
-        """
-        shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
-        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
-        base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
-        devptr_name = self.deviceptr_prefix + base_name
-        if devptr_name in driver.variable_map:
-            warning(f'[Loki] Data offload: The routine {driver.name} already has a ' +
-                    f'variable named {devptr_name}')
-        devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
-        return devptr
-
-    def _add_field_offload_calls(self, driver, region, offload_map):
-        host_to_device = tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
-                               FieldAPITransferType.READ_ONLY, driver) for inarg, devptr in offload_map.in_pairs)
-        host_to_device += tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
-                                FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.inout_pairs)
-        host_to_device += tuple(field_get_device_data(self._get_field_ptr_from_view(inarg), devptr,
-                                FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.out_pairs)
-        device_to_host = tuple(field_sync_host(self._get_field_ptr_from_view(inarg), driver)
-                               for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
-        update_map = {region: host_to_device + (region,) + device_to_host}
-        Transformer(update_map, inplace=True).visit(driver.body)
-
-    def _get_field_ptr_from_view(self, field_view):
-        type_chain = field_view.name.split('%')
-        field_type_name = 'F_' + type_chain[-1]
-        return field_view.parent.get_derived_type_member(field_type_name)
-
-    def _replace_kernel_args(self, driver, kernel_calls, offload_map):
-        change_map = {}
-        offload_idx_expr = driver.variable_map[self.offload_index]
-        for arg, devptr in chain(offload_map.in_pairs, offload_map.inout_pairs, offload_map.out_pairs):
-            if len(arg.dimensions) != 0:
-                dims = arg.dimensions + (offload_idx_expr,)
-            else:
-                dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (offload_idx_expr,)
-            change_map[arg] = devptr.clone(dimensions=dims)
-
-        arg_transformer = SubstituteExpressions(change_map, inplace=True)
-        for call in kernel_calls:
-            arg_transformer.visit(call)
+                add_field_offload_calls(driver, region, offload_map)
+                replace_kernel_args(driver, kernel_calls, offload_map, self.offload_index)
 
 
 class FieldPointerMap:
@@ -255,3 +151,117 @@ class FieldPointerMap:
         start = len(self.inargs)+len(self.inoutargs)
         for i, outarg in enumerate(self.outargs):
             yield outarg, self.devptrs[i+start]
+
+
+def find_target_calls(region, targets):
+    """
+    Returns a list of all calls to targets inside the region.
+
+    Parameters
+    ----------
+    :region: :any:`PragmaRegion`
+    :targets: collection of :any:`Subroutine`
+        Iterable object of subroutines or functions called
+    :returns: list of :any:`CallStatement`
+    """
+    calls = FindNodes(CallStatement).visit(region)
+    calls = [c for c in calls if str(c.name).lower() in targets]
+    return calls
+
+
+def find_offload_variables(driver, calls, field_group_types):
+    inargs = ()
+    inoutargs = ()
+    outargs = ()
+
+    for call in calls:
+        if call.routine is BasicType.DEFERRED:
+            error(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
+                    f'in {str(call.name).lower()}')
+            raise RuntimeError
+        for param, arg in call.arg_iter():
+            if not isinstance(param, Array):
+                continue
+            try:
+                parent = arg.parent
+                if parent.type.dtype.name.lower() not in field_group_types:
+                    warning(f'[Loki] Data offload: The parent object {parent.name} of type ' +
+                            f'{parent.type.dtype} is not in the list of field wrapper types')
+                    continue
+            except AttributeError:
+                warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in'
+                        + f' {driver.name} that is not wrapped by a Field API object')
+                continue
+
+            if param.type.intent.lower() == 'in':
+                inargs += (arg, )
+            if param.type.intent.lower() == 'inout':
+                inoutargs += (arg, )
+            if param.type.intent.lower() == 'out':
+                outargs += (arg, )
+
+    inoutargs += tuple(v for v in inargs if v in outargs)
+    inargs = tuple(v for v in inargs if v not in inoutargs)
+    outargs = tuple(v for v in outargs if v not in inoutargs)
+
+    # Filter out duplicates and return as tuple
+    inargs = tuple(dict.fromkeys(inargs))
+    inoutargs = tuple(dict.fromkeys(inoutargs))
+    outargs = tuple(dict.fromkeys(outargs))
+
+    return inargs, inoutargs, outargs
+
+
+def declare_device_ptrs(driver, offload_variables, deviceptr_prefix='loki_devptr_'):
+
+    def _devptr_from_array(driver, a: sym.Array):
+        """
+        Returns a contiguous pointer :any:`Variable` with types matching the array a
+        """
+        shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
+        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
+        base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
+        devptr_name = deviceptr_prefix + base_name
+        if devptr_name in driver.variable_map:
+            warning(f'[Loki] Data offload: The routine {driver.name} already has a ' +
+                    f'variable named {devptr_name}')
+        devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
+        return devptr
+
+    device_ptrs = tuple(_devptr_from_array(driver, a) for a in chain(*offload_variables))
+    driver.variables += device_ptrs
+    return device_ptrs
+
+
+def add_field_offload_calls(driver, region, offload_map):
+
+    def _get_field_ptr_from_view(field_view):
+        type_chain = field_view.name.split('%')
+        field_type_name = 'F_' + type_chain[-1]
+        return field_view.parent.get_derived_type_member(field_type_name)
+
+    host_to_device = tuple(field_get_device_data(_get_field_ptr_from_view(inarg), devptr,
+                           FieldAPITransferType.READ_ONLY, driver) for inarg, devptr in offload_map.in_pairs)
+    host_to_device += tuple(field_get_device_data(_get_field_ptr_from_view(inarg), devptr,
+                            FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.inout_pairs)
+    host_to_device += tuple(field_get_device_data(_get_field_ptr_from_view(inarg), devptr,
+                            FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.out_pairs)
+    device_to_host = tuple(field_sync_host(_get_field_ptr_from_view(inarg), driver)
+                           for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
+    update_map = {region: host_to_device + (region,) + device_to_host}
+    Transformer(update_map, inplace=True).visit(driver.body)
+
+
+def replace_kernel_args(driver, kernel_calls, offload_map, offload_index):
+    change_map = {}
+    offload_idx_expr = driver.variable_map[offload_index]
+    for arg, devptr in chain(offload_map.in_pairs, offload_map.inout_pairs, offload_map.out_pairs):
+        if len(arg.dimensions) != 0:
+            dims = arg.dimensions + (offload_idx_expr,)
+        else:
+            dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (offload_idx_expr,)
+        change_map[arg] = devptr.clone(dimensions=dims)
+
+    arg_transformer = SubstituteExpressions(change_map, inplace=True)
+    for call in kernel_calls:
+        arg_transformer.visit(call)
