@@ -623,10 +623,7 @@ class ModuleItem(Item):
         global variables.
         """
         self.concretize_definitions()
-        definitions = tuple(
-            d for d in self.ir.definitions
-            if not isinstance(d, (MetaSymbol, TypedSymbol)) or isinstance(d, ProcedureSymbol)
-        )
+        definitions = self.ir.subroutines + as_tuple(FindNodes((TypeDef, Interface)).visit(self.ir.spec))
         return definitions
 
     @property
