@@ -133,11 +133,12 @@ class FieldOffloadTransformation(Transformation):
         inargs = tuple(v for v in inargs if v not in inoutargs)
         outargs = tuple(v for v in outargs if v not in inoutargs)
 
-        inargs = tuple(set(inargs))
-        inoutargs = tuple(set(inoutargs))
-        outargs = tuple(set(outargs))
-        return inargs, inoutargs, outargs
+        # Filter out duplicates and return as tuple
+        inargs = tuple(dict.fromkeys(inargs))
+        inoutargs = tuple(dict.fromkeys(inoutargs))
+        outargs = tuple(dict.fromkeys(outargs))
 
+        return inargs, inoutargs, outargs
 
     def _declare_device_ptrs(self, driver, offload_variables):
         device_ptrs = tuple(self._devptr_from_array(driver, a) for a in chain(*offload_variables))
