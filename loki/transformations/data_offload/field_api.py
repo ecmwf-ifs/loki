@@ -73,7 +73,7 @@ class FieldOffloadTransformation(Transformation):
             self.process_driver(routine, targets)
 
     def process_driver(self, driver, targets):
-        remove_field_api_view_updates(driver, self.field_group_types)
+        do_remove_field_api_view_updates(driver, self.field_group_types)
         with pragma_regions_attached(driver):
             for region in FindNodes(PragmaRegion).visit(driver.body):
                 # Only work on active `!$loki data` regions
