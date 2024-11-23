@@ -25,7 +25,7 @@ from loki.transformations.parallel import (
 )
 
 
-__all__ = ['FieldOffloadTransformation']
+__all__ = ['FieldOffloadTransformation', 'FieldPointerMap']
 
 
 def find_target_calls(region, targets):
@@ -72,69 +72,6 @@ class FieldOffloadTransformation(Transformation):
         calls (defaults to ``'IBL'``).
     """
 
-    class FieldPointerMap:
-        """
-        Helper class to :any:`FieldOffloadTransformation` that is used to store arrays passed to
-        target kernel calls and the corresponding device pointers added by the transformation.
-        The pointer/array variable pairs are exposed through the class properties, based on
-        the intent of the kernel argument.
-        """
-        def __init__(self, devptrs, inargs, inoutargs, outargs):
-            self.inargs = inargs
-            self.inoutargs = inoutargs
-            self.outargs = outargs
-            self.devptrs = devptrs
-
-
-        @property
-        def in_pairs(self):
-            """
-            Iterator that yields array/pointer pairs for kernel arguments of intent(in).
-
-            Yields
-            ______
-            :any:`Array`
-                Original kernel call argument
-            :any:`Array`
-                Corresponding device pointer added by the transformation.
-            """
-            for i, inarg in enumerate(self.inargs):
-                yield inarg, self.devptrs[i]
-
-        @property
-        def inout_pairs(self):
-            """
-            Iterator that yields array/pointer pairs for arguments with intent(inout).
-
-            Yields
-            ______
-            :any:`Array`
-                Original kernel call argument
-            :any:`Array`
-                Corresponding device pointer added by the transformation.
-            """
-            start = len(self.inargs)
-            for i, inoutarg in enumerate(self.inoutargs):
-                yield inoutarg, self.devptrs[i+start]
-
-        @property
-        def out_pairs(self):
-            """
-            Iterator that yields array/pointer pairs for arguments with intent(out)
-
-            Yields
-            ______
-            :any:`Array`
-                Original kernel call argument
-            :any:`Array`
-                Corresponding device pointer added by the transformation.
-            """
-
-            start = len(self.inargs)+len(self.inoutargs)
-            for i, outarg in enumerate(self.outargs):
-                yield outarg, self.devptrs[i+start]
-
-
     def __init__(self, devptr_prefix=None, field_group_types=None, offload_index=None):
         self.deviceptr_prefix = 'loki_devptr_' if devptr_prefix is None else devptr_prefix
         field_group_types = [''] if field_group_types is None else field_group_types
@@ -157,7 +94,7 @@ class FieldOffloadTransformation(Transformation):
                 kernel_calls = find_target_calls(region, targets)
                 offload_variables = self.find_offload_variables(driver, kernel_calls)
                 device_ptrs = self._declare_device_ptrs(driver, offload_variables)
-                offload_map = self.FieldPointerMap(device_ptrs, *offload_variables)
+                offload_map = FieldPointerMap(device_ptrs, *offload_variables)
                 self._add_field_offload_calls(driver, region, offload_map)
                 self._replace_kernel_args(driver, kernel_calls, offload_map)
 
@@ -251,3 +188,69 @@ class FieldOffloadTransformation(Transformation):
         arg_transformer = SubstituteExpressions(change_map, inplace=True)
         for call in kernel_calls:
             arg_transformer.visit(call)
+
+
+class FieldPointerMap:
+    """
+    Helper class to map FIELD API pointers to intents and access descriptors.
+
+    This utility is used to store arrays passed to target kernel calls
+    and the corresponding device pointers added by the transformation.
+
+    The pointer/array variable pairs are exposed through the class
+    properties, based on the intent of the kernel argument.
+    """
+    def __init__(self, devptrs, inargs, inoutargs, outargs):
+        self.inargs = inargs
+        self.inoutargs = inoutargs
+        self.outargs = outargs
+        self.devptrs = devptrs
+
+
+    @property
+    def in_pairs(self):
+        """
+        Iterator that yields array/pointer pairs for kernel arguments of intent(in).
+
+        Yields
+        ______
+        :any:`Array`
+            Original kernel call argument
+        :any:`Array`
+            Corresponding device pointer added by the transformation.
+        """
+        for i, inarg in enumerate(self.inargs):
+            yield inarg, self.devptrs[i]
+
+    @property
+    def inout_pairs(self):
+        """
+        Iterator that yields array/pointer pairs for arguments with intent(inout).
+
+        Yields
+        ______
+        :any:`Array`
+            Original kernel call argument
+        :any:`Array`
+            Corresponding device pointer added by the transformation.
+        """
+        start = len(self.inargs)
+        for i, inoutarg in enumerate(self.inoutargs):
+            yield inoutarg, self.devptrs[i+start]
+
+    @property
+    def out_pairs(self):
+        """
+        Iterator that yields array/pointer pairs for arguments with intent(out)
+
+        Yields
+        ______
+        :any:`Array`
+            Original kernel call argument
+        :any:`Array`
+            Corresponding device pointer added by the transformation.
+        """
+
+        start = len(self.inargs)+len(self.inoutargs)
+        for i, outarg in enumerate(self.outargs):
+            yield outarg, self.devptrs[i+start]
