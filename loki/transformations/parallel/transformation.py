@@ -14,6 +14,7 @@ from loki.ir import (
 from loki.types import BasicType, SymbolAttributes
 
 from loki.transformations.drhook import DrHookTransformation
+from loki.transformations.field_api import FieldPointerMap
 from loki.transformations.inline import inline_marked_subroutines
 from loki.transformations.parallel.openmp_region import (
     do_remove_openmp_regions, do_remove_firstprivate_copies,
@@ -175,14 +176,19 @@ class AddHostDataDriverLoopTransformation(Transformation):
 
     def __init__(
             self, add_block_loops=True, add_openmp_regions=True,
-            dimension=None,
+            dimension=None, field_group_types=None
     ):
         self.add_block_loops = add_block_loops
         self.add_openmp_regions = add_openmp_regions
 
         self.dimension = dimension
+        self.field_group_types = field_group_types
 
     def transform_subroutine(self, routine, **kwargs):
+        from loki.transformations.data_offload.field_offload import (
+            find_offload_variables, declare_device_ptrs,
+            add_field_offload_calls, replace_kernel_args
+        )
 
         with pragma_regions_attached(routine):
             # Perform inlining step, but only if we have active regions
@@ -230,6 +236,19 @@ class AddHostDataDriverLoopTransformation(Transformation):
                         inplace=True, dimension=self.dimension,
                         default_type=default_type
                     ).visit(region, scope=routine)
+
+                # Use pieces of the FieldOffloadTransformation to generate the field pointers
+                field_group_types = tuple(typename.lower() for typename in self.field_group_types)
+
+                with dataflow_analysis_attached(routine):
+                    offload_variables = find_offload_variables(routine, region, field_group_types)
+
+                    offload_map = FieldPointerMap(
+                        *offload_variables, scope=routine, ptr_prefix=""
+                    )
+                    declare_device_ptrs(routine, deviceptrs=offload_map.dataptrs)
+                    add_field_offload_calls(routine, region, offload_map)
+                    replace_kernel_args(routine, offload_map, offload_index='IBL')
 
                 if self.add_openmp_regions:
                     # Need to re-generate dataflow info here, as prior
