@@ -382,7 +382,7 @@ class Scheduler:
             if item.name not in deleted_keys
         )
 
-    def process(self, transformation):
+    def process(self, transformation, plan=False):
         """
         Process all :attr:`items` in the scheduler's graph with either
         a :any:`Pipeline` or a single :any:`Transformation`.
@@ -398,16 +398,16 @@ class Scheduler:
             The transformation or transformation pipeline to apply
         """
         if isinstance(transformation, Transformation):
-            self.process_transformation(transformation=transformation)
+            self.process_transformation(transformation=transformation, plan=plan)
 
         elif isinstance(transformation, Pipeline):
-            self.process_pipeline(pipeline=transformation)
+            self.process_pipeline(pipeline=transformation, plan=plan)
 
         else:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
             raise RuntimeError('[Loki] Could not batch process {transformation_or_pipeline}')
 
-    def process_pipeline(self, pipeline):
+    def process_pipeline(self, pipeline, plan=False):
         """
         Process a given :any:`Pipeline` by applying its assocaited
         transformations in turn.
@@ -418,9 +418,9 @@ class Scheduler:
             The transformation pipeline to apply
         """
         for transformation in pipeline.transformations:
-            self.process_transformation(transformation)
+            self.process_transformation(transformation, plan=plan)
 
-    def process_transformation(self, transformation):
+    def process_transformation(self, transformation, plan=False):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -498,7 +498,8 @@ class Scheduler:
                     _item.scope_ir, role=_item.role, mode=_item.mode,
                     item=_item, targets=_item.targets, items=_get_definition_items(_item, sgraph_items),
                     successors=graph.successors(_item, item_filter=item_filter),
-                    depths=graph.depths, build_args=self.build_args
+                    depths=graph.depths, build_args=self.build_args,
+                    plan=plan
                 )
 
         if transformation.renames_items:
@@ -628,53 +629,7 @@ class Scheduler:
         """
         info(f'[Loki] Scheduler writing CMake plan: {filepath}')
 
-        rootpath = None if rootpath is None else Path(rootpath).resolve()
-        buildpath = None if buildpath is None else Path(buildpath)
-        sources_to_append = []
-        sources_to_remove = []
-        sources_to_transform = []
-
-        # Filter the SGraph to get a pure call-tree
-        item_filter = ProcedureItem
-        if self.config.enable_imports:
-            item_filter = as_tuple(item_filter) + (ModuleItem,)
-        graph = self.sgraph.as_filegraph(
-            self.item_factory, self.config, item_filter=item_filter,
-            exclude_ignored=True
-        )
-        traversal = SFilter(graph, reverse=False, include_external=False)
-        for item in traversal:
-            if item.is_ignored:
-                continue
-
-            sourcepath = item.path.resolve()
-            newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
-            if buildpath:
-                newsource = buildpath/newsource.name
-
-            # Make new CMake paths relative to source again
-            if rootpath is not None:
-                sourcepath = sourcepath.relative_to(rootpath)
-
-            debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
-
-            # Inject new object into the final binary libs
-            if newsource not in sources_to_append:
-                sources_to_transform += [sourcepath]
-                if item.replicate:
-                    # Add new source file next to the old one
-                    sources_to_append += [newsource]
-                else:
-                    # Replace old source file to avoid ghosting
-                    sources_to_append += [newsource]
-                    sources_to_remove += [sourcepath]
-
-        with Path(filepath).open('w') as f:
-            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
-            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
-
-            s_append = '\n'.join(f'    {s}' for s in sources_to_append)
-            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
-
-            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
-            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+        from loki.transformations.build_system.plan import CMakePlanTransformation
+        planner = CMakePlanTransformation(rootpath=rootpath)
+        self.process(planner, plan=True)
+        planner.write_plan(filepath)

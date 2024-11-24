@@ -153,9 +153,16 @@ end module d_mod
     # Check the dependency graph
     assert expected_items == {item.name for item in scheduler.items}
 
+    # Set-up the file write
+    transformation = FileWriteTransformation(
+        suffix=suffix,
+        include_module_var_imports=enable_imports
+    )
+
     # Generate the CMake plan
     plan_file = tmp_path/'plan.cmake'
     root_path = tmp_path if use_rootpath else None
+    scheduler.process(transformation, plan=True)
     scheduler.write_cmake_plan(
         filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
         rootpath=root_path
@@ -192,10 +199,6 @@ end module d_mod
     }
 
     # Write the outputs
-    transformation = FileWriteTransformation(
-        suffix=suffix,
-        include_module_var_imports=enable_imports
-    )
     scheduler.process(transformation)
 
     # Validate the list of written files
@@ -290,7 +293,11 @@ end subroutine d
     # Check the dependency graph
     assert expected_items == {item.name for item in scheduler.items}
 
+    # Set-up the file write
+    transformation = FileWriteTransformation(include_module_var_imports=True)
+
     # Generate the CMake plan
+    scheduler.process(transformation, plan=True)
     plan_file = tmp_path/'plan.cmake'
 
     caplog.clear()
@@ -319,7 +326,6 @@ end subroutine d
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {'a.foobar', 'b.foobar', 'c.foobar', 'd.foobar'}
 
     # Write the outputs
-    transformation = FileWriteTransformation(include_module_var_imports=True)
     scheduler.process(transformation)
 
     # Validate the list of written files
