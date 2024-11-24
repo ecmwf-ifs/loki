@@ -9,13 +9,14 @@ import pytest
 
 from loki import (
     Module, Subroutine, VariableDeclaration, TypeDef, fexprgen,
-    BasicType, Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
+    Assignment, FindNodes, FindInlineCalls, FindTypedSymbols,
     Transformer, fgen, SymbolAttributes, Variable, Import, Section, Intrinsic,
     Scalar, DeferredTypeSymbol, FindVariables, SubstituteExpressions, Literal
 )
 from loki.build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI
 from loki.sourcefile import Sourcefile
+from loki.types import BasicType, DerivedType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1371,3 +1372,55 @@ end module test
         assert calls[0].arguments[0].type.parameter
         assert calls[0].arguments[0].type.initial == 16
         assert calls[0].arguments[0].type.module is source['foo']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_module_enrichment_typdefs(frontend, tmp_path):
+    """ Test that module-level enrihcment is propagated correctly """
+
+    fcode_state_mod = """
+module state_type_mod
+  implicit none
+
+  type state_type
+    real, pointer, dimension(:,:) :: a
+  end type state_type
+
+end module state_type_mod
+"""
+
+    fcode_driver_mod = """
+module driver_mod
+  use state_type_mod, only: state_type
+  implicit none
+
+contains
+  subroutine driver_routine(state)
+    type(state_type), intent(inout) :: state
+
+    state%a = 1
+
+  end subroutine driver_routine
+end module driver_mod
+"""
+    state_mod = Sourcefile.from_source(fcode_state_mod, frontend=frontend, xmods=[tmp_path])['state_type_mod']
+    driver_mod = Sourcefile.from_source(fcode_driver_mod, frontend=frontend, xmods=[tmp_path])['driver_mod']
+    driver = driver_mod['driver_routine']
+
+    state = driver.variable_map['state']
+    assert isinstance(state.type.dtype, DerivedType)
+    assert state.type.dtype.typedef == BasicType.DEFERRED
+
+    # Enrich typedef on the outer module Import
+    driver_mod.enrich([state_mod], recurse=True)
+
+    state = driver.variable_map['state']
+
+    # Ensure type info has been propagated to inner subroutine
+    assert isinstance(state.type.dtype, DerivedType)
+    assert isinstance(state.type.dtype.typedef, TypeDef)
+
+    assigns = FindNodes(Assignment).visit(driver.body)
+    assert len(assigns) == 1
+    assert assigns[0].lhs.type.dtype == BasicType.REAL
+    assert assigns[0].lhs.type.shape == (':', ':')
