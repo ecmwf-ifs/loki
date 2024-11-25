@@ -969,3 +969,49 @@ end function double_real
     assert isinstance(assigns[0].lhs, sym.Scalar)
     assert assigns[0].lhs.type.dtype == BasicType.REAL
     assert assigns[0].lhs.scope == routine
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_derived_type_imports(tmp_path, frontend):
+    """ Checks that provided module and type info is attached during parse """
+    fcode_module = """
+module my_type_mod
+  type my_type
+    real(kind=8) :: a, b(:)
+  end type my_type
+end module my_type_mod
+"""
+
+    fcode = """
+subroutine test_derived_type_parse
+  use my_type_mod, only: my_type
+  implicit none
+  type(my_type) :: obj
+
+  obj%a = 42.0
+  obj%b = 66.6
+end subroutine test_derived_type_parse
+"""
+    module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(
+        fcode, definitions=module, frontend=frontend, xmods=[tmp_path]
+    )
+
+    assert len(module.typedefs) == 1
+    assert module.typedefs[0].name == 'my_type'
+
+    # Ensure that the imported type is recognised as such
+    assert len(routine.imports) == 1
+    assert routine.imports[0].module == 'my_type_mod'
+    assert len(routine.imports[0].symbols) == 1
+    assert routine.imports[0].symbols[0] == 'my_type'
+    assert isinstance(routine.imports[0].symbols[0], sym.DerivedTypeSymbol)
+
+    # Ensure that the declared variable and its components are recognised
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert isinstance(assigns[0].lhs, sym.Scalar)
+    assert assigns[0].lhs.type.dtype == BasicType.REAL
+    assert isinstance(assigns[1].lhs, sym.Array)
+    assert assigns[1].lhs.type.dtype == BasicType.REAL
+    assert assigns[1].lhs.type.shape == (':',)
