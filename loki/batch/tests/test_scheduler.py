@@ -2946,11 +2946,11 @@ module b_mod
 end module b_mod
 """
 
+    module_import_stmt = ""
+    routine_import_stmt = ""
     if import_level == 'module':
         module_import_stmt = "use b_mod, only: type_b, global_a"
-        routine_import_stmt = ""
     elif import_level == 'subroutine':
-        module_import_stmt = ""
         routine_import_stmt = "use b_mod, only: type_b, global_a"
 
     fcode_mod_c = f"""
