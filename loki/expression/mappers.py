@@ -93,6 +93,7 @@ class LokiStringifyMapper(StringifyMapper):
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
+    map_derived_type_symbol = map_variable_symbol
 
     def map_meta_symbol(self, expr, enclosing_prec, *args, **kwargs):
         return self.rec(expr._symbol, enclosing_prec, *args, **kwargs)
@@ -234,6 +235,7 @@ class LokiWalkMapper(WalkMapper):
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
+    map_derived_type_symbol = map_variable_symbol
 
     def map_meta_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):
@@ -611,6 +613,7 @@ class LokiIdentityMapper(IdentityMapper):
 
     map_deferred_type_symbol = map_variable_symbol
     map_procedure_symbol = map_variable_symbol
+    map_derived_type_symbol = map_variable_symbol
 
     def map_meta_symbol(self, expr, *args, **kwargs):
         symbol = self.rec(expr._symbol, *args, **kwargs)
@@ -822,6 +825,7 @@ class AttachScopesMapper(LokiIdentityMapper):
             # Always rescope intrinsics to the closest scope
             return expr.clone(scope=kwargs['scope'])
         return self.map_variable_symbol(expr, *args, **kwargs)
+
 
 class DetachScopesMapper(LokiIdentityMapper):
     """

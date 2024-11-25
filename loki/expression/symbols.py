@@ -30,7 +30,7 @@ __all__ = [
     # Mix-ins
     'StrCompareMixin',
     # Typed leaf nodes
-    'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol',
+    'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol', 'DerivedTypeSymbol',
     'MetaSymbol', 'Scalar', 'Array', 'Variable',
     # Non-typed leaf nodes
     'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
@@ -481,6 +481,34 @@ class ProcedureSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint:
     mapper_method = intern('map_procedure_symbol')
 
 
+class DerivedTypeSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):
+    """
+    Internal representation of a symbol that represents a named
+    derived type.
+
+    This is used to represent the derived type symbolically in
+    :any:`Import` statements and when defining derived types.
+
+    Parameters
+    ----------
+    name : str
+        The name of the symbol.
+    scope : :any:`Scope`
+        The scope in which the symbol is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    """
+
+    def __init__(self, name, scope=None, type=None, **kwargs):
+        # pylint: disable=redefined-builtin
+        assert type is None or isinstance(type.dtype, DerivedType)
+        if type is not None:
+            assert name.lower() == type.dtype.name.lower()
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
+
+    mapper_method = intern('map_derived_type_symbol')
+
+
 class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
     Base class for meta symbols to encapsulate a symbol node with optional
@@ -868,9 +896,8 @@ class Variable:
             return ProcedureSymbol(**kwargs)
 
         if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
-            # This is a constructor call (or a type imported in an ``IMPORT`` statement, in which
-            # case this is classified wrong...)
-            return ProcedureSymbol(**kwargs)
+            # This the name of a derived type, as found in USE import statements
+            return DerivedTypeSymbol(**kwargs)
 
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
             # Convenience: This way we can construct Scalar variables with `dimensions=None`
@@ -1315,7 +1342,9 @@ class InlineCall(pmbl.CallWithKwargs):
         # Unfortunately, have to accept MetaSymbol here for the time being as
         # rescoping before injecting statement functions may create InlineCalls
         # with Scalar/Variable function names.
-        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol, MetaSymbol))
+        assert isinstance(function, (
+            ProcedureSymbol, DerivedTypeSymbol, DeferredTypeSymbol, MetaSymbol
+        ))
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 
