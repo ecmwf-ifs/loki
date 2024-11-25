@@ -19,13 +19,12 @@ from loki import (
     config as loki_config, Sourcefile, Frontend, as_tuple,
     set_excepthook, auto_post_mortem_debugger, info, warning
 )
-from loki.batch import Transformation, Pipeline, Scheduler, SchedulerConfig
+from loki.batch import Pipeline, Scheduler, SchedulerConfig
 
 # Get generalized transformations provided by Loki
 from loki.transformations.argument_shape import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
-from loki.transformations.array_indexing import LowerConstantArrayIndices
 from loki.transformations.build_system import (
     DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
@@ -34,7 +33,6 @@ from loki.transformations.data_offload import (
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.drhook import DrHookTransformation
-from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.idempotence import IdemTransformation
 from loki.transformations.inline import InlineTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -43,7 +41,6 @@ from loki.transformations.sanitise import SanitiseTransformation
 from loki.transformations.single_column import (
     ExtractSCATransformation, CLAWTransformation, SCCVectorPipeline,
     SCCHoistPipeline, SCCStackPipeline, SCCRawStackPipeline,
-    HoistTemporaryArraysDeviceAllocatableTransformation,
 )
 from loki.transformations.transpile import FortranCTransformation
 from loki.transformations.block_index_transformations import (

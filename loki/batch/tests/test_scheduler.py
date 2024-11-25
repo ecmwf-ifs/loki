@@ -70,7 +70,9 @@ from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
     available_frontends, OMNI, FP, REGEX, HAVE_FP, HAVE_OMNI
 )
-from loki.ir import nodes as ir, FindNodes, FindInlineCalls
+from loki.ir import (
+    nodes as ir, FindNodes, FindInlineCalls, FindVariables
+)
 from loki.transformations import (
     DependencyTransformation, ModuleWrapTransformation
 )
@@ -2920,3 +2922,103 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[2].directive == 'openacc'
     assert pipeline.transformations[3].trim_vector_sections is True
     assert pipeline.transformations[7].replace_ignore_items is True
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('enable_imports', [False, True])
+@pytest.mark.parametrize('import_level', ['module', 'subroutine'])
+def test_scheduler_indirect_import(frontend, tmp_path, enable_imports, import_level):
+    fcode_mod_a = """
+module a_mod
+    implicit none
+    public
+    integer :: global_a = 1
+end module a_mod
+"""
+
+    fcode_mod_b = """
+module b_mod
+    use a_mod
+    implicit none
+    public
+    type type_b
+        integer :: val
+    end type type_b
+end module b_mod
+"""
+
+    if import_level == 'module':
+        module_import_stmt = "use b_mod, only: type_b, global_a"
+        routine_import_stmt = ""
+    elif import_level == 'subroutine':
+        module_import_stmt = ""
+        routine_import_stmt = "use b_mod, only: type_b, global_a"
+
+    fcode_mod_c = f"""
+module c_mod
+    {module_import_stmt}
+    implicit none
+contains
+    subroutine c(b)
+        {routine_import_stmt}
+        implicit none
+        type(type_b), intent(inout) :: b
+        b%val = global_a
+    end subroutine c
+end module c_mod
+"""
+
+    # Set-up paths and write sources
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    out_path = tmp_path/'build'
+    out_path.mkdir()
+
+    (src_path/'a.F90').write_text(fcode_mod_a)
+    (src_path/'b.F90').write_text(fcode_mod_b)
+    (src_path/'c.F90').write_text(fcode_mod_c)
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'enable_imports': enable_imports
+        },
+        'routines': {'c': {'role': 'driver'}}
+    })
+    try:
+        scheduler = Scheduler(
+            paths=[src_path], config=config, frontend=frontend,
+            output_dir=out_path, xmods=[out_path]
+        )
+    except CalledProcessError as e:
+        if frontend == OMNI and not enable_imports:
+            # Without taking care of imports, OMNI will fail to parse the files
+            # because it is missing the xmod files for the header modules
+            pytest.xfail('Without parsing imports, OMNI does not have the xmod for imported modules')
+        raise e
+
+    # Check for all items in the dependency graph
+    expected_items = {'a_mod', 'b_mod', 'b_mod#type_b', 'c_mod#c'}
+    assert expected_items == {item.name for item in scheduler.items}
+
+    # Verify the type information for the imported symbols:
+    # They will have enriched information if the imports are enabled
+    # and deferred type otherwise
+    type_b = scheduler['b_mod#type_b'].ir
+    c_mod_c = scheduler['c_mod#c'].ir
+    var_map = CaseInsensitiveDict(
+        (v.name, v) for v in FindVariables().visit(c_mod_c.body)
+    )
+    global_a = var_map['global_a']
+    b_dtype = var_map['b'].type.dtype
+
+    if enable_imports:
+        assert global_a.type.dtype is BasicType.INTEGER
+        assert global_a.type.initial == '1'
+        assert b_dtype.typedef is type_b
+    else:
+        assert global_a.type.dtype is BasicType.DEFERRED
+        assert global_a.type.initial is None
+        assert b_dtype.typedef is BasicType.DEFERRED

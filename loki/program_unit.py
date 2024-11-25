@@ -350,14 +350,17 @@ class ProgramUnit(Scope):
                 # Take care of renaming upon import
                 local_name = symbol.name
                 remote_name = symbol.type.use_name or local_name
-                remote_node = module[remote_name]
+                try:
+                    remote_node = module[remote_name]
+                except KeyError:
+                    remote_node = None
 
-                if hasattr(remote_node, 'procedure_type'):
+                if remote_node and hasattr(remote_node, 'procedure_type'):
                     # This is a subroutine/function defined in the remote module
                     updated_symbol_attrs[local_name] = symbol.type.clone(
                         dtype=remote_node.procedure_type, imported=True, module=module
                     )
-                elif hasattr(remote_node, 'dtype'):
+                elif remote_node and hasattr(remote_node, 'dtype'):
                     # This is a derived type defined in the remote module
                     updated_symbol_attrs[local_name] = symbol.type.clone(
                         dtype=remote_node.dtype, imported=True, module=module
@@ -369,7 +372,7 @@ class ProgramUnit(Scope):
                         if getattr(type_.dtype, 'name') == remote_node.dtype.name
                     }
                     updated_symbol_attrs.update(variables_with_this_type)
-                elif hasattr(remote_node, 'type'):
+                elif remote_node and hasattr(remote_node, 'type'):
                     # This is a global variable or interface import
                     updated_symbol_attrs[local_name] = remote_node.type.clone(
                         imported=True, module=module, use_name=symbol.type.use_name
