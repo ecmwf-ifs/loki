@@ -327,7 +327,8 @@ class ProgramUnit(Scope):
         """
         definitions_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(definitions))
 
-        for imprt in self.imports:
+        # Enrich type info from all known imports (including parent scopes)
+        for imprt in self.all_imports:
             if not (module := definitions_map.get(imprt.module)):
                 # Skip modules that are not available in the definitions list
                 continue
