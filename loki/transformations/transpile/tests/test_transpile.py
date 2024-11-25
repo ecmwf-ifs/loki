@@ -1410,11 +1410,11 @@ END SUBROUTINE driver_interface_to_module
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path, targets=('kernel',), role='driver')
 
-    interfaces = FindNodes(ir.Interface).visit(routine.spec)
-    imports = FindNodes(ir.Import).visit(routine.spec)
-    assert len(interfaces) == 2
+    assert len(routine.interfaces) == 2
+    imports = routine.imports
     assert len(imports) == 1
     assert imports[0].module.upper() == 'KERNEL_FC_MOD'
+    assert imports[0].symbols == ('KERNEL_FC',)
 
 
 @pytest.fixture(scope='module', name='horizontal')

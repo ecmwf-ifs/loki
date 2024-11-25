@@ -254,16 +254,15 @@ class FortranCTransformation(Transformation):
         intfs = FindNodes(Interface).visit(routine.spec)
         removal_map = {}
         for i in intfs:
-            for b in i.body:
-                if isinstance(b, Subroutine):
-                    if targets and b.name.lower() in targets:
-                        # Create a new module import with explicitly qualified symbol
-                        modname = f'{b.name}_FC_MOD'
-                        new_symbol = Variable(name=f'{b.name}_FC', scope=routine)
-                        new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
-                        routine.spec.prepend(new_import)
-                        # Mark current import for removal
-                        removal_map[i] = None
+            for s in i.symbols:
+                if targets and s in targets:
+                    # Create a new module import with explicitly qualified symbol
+                    new_symbol = s.clone(name=f'{s.name}_FC', scope=routine)
+                    modname = f'{new_symbol.name}_MOD'
+                    new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
+                    routine.spec.prepend(new_import)
+                    # Mark current import for removal
+                    removal_map[i] = None
         # Apply any scheduled interface removals to spec
         if removal_map:
             routine.spec = Transformer(removal_map).visit(routine.spec)
