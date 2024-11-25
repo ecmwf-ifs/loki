@@ -264,6 +264,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 'private': [p.lower() for p in parameters.get('private', '').split(',')],
                 'temporary': [p.lower() for p in parameters.get('temporary', '').split(',')],
                 'device_resident': [p.lower() for p in parameters.get('device_resident', '').split(',')],
+                'parent_present': [p.lower() for p in parameters.get('parent_present', '').split(',')]
         }
 
     @staticmethod
@@ -499,11 +500,13 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     _wipe = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _wipe)
 
                 if kwargs['mode'] == 'offload':
-                    if not _parent or (symbol_map[var].type.allocatable or symbol_map[var].type.pointer):
+                    if (not _parent and not var in kwargs['parent_present']) or \
+                        (symbol_map[var].type.allocatable or symbol_map[var].type.pointer):
                         _copy = as_tuple(ir.Pragma(keyword='acc',
                         content=f'enter data copyin({symbol_map[var].clone(parent=_parent, dimensions=None)})')) + _copy
-                        _wipe += as_tuple(ir.Pragma(keyword='acc',
-                        content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)}) finalize'))
+                        if delete:
+                            _wipe += as_tuple(ir.Pragma(keyword='acc',
+                            content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)}) finalize'))
 
                 #wrap in memory status check
                 check = 'ASSOCIATED' if symbol_map[var].type.pointer else None
