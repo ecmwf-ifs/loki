@@ -1372,6 +1372,50 @@ end subroutine transpile_special_functions
         fc_function(in_var, out_var)
         assert int(out_var) == expected_results[i]
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transpile_interface_to_module(tmp_path, frontend):
+    driver_fcode = """
+SUBROUTINE driver_interface_to_module(a, b, c)
+  IMPLICIT NONE
+  INTERFACE
+    SUBROUTINE KERNEL(a, b, c)
+      INTEGER, INTENT(INOUT) :: a, b, c
+    END SUBROUTINE KERNEL
+  END INTERFACE
+  INTERFACE
+    SUBROUTINE KERNEL2(a, b)
+      INTEGER, INTENT(INOUT) :: a, b
+    END SUBROUTINE KERNEL2
+  END INTERFACE
+  INTERFACE
+    SUBROUTINE KERNEL3(a)
+      INTEGER, INTENT(INOUT) :: a
+    END SUBROUTINE KERNEL3
+  END INTERFACE
+
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+  CALL kernel(a, b ,c)
+  CALL kernel2(a, b)
+END SUBROUTINE driver_interface_to_module
+    """.strip()
+
+    routine = Subroutine.from_source(driver_fcode, frontend=frontend)
+
+    interfaces = FindNodes(ir.Interface).visit(routine.spec)
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    assert len(interfaces) == 3
+    assert not imports
+
+    f2c = FortranCTransformation()
+    f2c.apply(source=routine, path=tmp_path, targets=('kernel',), role='driver')
+
+    assert len(routine.interfaces) == 2
+    imports = routine.imports
+    assert len(imports) == 1
+    assert imports[0].module.upper() == 'KERNEL_FC_MOD'
+    assert imports[0].symbols == ('KERNEL_FC',)
+
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
