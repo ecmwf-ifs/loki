@@ -610,7 +610,7 @@ class Scheduler:
                 warning(f'[Loki] Failed to render filegraph due to graphviz error:\n  {e}')
 
     @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
-    def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
+    def write_cmake_plan(self, filepath, rootpath=None):
         """
         Generate the "plan file" for CMake
 

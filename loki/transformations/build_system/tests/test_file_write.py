@@ -163,10 +163,7 @@ end module d_mod
     plan_file = tmp_path/'plan.cmake'
     root_path = tmp_path if use_rootpath else None
     scheduler.process(transformation, plan=True)
-    scheduler.write_cmake_plan(
-        filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
-        rootpath=root_path
-    )
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=root_path)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
@@ -302,10 +299,7 @@ end subroutine d
 
     caplog.clear()
     with caplog.at_level(log_levels['WARNING']):
-        scheduler.write_cmake_plan(
-            filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
-            rootpath=tmp_path
-        )
+        scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
         if have_non_replicate_conflict:
             assert len(caplog.records) == 1
             assert 'c.f90' in caplog.records[0].message
