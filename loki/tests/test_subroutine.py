@@ -2079,6 +2079,9 @@ end module field_array_module
     # Enrich the routine with module definitions
     routine.enrich(module)
 
+    field_3rb_symbol = routine.symbol_map['field_3rb_array']
+    yda_array_p = routine.resolve_typebound_var('yda_array%p')
+
     # Ensure the imported type symbol is correctly enriched
     assert field_3rb_symbol.type.imported
     assert field_3rb_symbol.type.module is module
@@ -2089,6 +2092,21 @@ end module field_array_module
     assert yda_array.type.dtype.typedef is field_3rb_tdef
     assert yda_array_p.type.dtype is BasicType.REAL
     assert yda_array_p.type.shape == (':', ':', ':')
+    assert isinstance(yda_array_p, Array)
+
+    # Double-check body and spec expressions
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    assert len(decls) == 1
+    assert len(decls[0].symbols) == 1
+    assert isinstance(decls[0].symbols[0], Scalar)
+    assert decls[0].symbols[0].type.dtype.typedef == field_3rb_tdef
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assert isinstance(assigns[0].lhs, Array)
+    assert assigns[0].lhs.type.dtype == BasicType.REAL
+    assert assigns[0].lhs.type.shape == (':', ':', ':')
+    assert assigns[0].lhs.parent.type.dtype.typedef == field_3rb_tdef
 
 
 @pytest.mark.parametrize('frontend', available_frontends(

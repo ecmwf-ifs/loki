@@ -12,7 +12,9 @@ from loki.frontend import (
     Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
 )
-from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, ExpressionTransformer
+)
 from loki.logging import debug
 from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
@@ -400,6 +402,9 @@ class ProgramUnit(Scope):
                 elif isinstance(attrs.dtype, DerivedType) and attrs.dtype.typedef is BasicType.DEFERRED:
                     updated_symbol_attrs[name] = attrs.clone(dtype=self.parent.symbol_attrs[name].dtype)
             self.symbol_attrs.update(updated_symbol_attrs)
+
+        # Rebuild local symbols to ensure correct symbol types
+        self.spec = ExpressionTransformer(inplace=True).visit(self.spec)
 
         if recurse:
             for routine in self.subroutines:
