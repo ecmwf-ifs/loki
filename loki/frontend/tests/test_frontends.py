@@ -943,3 +943,29 @@ end module test_intrinsics_mod
     assert isinstance(assigns[2].rhs.function, sym.ProcedureSymbol)
     assert not assigns[2].rhs.function.type.is_intrinsic
     assert assigns[2].rhs.function.type.dtype.procedure == algebra['min']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_function_symbol_scoping(frontend):
+    """ Check that the return symbol of a function has the right scope """
+    fcode = """
+real function double_real(i)
+  implicit none
+  integer, intent(in) :: i
+
+  double_real =  dble(i*2)
+end function double_real
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    rsym = routine.variable_map['double_real']
+    assert isinstance(rsym, sym.Scalar)
+    assert rsym.type.dtype == BasicType.REAL
+    assert rsym.scope == routine
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assert assigns[0].lhs == 'double_real'
+    assert isinstance(assigns[0].lhs, sym.Scalar)
+    assert assigns[0].lhs.type.dtype == BasicType.REAL
+    assert assigns[0].lhs.scope == routine

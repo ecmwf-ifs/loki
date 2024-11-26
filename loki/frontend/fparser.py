@@ -1780,6 +1780,26 @@ class FParser2IR(GenericVisitor):
         # symbols in the spec part to make them coherent with the symbol table
         spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
 
+        # To simplify things, we always declare the result-type of a function with
+        # a declaration in the spec as this can capture every possible situation.
+        # Therefore, if it has been declared as a prefix in the subroutine statement,
+        # we now have to inject a declaration instead. To ensure we do this in the
+        # right place in the spec to not violate the intrinsic order Fortran mandates,
+        # we search for the first occurence of any VariableDeclaration or
+        # ProcedureDeclaration and inject it before that one
+        if return_type is not None:
+            routine.symbol_attrs[routine.name] = return_type
+            return_var = sym.Variable(name=routine.name, scope=routine)
+            decl_source = self.get_source(subroutine_stmt, source=None)
+            return_var_decl = ir.VariableDeclaration(symbols=(return_var,), source=decl_source)
+
+            decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
+            if not decls:
+                # No other declarations: add it to the end
+                spec.append(return_var_decl)
+            else:
+                spec.insert(spec.body.index(decls[0]), return_var_decl)
+
         # Now all declarations are well-defined and we can parse the member routines
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
@@ -1820,26 +1840,6 @@ class FParser2IR(GenericVisitor):
             body.prepend(node)
             comment_map[node] = None
         spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-
-        # To simplify things, we always declare the result-type of a function with
-        # a declaration in the spec as this can capture every possible situation.
-        # Therefore, if it has been declared as a prefix in the subroutine statement,
-        # we now have to inject a declaration instead. To ensure we do this in the
-        # right place in the spec to not violate the intrinsic order Fortran mandates,
-        # we search for the first occurence of any VariableDeclaration or
-        # ProcedureDeclaration and inject it before that one
-        if return_type is not None:
-            routine.symbol_attrs[routine.name] = return_type
-            return_var = sym.Variable(name=routine.name, scope=routine)
-            decl_source = self.get_source(subroutine_stmt, source=None)
-            return_var_decl = ir.VariableDeclaration(symbols=(return_var,), source=decl_source)
-
-            decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
-            if not decls:
-                # No other declarations: add it to the end
-                spec.append(return_var_decl)
-            else:
-                spec.insert(spec.body.index(decls[0]), return_var_decl)
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
