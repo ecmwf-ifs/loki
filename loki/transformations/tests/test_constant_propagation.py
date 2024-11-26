@@ -127,7 +127,7 @@ end subroutine const_prop_ops_int
 
     # Test transformation
 
-    new_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     a_add, a_sub, a_mul, a_pow, a_div, a_lt, a_leq, a_eq, a_neq, a_geq, a_gt = new_function()
@@ -215,7 +215,7 @@ end subroutine const_prop_ops_float
 
     # Test transformation
 
-    new_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     a_add, a_sub, a_mul, a_pow, a_div, a_lt, a_leq, a_eq, a_neq, a_geq, a_gt = new_function()
@@ -291,7 +291,7 @@ end subroutine const_prop_ops_string
 
     # Test transformation
 
-    new_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     a_concat, a_lt, a_leq, a_eq, a_neq, a_geq, a_gt = new_function()
@@ -359,7 +359,7 @@ end subroutine const_prop_ops_bool
 
     # Test transformation
 
-    new_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     a_and, a_or, a_not, a_eqv, a_neqv = new_function()
@@ -374,7 +374,7 @@ end subroutine const_prop_ops_bool
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_region_const_prop_for_loop_basic(tmp_path, frontend):
     fcode = """
-subroutine const_prop_for_loop_basic(c)
+subroutine test_transform_region_const_prop_for_loop_basic(c)
   integer :: a = {a_val}
   integer :: b = {b_val}
   integer :: i
@@ -385,7 +385,7 @@ subroutine const_prop_for_loop_basic(c)
     c = c + b
   end do
 
-end subroutine const_prop_for_loop_basic
+end subroutine test_transform_region_const_prop_for_loop_basic
 """
 
     a_val = 5
@@ -414,9 +414,167 @@ end subroutine const_prop_for_loop_basic
 
     # Test transformation
 
-    new_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
     new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
 
     c = new_function()
 
     assert c == a_val * b_val
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_region_const_prop_for_loop_basic_no_unroll(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_region_const_prop_for_loop_basic_no_unroll(c)
+  integer :: a = {a_val}
+  integer :: b = {b_val}
+  integer :: i
+  integer, intent(out) :: c
+
+  c = 0
+  do i = 1, a
+    c = c + b
+  end do
+
+end subroutine test_transform_region_const_prop_for_loop_basic_no_unroll
+"""
+
+    a_val = 5
+    b_val = 3
+    routine = Subroutine.from_source(fcode.format(
+        a_val=a_val, b_val=b_val),
+        frontend=frontend)
+
+    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    c = function()
+
+    assert c == a_val * b_val
+
+    # Apply transformation
+    routine.body = ConstantPropagator(unroll_loops=False).visit(routine.body, declarations=routine.declarations)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 2
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+
+    assignments = [str(a) for a in FindNodes(Assignment).visit(routine.body)]
+    assert 'Assignment:: c = c + b' in assignments
+
+    # Test transformation
+
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
+    new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
+
+    c = new_function()
+
+    assert c == a_val * b_val
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_region_const_prop_for_loop_consts_no_unroll(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_region_const_prop_for_loop_consts_no_unroll(c)
+  integer :: a = {a_val}
+  integer :: b = {b_val}
+  integer :: i
+  integer, intent(out) :: c
+
+  c = 0
+  do i = 1, a
+    c = c + b
+    c = {a_val} * {b_val}
+    c = c * 2
+  end do
+
+end subroutine test_transform_region_const_prop_for_loop_consts_no_unroll
+"""
+
+    a_val = 5
+    b_val = 3
+    routine = Subroutine.from_source(fcode.format(
+        a_val=a_val, b_val=b_val),
+        frontend=frontend)
+
+    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    c = function()
+
+    assert c == a_val * b_val
+
+    # Apply transformation
+    routine.body = ConstantPropagator(unroll_loops=False).visit(routine.body, declarations=routine.declarations)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == 4
+    assert len(FindNodes(Loop).visit(routine.body)) == 1
+
+    assignments = [str(a) for a in FindNodes(Assignment).visit(routine.body)]
+    assert 'Assignment:: c = c + b' in assignments
+    assert f'Assignment:: c = {a_val * b_val}' in assignments
+    assert f'Assignment:: c = {a_val * b_val * 2}' in assignments
+
+    # Test transformation
+
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
+    new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
+
+    c = new_function()
+
+    assert c == a_val * b_val * 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_region_const_prop_for_loop_nested(tmp_path, frontend):
+    fcode = """
+subroutine test_transform_region_const_prop_for_loop_nested(c)
+  integer :: a = {a_val}
+  integer :: b = {b_val}
+  integer :: i
+  integer, intent(out) :: c
+
+  c = 0
+  do i = 1, a
+      do j = 1, b
+        c = c + i + j
+      end do
+  end do
+
+end subroutine test_transform_region_const_prop_for_loop_nested
+"""
+
+    a_val = 5
+    b_val = 3
+    routine = Subroutine.from_source(fcode.format(
+        a_val=a_val, b_val=b_val),
+        frontend=frontend)
+
+    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+
+    # Test the reference solution
+    c = function()
+
+    assert c == a_val * b_val
+
+    # Apply transformation
+    routine.body = ConstantPropagator(unroll_loops=True).visit(routine.body, declarations=routine.declarations)
+
+    assert len(FindNodes(Assignment).visit(routine.body)) == a_val * b_val + 1
+    assert len(FindNodes(Loop).visit(routine.body)) == 0
+
+    assignments = [str(a) for a in FindNodes(Assignment).visit(routine.body)]
+    for i in range(1, a_val+1):
+        for j in range(1, b_val+1):
+            assert f'Assignment:: c = {i + j}' in assignments
+
+    # Test transformation
+
+    new_filepath = tmp_path / f'{routine.name}_proped_{frontend}.f90'
+    new_function = jit_compile(routine, filepath=new_filepath, objname=routine.name)
+
+    c = new_function()
+
+    assert c == (a_val * (a_val + 1))/2 + (b_val * (b_val + 1))/2
