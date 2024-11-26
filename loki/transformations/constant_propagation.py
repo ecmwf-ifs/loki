@@ -11,39 +11,203 @@ import operator
 
 import math
 
-from loki.expression.symbols import (
-    _Literal, Array, RangeIndex, IntLiteral, FloatLiteral, LogicLiteral, LoopRange, StringLiteral
-)
-from loki.ir import (
-    Loop, Transformer, Conditional, Assignment
-)
-from loki.tools import as_tuple, flatten
-
+from loki import FindNodes, LokiIdentityMapper, dataflow_analysis_attached, get_pyrange, DeferredTypeSymbol, Product
+from loki.ir import Loop, Transformer, Conditional, Assignment
+from loki.tools import as_tuple
 from loki.transformations.transform_loop import LoopUnrollTransformer
+from loki.expression.symbols import (
+    _Literal, Array, RangeIndex, IntLiteral, FloatLiteral, LogicLiteral, StringLiteral, LoopRange
+)
 
 __all__ = ['ConstantPropagator']
 
 
 class ConstantPropagator(Transformer):
+    class ConstPropMapper(LokiIdentityMapper):
+        def __init__(self, fold_floats=True):
+            self.fold_floats = fold_floats
+            super().__init__()
+
+        def map_array(self, expr, *args, **kwargs):
+            constants_map = kwargs.get('constants_map', dict())
+            return constants_map.get((expr.basename, getattr(expr, 'dimensions', ())), expr)
+
+        map_scalar = map_array
+        map_deferred_type_symbol = map_array
+
+        def map_constant(self, expr, *args, **kwargs):
+            if isinstance(expr, int):
+                return IntLiteral(expr)
+            elif isinstance(expr, float):
+                return FloatLiteral(str(expr))
+            elif isinstance(expr, bool):
+                return LogicLiteral(expr)
+
+        def map_sum(self, expr, *args, **kwargs):
+            return self.binary_num_op_helper(expr, sum, math.fsum, *args, **kwargs)
+
+        def map_product(self, expr, *args, **kwargs):
+            mapped_product = self.binary_num_op_helper(expr, math.prod, math.prod, *args, **kwargs)
+            # Only way to get this here is if loki transformed `-expr` to `-1 * expr`, but couldn't const prop for expr
+            if getattr(mapped_product, 'children', (False,))[0] == IntLiteral(-1):
+                mapped_product = Product((-1, mapped_product.children[1]))
+            return mapped_product
+
+        def map_quotient(self, expr, *args, **kwargs):
+            return self.binary_num_op_helper(expr, operator.floordiv, operator.truediv,
+                                             left_attr='numerator', right_attr='denominator', *args, **kwargs)
+
+        def map_power(self, expr, *args, **kwargs):
+            return self.binary_num_op_helper(expr, operator.pow, operator.pow,
+                                             left_attr='base', right_attr='exponent', *args, **kwargs)
+
+        def binary_num_op_helper(self, expr, int_op, float_op, left_attr=None, right_attr=None, *args, **kwargs):
+            left = right = None
+            lr_fields = not (left_attr is None and right_attr is None)
+            if lr_fields:
+                left = self.rec(getattr(expr, left_attr), *args, **kwargs)
+                right = self.rec(getattr(expr, right_attr), *args, **kwargs)
+                # Just to make easier use of code below
+                children = [left, right]
+            else:
+                children = self.rec(expr.children, *args, **kwargs)
+
+            literals, non_literals = ConstantPropagator.separate_literals(children)
+            if len(non_literals) == 0:
+                if any([isinstance(v, FloatLiteral) for v in literals]):
+                    # Strange rounding possibility
+                    if self.fold_floats:
+                        if lr_fields:
+                            return FloatLiteral(str(float_op(float(left.value), float(right.value))))
+                        else:
+                            return FloatLiteral(str(float_op([float(c.value) for c in children])))
+                else:
+                    if lr_fields:
+                        return IntLiteral(int_op(left.value, right.value))
+                    else:
+                        return IntLiteral(int_op([c.value for c in children]))
+
+            if lr_fields:
+                return expr.__class__(left, right)
+            else:
+                return expr.__class__(children)
+
+        def map_logical_and(self, expr, *args, **kwargs):
+            return self.binary_bool_op_helper(expr, lambda x, y: x and y, True, *args, **kwargs)
+
+        def map_logical_or(self, expr, *args, **kwargs):
+            return self.binary_bool_op_helper(expr, lambda x, y: x or y, False, *args, **kwargs)
+
+        def binary_bool_op_helper(self, expr, bool_op, initial, *args, **kwargs):
+            children = tuple([self.rec(c, *args, **kwargs) for c in expr.children])
+
+            literals, non_literals = ConstantPropagator.separate_literals(children)
+            if len(non_literals) == 0:
+                return LogicLiteral(functools.reduce(bool_op, [c.value for c in children], initial))
+
+            return expr.__class__(children)
+
+        def map_logical_not(self, expr, *args, **kwargs):
+            child = self.rec(expr.child, **kwargs)
+
+            literals, non_literals = ConstantPropagator.separate_literals([child])
+            if len(non_literals) == 0:
+                return LogicLiteral(not child.value)
+
+            return expr.__class__(child)
+
+        def map_comparison(self, expr, *args, **kwargs):
+            left = self.rec(expr.left, *args, **kwargs)
+            right = self.rec(expr.right, *args, **kwargs)
+
+            literals, non_literals = ConstantPropagator.separate_literals([left, right])
+            if len(non_literals) == 0:
+                # TODO: This should be a match statement >=3.10
+                operators_map = {
+                    'lt': operator.lt,
+                    'le': operator.le,
+                    'eq': operator.eq,
+                    'ne': operator.ne,
+                    'ge': operator.ge,
+                    'gt': operator.gt,
+                }
+                operator_str = expr.operator if expr.operator in operators_map.keys() else expr.operator_to_name[expr.operator]
+                return LogicLiteral(operators_map[operator_str](left.value, right.value))
+
+            return expr.__class__(left, expr.operator, right)
+
+        def map_loop_range(self, expr, *args, **kwargs):
+            start = self.rec(expr.start, *args, **kwargs)
+            stop = self.rec(expr.stop, *args, **kwargs)
+            step = self.rec(expr.step, *args, **kwargs)
+            return expr.__class__((start, stop, step))
+
+        def map_string_concat(self, expr, *args, **kwargs):
+            children = tuple([self.rec(c, *args, **kwargs) for c in expr.children])
+
+            literals, non_literals = ConstantPropagator.separate_literals(children)
+            if len(non_literals) == 0:
+                return StringLiteral(''.join([c.value for c in children]))
+
+            return expr.__class__(children)
 
     def __init__(self, fold_floats=True, unroll_loops=True):
         self.fold_floats = fold_floats
         self.unroll_loops = unroll_loops
         super().__init__()
 
-    # TODO: Static method
-    def separate_literals(self, children):
+    @staticmethod
+    def separate_literals(children):
         separated = ([], [])
         for c in children:
+            # is_constant only covers int, float, & complex
             if isinstance(c, _Literal):
                 separated[0].append(c)
             else:
                 separated[1].append(c)
         return separated
 
+    @staticmethod
+    def array_indices_to_accesses(dimensions, shape):
+        accesses = functools.partial(itertools.product)
+        for (count, dimension) in enumerate(dimensions):
+            if isinstance(dimension, RangeIndex):
+                start = dimension.start if dimension.start is not None else IntLiteral(1)
+                # TODO: shape[] might not be as nice as we want
+                stop = dimension.stop if dimension.stop is not None else shape[count]
+                accesses = functools.partial(accesses, [IntLiteral(v) for v in
+                                                        get_pyrange(LoopRange((start, stop, dimension.step)))])
+            else:
+                accesses = functools.partial(accesses, [dimension])
+
+        return accesses()
+
+    @staticmethod
+    def generate_declarations_map(routine):
+        def index_initial_elements(i, e):
+            if len(i) == 1:
+                return e.elements[i[0].value - 1]
+            else:
+                return index_initial_elements(i[1:], e.elements[i[0].value - 1])
+
+        declarations_map = dict()
+        with dataflow_analysis_attached(routine):
+            for s in routine.symbols:
+                if isinstance(s, DeferredTypeSymbol) or s.initial is None:
+                    continue
+                if isinstance(s, Array):
+                    declarations_map.update({(s.basename, i): index_initial_elements(i, s.initial) for i in
+                                             ConstantPropagator.array_indices_to_accesses(
+                                                 [RangeIndex((None, None, None))] * len(s.shape), s.shape
+                                             )})
+                else:
+                    declarations_map[(s.basename, ())] = s.initial
+        return declarations_map
+
     def visit_Assignment(self, o, **kwargs):
-        new_rhs = self.visit(o.rhs, **kwargs)
-        # o.rhs = new_rhs
+        constants_map = kwargs.get('constants_map', dict())
+
+        new_rhs = self.ConstPropMapper(self.fold_floats)(o.rhs, **kwargs)
         o = Assignment(
             o.lhs,
             new_rhs,
@@ -51,32 +215,20 @@ class ConstantPropagator(Transformer):
             o.comment
         )
 
-        constants_map = kwargs.get('constants_map', dict())
         # What if the lhs isn't a scalar shape?
         if isinstance(o.lhs, Array):
-            new_dimensions = [self.visit(d, **kwargs) for d in o.lhs.dimensions]
-            new_d_literals, new_d_non_literals = self.separate_literals(new_dimensions)
+            new_dimensions = [self.ConstPropMapper(self.fold_floats)(d, **kwargs) for d in o.lhs.dimensions]
+            _, new_d_non_literals = self.separate_literals(new_dimensions)
 
             new_lhs = Array(o.lhs.name, o.lhs.scope, o.lhs.type, as_tuple(new_dimensions))
-            o.lhs = new_lhs
+            o = Assignment(
+                new_lhs,
+                o.rhs,
+                o.ptr,
+                o.comment
+            )
             if len(new_d_non_literals) != 0:
-                # Clear out the unknown dimensions
-
-                # If the shape is unknown, then for now, just pop everything
-                if o.lhs.shape is None:
-                    keys = constants_map.keys()
-                    for key in keys:
-                        if key[0] == o.lhs.name:
-                            constants_map.pop(key)
-                    return o
-
-                literal_mask = [isinstance(d, _Literal) for d in new_dimensions]
-
-                masked_accesses = [new_dimensions[i] if m else RangeIndex((None, None, None)) for i, m in enumerate(literal_mask)]
-                possible_accesses = self.array_indices_to_accesses(masked_accesses, self.visit(o.lhs.shape, **kwargs))
-
-                for access in possible_accesses:
-                    constants_map.pop((o.lhs.basename, access), None)
+                self.pop_array_accesses(o, **kwargs)
                 return o
 
         literals, non_literals = self.separate_literals([new_rhs])
@@ -96,172 +248,31 @@ class ConstantPropagator(Transformer):
 
         return o
 
-    def array_indices_to_accesses(self, dimensions, shape):
-        accesses = functools.partial(itertools.product)
-        for (count, dimension) in enumerate(dimensions):
-            if isinstance(dimension, RangeIndex):
-                start = dimensions[count].start if dimensions[count].start is not None else IntLiteral(1)
-                # TODO: shape[] might not be as nice as we want
-                stop = dimensions[count].stop if dimensions[count].stop is not None else shape[count]
-                step = dimensions[count].step if dimensions[count].step is not None else IntLiteral(1)
-                accesses = functools.partial(accesses, [IntLiteral(v) for v in
-                                                        range(start.value, stop.value + 1, step.value)])
-            else:
-                accesses = functools.partial(accesses, [dimension])
-
-        return accesses()
-
-    def visit_Array(self, o, **kwargs):
+    def pop_array_accesses(self, o, **kwargs):
+        # Clear out the unknown dimensions
         constants_map = kwargs.get('constants_map', dict())
-        return constants_map.get((o.basename, getattr(o, 'dimensions', ())), o)
 
-    def visit_Scalar(self, o, **kwargs):
-        constants_map = kwargs.get('constants_map', dict())
-        return constants_map.get((o.basename, ()), o)
-
-    def visit_DeferredTypeSymbol(self, o, **kwargs):
-        constants_map = kwargs.get('constants_map', dict())
-        return constants_map.get((o.basename, ()), o)
-
-    def visit_Sum(self, o, **kwargs):
-        new_children = tuple([self.visit(c, **kwargs) for c in o.children])
-        o.children = new_children
-
-        literals, non_literals = self.separate_literals(new_children)
-        if len(non_literals) == 0:
-            if any([isinstance(v, FloatLiteral) for v in literals]):
-                # Strange rounding possibility
-                if self.fold_floats:
-                    return FloatLiteral(str(math.fsum([float(c.value) for c in new_children])))
-                else:
-                    return o
-            else:
-                return IntLiteral(sum([c.value for c in new_children]))
-
-        return o
-
-    def visit_Product(self, o, **kwargs):
-        new_children = tuple([self.visit(c, **kwargs) for c in o.children])
-        o.children = new_children
-
-        literals, non_literals = self.separate_literals(new_children)
-        if len(non_literals) == 0:
-            if any([isinstance(v, FloatLiteral) for v in literals]):
-                # Strange rounding possibility
-                if self.fold_floats:
-                    return FloatLiteral(str(math.prod([float(c.value) for c in new_children])))
-                else:
-                    return o
-            else:
-                return IntLiteral(math.prod([c.value for c in new_children]))
-
-        return o
-
-    def visit_Quotient(self, o, **kwargs):
-        new_numerator = self.visit(o.numerator, **kwargs)
-        new_denominator = self.visit(o.denominator, **kwargs)
-        o.numerator = new_numerator
-        o.denominator = new_denominator
-
-        literals, non_literals = self.separate_literals([new_denominator, new_numerator])
-        if len(non_literals) == 0:
-            if any([isinstance(v, FloatLiteral) for v in literals]):
-                # Strange rounding possibility
-                if self.fold_floats:
-                    # TODO: This could be a zero
-                    return FloatLiteral(str(float(new_numerator.value) / float(new_denominator.value)))
-                else:
-                    return o
-            else:
-                # TODO: This could be a zero
-                return IntLiteral(new_numerator.value // new_denominator.value)
-
-        return o
-
-    def visit_Power(self, o, **kwargs):
-        new_base = self.visit(o.base, **kwargs)
-        new_exponent = self.visit(o.exponent, **kwargs)
-        o.base = new_base
-        o.exponent = new_exponent
-
-        literals, non_literals = self.separate_literals([new_base, new_exponent])
-        if len(non_literals) == 0:
-            if any([isinstance(v, FloatLiteral) for v in literals]):
-                # Strange rounding possibility
-                if self.fold_floats:
-                    return FloatLiteral(str(float(new_base.value) ** float(new_exponent.value)))
-                else:
-                    return o
-            else:
-                return IntLiteral(new_base.value ** new_exponent.value)
-
-    def visit_Comparison(self, o, **kwargs):
-        new_left = self.visit(o.left, **kwargs)
-        new_right = self.visit(o.right, **kwargs)
-
-        literals, non_literals = self.separate_literals([new_left, new_right])
-        if len(non_literals) == 0:
-            # TODO: This should be a match statement >=3.10
-            operators_map = {
-                'lt': operator.lt,
-                'le': operator.le,
-                'eq': operator.eq,
-                'ne': operator.ne,
-                'ge': operator.ge,
-                'gt': operator.gt,
-            }
-            operator_str = o.operator if o.operator in operators_map.keys() else o.operator_to_name[o.operator]
-            return LogicLiteral(operators_map[operator_str](new_left.value, new_right.value))
-
-        o.left = new_left
-        o.right = new_right
-        return o
-
-    def visit_LogicalAnd(self, o, **kwargs):
-        new_children = tuple([self.visit(c, **kwargs) for c in o.children])
-
-        literals, non_literals = self.separate_literals(new_children)
-        if len(non_literals) == 0:
-            return LogicLiteral(functools.reduce(lambda x, y: x and y, [c.value for c in new_children], True))
-
-        o.children = new_children
-        return o
-
-    def visit_LogicalOr(self, o, **kwargs):
-        new_children = tuple([self.visit(c, **kwargs) for c in o.children])
-
-        literals, non_literals = self.separate_literals(new_children)
-        if len(non_literals) == 0:
-            return LogicLiteral(functools.reduce(lambda x, y: x or y, [c.value for c in new_children], False))
-
-        o.children = new_children
-        return o
-
-    def visit_LogicalNot(self, o, **kwargs):
-        new_child = self.visit(o.child, **kwargs)
-
-        literals, non_literals = self.separate_literals([new_child])
-        if len(non_literals) == 0:
-            return LogicLiteral(not new_child.value)
-
-        o.child = new_child
-        return o
+        # If the shape is unknown, then for now, just pop everything
+        if o.lhs.shape is None:
+            keys = constants_map.keys()
+            for key in keys:
+                if key[0] == o.lhs.name:
+                    constants_map.pop(key)
+            return
+        literal_mask = [isinstance(d, _Literal) for d in o.lhs.dimensions]
+        masked_accesses = [o.lhs.dimensions[i] if m else RangeIndex((None, None, None)) for i, m in
+                           enumerate(literal_mask)]
+        possible_accesses = self.array_indices_to_accesses(masked_accesses, self.ConstPropMapper(self.fold_floats)(o.lhs.shape, **kwargs))
+        for access in possible_accesses:
+            constants_map.pop((o.lhs.basename, access), None)
 
     def visit(self, o, *args, **kwargs):
         constants_map = kwargs.pop('constants_map', dict())
-
-        # TODO: Not sure I like this
-        if 'declarations' in kwargs:
-            declarations = kwargs.pop('declarations', dict())
-            declarations = [c for d in declarations for c in d.children if c is not None]
-            dec_const_map = {(d.basename, ()): d.initial for d in flatten(declarations) if d.initial is not None}
-            constants_map.update(dec_const_map)
-
         return super().visit(o, *args, constants_map=constants_map, **kwargs)
 
     def visit_Conditional(self, o, **kwargs):
-        new_condition = self.visit(o.condition, **kwargs)
         constants_map = kwargs.pop('constants_map', dict())
+        new_condition = self.ConstPropMapper(self.fold_floats)(o.condition, constants_map=constants_map, **kwargs)
         body_constants_map = constants_map.copy()
         else_body_constants_map = constants_map.copy()
         new_body = self.visit(o.body, constants_map=body_constants_map, **kwargs)
@@ -269,7 +280,7 @@ class ConstantPropagator(Transformer):
 
         o = Conditional(
             condition=new_condition,
-            bosy=new_body,
+            body=new_body,
             else_body=new_else_body,
             inline=o.inline,
             has_elseif=o.has_elseif,
@@ -288,8 +299,7 @@ class ConstantPropagator(Transformer):
         constants_map = kwargs.pop('constants_map', dict())
         constants_map.pop((o.variable.basename, ()), None)
 
-        new_bounds = self.visit(o.bounds, constants_map=constants_map, **kwargs)
-        # o.bounds = new_bounds
+        new_bounds = self.ConstPropMapper(self.fold_floats)(o.bounds, constants_map=constants_map, **kwargs)
         o = Loop(
             variable=o.variable,
             body=o.body,
@@ -297,30 +307,22 @@ class ConstantPropagator(Transformer):
         )
 
         if self.unroll_loops:
-            unrolled = LoopUnrollTransformer().visit(o)
+            unrolled = LoopUnrollTransformer(warn_iterations_length=False).visit(o)
             return self.visit(unrolled, constants_map=constants_map, **kwargs)
-        # TODO: The no unrolling version might act strangely
+
+        # TODO: If the last assignment to a variable is only derived from loop invariant variables,
+        # then we know the value coming out of the loop. I.e. a form of invariant code motion with
+        # reaching definition analysis
+        for a in FindNodes(Assignment).visit(o.body):
+            if isinstance(a.lhs, Array):
+                self.pop_array_accesses(a, constants_map=constants_map, **kwargs)
+            else:
+                constants_map.pop((a.lhs.basename, ()), None)
+
         new_body = self.visit(o.body, constants_map=constants_map, **kwargs)
-        o.body = new_body
 
-        return o
-
-    def visit_LoopRange(self, o, **kwargs):
-        new_start = self.visit(o.start, **kwargs)
-        new_stop = self.visit(o.stop, **kwargs)
-        new_step = self.visit(o.step, **kwargs)
-
-        return LoopRange((new_start, new_stop, new_step))
-
-    def visit_int(self, o, **kwargs):
-        return IntLiteral(o)
-
-    def visit_StringConcat(self, o, **kwargs):
-        new_children = tuple([self.visit(c, **kwargs) for c in o.children])
-        o.children = new_children
-
-        literals, non_literals = self.separate_literals(new_children)
-        if len(non_literals) == 0:
-            return StringLiteral(''.join([c.value for c in new_children]))
-
-        return o
+        return Loop(
+            variable=o.variable,
+            body=new_body,
+            bounds=o.bounds
+        )
