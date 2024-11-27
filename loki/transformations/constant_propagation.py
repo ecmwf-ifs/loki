@@ -12,7 +12,7 @@ import operator
 import math
 
 from loki import FindNodes, LokiIdentityMapper, dataflow_analysis_attached, get_pyrange, DeferredTypeSymbol, Product
-from loki.ir import Loop, Transformer, Conditional, Assignment
+from loki.ir import Transformer, Assignment
 from loki.tools import as_tuple
 from loki.transformations.transform_loop import LoopUnrollTransformer
 from loki.expression.symbols import (
@@ -226,12 +226,7 @@ class ConstantPropagator(Transformer):
         constants_map = kwargs.get('constants_map', dict())
 
         new_rhs = self.ConstPropMapper(self.fold_floats)(o.rhs, **kwargs)
-        o = Assignment(
-            o.lhs,
-            new_rhs,
-            o.ptr,
-            o.comment
-        )
+        o._update(rhs=new_rhs)
 
         # What if the lhs isn't a scalar shape?
         if isinstance(o.lhs, Array):
@@ -239,12 +234,7 @@ class ConstantPropagator(Transformer):
             _, new_d_non_literals = self._separate_literals(new_dimensions)
 
             new_lhs = Array(o.lhs.name, o.lhs.scope, o.lhs.type, as_tuple(new_dimensions))
-            o = Assignment(
-                new_lhs,
-                o.rhs,
-                o.ptr,
-                o.comment
-            )
+            o._update(lhs=new_lhs)
             if len(new_d_non_literals) != 0:
                 self._pop_array_accesses(o, **kwargs)
                 return o
@@ -278,13 +268,10 @@ class ConstantPropagator(Transformer):
         new_body = self.visit(o.body, constants_map=body_constants_map, **kwargs)
         new_else_body = self.visit(o.else_body, constants_map=else_body_constants_map, **kwargs)
 
-        o = Conditional(
+        o._update(
             condition=new_condition,
             body=new_body,
-            else_body=new_else_body,
-            inline=o.inline,
-            has_elseif=o.has_elseif,
-            name=o.name
+            else_body=new_else_body
         )
 
         for key in set(body_constants_map.keys()).union(else_body_constants_map):
@@ -300,11 +287,7 @@ class ConstantPropagator(Transformer):
         constants_map.pop((o.variable.basename, ()), None)
 
         new_bounds = self.ConstPropMapper(self.fold_floats)(o.bounds, constants_map=constants_map, **kwargs)
-        o = Loop(
-            variable=o.variable,
-            body=o.body,
-            bounds=new_bounds
-        )
+        o._update(bounds=new_bounds)
 
         if self.unroll_loops:
             unrolled = LoopUnrollTransformer(warn_iterations_length=False).visit(o)
@@ -321,8 +304,5 @@ class ConstantPropagator(Transformer):
 
         new_body = self.visit(o.body, constants_map=constants_map, **kwargs)
 
-        return Loop(
-            variable=o.variable,
-            body=new_body,
-            bounds=o.bounds
-        )
+        o._update(body=new_body)
+        return o
