@@ -146,7 +146,7 @@ class RemoveCodeTransformation(Transformation):
 
         unused_args = {}
         variable_map = routine.symbol_map
-        with dataflow_analysis_attached(routine, exclude_mem_queries=False):
+        with dataflow_analysis_attached(routine):
             used_or_defined_symbols = routine.spec.uses_symbols | routine.body.uses_symbols
             used_or_defined_symbols |= routine.body.defines_symbols
 
