@@ -21,7 +21,8 @@ from loki.tools.util import CaseInsensitiveDict
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
-    'loop_carried_dependencies'
+    'loop_carried_dependencies', 'DataflowAnalysisAttacher',
+    'DataflowAnalysisDetacher'
 ]
 
 

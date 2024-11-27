@@ -18,12 +18,65 @@ from loki.ir import (
 )
 from loki.expression import symbols as sym
 from loki.types import BasicType, DerivedType, SymbolAttributes
-from loki.analyse import dataflow_analysis_attached
+from loki.analyse import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.tools import as_tuple
 from loki.transformations import find_driver_loops
 from loki.logging import warning
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
+
+def _sanitise_args(arg_map):
+
+    _arg_map = {}
+    for dummy, arg in arg_map.items():
+        if isinstance(arg, sym._Literal):
+            continue
+        if isinstance(arg, sym.LogicalNot):
+            arg = arg.child
+
+        _arg_map.update({dummy.name.lower(): arg.name.lower()})
+
+    return _arg_map
+
+class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
+
+    def visit_CallStatement(self, o, **kwargs):
+
+        successors = kwargs['successors']
+        dummies = kwargs['dummies']
+        variable_map = kwargs['variable_map']
+        routine = kwargs['routine']
+
+        if not o.routine:
+            raise RuntimeError('Cannot apply DataOffloadAnalysis without enriching calls.')
+
+        child = [child for child in successors if child.ir == o.routine]
+        if not child:
+            return self.visit_Node(o, **kwargs)
+
+        child = child[0]
+
+        _arg_map = _sanitise_args(o.arg_map)
+
+        _child_analysis = {'%'.join([_arg_map.get(n, n) for n in k.split('%')]): v
+                           for k, v in child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis'].items()}
+        _child_analysis = {k: v for k, v in _child_analysis.items()
+                           if k.split('%')[0].lower() in dummies}
+
+        defines, uses = set(), set()
+        for k, v in _child_analysis.items():
+
+            if '%' in k:
+                _var = routine.resolve_typebound_var(k, variable_map)
+            else:
+                _var = variable_map[k]
+
+            if 'read' in v:
+                uses |= {_var}
+            if 'write' in v:
+                defines |= {_var}
+
+        return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
 class DataOffloadDeepcopyAnalysis(Transformation):
     """
@@ -51,9 +104,9 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             raise RuntimeError('Cannot apply DataOffloadAnalysis without item to store analysis.')
 
         if role == 'driver':
-           self.process_driver(routine, item, successors, role, targets)
+           self.process_driver(routine, item, successors, targets)
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, role, targets)
+            self.process_kernel(routine, item, successors)
 
     @classmethod
     def _resolve_nesting(cls, k, v):
@@ -78,7 +131,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         return ref_dict
 
-    def process_driver(self, routine, item, successors, role, targets):
+    def process_driver(self, routine, item, successors, targets):
 
         item.trafo_data[self._key] = defaultdict(dict)
         exclude_vars = item.config.get('exclude_offload_vars', [])
@@ -89,7 +142,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             _successors = [s for s in successors if s.ir in call_routines or not isinstance(s, ProcedureItem)]
 
             #gather analysis from children
-            self._gather_from_children(routine, item, _successors, role)
+            self._gather_from_children(routine, item, _successors)
 
             layered_dict = {}
             for k, v in item.trafo_data[self._key]['analysis'].items():
@@ -109,46 +162,52 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 with open(f'driver_{_successors[0].ir.name}_dataoffload_analysis.yaml', 'w') as file:
                     yaml.dump(item.trafo_data[self._key]['analysis'][loop], file)
 
-    def process_kernel(self, routine, item, successors, role, targets):
+    def process_kernel(self, routine, item, successors):
 
         #gather analysis from children
         item.trafo_data[self._key] = defaultdict(dict)
-        self._gather_from_children(routine, item, successors, role)
+        self._gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
         variable_map = routine.variable_map
 
         pointers = [a for a in FindNodes(ir.Assignment).visit(routine.body) if a.ptr]
         if pointers:
             warning(f'[Loki] Data offload deepcopy: pointer associations found in {routine.name}')
 
-        with dataflow_analysis_attached(routine, targets=targets):
-            #gather used symbols in specification
-            for v in routine.spec.uses_symbols:
-                if v.name_parts[0].lower() in routine._dummies:
-                    stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
-                    if stat == 'write':
-                        stat = 'readwrite'
-                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
+        DeepcopyDataflowAnalysisAttacher().visit(routine.spec, variable_map=variable_map, successors=successors,
+                                                 dummies=routine._dummies, routine=routine)
+        DeepcopyDataflowAnalysisAttacher().visit(routine.body, variable_map=variable_map, successors=successors,
+                                                 dummies=routine._dummies, routine=routine)
 
-            #gather used and defined symbols in body
-            for v in routine.body.uses_symbols:
-                if v.name_parts[0].lower() in routine._dummies:
-                    stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
-                    if stat == 'write':
-                        stat = 'readwrite'
-                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
+        #gather used symbols in specification
+        for v in routine.spec.uses_symbols:
+            if v.name_parts[0].lower() in routine._dummies:
+                stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
+                if stat == 'write':
+                    stat = 'readwrite'
+                item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
 
-            for v in routine.body.defines_symbols:
-                if v.name_parts[0].lower() in routine._dummies:
-                    if v in routine.body.uses_symbols:
-                        item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'readwrite'})
-                    else:
-                        item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'write'})
+        #gather used and defined symbols in body
+        for v in routine.body.uses_symbols:
+            if v.name_parts[0].lower() in routine._dummies:
+                stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
+                if stat == 'write':
+                    stat = 'readwrite'
+                item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
+
+        for v in routine.body.defines_symbols:
+            if v.name_parts[0].lower() in routine._dummies:
+                if v in routine.body.uses_symbols:
+                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'readwrite'})
+                else:
+                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'write'})
 
         item.trafo_data[self._key]['analysis'] = {k: v
             for k, v in item.trafo_data[self._key]['analysis'].items()
             if not isinstance(getattr(getattr(variable_map.get(k, k), 'type', None), 'dtype', None), DerivedType)
         }
 
+        DataflowAnalysisDetacher().visit(routine.spec)
+        DataflowAnalysisDetacher().visit(routine.body)
 
         if self.debug:
             layered_dict = {}
@@ -159,21 +218,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             with open(f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
                 yaml.dump(layered_dict, file)
 
-    @staticmethod
-    def _sanitise_args(arg_map):
-
-        _arg_map = {}
-        for dummy, arg in arg_map.items():
-            if isinstance(arg, sym._Literal):
-                continue
-            if isinstance(arg, sym.LogicalNot):
-                arg = arg.child
-
-            _arg_map.update({dummy.name.lower(): arg.name.lower()})
-
-        return _arg_map
-
-    def _gather_from_children(self, routine, item, successors, role):
+    def _gather_from_children(self, routine, item, successors):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             child = [child for child in successors if child.ir == call.routine]
             if child:
@@ -182,19 +227,16 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 if call.routine is BasicType.DEFERRED:
                     raise RuntimeError('Cannot apply DataOffloadAnalysis without enriching calls.')
 
-                _arg_map = self._sanitise_args(call.arg_map)
+                _arg_map = _sanitise_args(call.arg_map)
 
                 _child_analysis = {'%'.join([_arg_map.get(n, n) for n in k.split('%')]): v
                                    for k, v in child.trafo_data[self._key]['analysis'].items()}
-                if role == 'kernel':
-                    _child_analysis = {k: v for k, v in _child_analysis.items()
-                                       if k.split('%')[0].lower() in routine._dummies}
 
                 for k, v in _child_analysis.items():
                     _v = item.trafo_data[self._key]['analysis'].get(k, v)
                     if _v != v:
                         if _v == 'write':
-                            item.trafo_data[self._key]['analysis'].update({k: 'write'})
+                            continue
                         elif _v == 'read' and 'write' in v:
                             item.trafo_data[self._key]['analysis'].update({k: 'readwrite'})
                     else:
