@@ -72,7 +72,7 @@ class ConstantPropagator(Transformer):
             else:
                 children = self.rec(expr.children, *args, **kwargs)
 
-            literals, non_literals = ConstantPropagator.separate_literals(children)
+            literals, non_literals = ConstantPropagator._separate_literals(children)
             if len(non_literals) == 0:
                 if any([isinstance(v, FloatLiteral) for v in literals]):
                     # Strange rounding possibility
@@ -101,7 +101,7 @@ class ConstantPropagator(Transformer):
         def binary_bool_op_helper(self, expr, bool_op, initial, *args, **kwargs):
             children = tuple([self.rec(c, *args, **kwargs) for c in expr.children])
 
-            literals, non_literals = ConstantPropagator.separate_literals(children)
+            literals, non_literals = ConstantPropagator._separate_literals(children)
             if len(non_literals) == 0:
                 return LogicLiteral(functools.reduce(bool_op, [c.value for c in children], initial))
 
@@ -110,7 +110,7 @@ class ConstantPropagator(Transformer):
         def map_logical_not(self, expr, *args, **kwargs):
             child = self.rec(expr.child, **kwargs)
 
-            literals, non_literals = ConstantPropagator.separate_literals([child])
+            literals, non_literals = ConstantPropagator._separate_literals([child])
             if len(non_literals) == 0:
                 return LogicLiteral(not child.value)
 
@@ -120,7 +120,7 @@ class ConstantPropagator(Transformer):
             left = self.rec(expr.left, *args, **kwargs)
             right = self.rec(expr.right, *args, **kwargs)
 
-            literals, non_literals = ConstantPropagator.separate_literals([left, right])
+            literals, non_literals = ConstantPropagator._separate_literals([left, right])
             if len(non_literals) == 0:
                 # TODO: This should be a match statement >=3.10
                 operators_map = {
@@ -145,7 +145,7 @@ class ConstantPropagator(Transformer):
         def map_string_concat(self, expr, *args, **kwargs):
             children = tuple([self.rec(c, *args, **kwargs) for c in expr.children])
 
-            literals, non_literals = ConstantPropagator.separate_literals(children)
+            literals, non_literals = ConstantPropagator._separate_literals(children)
             if len(non_literals) == 0:
                 return StringLiteral(''.join([c.value for c in children]))
 
@@ -157,7 +157,7 @@ class ConstantPropagator(Transformer):
         super().__init__()
 
     @staticmethod
-    def separate_literals(children):
+    def _separate_literals(children):
         separated = ([], [])
         for c in children:
             # is_constant only covers int, float, & complex
@@ -168,7 +168,7 @@ class ConstantPropagator(Transformer):
         return separated
 
     @staticmethod
-    def array_indices_to_accesses(dimensions, shape):
+    def _array_indices_to_accesses(dimensions, shape):
         accesses = functools.partial(itertools.product)
         for (count, dimension) in enumerate(dimensions):
             if isinstance(dimension, RangeIndex):
@@ -197,12 +197,30 @@ class ConstantPropagator(Transformer):
                     continue
                 if isinstance(s, Array):
                     declarations_map.update({(s.basename, i): index_initial_elements(i, s.initial) for i in
-                                             ConstantPropagator.array_indices_to_accesses(
+                                             ConstantPropagator._array_indices_to_accesses(
                                                  [RangeIndex((None, None, None))] * len(s.shape), s.shape
                                              )})
                 else:
                     declarations_map[(s.basename, ())] = s.initial
         return declarations_map
+
+    def _pop_array_accesses(self, o, **kwargs):
+        # Clear out the unknown dimensions
+        constants_map = kwargs.get('constants_map', dict())
+
+        # If the shape is unknown, then for now, just pop everything
+        if o.lhs.shape is None:
+            keys = constants_map.keys()
+            for key in keys:
+                if key[0] == o.lhs.name:
+                    constants_map.pop(key)
+            return
+        literal_mask = [isinstance(d, _Literal) for d in o.lhs.dimensions]
+        masked_accesses = [o.lhs.dimensions[i] if m else RangeIndex((None, None, None)) for i, m in
+                           enumerate(literal_mask)]
+        possible_accesses = self._array_indices_to_accesses(masked_accesses, self.ConstPropMapper(self.fold_floats)(o.lhs.shape, **kwargs))
+        for access in possible_accesses:
+            constants_map.pop((o.lhs.basename, access), None)
 
     def visit_Assignment(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', dict())
@@ -218,7 +236,7 @@ class ConstantPropagator(Transformer):
         # What if the lhs isn't a scalar shape?
         if isinstance(o.lhs, Array):
             new_dimensions = [self.ConstPropMapper(self.fold_floats)(d, **kwargs) for d in o.lhs.dimensions]
-            _, new_d_non_literals = self.separate_literals(new_dimensions)
+            _, new_d_non_literals = self._separate_literals(new_dimensions)
 
             new_lhs = Array(o.lhs.name, o.lhs.scope, o.lhs.type, as_tuple(new_dimensions))
             o = Assignment(
@@ -228,43 +246,25 @@ class ConstantPropagator(Transformer):
                 o.comment
             )
             if len(new_d_non_literals) != 0:
-                self.pop_array_accesses(o, **kwargs)
+                self._pop_array_accesses(o, **kwargs)
                 return o
 
-        literals, non_literals = self.separate_literals([new_rhs])
+        literals, non_literals = self._separate_literals([new_rhs])
         if len(non_literals) == 0:
             if isinstance(o.lhs, Array):
-                for access in self.array_indices_to_accesses(o.lhs.dimensions, o.lhs.shape):
+                for access in self._array_indices_to_accesses(o.lhs.dimensions, o.lhs.shape):
                     constants_map[(o.lhs.basename, access)] = new_rhs
             else:
                 constants_map[(o.lhs.basename, ())] = new_rhs
         else:
             # TODO: What if it's a pointer
             if isinstance(o.lhs, Array):
-                for access in self.array_indices_to_accesses(o.lhs.dimensions, o.lhs.shape):
+                for access in self._array_indices_to_accesses(o.lhs.dimensions, o.lhs.shape):
                     constants_map.pop((o.lhs.basename, access), None)
             else:
                 constants_map.pop((o.lhs.basename, ()), None)
 
         return o
-
-    def pop_array_accesses(self, o, **kwargs):
-        # Clear out the unknown dimensions
-        constants_map = kwargs.get('constants_map', dict())
-
-        # If the shape is unknown, then for now, just pop everything
-        if o.lhs.shape is None:
-            keys = constants_map.keys()
-            for key in keys:
-                if key[0] == o.lhs.name:
-                    constants_map.pop(key)
-            return
-        literal_mask = [isinstance(d, _Literal) for d in o.lhs.dimensions]
-        masked_accesses = [o.lhs.dimensions[i] if m else RangeIndex((None, None, None)) for i, m in
-                           enumerate(literal_mask)]
-        possible_accesses = self.array_indices_to_accesses(masked_accesses, self.ConstPropMapper(self.fold_floats)(o.lhs.shape, **kwargs))
-        for access in possible_accesses:
-            constants_map.pop((o.lhs.basename, access), None)
 
     def visit(self, o, *args, **kwargs):
         constants_map = kwargs.pop('constants_map', dict())
@@ -315,7 +315,7 @@ class ConstantPropagator(Transformer):
         # reaching definition analysis
         for a in FindNodes(Assignment).visit(o.body):
             if isinstance(a.lhs, Array):
-                self.pop_array_accesses(a, constants_map=constants_map, **kwargs)
+                self._pop_array_accesses(a, constants_map=constants_map, **kwargs)
             else:
                 constants_map.pop((a.lhs.basename, ()), None)
 
