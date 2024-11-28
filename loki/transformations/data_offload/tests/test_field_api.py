@@ -10,7 +10,7 @@ import pytest
 from loki import Sourcefile, Module
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends
-from loki.ir import FindNodes, Pragma, CallStatement
+from loki.ir import nodes as ir, FindNodes, Pragma, CallStatement
 from loki.logging import log_levels
 
 from loki.transformations import FieldOffloadTransformation
@@ -68,7 +68,9 @@ def fixture_state_module(tmp_path, parkind_mod, field_module, frontend):  # pyli
 
       type state_type
         real(kind=jprb), dimension(10,10), pointer :: a, b, c
+        real(kind=jprb), pointer :: d(10,10,10)
         class(field_3rb), pointer :: f_a, f_b, f_c
+        class(field_4rb), pointer :: f_d
         contains
         procedure :: update_view => state_update_view
       end type state_type
@@ -561,3 +563,74 @@ def test_field_offload_warnings(caplog, frontend, state_module, tmp_path):
                 ' list of field wrapper types') in caplog.records[1].message
         assert ('[Loki] Data offload: The routine driver_routine already has a' +
                 ' variable named loki_devptr_prefix_state_b') in caplog.records[2].message
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_aliasing(frontend, state_module, tmp_path):
+    fcode = """
+    module driver_mod
+      use state_mod, only: state_type
+      use parkind1, only: jprb
+      implicit none
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a1, a2, a3)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a1(nlon)
+        real(kind=jprb), intent(inout)  :: a2(nlon)
+        real(kind=jprb), intent(out)    :: a3(nlon)
+        integer :: i
+
+        do i=1, nlon
+          a1(i) = a2(i) + 0.1
+          a3(i) = 0.1
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a(:,1), state%a(:,2), state%a(:,3))
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    driver_mod = Module.from_source(
+        fcode, frontend=frontend, definitions=state_module, xmods=[tmp_path]
+    )
+    driver = driver_mod['driver_routine']
+
+    field_offload = FieldOffloadTransformation(
+        devptr_prefix='', offload_index='i', field_group_types=['state_type']
+    )
+    driver.apply(field_offload, role='driver', targets=['kernel_routine'])
+
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    kernel_call = next(c for c in calls if c.name=='kernel_routine')
+
+    assert 'state_a' in driver.variable_map
+    assert driver.variable_map['state_a'].type.shape == (':', ':', ':')
+
+    assert kernel_call.arguments[:2] == ('nlon', 'nlev')
+    assert kernel_call.arguments[2] == 'state_a(:,1,i)'
+    assert kernel_call.arguments[3] == 'state_a(:,2,i)'
+    assert kernel_call.arguments[4] == 'state_a(:,3,i)'
+
+    assert len(calls) == 3
+    assert calls[0].name == 'state%f_a%get_device_data_rdwr'
+    assert calls[0].arguments == ('state_a',)
+    assert calls[1] == kernel_call
+    assert calls[2].name == 'state%f_a%sync_host_rdwr'
+    assert calls[2].arguments == ()
+
+    decls = FindNodes(ir.VariableDeclaration).visit(driver.spec)
+    assert len(decls) == 4
+    assert decls[-1].symbols == ('state_a(:,:,:)',)
