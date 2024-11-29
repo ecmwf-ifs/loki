@@ -11,7 +11,8 @@ from loki.frontend import (
     parse_regex_source
 )
 from loki.ir import (
-    nodes as ir, FindNodes, Transformer, pragmas_attached
+    nodes as ir, FindNodes, Transformer, ExpressionTransformer,
+    pragmas_attached
 )
 from loki.logging import debug
 from loki.program_unit import ProgramUnit
@@ -487,6 +488,9 @@ class Subroutine(ProgramUnit):
                 # Need to update the call's symbol to establish link to routine
                 symbol = symbol.clone(scope=self, type=symbol.type.clone(dtype=routine.procedure_type))
                 call._update(name=symbol)
+
+        # Rebuild local symbols to ensure correct symbol types
+        self.body = ExpressionTransformer(inplace=True).visit(self.body)
 
     def __repr__(self):
         """

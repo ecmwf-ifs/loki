@@ -1375,8 +1375,8 @@ end module test
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_module_enrichment_typdefs(frontend, tmp_path):
-    """ Test that module-level enrihcment is propagated correctly """
+def test_module_enrichment_typedefs(frontend, tmp_path):
+    """ Test that module-level enrichment is propagated correctly """
 
     fcode_state_mod = """
 module state_type_mod
@@ -1420,7 +1420,10 @@ end module driver_mod
     assert isinstance(state.type.dtype, DerivedType)
     assert isinstance(state.type.dtype.typedef, ir.TypeDef)
 
+    # Verify that we have the right symbol and type info
     assigns = FindNodes(ir.Assignment).visit(driver.body)
     assert len(assigns) == 1
     assert assigns[0].lhs.type.dtype == BasicType.REAL
     assert assigns[0].lhs.type.shape == (':', ':')
+    assert isinstance(assigns[0].lhs, sym.Array)
+    assert assigns[0].lhs.parent.type.dtype.typedef == state_mod['state_type']

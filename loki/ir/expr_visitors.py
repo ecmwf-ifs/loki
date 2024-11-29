@@ -16,7 +16,8 @@ from loki.ir.visitor import Visitor
 from loki.ir.transformer import Transformer
 from loki.tools import flatten, as_tuple
 from loki.expression.mappers import (
-    SubstituteExpressionsMapper, ExpressionRetriever, AttachScopesMapper
+    SubstituteExpressionsMapper, ExpressionRetriever,
+    AttachScopesMapper, LokiIdentityMapper
 )
 from loki.expression.symbols import (
     Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral,
@@ -24,10 +25,11 @@ from loki.expression.symbols import (
 )
 
 __all__ = [
-    'FindExpressions', 'FindVariables', 'FindTypedSymbols',
-    'FindInlineCalls', 'FindLiterals', 'FindRealLiterals',
+    'ExpressionFinder', 'FindExpressions', 'FindVariables',
+    'FindTypedSymbols', 'FindInlineCalls', 'FindLiterals',
+    'FindRealLiterals', 'ExpressionTransformer',
     'SubstituteExpressions', 'SubstituteStringExpressions',
-    'ExpressionFinder', 'AttachScopes'
+    'AttachScopes'
 ]
 
 
@@ -212,7 +214,39 @@ class FindRealLiterals(ExpressionFinder):
     retriever = ExpressionRetriever(lambda e: isinstance(e, FloatLiteral))
 
 
-class SubstituteExpressions(Transformer):
+class ExpressionTransformer(Transformer):
+    """
+    The :any:`Transformer` base class for manipulating expressions.
+
+    This transformer uses the class attribute :data:`expr_mapper` to
+    map an existing expression sub-tree to an new one. By default, it
+    uses the :any:`LokiIdentityMapper` to replicate the existing tree.
+
+    Attributes
+    ----------
+    expr_mapper : :class:`pymbolic.mapper.Mapper`
+        An implementation of an expression mapper, e.g.,
+        :any:`SubstituteExpressionsMapper`, that is used to map an
+        expression tree to a new one.
+
+    Parameters
+    ----------
+    inplace : bool, optional
+        If set to `True`, all updates are performed on existing :any:`Node`
+        objects, instead of rebuilding them, keeping the original tree intact.
+    """
+    expr_mapper = LokiIdentityMapper()
+
+    def visit_Expression(self, o, **kwargs):
+        """
+        Call the associated mapper for the given expression node
+        """
+        if kwargs.get('recurse_to_declaration_attributes'):
+            return self.expr_mapper(o, recurse_to_declaration_attributes=True)
+        return self.expr_mapper(o)
+
+
+class SubstituteExpressions(ExpressionTransformer):
     """
     A dedicated visitor to perform expression substitution in all IR nodes
 
@@ -246,15 +280,8 @@ class SubstituteExpressions(Transformer):
     def __init__(self, expr_map, invalidate_source=True, **kwargs):
         super().__init__(invalidate_source=invalidate_source, **kwargs)
 
+        # Override the static default with a substitution mapper from ``expr_map``
         self.expr_mapper = SubstituteExpressionsMapper(expr_map)
-
-    def visit_Expression(self, o, **kwargs):
-        """
-        call :any:`SubstituteExpressionsMapper` for the given expression node
-        """
-        if kwargs.get('recurse_to_declaration_attributes'):
-            return self.expr_mapper(o, recurse_to_declaration_attributes=True)
-        return self.expr_mapper(o)
 
     def visit_Import(self, o, **kwargs):
         """
