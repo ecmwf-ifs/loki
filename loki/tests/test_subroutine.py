@@ -1178,10 +1178,7 @@ end subroutine routine_call_external_stmt
     routine = source['routine_external_stmt']
     assert len(routine.arguments) == 8
 
-    for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec):
-        # Skip local variables
-        if decl.symbols[0].name in ('invar', 'outvar', 'tmp'):
-            continue
+    for decl in FindNodes(ir.ProcedureDeclaration).visit(routine.spec):
         # Is the EXTERNAL attribute set?
         assert decl.external
         for v in decl.symbols:
