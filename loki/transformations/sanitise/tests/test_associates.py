@@ -151,6 +151,57 @@ end subroutine transform_associates_simple
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
+def test_transform_associates_array_slices(frontend):
+    """
+    Test the resolution of associated array slices.
+    """
+    fcode = """
+subroutine transform_associates_slices(arr2d)
+  use some_module, only: some_obj, another_routine
+  implicit none
+  real, intent(inout) :: arr2d(:,:)
+  integer :: i
+  integer, parameter :: idx_a = 2
+
+  associate (a => arr2d(:, 1), b=>arr2d(:, idx_a) )
+    b(:) = 42.0
+    do i=1, 5
+      a(i) = b(i+2)
+      call another_routine(i, a(2:4), b)
+    end do
+  end associate
+end subroutine transform_associates_slices
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments[1] == 'a(2:4)'
+    assert calls[0].arguments[2] == 'b'
+
+    # Now apply the association resolver
+    do_resolve_associates(routine)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'arr2d(:, idx_a)'
+    assert assigns[1].lhs == 'arr2d(i, 1)'
+    assert assigns[1].rhs == 'arr2d(i+2, idx_a)'
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments[1] == 'arr2d(2:4, 1)'
+    assert calls[0].arguments[2] == 'arr2d(:, idx_a)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
 def test_transform_associates_nested_conditional(frontend):
     """
     Test association resolver when associate is nested into a conditional.
