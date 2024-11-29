@@ -13,8 +13,9 @@ code easier.
 """
 
 from loki.batch import Transformation
-from loki.expression import LokiIdentityMapper
+from loki.expression import symbols as sym,  LokiIdentityMapper
 from loki.ir import nodes as ir, Transformer, NestedTransformer
+from loki.logging import warning
 from loki.scope import SymbolTable
 from loki.tools import dict_override
 
@@ -110,6 +111,20 @@ class ResolveAssociateMapper(LokiIdentityMapper):
     def __init__(self, *args, start_depth=0, **kwargs):
         self.start_depth = start_depth
         super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _match_range_indices(expressions, indices):
+        """ Map :data:`indices` to free ranges in :data:`expressions` """
+        assert isinstance(expressions, tuple)
+        assert isinstance(indices, tuple)
+
+        free_symbols = tuple(e for e in expressions if isinstance(e, sym.RangeIndex))
+        assert len(free_symbols) == len(indices)
+        if any(s.lower not in (None, 1) for s in free_symbols):
+            warning('WARNING: Bounds shifts through association is currently not supported')
+        symbol_map = dict(zip(free_symbols, indices))
+
+        return tuple(symbol_map.get(e, e) for e in expressions)
 
     def map_scalar(self, expr, *args, **kwargs):
         # Skip unscoped expressions
