@@ -158,7 +158,9 @@ class ResolveAssociateMapper(LokiIdentityMapper):
 
     def map_array(self, expr, *args, **kwargs):
         """ Partially resolve dimension indices and handle shape """
-        new = self.map_scalar(expr, *args, **kwargs)
+
+        # Recurse over existing array dimensions
+        expr_dims = self.rec(expr.dimensions, *args, **kwargs)
 
         # Recurse over the type's shape
         _type = expr.type
@@ -166,14 +168,19 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             new_shape = self.rec(expr.type.shape, *args, **kwargs)
             _type = expr.type.clone(shape=new_shape)
 
+        # Stop if scope is not an associate
+        if not isinstance(expr.scope, ir.Associate):
+            return expr.clone(dimensions=expr_dims, type=_type)
+
+        new = self.map_scalar(expr, *args, **kwargs)
+
         # Recurse over array dimensions
         if isinstance(new, sym.Array):
             # Resolve unbound range symbols form existing indices
             new_dims = self.rec(new.dimensions, *args, **kwargs)
-            new_dims = self._match_range_indices(new_dims, expr.dimensions)
+            new_dims = self._match_range_indices(new_dims, expr_dims)
         else:
-            # Recurse over existing array dimensions
-            new_dims = self.rec(expr.dimensions, *args, **kwargs)
+            new_dims = expr_dims
 
         return new.clone(dimensions=new_dims, type=_type)
 
