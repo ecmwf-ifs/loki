@@ -196,9 +196,11 @@ def resolve_vector_notation(routine):
             ivar_basename = f'i_{stmt.lhs.basename}'
             for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
                 if isinstance(dim, sym.RangeIndex):
+                    # use the shape for e.g., `ARR(:)`, but use the dimension for e.g., `ARR(2:5)`
+                    _s = dim if dim.lower is not None else s
                     # create tuple to test whether an appropriate loop is already available
-                    test_range = (sym.IntLiteral(1), s, 1) if not isinstance(s, sym.RangeIndex)\
-                            else (s.lower, s.upper, 1)
+                    test_range = (sym.IntLiteral(1), _s, 1) if not isinstance(_s, sym.RangeIndex)\
+                            else (_s.lower, _s.upper, 1)
                     # actually test for it
                     if test_range in loop_map:
                         # Use index variable of available matching loop
@@ -208,7 +210,7 @@ def resolve_vector_notation(routine):
                         vtype = SymbolAttributes(BasicType.INTEGER)
                         ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=routine)
                     shape_index_map[(i, s)] = ivar
-                    index_range_map[ivar] = s
+                    index_range_map[ivar] = _s
 
                     if ivar not in vdims:
                         vdims.append(ivar)
