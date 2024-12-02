@@ -128,6 +128,11 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
+    def plan_subroutine(self, routine, **kwargs):
+        """
+        ...
+        """
+
     def transform_module(self, module, **kwargs):
         """
         Defines the transformation to apply to :any:`Module` items.
@@ -142,6 +147,11 @@ class Transformation:
             The module to be transformed.
         **kwargs : optional
             Keyword arguments for the transformation.
+        """
+
+    def plan_module(self, module, **kwargs):
+        """
+        ...
         """
 
     def transform_file(self, sourcefile, **kwargs):
@@ -160,7 +170,12 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
-    def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+    def plan_file(self, sourcefile, **kwargs):
+        """
+        ...
+        """
+
+    def apply(self, source, post_apply_rescope_symbols=False, plan=False, **kwargs):
         """
         Dispatch method to apply transformation to :data:`source`.
 
@@ -179,17 +194,18 @@ class Transformation:
             actual transformation.
         """
         if isinstance(source, Sourcefile):
-            self.apply_file(source, **kwargs)
+            self.apply_file(source, plan=plan, **kwargs)
 
         if isinstance(source, Subroutine):
-            self.apply_subroutine(source, **kwargs)
+            self.apply_subroutine(source, plan=plan, **kwargs)
 
         if isinstance(source, Module):
-            self.apply_module(source, **kwargs)
+            self.apply_module(source, plan=plan, **kwargs)
 
-        self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
+        if not plan:
+            self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
 
-    def apply_file(self, sourcefile, **kwargs):
+    def apply_file(self, sourcefile, plan=False, **kwargs):
         """
         Apply transformation to all items in :data:`sourcefile`.
 
@@ -212,16 +228,19 @@ class Transformation:
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError('Transformation.apply_file can only be applied to Sourcefile object')
 
-        if sourcefile._incomplete:
-            raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
-
         item = kwargs.pop('item', None)
         items = kwargs.pop('items', None)
         role = kwargs.pop('role', None)
         targets = kwargs.pop('targets', None)
 
         # Apply file-level transformations
-        self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+        if plan:
+            self.plan_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+        else:
+            if not plan and sourcefile._incomplete:
+                raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
+
+            self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse to modules, if configured
         if self.recurse_to_modules:
@@ -243,12 +262,20 @@ class Transformation:
                         # Provide the list of items that belong to this module
                         item_items = tuple(_it for _it in items if _it.scope is item.ir)
 
-                        self.transform_module(
-                            item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
-                        )
+                        if plan:
+                            self.plan_module(
+                                item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                            )
+                        else:
+                            self.transform_module(
+                                item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                            )
             else:
                 for module in sourcefile.modules:
-                    self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                    if plan:
+                        self.plan_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                    else:
+                        self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse into procedures, if configured
         if self.recurse_to_procedures:
@@ -256,14 +283,22 @@ class Transformation:
                 # Recursion into all subroutine items in the current file
                 for item in items:
                     if isinstance(item, ProcedureItem):
-                        self.transform_subroutine(
-                            item.ir, item=item, role=item.role, targets=item.targets, **kwargs
-                        )
+                        if plan:
+                            self.plan_subroutine(
+                                item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                            )
+                        else:
+                            self.transform_subroutine(
+                                item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                            )
             else:
                 for routine in sourcefile.all_subroutines:
-                    self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                    if plan:
+                        self.plan_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                    else:
+                        self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
 
-    def apply_subroutine(self, subroutine, **kwargs):
+    def apply_subroutine(self, subroutine, plan=False, **kwargs):
         """
         Apply transformation to a given :any:`Subroutine` object and its members.
 
@@ -284,18 +319,21 @@ class Transformation:
         if not isinstance(subroutine, Subroutine):
             raise TypeError('Transformation.apply_subroutine can only be applied to Subroutine object')
 
-        if subroutine._incomplete:
-            raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
-
         # Apply the actual transformation for subroutines
-        self.transform_subroutine(subroutine, **kwargs)
+        if plan:
+            self.plan_subroutine(subroutine, **kwargs)
+        else:
+            if subroutine._incomplete:
+                raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
+
+            self.transform_subroutine(subroutine, **kwargs)
 
         # Recurse to internal procedures
         if self.recurse_to_internal_procedures:
             for routine in subroutine.subroutines:
-                self.apply_subroutine(routine, **kwargs)
+                self.apply_subroutine(routine, plan=plan, **kwargs)
 
-    def apply_module(self, module, **kwargs):
+    def apply_module(self, module, plan=False, **kwargs):
         """
         Apply transformation to a given :any:`Module` object and its members.
 
@@ -315,16 +353,19 @@ class Transformation:
         if not isinstance(module, Module):
             raise TypeError('Transformation.apply_module can only be applied to Module object')
 
-        if module._incomplete:
-            raise RuntimeError('Transformation.apply_module requires Module to be complete')
-
         # Apply the actual transformation for modules
-        self.transform_module(module, **kwargs)
+        if plan:
+            self.plan_module(module, **kwargs)
+        else:
+            if module._incomplete:
+                raise RuntimeError('Transformation.apply_module requires Module to be complete')
+
+            self.transform_module(module, **kwargs)
 
         # Recurse to procedures contained in this module
         if self.recurse_to_procedures:
             for routine in module.subroutines:
-                self.apply_subroutine(routine, **kwargs)
+                self.apply_subroutine(routine, plan=plan, **kwargs)
 
     def post_apply(self, source, rescope_symbols=False):
         """
