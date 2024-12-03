@@ -195,9 +195,9 @@ class Node:
         graph.
 
         This property is attached to the Node by
-        :py:func:`loki.analyse.analyse_dataflow.attach_dataflow_analysis` or
+        :py:func:`loki.analyse.LiveVariableAnalysis.attach_dataflow_analysis` or
         when using the
-        :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
+        :py:func:`loki.analyse.LiveVariableAnalysis.dataflow_analysis_attached`
         context manager.
         """
         if self.__dict__['_live_symbols'] is None:
@@ -210,9 +210,9 @@ class Node:
         Yield the list of symbols (potentially) defined by this node.
 
         This property is attached to the Node by
-        :py:func:`loki.analyse.analyse_dataflow.attach_dataflow_analysis` or
+        :py:func:`loki.analyse.LiveVariableAnalysis.attach_dataflow_analysis` or
         when using the
-        :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
+        :py:func:`loki.analyse.LiveVariableAnalysis.dataflow_analysis_attached`
         context manager.
         """
         if self.__dict__['_defines_symbols'] is None:
@@ -226,9 +226,9 @@ class Node:
         Yield the list of symbols used by this node before defining it.
 
         This property is attached to the Node by
-        :py:func:`loki.analyse.analyse_dataflow.attach_dataflow_analysis` or
+        :py:func:`loki.analyse.LiveVariableAnalysis.attach_dataflow_analysis` or
         when using the
-        :py:func:`loki.analyse.analyse_dataflow.dataflow_analysis_attached`
+        :py:func:`loki.analyse.LiveVariableAnalysis.dataflow_analysis_attached`
         context manager.
         """
         if self.__dict__['_uses_symbols'] is None:
