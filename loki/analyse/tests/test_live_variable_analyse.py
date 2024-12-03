@@ -13,7 +13,7 @@ from loki import (
     Associate, Module
 )
 from loki.analyse import (
-    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
+    LiveVariableAnalysis, read_after_write_vars, loop_carried_dependencies
 )
 from loki.frontend import available_frontends
 
@@ -55,7 +55,7 @@ end subroutine analyse_live_symbols
         'v2': {'tmp', 'a', 'n', 'v1', 'v2', 'v3'}
     }
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert routine.body
 
         for assignment in assignments:
@@ -103,7 +103,7 @@ end subroutine analyse_defines_uses_symbols
         for cond in conditionals:
             _ = cond.uses_symbols
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert fgen(routine) == ref_fgen
         assert len(FindNodes(Conditional).visit(routine.body)) == 2
         assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -164,7 +164,7 @@ end subroutine analyse_read_after_write_vars
     pragmas = FindNodes(Pragma).visit(routine.body)
     assert len(pragmas) == 5
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         for pragma in pragmas:
             assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
@@ -210,7 +210,7 @@ end subroutine analyse_read_after_write_vars_conditionals
     pragmas = FindNodes(Pragma).visit(routine.body)
     assert len(pragmas) == len(vars_at_inspection_node)
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         for pragma in pragmas:
             assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
@@ -237,7 +237,7 @@ end subroutine analyse_loop_carried_dependencies
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert loop_carried_dependencies(loops[0]) == {variable_map['b'], variable_map['c']}
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -273,7 +273,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert len(routine.body.defines_symbols) == 0
         assert len(routine.body.uses_symbols) == 0
         assert len(routine.spec.uses_symbols) == 0
@@ -311,7 +311,7 @@ end subroutine test
     module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module, xmods=[tmp_path])
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert len(routine.spec.defines_symbols) == 1
         assert 'random_call' in routine.spec.defines_symbols
 
@@ -346,7 +346,7 @@ end subroutine test
     routine.enrich(source.all_subroutines)
     call = FindNodes(CallStatement).visit(routine.body)[0]
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert all(i in call.defines_symbols for i in ('v_out', 'v_inout'))
         assert all(i in call.uses_symbols for i in ('v_in', 'v_inout'))
 
@@ -370,7 +370,7 @@ end subroutine test
     routine = source['test']
     call = FindNodes(CallStatement).visit(routine.body)[0]
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert all(i in call.defines_symbols for i in ('v_out', 'v_inout', 'v_in'))
         assert all(i in call.uses_symbols for i in ('v_in', 'v_inout', 'v_in'))
 
@@ -394,7 +394,7 @@ end subroutine test
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert all(i not in routine.body.defines_symbols for i in ['m', 'n'])
         assert all(i in routine.body.uses_symbols for i in ['m', 'n'])
         assert 'a' in routine.body.defines_symbols
@@ -417,7 +417,7 @@ end subroutine test
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert 'real64' in routine.body.uses_symbols
         assert 'real64' not in routine.body.defines_symbols
         assert 'a' in routine.body.defines_symbols
@@ -446,7 +446,7 @@ end subroutine test
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert not 'a' in routine.body.uses_symbols
         assert 'a' in routine.body.defines_symbols
         assert not 'b' in routine.body.uses_symbols
@@ -483,7 +483,7 @@ end subroutine test
     calls = FindNodes(CallStatement).visit(routine.body)
     routine.enrich(source.all_subroutines)
 
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert 'n' in calls[0].uses_symbols
         assert not 'n' in calls[0].defines_symbols
         assert 'b' in calls[1].uses_symbols
@@ -510,7 +510,7 @@ end subroutine test
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     mcond = FindNodes(MultiConditional).visit(routine.body)[0]
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert len(mcond.bodies) == 2
         assert len(mcond.else_body) == 1
         for b in mcond.bodies:
@@ -549,7 +549,7 @@ end subroutine masked_statements
     routine = Subroutine.from_source(fcode, frontend=frontend)
     mask = FindNodes(MaskedStatement).visit(routine.body)[0]
     num_bodies = len(mask.bodies)
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert len(mask.uses_symbols) == 1
         assert len(mask.defines_symbols) == 1
         assert 'mask' in mask.uses_symbols
@@ -582,7 +582,7 @@ end subroutine while_loop
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loop = FindNodes(WhileLoop).visit(routine.body)[0]
     cond = FindNodes(Conditional).visit(routine.body)[0]
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         assert len(cond.uses_symbols) == 1
         assert 'flag' in cond.uses_symbols
         assert len(loop.uses_symbols) == 1
@@ -590,7 +590,7 @@ end subroutine while_loop
         assert 'ij' in loop.uses_symbols
         assert all(v in loop.defines_symbols for v in ('ij', 'a'))
 
-    with dataflow_analysis_attached(cond):
+    with LiveVariableAnalysis.dataflow_analysis_attached(cond):
         assert len(loop.uses_symbols) == 1
         assert len(loop.defines_symbols) == 2
         assert 'ij' in loop.uses_symbols
@@ -621,7 +621,7 @@ end subroutine associate_test
     routine = Subroutine.from_source(fcode, frontend=frontend)
     associates = FindNodes(Associate).visit(routine.body)
     assigns = FindNodes(Assignment).visit(routine.body)
-    with dataflow_analysis_attached(routine):
+    with LiveVariableAnalysis.dataflow_analysis_attached(routine):
         # check that associates use variables names in outer scope
         assert associates[0].uses_symbols == {'in_var'}
         assert associates[0].defines_symbols == {'a', 'b', 'c'}

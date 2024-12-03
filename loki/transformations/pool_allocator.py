@@ -9,7 +9,7 @@ import re
 from collections import  defaultdict
 
 from loki.batch import Transformation
-from loki.analyse import dataflow_analysis_attached
+from loki.analyse import LiveVariableAnalysis
 from loki.expression import (
     Quotient, IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
     Product, InlineCall, Comparison, RangeIndex, Cast,
@@ -675,7 +675,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         ]
 
         # Filter out unused vars
-        with dataflow_analysis_attached(routine):
+        with LiveVariableAnalysis.dataflow_analysis_attached(routine):
             temporary_arrays = [
                 var for var in temporary_arrays
                 if var.name.lower() in routine.body.defines_symbols

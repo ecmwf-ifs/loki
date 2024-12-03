@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.analyse import dataflow_analysis_attached
+from loki.analyse import LiveVariableAnalysis
 from loki.expression import Variable
 from loki.ir import (
     CallStatement, Import, PragmaRegion, Section, FindNodes,
@@ -53,7 +53,7 @@ def outline_pragma_regions(routine):
     imports = {var for imprt in FindNodes(Import).visit(routine.spec) for var in imprt.symbols}
     mask_map = {}
     with pragma_regions_attached(routine):
-        with dataflow_analysis_attached(routine):
+        with LiveVariableAnalysis.dataflow_analysis_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
                 if not is_loki_pragma(region.pragma, starts_with='outline'):
                     continue

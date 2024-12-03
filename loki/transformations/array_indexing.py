@@ -15,7 +15,7 @@ import operator as op
 
 from loki.batch import Transformation, ProcedureItem
 from loki.logging import info
-from loki.analyse import dataflow_analysis_attached
+from loki.analyse import LiveVariableAnalysis
 from loki.expression import symbols as sym, simplify, symbolic_op, is_constant
 from loki.ir import (
     nodes as ir, Assignment, Loop, VariableDeclaration, FindNodes,
@@ -303,7 +303,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         # Create a copy of the tree and apply promotion in-place
         routine.body = Transformer().visit(routine.body)
 
-        with dataflow_analysis_attached(routine):
+        with LiveVariableAnalysis.dataflow_analysis_attached(routine):
             for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(routine.body):
                 # All the variables marked for promotion that appear in this IR node
                 var_list = [v for v in var_list if v.name.lower() in variable_names]

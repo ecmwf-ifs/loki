@@ -11,7 +11,7 @@ import operator
 
 import math
 
-from loki import FindNodes, LokiIdentityMapper, dataflow_analysis_attached, get_pyrange, DeferredTypeSymbol, Product
+from loki import FindNodes, LokiIdentityMapper, get_pyrange, DeferredTypeSymbol, Product, LiveVariableAnalysis
 from loki.ir import Transformer, Assignment
 from loki.tools import as_tuple
 from loki.transformations.transform_loop import LoopUnrollTransformer
@@ -182,8 +182,8 @@ class ConstantPropagator(Transformer):
 
         return accesses()
 
-    @staticmethod
-    def generate_declarations_map(routine):
+    @classmethod
+    def generate_declarations_map(cls, routine):
         def index_initial_elements(i, e):
             if len(i) == 1:
                 return e.elements[i[0].value - 1]
@@ -191,13 +191,13 @@ class ConstantPropagator(Transformer):
                 return index_initial_elements(i[1:], e.elements[i[0].value - 1])
 
         declarations_map = dict()
-        with dataflow_analysis_attached(routine):
+        with LiveVariableAnalysis.dataflow_analysis_attached(routine):
             for s in routine.symbols:
                 if isinstance(s, DeferredTypeSymbol) or s.initial is None:
                     continue
                 if isinstance(s, Array):
                     declarations_map.update({(s.basename, i): index_initial_elements(i, s.initial) for i in
-                                             ConstantPropagator._array_indices_to_accesses(
+                                             cls._array_indices_to_accesses(
                                                  [RangeIndex((None, None, None))] * len(s.shape), s.shape
                                              )})
                 else:
