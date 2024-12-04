@@ -40,10 +40,12 @@ class FieldPointerMap:
     The pointer/array variable pairs are exposed through the class
     properties, based on the intent of the kernel argument.
     """
-    def __init__(self, inargs, inoutargs, outargs, ptr_prefix='loki_devptr_'):
+    def __init__(self, inargs, inoutargs, outargs, scope, ptr_prefix='loki_devptr_'):
         self.inargs = inargs
         self.inoutargs = inoutargs
         self.outargs = outargs
+
+        self.scope = scope
 
         self.ptr_prefix = ptr_prefix
 
@@ -56,6 +58,15 @@ class FieldPointerMap:
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
         return sym.Variable(name=self.ptr_prefix + base_name, type=devptr_type, dimensions=shape)
 
+    @staticmethod
+    def field_ptr_from_view(field_view):
+        """
+        Returns a symbol for the pointer to the corresponding Field object.
+        """
+        type_chain = field_view.name.split('%')
+        field_type_name = 'F_' + type_chain[-1]
+        return field_view.parent.get_derived_type_member(field_type_name)
+
     @property
     def dataptrs(self):
         """ Create a list of contiguous data pointer symbols """
@@ -65,52 +76,36 @@ class FieldPointerMap:
         )
 
     @property
-    def in_pairs(self):
+    def host_to_device_calls(self):
         """
-        Iterator that yields array/pointer pairs for kernel arguments of intent(in).
+        Returns a tuple of :any:`CallStatement` for host-to-device transfers on fields.
+        """
+        READ_ONLY, READ_WRITE = FieldAPITransferType.READ_ONLY, FieldAPITransferType.READ_WRITE
 
-        Yields
-        ______
-        :any:`Array`
-            Original kernel call argument
-        :any:`Array`
-            Corresponding device pointer added by the transformation.
-        """
-        for i, inarg in enumerate(self.inargs):
-            yield inarg, self.dataptrs[i]
+        host_to_device = tuple(field_get_device_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_ONLY, scope=self.scope
+        ) for arg in self.inargs)
+        host_to_device += tuple(field_get_device_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, scope=self.scope
+        ) for arg in self.inoutargs)
+        host_to_device += tuple(field_get_device_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, scope=self.scope
+        ) for arg in self.outargs)
 
-    @property
-    def inout_pairs(self):
-        """
-        Iterator that yields array/pointer pairs for arguments with intent(inout).
-
-        Yields
-        ______
-        :any:`Array`
-            Original kernel call argument
-        :any:`Array`
-            Corresponding device pointer added by the transformation.
-        """
-        start = len(self.inargs)
-        for i, inoutarg in enumerate(self.inoutargs):
-            yield inoutarg, self.dataptrs[i+start]
+        return host_to_device
 
     @property
-    def out_pairs(self):
+    def sync_host_calls(self):
         """
-        Iterator that yields array/pointer pairs for arguments with intent(out)
-
-        Yields
-        ______
-        :any:`Array`
-            Original kernel call argument
-        :any:`Array`
-            Corresponding device pointer added by the transformation.
+        Returns a tuple of :any:`CallStatement` for host-synchronization transfers on fields.
         """
-
-        start = len(self.inargs)+len(self.inoutargs)
-        for i, outarg in enumerate(self.outargs):
-            yield outarg, self.dataptrs[i+start]
+        sync_host = tuple(
+            field_sync_host(self.field_ptr_from_view(arg), scope=self.scope) for arg in self.inoutargs
+        )
+        sync_host += tuple(
+            field_sync_host(self.field_ptr_from_view(arg), scope=self.scope) for arg in self.outargs
+        )
+        return sync_host
 
 
 def get_field_type(a: sym.Array) -> sym.DerivedType:

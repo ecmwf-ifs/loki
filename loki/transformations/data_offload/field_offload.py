@@ -19,10 +19,7 @@ from loki.tools import as_tuple
 from loki.types import BasicType
 
 from loki.transformations.data_offload.offload import DataOffloadTransformation
-from loki.transformations.field_api import (
-    FieldAPITransferType, FieldPointerMap, field_get_device_data,
-    field_sync_host
-)
+from loki.transformations.field_api import FieldPointerMap
 from loki.transformations.parallel import remove_field_api_view_updates
 
 
@@ -83,7 +80,9 @@ class FieldOffloadTransformation(Transformation):
                     continue
                 kernel_calls = find_target_calls(region, targets)
                 offload_variables = find_offload_variables(driver, kernel_calls, self.field_group_types)
-                offload_map = FieldPointerMap(*offload_variables, ptr_prefix=self.deviceptr_prefix)
+                offload_map = FieldPointerMap(
+                    *offload_variables, scope=driver, ptr_prefix=self.deviceptr_prefix
+                )
                 declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                 add_field_offload_calls(driver, region, offload_map)
                 replace_kernel_args(driver, kernel_calls, offload_map, self.offload_index)
@@ -162,27 +161,17 @@ def declare_device_ptrs(driver, deviceptrs):
 
 def add_field_offload_calls(driver, region, offload_map):
 
-    def _get_field_ptr_from_view(field_view):
-        type_chain = field_view.name.split('%')
-        field_type_name = 'F_' + type_chain[-1]
-        return field_view.parent.get_derived_type_member(field_type_name)
-
-    host_to_device = tuple(field_get_device_data(_get_field_ptr_from_view(inarg), devptr,
-                           FieldAPITransferType.READ_ONLY, driver) for inarg, devptr in offload_map.in_pairs)
-    host_to_device += tuple(field_get_device_data(_get_field_ptr_from_view(inarg), devptr,
-                            FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.inout_pairs)
-    host_to_device += tuple(field_get_device_data(_get_field_ptr_from_view(inarg), devptr,
-                            FieldAPITransferType.READ_WRITE, driver) for inarg, devptr in offload_map.out_pairs)
-    device_to_host = tuple(field_sync_host(_get_field_ptr_from_view(inarg), driver)
-                           for inarg, _ in chain(offload_map.inout_pairs, offload_map.out_pairs))
-    update_map = {region: host_to_device + (region,) + device_to_host}
+    update_map = {
+        region: offload_map.host_to_device_calls + (region,) + offload_map.sync_host_calls
+    }
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
 def replace_kernel_args(driver, kernel_calls, offload_map, offload_index):
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
-    for arg, devptr in chain(offload_map.in_pairs, offload_map.inout_pairs, offload_map.out_pairs):
+    for arg in chain(offload_map.inargs, offload_map.inoutargs, offload_map.outargs):
+        devptr = offload_map.dataptr_from_array(arg)
         if len(arg.dimensions) != 0:
             dims = arg.dimensions + (offload_idx_expr,)
         else:
