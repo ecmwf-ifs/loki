@@ -135,15 +135,6 @@ def find_offload_variables(driver, calls, field_group_types):
             if param.type.intent.lower() == 'out':
                 outargs += (arg, )
 
-    inoutargs += tuple(v for v in inargs if v in outargs)
-    inargs = tuple(v for v in inargs if v not in inoutargs)
-    outargs = tuple(v for v in outargs if v not in inoutargs)
-
-    # Filter out duplicates and return as tuple
-    inargs = tuple(dict.fromkeys(inargs))
-    inoutargs = tuple(dict.fromkeys(inoutargs))
-    outargs = tuple(dict.fromkeys(outargs))
-
     return inargs, inoutargs, outargs
 
 
