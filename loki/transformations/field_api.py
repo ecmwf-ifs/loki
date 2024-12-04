@@ -11,6 +11,7 @@ parallel kernels and offload regions.
 """
 
 from enum import Enum
+from itertools import chain
 
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir
@@ -39,12 +40,29 @@ class FieldPointerMap:
     The pointer/array variable pairs are exposed through the class
     properties, based on the intent of the kernel argument.
     """
-    def __init__(self, devptrs, inargs, inoutargs, outargs):
+    def __init__(self, inargs, inoutargs, outargs, ptr_prefix='loki_devptr_'):
         self.inargs = inargs
         self.inoutargs = inoutargs
         self.outargs = outargs
-        self.devptrs = devptrs
 
+        self.ptr_prefix = ptr_prefix
+
+    def dataptr_from_array(self, a: sym.Array):
+        """
+        Returns a contiguous pointer :any:`Variable` with types matching the array :data:`a`.
+        """
+        shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
+        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
+        base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
+        return sym.Variable(name=self.ptr_prefix + base_name, type=devptr_type, dimensions=shape)
+
+    @property
+    def dataptrs(self):
+        """ Create a list of contiguous data pointer symbols """
+        return tuple(
+            self.dataptr_from_array(a)
+            for a in chain(*(self.inargs, self.inoutargs, self.outargs))
+        )
 
     @property
     def in_pairs(self):
@@ -59,7 +77,7 @@ class FieldPointerMap:
             Corresponding device pointer added by the transformation.
         """
         for i, inarg in enumerate(self.inargs):
-            yield inarg, self.devptrs[i]
+            yield inarg, self.dataptrs[i]
 
     @property
     def inout_pairs(self):
@@ -75,7 +93,7 @@ class FieldPointerMap:
         """
         start = len(self.inargs)
         for i, inoutarg in enumerate(self.inoutargs):
-            yield inoutarg, self.devptrs[i+start]
+            yield inoutarg, self.dataptrs[i+start]
 
     @property
     def out_pairs(self):
@@ -92,7 +110,7 @@ class FieldPointerMap:
 
         start = len(self.inargs)+len(self.inoutargs)
         for i, outarg in enumerate(self.outargs):
-            yield outarg, self.devptrs[i+start]
+            yield outarg, self.dataptrs[i+start]
 
 
 def get_field_type(a: sym.Array) -> sym.DerivedType:
