@@ -83,8 +83,8 @@ class FieldOffloadTransformation(Transformation):
                     continue
                 kernel_calls = find_target_calls(region, targets)
                 offload_variables = find_offload_variables(driver, kernel_calls, self.field_group_types)
-                device_ptrs = declare_device_ptrs(driver, offload_variables, self.deviceptr_prefix)
-                offload_map = FieldPointerMap(device_ptrs, *offload_variables)
+                offload_map = FieldPointerMap(*offload_variables, ptr_prefix=self.deviceptr_prefix)
+                declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                 add_field_offload_calls(driver, region, offload_map)
                 replace_kernel_args(driver, kernel_calls, offload_map, self.offload_index)
 
@@ -148,25 +148,16 @@ def find_offload_variables(driver, calls, field_group_types):
     return inargs, inoutargs, outargs
 
 
-def declare_device_ptrs(driver, offload_variables, deviceptr_prefix='loki_devptr_'):
-
-    def _devptr_from_array(driver, a: sym.Array):
-        """
-        Returns a contiguous pointer :any:`Variable` with types matching the array a
-        """
-        shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
-        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
-        base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
-        devptr_name = deviceptr_prefix + base_name
-        if devptr_name in driver.variable_map:
+def declare_device_ptrs(driver, deviceptrs):
+    """
+    Add a set of data pointer declarations to a given :any:`Subroutine`
+    """
+    for devptr in deviceptrs:
+        if devptr.name in driver.variable_map:
             warning(f'[Loki] Data offload: The routine {driver.name} already has a ' +
-                    f'variable named {devptr_name}')
-        devptr = sym.Variable(name=devptr_name, type=devptr_type, dimensions=shape)
-        return devptr
+                    f'variable named {devptr.name}')
 
-    device_ptrs = tuple(_devptr_from_array(driver, a) for a in chain(*offload_variables))
-    driver.variables += device_ptrs
-    return device_ptrs
+    driver.variables += deviceptrs
 
 
 def add_field_offload_calls(driver, region, offload_map):
