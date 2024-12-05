@@ -137,6 +137,7 @@ class Item(ItemConfig):
         self.name = name
         self.source = source
         self.trafo_data = {}
+        self.additional_dependencies = ()
         super().__init__(config)
 
     def __repr__(self):
@@ -706,7 +707,7 @@ class ProcedureItem(Item):
                 import_map = self.scope.import_map
                 typedefs += tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
                 imports += tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
-        return imports + interfaces + typedefs + calls + inline_calls
+        return imports + interfaces + typedefs + calls + inline_calls + self.additional_dependencies
 
 
 class TypeDefItem(Item):
@@ -988,6 +989,7 @@ class ItemFactory:
         ignore : list of str, optional
             A list of item names that should be ignored, i.e., not be created as an item.
         """
+        # print(f"type node: {type(node)}")
         if isinstance(node, Module):
             item_name = node.name.lower()
             if self._is_ignored(item_name, config, ignore):

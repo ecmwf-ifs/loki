@@ -499,7 +499,7 @@ class Scheduler:
                     item=_item, targets=_item.targets, items=_get_definition_items(_item, sgraph_items),
                     successors=graph.successors(_item, item_filter=item_filter),
                     depths=graph.depths, build_args=self.build_args,
-                    plan=plan
+                    plan=plan, item_factory=self.item_factory
                 )
 
         if transformation.renames_items:
