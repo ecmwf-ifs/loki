@@ -634,3 +634,64 @@ def test_field_offload_aliasing(frontend, state_module, tmp_path):
     decls = FindNodes(ir.VariableDeclaration).visit(driver.spec)
     assert len(decls) == 5 if frontend == OMNI else 4
     assert decls[-1].symbols == ('state_a(:,:,:)',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_driver_compute(frontend, state_module, tmp_path):
+    fcode = """
+    module driver_mod
+      use state_mod, only: state_type
+      use parkind1, only: jprb
+      implicit none
+
+    contains
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i, ibl
+
+        !$loki data
+        do ibl=1,nlev
+          call state%update_view(ibl)
+
+          do i=1, nlon
+            state%a(i, 1) = state%b(i, 1) + 0.1
+            state%a(i, 2) = state%a(i, 1)
+          end do
+
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    driver_mod = Module.from_source(
+        fcode, frontend=frontend, definitions=state_module, xmods=[tmp_path]
+    )
+    driver = driver_mod['driver_routine']
+
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'state%update_view'
+
+    field_offload = FieldOffloadTransformation(
+        devptr_prefix='', offload_index='ibl', field_group_types=['state_type']
+    )
+    driver.apply(field_offload, role='driver', targets=['kernel_routine'])
+
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(calls) == 3
+    assert calls[0].name == 'state%f_b%get_device_data_rdonly'
+    assert calls[0].arguments == ('state_b',)
+    assert calls[1].name == 'state%f_a%get_device_data_rdwr'
+    assert calls[1].arguments == ('state_a',)
+    assert calls[2].name == 'state%f_a%sync_host_rdwr'
+    assert calls[2].arguments == ()
+
+    assigns = FindNodes(ir.Assignment).visit(driver.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'state_a(i,1,ibl)'
+    assert assigns[0].rhs == 'state_b(i,1,ibl) + 0.1'
+    assert assigns[1].lhs == 'state_a(i,2,ibl)'
+    assert assigns[1].rhs == 'state_a(i,1,ibl)'

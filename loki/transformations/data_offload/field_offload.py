@@ -7,18 +7,18 @@
 
 from itertools import chain
 
+from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import Array, symbols as sym
 from loki.ir import (
-    FindNodes, PragmaRegion, CallStatement,
-    Transformer, pragma_regions_attached,
-    SubstituteExpressions, FindVariables
+    nodes as ir, FindNodes, PragmaRegion, CallStatement, Transformer,
+    pragma_regions_attached, SubstituteExpressions, FindVariables,
+    is_loki_pragma
 )
 from loki.logging import warning, error
 from loki.tools import as_tuple
 from loki.types import BasicType
 
-from loki.transformations.data_offload.offload import DataOffloadTransformation
 from loki.transformations.field_api import FieldPointerMap
 from loki.transformations.parallel import remove_field_api_view_updates
 
@@ -72,20 +72,27 @@ class FieldOffloadTransformation(Transformation):
             self.process_driver(routine, targets)
 
     def process_driver(self, driver, targets):
+
+        # Remove the Field-API view-pointer boilerplate
         remove_field_api_view_updates(driver, self.field_group_types)
+
         with pragma_regions_attached(driver):
-            for region in FindNodes(PragmaRegion).visit(driver.body):
-                # Only work on active `!$loki data` regions
-                if not DataOffloadTransformation._is_active_loki_data_region(region, targets):
-                    continue
-                kernel_calls = find_target_calls(region, targets)
-                offload_variables = find_offload_variables(driver, kernel_calls, self.field_group_types)
-                offload_map = FieldPointerMap(
-                    *offload_variables, scope=driver, ptr_prefix=self.deviceptr_prefix
-                )
-                declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
-                add_field_offload_calls(driver, region, offload_map)
-                replace_kernel_args(driver, offload_map, self.offload_index)
+            with dataflow_analysis_attached(driver):
+                for region in FindNodes(PragmaRegion).visit(driver.body):
+                    # Only work on active `!$loki data` regions
+                    if not region.pragma or not is_loki_pragma(region.pragma, starts_with='data'):
+                        continue
+
+                    # Determine the array variables for generating Field API offload
+                    offload_variables = find_offload_variables(driver, region, self.field_group_types)
+                    offload_map = FieldPointerMap(
+                        *offload_variables, scope=driver, ptr_prefix=self.deviceptr_prefix
+                    )
+
+                    # Inject declarations and offload API calls into driver region
+                    declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
+                    add_field_offload_calls(driver, region, offload_map)
+                    replace_kernel_args(driver, offload_map, self.offload_index)
 
 
 def find_target_calls(region, targets):
@@ -104,12 +111,20 @@ def find_target_calls(region, targets):
     return calls
 
 
-def find_offload_variables(driver, calls, field_group_types):
-    inargs = ()
-    inoutargs = ()
-    outargs = ()
+def find_offload_variables(driver, region, field_group_types):
 
-    for call in calls:
+    # Use dataflow analysis to find in, out and inout variables to that region
+    inargs = region.uses_symbols - region.defines_symbols
+    inoutargs = region.uses_symbols & region.defines_symbols
+    outargs = region.defines_symbols - region.uses_symbols
+
+    # Filter out relevant array symbols
+    inargs = tuple(a for a in inargs if isinstance(a, sym.Array) and a.parent)
+    inoutargs = tuple(a for a in inoutargs if isinstance(a, sym.Array) and a.parent)
+    outargs = tuple(a for a in outargs if isinstance(a, sym.Array) and a.parent)
+
+    # Do some sanity checking and warning for enclosed calls
+    for call in FindNodes(ir.CallStatement).visit(region):
         if call.routine is BasicType.DEFERRED:
             error(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
                     f'in {str(call.name).lower()}')
@@ -127,13 +142,6 @@ def find_offload_variables(driver, calls, field_group_types):
                 warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in'
                         + f' {driver.name} that is not wrapped by a Field API object')
                 continue
-
-            if param.type.intent.lower() == 'in':
-                inargs += (arg, )
-            if param.type.intent.lower() == 'inout':
-                inoutargs += (arg, )
-            if param.type.intent.lower() == 'out':
-                outargs += (arg, )
 
     return inargs, inoutargs, outargs
 
