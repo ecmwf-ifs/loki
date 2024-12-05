@@ -11,23 +11,19 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import Array, symbols as sym
 from loki.ir import (
-    nodes as ir, FindNodes, PragmaRegion, CallStatement, Transformer,
-    pragma_regions_attached, SubstituteExpressions, FindVariables,
-    is_loki_pragma
+    nodes as ir, FindNodes, FindVariables, Transformer,
+    SubstituteExpressions, pragma_regions_attached, is_loki_pragma
 )
 from loki.logging import warning, error
-from loki.tools import as_tuple
 from loki.types import BasicType
 
 from loki.transformations.field_api import FieldPointerMap
 from loki.transformations.parallel import remove_field_api_view_updates
 
 
-
 __all__ = [
-    'FieldOffloadTransformation', 'find_target_calls',
-    'find_offload_variables', 'add_field_offload_calls',
-    'replace_kernel_args'
+    'FieldOffloadTransformation', 'find_offload_variables',
+    'add_field_offload_calls', 'replace_kernel_args'
 ]
 
 
@@ -67,18 +63,17 @@ class FieldOffloadTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
-        targets = as_tuple(kwargs.get('targets'), (None))
         if role == 'driver':
-            self.process_driver(routine, targets)
+            self.process_driver(routine)
 
-    def process_driver(self, driver, targets):
+    def process_driver(self, driver):
 
         # Remove the Field-API view-pointer boilerplate
         remove_field_api_view_updates(driver, self.field_group_types)
 
         with pragma_regions_attached(driver):
             with dataflow_analysis_attached(driver):
-                for region in FindNodes(PragmaRegion).visit(driver.body):
+                for region in FindNodes(ir.PragmaRegion).visit(driver.body):
                     # Only work on active `!$loki data` regions
                     if not region.pragma or not is_loki_pragma(region.pragma, starts_with='data'):
                         continue
@@ -93,22 +88,6 @@ class FieldOffloadTransformation(Transformation):
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     add_field_offload_calls(driver, region, offload_map)
                     replace_kernel_args(driver, offload_map, self.offload_index)
-
-
-def find_target_calls(region, targets):
-    """
-    Returns a list of all calls to targets inside the region.
-
-    Parameters
-    ----------
-    :region: :any:`PragmaRegion`
-    :targets: collection of :any:`Subroutine`
-        Iterable object of subroutines or functions called
-    :returns: list of :any:`CallStatement`
-    """
-    calls = FindNodes(CallStatement).visit(region)
-    calls = [c for c in calls if str(c.name).lower() in targets]
-    return calls
 
 
 def find_offload_variables(driver, region, field_group_types):
