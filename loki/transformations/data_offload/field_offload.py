@@ -12,7 +12,7 @@ from loki.expression import Array, symbols as sym
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement,
     Transformer, pragma_regions_attached,
-    SubstituteExpressions
+    SubstituteExpressions, FindVariables
 )
 from loki.logging import warning, error
 from loki.tools import as_tuple
@@ -85,7 +85,7 @@ class FieldOffloadTransformation(Transformation):
                 )
                 declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                 add_field_offload_calls(driver, region, offload_map)
-                replace_kernel_args(driver, kernel_calls, offload_map, self.offload_index)
+                replace_kernel_args(driver, offload_map, self.offload_index)
 
 
 def find_target_calls(region, targets):
@@ -158,10 +158,15 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def replace_kernel_args(driver, kernel_calls, offload_map, offload_index):
+def replace_kernel_args(driver, offload_map, offload_index):
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
-    for arg in chain(offload_map.inargs, offload_map.inoutargs, offload_map.outargs):
+
+    args = tuple(chain(offload_map.inargs, offload_map.inoutargs, offload_map.outargs))
+    for arg in FindVariables().visit(driver.body):
+        if not arg.name in args:
+            continue
+
         devptr = offload_map.dataptr_from_array(arg)
         if len(arg.dimensions) != 0:
             dims = arg.dimensions + (offload_idx_expr,)
@@ -169,6 +174,4 @@ def replace_kernel_args(driver, kernel_calls, offload_map, offload_index):
             dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (offload_idx_expr,)
         change_map[arg] = devptr.clone(dimensions=dims)
 
-    arg_transformer = SubstituteExpressions(change_map, inplace=True)
-    for call in kernel_calls:
-        arg_transformer.visit(call)
+    driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)

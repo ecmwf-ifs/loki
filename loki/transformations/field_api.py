@@ -47,9 +47,12 @@ class FieldPointerMap:
         outargs = tuple(v for v in outargs if v not in inoutargs)
 
         # Filter out duplicates and return as tuple
-        self.inargs = tuple(dict.fromkeys(inargs))
-        self.inoutargs = tuple(dict.fromkeys(inoutargs))
-        self.outargs = tuple(dict.fromkeys(outargs))
+        self.inargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in inargs))
+        self.inoutargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in inoutargs))
+        self.outargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in outargs))
+
+        # Filter out duplicates across argument tuples
+        self.inargs = tuple(a for a in self.inargs if a not in self.inoutargs)
 
         self.scope = scope
 
@@ -88,21 +91,15 @@ class FieldPointerMap:
         """
         READ_ONLY, READ_WRITE = FieldAPITransferType.READ_ONLY, FieldAPITransferType.READ_WRITE
 
-        # Filter down to base symbols and avoid duplicates across sets
-        inargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in self.inargs))
-        inoutargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in self.inoutargs))
-        outargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in self.outargs))
-        inargs = tuple(a for a in inargs if a not in inoutargs)
-
         host_to_device = tuple(field_get_device_data(
             self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_ONLY, scope=self.scope
-        ) for arg in inargs)
+        ) for arg in self.inargs)
         host_to_device += tuple(field_get_device_data(
             self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, scope=self.scope
-        ) for arg in inoutargs)
+        ) for arg in self.inoutargs)
         host_to_device += tuple(field_get_device_data(
             self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, scope=self.scope
-        ) for arg in outargs)
+        ) for arg in self.outargs)
 
         return tuple(dict.fromkeys(host_to_device))
 

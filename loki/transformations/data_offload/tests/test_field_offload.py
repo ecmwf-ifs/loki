@@ -9,7 +9,7 @@ import pytest
 
 from loki import Sourcefile, Module
 import loki.expression.symbols as sym
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, Pragma, CallStatement
 from loki.logging import log_levels
 
@@ -632,5 +632,5 @@ def test_field_offload_aliasing(frontend, state_module, tmp_path):
     assert calls[2].arguments == ()
 
     decls = FindNodes(ir.VariableDeclaration).visit(driver.spec)
-    assert len(decls) == 4
+    assert len(decls) == 5 if frontend == OMNI else 4
     assert decls[-1].symbols == ('state_a(:,:,:)',)
