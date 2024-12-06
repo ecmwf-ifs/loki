@@ -33,7 +33,7 @@ subroutine transform_associates_simple
   real :: local_var
 
   associate (a => some_obj%a)
-    local_var = a
+    local_var = a(:)
   end associate
 end subroutine transform_associates_simple
 """
@@ -42,7 +42,7 @@ end subroutine transform_associates_simple
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
     assign = FindNodes(ir.Assignment).visit(routine.body)[0]
-    assert assign.rhs == 'a' and 'some_obj' not in assign.rhs
+    assert assign.rhs == 'a(:)' and 'some_obj' not in assign.rhs
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
@@ -51,7 +51,7 @@ end subroutine transform_associates_simple
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
     assign = FindNodes(ir.Assignment).visit(routine.body)[0]
-    assert assign.rhs == 'some_obj%a'
+    assert assign.rhs == 'some_obj%a(:)'
     assert assign.rhs.parent == 'some_obj'
     assert assign.rhs.type.dtype == BasicType.DEFERRED
     assert assign.rhs.scope == routine

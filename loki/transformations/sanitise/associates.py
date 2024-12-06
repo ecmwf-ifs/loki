@@ -175,7 +175,7 @@ class ResolveAssociateMapper(LokiIdentityMapper):
         new = self.map_scalar(expr, *args, **kwargs)
 
         # Recurse over array dimensions
-        if isinstance(new, sym.Array):
+        if isinstance(new, sym.Array) and new.dimensions:
             # Resolve unbound range symbols form existing indices
             new_dims = self.rec(new.dimensions, *args, **kwargs)
             new_dims = self._match_range_indices(new_dims, expr_dims)
