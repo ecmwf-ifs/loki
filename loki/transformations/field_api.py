@@ -49,6 +49,11 @@ class FieldPointerMap:
         self.inoutargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in inoutargs))
         self.outargs = tuple(dict.fromkeys(a.clone(dimensions=None) for a in outargs))
 
+        # Simplistic sort of pointer variables
+        self.inargs = sorted(self.inargs, key=str)
+        self.inoutargs = sorted(self.inoutargs, key=str)
+        self.outargs = sorted(self.outargs, key=str)
+
         # Filter out duplicates across argument tuples
         self.inargs = tuple(a for a in self.inargs if a not in self.inoutargs)
 
