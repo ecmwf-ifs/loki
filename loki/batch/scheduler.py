@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from enum import Enum, auto
 from os.path import commonpath
 from pathlib import Path
 from codetiming import Timer
@@ -21,10 +22,40 @@ from loki.batch.transformation import Transformation
 
 from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
-from loki.logging import info, perf, warning, debug, error
+
+from loki.logging import info, perf, warning, error
+
+__all__ = ['ProcessingStrategy', 'Scheduler']
 
 
-__all__ = ['Scheduler']
+class ProcessingStrategy(Enum):
+    """
+    List of available processing types for :any:`Scheduler.process`
+
+    Multiple options exist how the :any:`Scheduler.process` method can
+    apply a provided :any:`Transformation` or :any:`Pipeline` object to the
+    items in a :any:`Scheduler` graph. The permissible options and default
+    values are provided by this class.
+    """
+
+    SEQUENCE = auto()
+    """Sequential processing of transformations
+
+    For each transformation in a pipeline, the :any:`Transformation.apply`
+    method is called for every item in the graph, following the graph traversal
+    mode specified in the transformation's manifest, before repeating the
+    same for the next transformation in the pipeline.
+    """
+
+    PLAN = auto()
+    """Planning mode using :any:`ProcessingStrategy.SEQUENCE` strategy.
+
+    This calls :any:`Transformation.plan` (instead of :any:`Transformation.apply`)
+    for each transformation.
+    """
+
+    DEFAULT = SEQUENCE
+    """Default processing strategy, currently :any:`ProcessingStrategy.SEQUENCE`"""
 
 
 class Scheduler:
@@ -382,7 +413,7 @@ class Scheduler:
             if item.name not in deleted_keys
         )
 
-    def process(self, transformation):
+    def process(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT):
         """
         Process all :attr:`items` in the scheduler's graph with either
         a :any:`Pipeline` or a single :any:`Transformation`.
@@ -396,18 +427,21 @@ class Scheduler:
         ----------
         transformation : :any:`Transformation` or :any:`Pipeline`
             The transformation or transformation pipeline to apply
+        proc_strategy : :any:`ProcessingStrategy`
+            The processing strategy to use when applying the given
+            :data:`transformation` to the scheduler's graph.
         """
         if isinstance(transformation, Transformation):
-            self.process_transformation(transformation=transformation)
+            self.process_transformation(transformation=transformation, proc_strategy=proc_strategy)
 
         elif isinstance(transformation, Pipeline):
-            self.process_pipeline(pipeline=transformation)
+            self.process_pipeline(pipeline=transformation, proc_strategy=proc_strategy)
 
         else:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
-            raise RuntimeError('[Loki] Could not batch process {transformation_or_pipeline}')
+            raise RuntimeError(f'Could not batch process {transformation}')
 
-    def process_pipeline(self, pipeline):
+    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT):
         """
         Process a given :any:`Pipeline` by applying its assocaited
         transformations in turn.
@@ -416,11 +450,14 @@ class Scheduler:
         ----------
         transformation : :any:`Pipeline`
             The transformation pipeline to apply
+        proc_strategy : :any:`ProcessingStrategy`
+            The processing strategy to use when applying the given
+            :data:`pipeline` to the scheduler's graph.
         """
         for transformation in pipeline.transformations:
-            self.process_transformation(transformation)
+            self.process_transformation(transformation, proc_strategy=proc_strategy)
 
-    def process_transformation(self, transformation):
+    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -445,6 +482,9 @@ class Scheduler:
         ----------
         transformation : :any:`Transformation`
             The transformation to apply over the dependency tree
+        proc_strategy : :any:`ProcessingStrategy`
+            The processing strategy to use when applying the given
+            :data:`transformation` to the scheduler's graph.
         """
         def _get_definition_items(_item, sgraph_items):
             # For backward-compatibility with the DependencyTransform and LinterTransformation
@@ -463,6 +503,10 @@ class Scheduler:
                     if transformation.process_ignored_items or not item.is_ignored:
                         items += (item,) + child_items
             return items
+
+        if proc_strategy not in (ProcessingStrategy.SEQUENCE, ProcessingStrategy.PLAN):
+            error(f'[Loki::Scheduler] Processing {proc_strategy} is not implemented!')
+            raise RuntimeError(f'Could not batch process {transformation}')
 
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
@@ -498,7 +542,8 @@ class Scheduler:
                     _item.scope_ir, role=_item.role, mode=_item.mode,
                     item=_item, targets=_item.targets, items=_get_definition_items(_item, sgraph_items),
                     successors=graph.successors(_item, item_filter=item_filter),
-                    depths=graph.depths, build_args=self.build_args
+                    depths=graph.depths, build_args=self.build_args,
+                    plan_mode=proc_strategy == ProcessingStrategy.PLAN
                 )
 
         if transformation.renames_items:
@@ -609,72 +654,22 @@ class Scheduler:
                 warning(f'[Loki] Failed to render filegraph due to graphviz error:\n  {e}')
 
     @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
-    def write_cmake_plan(self, filepath, mode, buildpath, rootpath):
+    def write_cmake_plan(self, filepath, rootpath=None):
         """
         Generate the "plan file" for CMake
 
-        The plan file is a CMake file defining three lists:
+        See :any:`CMakePlanTransformation` for the specification of that file.
 
-        * ``LOKI_SOURCES_TO_TRANSFORM``: The list of files that are
-          processed in the dependency graph
-        * ``LOKI_SOURCES_TO_APPEND``: The list of files that are created
-          and have to be added to the build target as part of the processing
-        * ``LOKI_SOURCES_TO_REMOVE``: The list of files that are no longer
-          required (because they have been replaced by transformed files) and
-          should be removed from the build target.
-
-        These lists are used by the CMake wrappers to schedule the source
-        updates and update the source lists of the CMake target object accordingly.
+        Parameters
+        ----------
+        filepath : str or Path
+            The path of the CMake file to write.
+        rootpath : str or Path (optional)
+            If given, all paths in the CMake file will be made relative to this root directory
         """
         info(f'[Loki] Scheduler writing CMake plan: {filepath}')
 
-        rootpath = None if rootpath is None else Path(rootpath).resolve()
-        buildpath = None if buildpath is None else Path(buildpath)
-        sources_to_append = []
-        sources_to_remove = []
-        sources_to_transform = []
-
-        # Filter the SGraph to get a pure call-tree
-        item_filter = ProcedureItem
-        if self.config.enable_imports:
-            item_filter = as_tuple(item_filter) + (ModuleItem,)
-        graph = self.sgraph.as_filegraph(
-            self.item_factory, self.config, item_filter=item_filter,
-            exclude_ignored=True
-        )
-        traversal = SFilter(graph, reverse=False, include_external=False)
-        for item in traversal:
-            if item.is_ignored:
-                continue
-
-            sourcepath = item.path.resolve()
-            newsource = sourcepath.with_suffix(f'.{mode.lower()}.F90')
-            if buildpath:
-                newsource = buildpath/newsource.name
-
-            # Make new CMake paths relative to source again
-            if rootpath is not None:
-                sourcepath = sourcepath.relative_to(rootpath)
-
-            debug(f'Planning:: {item.name} (role={item.role}, mode={mode})')
-
-            # Inject new object into the final binary libs
-            if newsource not in sources_to_append:
-                sources_to_transform += [sourcepath]
-                if item.replicate:
-                    # Add new source file next to the old one
-                    sources_to_append += [newsource]
-                else:
-                    # Replace old source file to avoid ghosting
-                    sources_to_append += [newsource]
-                    sources_to_remove += [sourcepath]
-
-        with Path(filepath).open('w') as f:
-            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
-            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
-
-            s_append = '\n'.join(f'    {s}' for s in sources_to_append)
-            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
-
-            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
-            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+        from loki.transformations.build_system.plan import CMakePlanTransformation  # pylint: disable=import-outside-toplevel
+        planner = CMakePlanTransformation(rootpath=rootpath)
+        self.process(planner, proc_strategy=ProcessingStrategy.PLAN)
+        planner.write_plan(filepath)

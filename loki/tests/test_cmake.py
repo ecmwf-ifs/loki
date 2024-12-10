@@ -71,9 +71,32 @@ def fixture_config(tmp_dir):
     the file path
     """
     default_config = {
-        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True},
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'enable_imports': True
+        },
         'routines': {
             'driverB': {'role': 'driver'},
+        },
+        'transformations': {
+            'IdemTrafo': {
+                'classname': 'IdemTransformation',
+                'module': 'loki.transformations.idempotence',
+            },
+            'FileWriteTransformation': {
+                'classname': 'FileWriteTransformation',
+                'module': 'loki.transformations.build_system',
+                'options': {
+                    'include_module_var_imports': True
+                }
+            }
+        },
+        'pipelines': {
+            'idem': {
+                'transformations': ['IdemTrafo']
+            }
         }
     }
     filepath = tmp_dir/'test_cmake_loki.config'
@@ -101,30 +124,25 @@ def fixture_loki_install(here, tmp_dir, ecbuild, silent, request):
     Install Loki using CMake into an install directory
     """
     builddir = tmp_dir/'loki_bootstrap'
-    if builddir.exists():
-        shutil.rmtree(builddir)
-    builddir.mkdir()
-    cmd = ['cmake', '-DENABLE_CLAW=OFF', f'-DCMAKE_MODULE_PATH={ecbuild}/cmake', str(here.parent.parent)]
+    cmd = [
+        'cmake', f'-DCMAKE_MODULE_PATH={ecbuild}/cmake',
+        '-S', str(here.parent.parent),
+        '-B', str(builddir)
+    ]
     if request.param:
         cmd += ['-DENABLE_EDITABLE=ON']
     else:
         cmd += ['-DENABLE_EDITABLE=OFF']
 
-    execute(cmd, silent=silent, cwd=builddir)
+    execute(cmd, silent=silent, cwd=tmp_dir)
 
     lokidir = tmp_dir/'loki'
-    if lokidir.exists():
-        shutil.rmtree(lokidir)
     execute(
         ['cmake', '--install', '.', '--prefix', str(lokidir)],
         silent=True, cwd=builddir
     )
 
     yield builddir, lokidir
-    if builddir.exists():
-        shutil.rmtree(builddir)
-    if lokidir.exists():
-        shutil.rmtree(lokidir)
 
 
 @contextmanager
@@ -137,7 +155,6 @@ def clean_builddir(builddir):
         shutil.rmtree(builddir)
     builddir.mkdir()
     yield builddir
-    shutil.rmtree(builddir)
 
 
 @pytest.fixture(scope='module', name='cmake_project')
@@ -158,7 +175,6 @@ ecbuild_find_package( loki REQUIRED )
 
 loki_transform_plan(
     MODE      idem
-    FRONTEND  fp
     CONFIG    {config}
     SOURCEDIR ${{CMAKE_CURRENT_SOURCE_DIR}}
     CALLGRAPH ${{CMAKE_CURRENT_BINARY_DIR}}/loki_callgraph
@@ -166,8 +182,6 @@ loki_transform_plan(
     SOURCES
         {proj_a}
         {proj_b}
-    HEADERS
-        {proj_a}/module/header_mod.f90
 )
     """
     filepath = srcdir/'CMakeLists.txt'

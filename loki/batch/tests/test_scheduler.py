@@ -64,7 +64,7 @@ from loki import (
 from loki.batch import (
     Scheduler, SchedulerConfig, Item, ProcedureItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
-    ExternalItem, Transformation, Pipeline
+    ExternalItem, Transformation, Pipeline, ProcessingStrategy
 )
 from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
@@ -74,7 +74,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindInlineCalls, FindVariables
 )
 from loki.transformations import (
-    DependencyTransformation, ModuleWrapTransformation
+    DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
 
 
@@ -1001,10 +1001,13 @@ def test_scheduler_missing_files(testdir, config, frontend, strict, tmp_path):
     # Check processing with missing items
     class CheckApply(Transformation):
 
-        def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+        def apply(self, source, post_apply_rescope_symbols=False, plan_mode=False, **kwargs):
             assert 'item' in kwargs
             assert not isinstance(kwargs['item'], ExternalItem)
-            super().apply(source, post_apply_rescope_symbols=post_apply_rescope_symbols, **kwargs)
+            super().apply(
+                source, post_apply_rescope_symbols=post_apply_rescope_symbols,
+                plan_mode=plan_mode, **kwargs
+            )
 
     if strict:
         with pytest.raises(RuntimeError):
@@ -1156,35 +1159,35 @@ def test_scheduler_cmake_planner(tmp_path, testdir, frontend):
     proj_b = sourcedir/'projB'
 
     config = SchedulerConfig.from_dict({
-        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'ignore': ('header_mod',)},
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'ignore': ('header_mod',),
+            'mode': 'foobar'
+        },
         'routines': {
             'driverB': {'role': 'driver'},
             'kernelB': {'ignore': ['ext_driver']},
         }
     })
+    builddir = tmp_path/'scheduler_cmake_planner_dummy_dir'
+    builddir.mkdir(exist_ok=True)
 
     # Populate the scheduler
     # (this is the same as SchedulerA in test_scheduler_dependencies_ignore, so no need to
     # check scheduler set-up itself)
     scheduler = Scheduler(
         paths=[proj_a, proj_b], includes=proj_a/'include',
-        config=config, frontend=frontend, xmods=[tmp_path]
+        config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=builddir
     )
 
     # Apply the transformation
-    builddir = tmp_path/'scheduler_cmake_planner_dummy_dir'
-    builddir.mkdir(exist_ok=True)
     planfile = builddir/'loki_plan.cmake'
 
-    scheduler.write_cmake_plan(
-        filepath=planfile, mode='foobar', buildpath=builddir, rootpath=sourcedir
-    )
-
-    # Validate the generated lists
-    expected_files = {
-        proj_a/'module/driverB_mod.f90', proj_a/'module/kernelB_mod.F90',
-        proj_a/'module/compute_l1_mod.f90', proj_a/'module/compute_l2_mod.f90'
-    }
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.write_cmake_plan(filepath=planfile, rootpath=sourcedir)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
