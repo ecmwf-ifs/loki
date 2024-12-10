@@ -12,7 +12,7 @@ the build system
 
 from pathlib import Path
 
-from loki.batch import Transformation
+from loki.batch.transformation import Transformation
 from loki.logging import debug
 
 class CMakePlanTransformation(Transformation):

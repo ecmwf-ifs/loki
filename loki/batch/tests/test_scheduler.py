@@ -1001,10 +1001,13 @@ def test_scheduler_missing_files(testdir, config, frontend, strict, tmp_path):
     # Check processing with missing items
     class CheckApply(Transformation):
 
-        def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+        def apply(self, source, post_apply_rescope_symbols=False, plan_mode=False, **kwargs):
             assert 'item' in kwargs
             assert not isinstance(kwargs['item'], ExternalItem)
-            super().apply(source, post_apply_rescope_symbols=post_apply_rescope_symbols, **kwargs)
+            super().apply(
+                source, post_apply_rescope_symbols=post_apply_rescope_symbols,
+                plan_mode=plan_mode, **kwargs
+            )
 
     if strict:
         with pytest.raises(RuntimeError):
