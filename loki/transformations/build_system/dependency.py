@@ -133,6 +133,10 @@ class DependencyTransformation(Transformation):
         if self.replace_ignore_items and (item := kwargs.get('item')):
             targets += tuple(str(i).lower() for i in item.ignore)
         self.rename_imports(module, imports=module.imports, targets=targets)
+        active_nodes = None
+        if self.remove_inactive_items and not kwargs.get('items') is None:
+            active_nodes = [item.scope_ir.name.lower() for item in kwargs['items']]
+        self.rename_access_specs(module, targets=targets, active_nodes=active_nodes)
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -328,6 +332,34 @@ class DependencyTransformation(Transformation):
 
         if import_map:
             source.spec = Transformer(import_map).visit(source.spec)
+
+    def rename_access_specs(self, module, targets=None, active_nodes=None):
+        """
+        Update/rename access specifiers.
+
+        Parameters
+        ----------
+        module : :any:`Module`
+            The IR object to transform
+        targets : list of str
+            Optional list of subroutine names for which to modify access specs
+        active_nodes : list of str
+            Optional list of active nodes
+        """
+        if module.public_access_spec:
+            if active_nodes is not None:
+                new_access_spec = tuple(elem for elem in module.public_access_spec if elem in active_nodes)
+            else:
+                new_access_spec = module.public_access_spec
+            module.public_access_spec = tuple(f'{elem}{self.suffix}' if not targets or elem in targets else
+                    elem for elem in new_access_spec)
+        if module.private_access_spec:
+            if active_nodes is not None:
+                new_access_spec = tuple(elem for elem in module.private_access_spec if elem in active_nodes)
+            else:
+                new_access_spec = module.public_access_spec
+            module.private_access_spec = tuple(f'{elem}{self.suffix}' if not targets or elem in targets
+                    else elem for elem in new_access_spec)
 
     def rename_interfaces(self, intfs, targets=None):
         """
