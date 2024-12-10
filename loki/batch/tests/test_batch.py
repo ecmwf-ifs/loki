@@ -347,7 +347,7 @@ def test_module_item4(testdir):
     # Make sure interfaces are correctly identified as definitions
     item = get_item(ModuleItem, proj/'some_module.F90', 'some_module', RegexParserClass.ProgramUnitClass)
     definitions = item.definitions
-    assert len(definitions) == 8
+    assert len(definitions) == 6
     assert len(item.ir.interfaces) == 1
     assert item.ir.interfaces[0] in definitions
 
@@ -355,7 +355,7 @@ def test_module_item4(testdir):
     item_factory.item_cache[item.name] = item
 
     items = item.create_definition_items(item_factory=item_factory)
-    assert len(items) == 10
+    assert len(items) == 8
     assert len(set(items)) == 6
     assert 'some_module#add_args' in item_factory.item_cache
     assert isinstance(item_factory.item_cache['some_module#add_args'], InterfaceItem)
