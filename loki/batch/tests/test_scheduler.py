@@ -64,7 +64,7 @@ from loki import (
 from loki.batch import (
     Scheduler, SchedulerConfig, Item, ProcedureItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
-    ExternalItem, Transformation, Pipeline
+    ExternalItem, Transformation, Pipeline, ProcessingStrategy
 )
 from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
@@ -1183,7 +1183,7 @@ def test_scheduler_cmake_planner(tmp_path, testdir, frontend):
     # Apply the transformation
     planfile = builddir/'loki_plan.cmake'
 
-    scheduler.process(FileWriteTransformation(), plan=True)
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
     scheduler.write_cmake_plan(filepath=planfile, rootpath=sourcedir)
 
     # Validate the plan file content

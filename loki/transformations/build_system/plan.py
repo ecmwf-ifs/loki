@@ -17,9 +17,30 @@ from loki.logging import debug
 
 class CMakePlanTransformation(Transformation):
     """
-    Generate the "plan file" for CMake
+    Gather the planning information from all :any:`Item.trafo_data` to which
+    this information is applied and allows writing a CMake plan file
 
-    The plan file is a CMake file defining three lists:
+    This requires that :any:`FileWriteTransformation` has been applied in planning
+    mode first.
+
+    Applying this transformation to a :any:`Item` updates internal lists:
+
+    * :attr:`sources_to_transform`: The path of all source files that contain
+      objects that are transformed by a Loki transformation in the pipeline
+    * :attr:`sources_to_append`: The path of any new source files that exist
+      as a consequence of the Loki transformation pipeline, e.g., transformed
+      source files that are written.
+    * :attr:`sources_to_remove`: The path of any existing source files that
+      are to be removed from the compilation target. This includes all items
+      that don't have the :any:`Item.replicate` property.
+
+    The :any:`Sourcefile.path` is used to determine the file path from which a
+    Fortran sourcefile was read. New paths are provided in
+    ``item.trafo_data['FileWriteTransformation']['path']``.
+
+    The method :meth:`write_plan` allows to write the gathered information to
+    a CMake file that can be included in the CMake scripts that build a library.
+    The plan file is a CMake file defining three lists matching the above:
 
     * ``LOKI_SOURCES_TO_TRANSFORM``: The list of files that are
         processed in the dependency graph
@@ -29,10 +50,14 @@ class CMakePlanTransformation(Transformation):
         required (because they have been replaced by transformed files) and
         should be removed from the build target.
 
+    These lists are used by the Loki CMake wrappers (particularly
+    ``loki_transform_target``) to schedule the source updates and update the
+    source lists of the CMake target object accordingly.
+
     Parameters
     ----------
     rootpath : str (optional)
-
+        If given, all paths will be resolved relative to this root directory
     """
 
     # This transformation is applied over the file graph
@@ -73,6 +98,9 @@ class CMakePlanTransformation(Transformation):
                 self.sources_to_remove += [sourcepath]
 
     def write_plan(self, filepath):
+        """
+        Write the CMake plan file to :data:`filepath`
+        """
         with Path(filepath).open('w') as f:
             s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform)
             f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')

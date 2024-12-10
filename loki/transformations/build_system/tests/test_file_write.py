@@ -15,7 +15,7 @@ from subprocess import CalledProcessError
 
 import pytest
 
-from loki.batch import Scheduler, SchedulerConfig
+from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.frontend import available_frontends, OMNI
 from loki.logging import log_levels
 from loki.transformations.build_system import FileWriteTransformation
@@ -162,7 +162,7 @@ end module d_mod
     # Generate the CMake plan
     plan_file = tmp_path/'plan.cmake'
     root_path = tmp_path if use_rootpath else None
-    scheduler.process(transformation, plan=True)
+    scheduler.process(transformation, proc_strategy=ProcessingStrategy.PLAN)
     scheduler.write_cmake_plan(filepath=plan_file, rootpath=root_path)
 
     # Validate the plan file content
@@ -294,7 +294,7 @@ end subroutine d
     transformation = FileWriteTransformation(include_module_var_imports=True)
 
     # Generate the CMake plan
-    scheduler.process(transformation, plan=True)
+    scheduler.process(transformation, proc_strategy=ProcessingStrategy.PLAN)
     plan_file = tmp_path/'plan.cmake'
 
     caplog.clear()

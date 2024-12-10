@@ -20,7 +20,7 @@ from loki import (
     config as loki_config, Sourcefile, Frontend, as_tuple,
     set_excepthook, auto_post_mortem_debugger, info, warning
 )
-from loki.batch import Pipeline, Scheduler, SchedulerConfig
+from loki.batch import Pipeline, Scheduler, SchedulerConfig, ProcessingStrategy
 
 # Get generalized transformations provided by Loki
 from loki.transformations.argument_shape import (
@@ -140,11 +140,11 @@ def convert(
 
     loki_config['log-level'] = log_level
 
-    plan = plan_file is not None
-
-    if plan:
+    if plan_file is not None:
+        processing_strategy = ProcessingStrategy.PLAN
         info(f'[Loki] Creating CMake plan file from config: {config}')
     else:
+        processing_strategy = ProcessingStrategy.DEFAULT
         info(f'[Loki] Batch-processing source files using config: {config} ')
 
     config = SchedulerConfig.from_file(config)
@@ -191,7 +191,7 @@ def convert(
         info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
         info(str(config.pipelines[mode]))
 
-        scheduler.process(config.pipelines[mode], plan=plan)
+        scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
 
         mode = mode.replace('-', '_')  # Sanitize mode string
 
@@ -199,9 +199,9 @@ def convert(
         file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
         if not file_write_trafo:
             file_write_trafo = FileWriteTransformation(cuf='cuf' in mode)
-        scheduler.process(transformation=file_write_trafo, plan=plan)
+        scheduler.process(transformation=file_write_trafo, proc_strategy=processing_strategy)
 
-        if plan:
+        if plan_file is not None:
             scheduler.write_cmake_plan(plan_file, rootpath=root)
 
         if callgraph:
@@ -209,7 +209,7 @@ def convert(
 
         return
 
-    if plan:
+    if plan_file is not None:
         msg = '[Loki] ERROR: Plan mode requires a pipeline definition in the config file.\n'
         msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
         sys.exit(msg)
