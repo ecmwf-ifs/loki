@@ -165,13 +165,14 @@ subroutine transform_associates_slices(arr2d, arr3d)
   integer, parameter :: idx_c = 3
 
   associate (a => arr2d(:, 1), b=>arr2d(:, idx_a), &
-           & c => arr3d(:,:,idx_c) )
+           & c => arr3d(:,:,idx_c), idx => some_obj%idx)
     b(:) = 42.0
     do i=1, 5
       a(i) = b(i+2)
       call another_routine(i, a(2:4), b)
       do j=1, 7
         c(i, j) = c(i, j) + b(j)
+        c(i, idx) = c(i, idx) + 42.0
       end do
     end do
   end associate
@@ -182,7 +183,7 @@ end subroutine transform_associates_slices
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
     assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 3
+    assert len(assigns) == 4
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].arguments[1] == 'a(2:4)'
@@ -193,12 +194,14 @@ end subroutine transform_associates_slices
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 3
+    assert len(assigns) == 4
     assert assigns[0].lhs == 'arr2d(:, idx_a)'
     assert assigns[1].lhs == 'arr2d(i, 1)'
     assert assigns[1].rhs == 'arr2d(i+2, idx_a)'
     assert assigns[2].lhs == 'arr3d(i, j, idx_c)'
     assert assigns[2].rhs == 'arr3d(i, j, idx_c) + arr2d(j, idx_a)'
+    assert assigns[3].lhs == 'arr3d(i, some_obj%idx, idx_c)'
+    assert assigns[3].rhs == 'arr3d(i, some_obj%idx, idx_c) + 42.0'
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
