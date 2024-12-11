@@ -121,9 +121,17 @@ class ResolveAssociateMapper(LokiIdentityMapper):
         free_symbols = tuple(e for e in expressions if isinstance(e, sym.RangeIndex))
         if any(s.lower not in (None, 1) for s in free_symbols):
             warning('WARNING: Bounds shifts through association is currently not supported')
-        symbol_map = dict(zip(free_symbols, indices))
 
-        return tuple(symbol_map.get(e, e) for e in expressions)
+        if len(free_symbols) == len(indices):
+            # If the provided indices are enough to bind free symbols,
+            # we match them in sequence.
+            it = iter(indices)
+            return tuple(
+                next(it) if isinstance(e, sym.RangeIndex) else e
+                for e in expressions
+            )
+
+        return expressions
 
     def map_scalar(self, expr, *args, **kwargs):
         # Skip unscoped expressions

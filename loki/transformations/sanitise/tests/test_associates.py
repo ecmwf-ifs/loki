@@ -156,18 +156,23 @@ def test_transform_associates_array_slices(frontend):
     Test the resolution of associated array slices.
     """
     fcode = """
-subroutine transform_associates_slices(arr2d)
+subroutine transform_associates_slices(arr2d, arr3d)
   use some_module, only: some_obj, another_routine
   implicit none
-  real, intent(inout) :: arr2d(:,:)
-  integer :: i
+  real, intent(inout) :: arr2d(:,:), arr3d(:,:,:)
+  integer :: i, j
   integer, parameter :: idx_a = 2
+  integer, parameter :: idx_c = 3
 
-  associate (a => arr2d(:, 1), b=>arr2d(:, idx_a) )
+  associate (a => arr2d(:, 1), b=>arr2d(:, idx_a), &
+           & c => arr3d(:,:,idx_c) )
     b(:) = 42.0
     do i=1, 5
       a(i) = b(i+2)
       call another_routine(i, a(2:4), b)
+      do j=1, 7
+        c(i, j) = c(i, j) + b(j)
+      end do
     end do
   end associate
 end subroutine transform_associates_slices
@@ -177,7 +182,7 @@ end subroutine transform_associates_slices
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
     assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 2
+    assert len(assigns) == 3
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].arguments[1] == 'a(2:4)'
@@ -188,10 +193,12 @@ end subroutine transform_associates_slices
 
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 2
+    assert len(assigns) == 3
     assert assigns[0].lhs == 'arr2d(:, idx_a)'
     assert assigns[1].lhs == 'arr2d(i, 1)'
     assert assigns[1].rhs == 'arr2d(i+2, idx_a)'
+    assert assigns[2].lhs == 'arr3d(i, j, idx_c)'
+    assert assigns[2].rhs == 'arr3d(i, j, idx_c) + arr2d(j, idx_a)'
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
