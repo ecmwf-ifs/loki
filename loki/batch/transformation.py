@@ -275,7 +275,7 @@ class Transformation:
         if plan_mode:
             self.plan_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
         else:
-            if not plan_mode and sourcefile._incomplete:
+            if sourcefile._incomplete:
                 raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
 
             self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
