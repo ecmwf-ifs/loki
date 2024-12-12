@@ -440,12 +440,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
         """Creates the pointers on data by wich the arrays declarations will be replaced, creates pointers on field_api objects.
         Creates field_new/field_delete calls (call to self.create_field_new and self.create_field_delete), to init/delete the pointers on field_api objects.
         """
-        #todo : check when var.name_parts[0] in routine.arguments
+        #TODO : isinstance(firstdim, RangeIndex) ?? 
         arrays = [
             var
             for var in FindVariables(Array).visit(routine.spec)
             if isinstance(var, Array)
-            and var.name_parts[0] not in routine.arguments
             and var.shape[0] in self.horizontal
         ]
         routine_map_arrays = {}
@@ -455,7 +454,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
             dim = len(var_shape) + 1  # Temporary dimensions + block
 
-            if var.name in routine.argnames:
+            isArgument = var.name in routine.argnames
+            if isArgument:
                 init = None
                 name_prefix = "YD_"
             else:
@@ -485,7 +485,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             ptr_var = var.clone(dimensions=shape)
 
             routine_map_arrays[var.name] = [field_api_ptr, ptr_var]
-            if var.name not in routine.argnames:
+            if not isArgument:
                 self.create_field_new(
                     routine, map_routine, var, field_api_ptr
                 )  # file in map_routine['field_new']
