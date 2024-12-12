@@ -128,6 +128,23 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
+    def plan_subroutine(self, routine, **kwargs):
+        """
+        Define the planning steps to apply for :any:`Subroutine` items.
+
+        For transformations that modify the dependencies of :data:`routine`
+        (e.g., adding new procedure calls, inlining calls, renaming the interface)
+        this should be implemented. It gets called via the dispatch method :meth:`apply`
+        if the optional ``plan_mode`` argument is set to `True`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine to be transformed.
+        **kwargs : optional
+            Keyword arguments for the transformation.
+        """
+
     def transform_module(self, module, **kwargs):
         """
         Defines the transformation to apply to :any:`Module` items.
@@ -135,6 +152,23 @@ class Transformation:
         For transformations that modify :any:`Module` objects, this method
         should be implemented. It gets called via the dispatch method
         :meth:`apply`.
+
+        Parameters
+        ----------
+        module : :any:`Module`
+            The module to be transformed.
+        **kwargs : optional
+            Keyword arguments for the transformation.
+        """
+
+    def plan_module(self, module, **kwargs):
+        """
+        Define the planning steps to apply for :any:`Module` items.
+
+        For transformations that modify the dependencies or definitions of :data:`module`
+        (e.g., renaming the module, adding new subroutines, adding or removing imports)
+        this should be implemented. It gets called via the dispatch method :meth:`apply`
+        if the optional ``plan_mode`` argument is set to `True`.
 
         Parameters
         ----------
@@ -160,7 +194,23 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
-    def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+    def plan_file(self, sourcefile, **kwargs):
+        """
+        Define the planning steps to apply for :any:`Sourcefile` items.
+
+        For transformations that modify the definitions or dependencies of :data:`sourcefile`
+        this should be implemented. It gets called via the dispatch method :meth:`apply`
+        if the optional ``plan_mode`` argument is set to `True`.
+
+        Parameters
+        ----------
+        sourcefile : :any:`Sourcefile`
+            The sourcefile to be transformed.
+        **kwargs : optional
+            Keyword arguments for the transformation.
+        """
+
+    def apply(self, source, post_apply_rescope_symbols=False, plan_mode=False, **kwargs):
         """
         Dispatch method to apply transformation to :data:`source`.
 
@@ -179,21 +229,23 @@ class Transformation:
             actual transformation.
         """
         if isinstance(source, Sourcefile):
-            self.apply_file(source, **kwargs)
+            self.apply_file(source, plan_mode=plan_mode, **kwargs)
 
         if isinstance(source, Subroutine):
-            self.apply_subroutine(source, **kwargs)
+            self.apply_subroutine(source, plan_mode=plan_mode, **kwargs)
 
         if isinstance(source, Module):
-            self.apply_module(source, **kwargs)
+            self.apply_module(source, plan_mode=plan_mode, **kwargs)
 
-        self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
+        if not plan_mode:
+            self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
 
-    def apply_file(self, sourcefile, **kwargs):
+    def apply_file(self, sourcefile, plan_mode=False, **kwargs):
         """
         Apply transformation to all items in :data:`sourcefile`.
 
-        This calls :meth:`transform_file`.
+        This calls :meth:`transform_file` or, if :data:`plan_mode` is enabled,
+        calls :meth:`plan_file`.
 
         If the :attr:`recurse_to_modules` class property is set, it
         will also invoke :meth:`apply` on all :any:`Module` objects in
@@ -206,14 +258,13 @@ class Transformation:
         ----------
         sourcefile : :any:`Sourcefile`
             The file to transform.
+        plan_mode : bool, optional
+            If enabled, apply planning mode.
         **kwargs : optional
             Keyword arguments that are passed on to transformation methods.
         """
         if not isinstance(sourcefile, Sourcefile):
             raise TypeError('Transformation.apply_file can only be applied to Sourcefile object')
-
-        if sourcefile._incomplete:
-            raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
 
         item = kwargs.pop('item', None)
         items = kwargs.pop('items', None)
@@ -221,7 +272,13 @@ class Transformation:
         targets = kwargs.pop('targets', None)
 
         # Apply file-level transformations
-        self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+        if plan_mode:
+            self.plan_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+        else:
+            if sourcefile._incomplete:
+                raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
+
+            self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse to modules, if configured
         if self.recurse_to_modules:
@@ -243,12 +300,20 @@ class Transformation:
                         # Provide the list of items that belong to this module
                         item_items = tuple(_it for _it in items if _it.scope is item.ir)
 
-                        self.transform_module(
-                            item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
-                        )
+                        if plan_mode:
+                            self.plan_module(
+                                item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                            )
+                        else:
+                            self.transform_module(
+                                item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                            )
             else:
                 for module in sourcefile.modules:
-                    self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                    if plan_mode:
+                        self.plan_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                    else:
+                        self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
 
         # Recurse into procedures, if configured
         if self.recurse_to_procedures:
@@ -256,18 +321,27 @@ class Transformation:
                 # Recursion into all subroutine items in the current file
                 for item in items:
                     if isinstance(item, ProcedureItem):
-                        self.transform_subroutine(
-                            item.ir, item=item, role=item.role, targets=item.targets, **kwargs
-                        )
+                        if plan_mode:
+                            self.plan_subroutine(
+                                item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                            )
+                        else:
+                            self.transform_subroutine(
+                                item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                            )
             else:
                 for routine in sourcefile.all_subroutines:
-                    self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                    if plan_mode:
+                        self.plan_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                    else:
+                        self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
 
-    def apply_subroutine(self, subroutine, **kwargs):
+    def apply_subroutine(self, subroutine, plan_mode=False, **kwargs):
         """
         Apply transformation to a given :any:`Subroutine` object and its members.
 
-        This calls :meth:`transform_subroutine`.
+        This calls :meth:`transform_subroutine` or, if :data:`plan_mode` is enabled,
+        calls :meth:`plan_subroutine`.
 
         If the :attr:`recurse_to_member_procedures` class property is
         set, it will also invoke :meth:`apply` on all
@@ -278,28 +352,34 @@ class Transformation:
         ----------
         subroutine : :any:`Subroutine`
             The subroutine to transform.
+        plan_mode : bool, optional
+            If enabled, apply planning mode.
         **kwargs : optional
             Keyword arguments that are passed on to transformation methods.
         """
         if not isinstance(subroutine, Subroutine):
             raise TypeError('Transformation.apply_subroutine can only be applied to Subroutine object')
 
-        if subroutine._incomplete:
-            raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
-
         # Apply the actual transformation for subroutines
-        self.transform_subroutine(subroutine, **kwargs)
+        if plan_mode:
+            self.plan_subroutine(subroutine, **kwargs)
+        else:
+            if subroutine._incomplete:
+                raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
+
+            self.transform_subroutine(subroutine, **kwargs)
 
         # Recurse to internal procedures
         if self.recurse_to_internal_procedures:
             for routine in subroutine.subroutines:
-                self.apply_subroutine(routine, **kwargs)
+                self.apply_subroutine(routine, plan_mode=plan_mode, **kwargs)
 
-    def apply_module(self, module, **kwargs):
+    def apply_module(self, module, plan_mode=False, **kwargs):
         """
         Apply transformation to a given :any:`Module` object and its members.
 
-        This calls :meth:`transform_module`.
+        This calls :meth:`transform_module` or, if :data:`plan_mode` is enabled,
+        calls :meth:`plan_module`.
 
         If the :attr:`recurse_to_procedures` class property is set,
         it will also invoke :meth:`apply` on all :any:`Subroutine`
@@ -309,22 +389,27 @@ class Transformation:
         ----------
         module : :any:`Module`
             The module to transform.
+        plan_mode : bool, optional
+            If enabled, apply planning mode.
         **kwargs : optional
             Keyword arguments that are passed on to transformation methods.
         """
         if not isinstance(module, Module):
             raise TypeError('Transformation.apply_module can only be applied to Module object')
 
-        if module._incomplete:
-            raise RuntimeError('Transformation.apply_module requires Module to be complete')
-
         # Apply the actual transformation for modules
-        self.transform_module(module, **kwargs)
+        if plan_mode:
+            self.plan_module(module, **kwargs)
+        else:
+            if module._incomplete:
+                raise RuntimeError('Transformation.apply_module requires Module to be complete')
+
+            self.transform_module(module, **kwargs)
 
         # Recurse to procedures contained in this module
         if self.recurse_to_procedures:
             for routine in module.subroutines:
-                self.apply_subroutine(routine, **kwargs)
+                self.apply_subroutine(routine, plan_mode=plan_mode, **kwargs)
 
     def post_apply(self, source, rescope_symbols=False):
         """

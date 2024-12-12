@@ -15,7 +15,7 @@ from subprocess import CalledProcessError
 
 import pytest
 
-from loki.batch import Scheduler, SchedulerConfig
+from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.frontend import available_frontends, OMNI
 from loki.logging import log_levels
 from loki.transformations.build_system import FileWriteTransformation
@@ -153,13 +153,17 @@ end module d_mod
     # Check the dependency graph
     assert expected_items == {item.name for item in scheduler.items}
 
+    # Set-up the file write
+    transformation = FileWriteTransformation(
+        suffix=suffix,
+        include_module_var_imports=enable_imports
+    )
+
     # Generate the CMake plan
     plan_file = tmp_path/'plan.cmake'
     root_path = tmp_path if use_rootpath else None
-    scheduler.write_cmake_plan(
-        filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
-        rootpath=root_path
-    )
+    scheduler.process(transformation, proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=root_path)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
@@ -192,10 +196,6 @@ end module d_mod
     }
 
     # Write the outputs
-    transformation = FileWriteTransformation(
-        suffix=suffix,
-        include_module_var_imports=enable_imports
-    )
     scheduler.process(transformation)
 
     # Validate the list of written files
@@ -290,15 +290,16 @@ end subroutine d
     # Check the dependency graph
     assert expected_items == {item.name for item in scheduler.items}
 
+    # Set-up the file write
+    transformation = FileWriteTransformation(include_module_var_imports=True)
+
     # Generate the CMake plan
+    scheduler.process(transformation, proc_strategy=ProcessingStrategy.PLAN)
     plan_file = tmp_path/'plan.cmake'
 
     caplog.clear()
     with caplog.at_level(log_levels['WARNING']):
-        scheduler.write_cmake_plan(
-            filepath=plan_file, mode=config.default['mode'], buildpath=out_path,
-            rootpath=tmp_path
-        )
+        scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
         if have_non_replicate_conflict:
             assert len(caplog.records) == 1
             assert 'c.f90' in caplog.records[0].message
@@ -319,7 +320,6 @@ end subroutine d
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {'a.foobar', 'b.foobar', 'c.foobar', 'd.foobar'}
 
     # Write the outputs
-    transformation = FileWriteTransformation(include_module_var_imports=True)
     scheduler.process(transformation)
 
     # Validate the list of written files
