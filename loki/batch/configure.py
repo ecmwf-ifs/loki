@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from fnmatch import fnmatch
+import fnmatch
 from itertools import accumulate
 from pathlib import Path
 import re
@@ -183,10 +183,10 @@ class SchedulerConfig:
                 }
 
         # Match against keys
-        keys = as_tuple(keys)
+        keys = tuple(key.lower() for key in as_tuple(keys))
         if use_pattern_matching:
-            return tuple(key for key in keys or () if any(fnmatch(name, key.lower()) for name in item_names))
-        return tuple(key for key in keys or () if key.lower() in item_names)
+            return tuple(key for key in keys if fnmatch.filter(item_names, key))
+        return tuple(key for key in keys if key in item_names)
 
     def create_item_config(self, name):
         """
@@ -233,7 +233,7 @@ class SchedulerConfig:
         frontend_args = default_args.copy()
         for key, args in (self.frontend_args or {}).items():
             pattern = key.lower() if key[0] == '/' else f'*{key}'.lower()
-            if fnmatch(path, pattern):
+            if fnmatch.fnmatch(path, pattern):
                 frontend_args.update(args)
                 return frontend_args
         return frontend_args
@@ -242,7 +242,7 @@ class SchedulerConfig:
         """
         Check if the item with the given :data:`name` is marked as `disabled`
         """
-        return len(self.match_item_keys(name, self.disable, use_pattern_matching=True, match_item_parents=True)) > 0
+        return bool(self.match_item_keys(name, self.disable, use_pattern_matching=True, match_item_parents=True))
 
 
 class TransformationConfig:

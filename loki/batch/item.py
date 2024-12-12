@@ -623,10 +623,7 @@ class ModuleItem(Item):
         global variables.
         """
         self.concretize_definitions()
-        definitions = tuple(
-            d for d in self.ir.definitions
-            if not isinstance(d, (MetaSymbol, TypedSymbol)) or isinstance(d, ProcedureSymbol)
-        )
+        definitions = self.ir.subroutines + as_tuple(FindNodes((TypeDef, Interface)).visit(self.ir.spec))
         return definitions
 
     @property
@@ -1118,8 +1115,6 @@ class ItemFactory:
         :any:`Item` or None
             The item object or `None` if disabled or impossible to create
         """
-        if config and config.is_disabled(item_name):
-            return None
         if item_name in self.item_cache:
             return self.item_cache[item_name]
 
@@ -1489,7 +1484,7 @@ class ItemFactory:
             ``True`` if matched successfully via :data:`config` or :data:`ignore` list,
             otherwise ``False``
         """
-        return (
-            (config and config.is_disabled(name)) or
-            (ignore and SchedulerConfig.match_item_keys(name, ignore, use_pattern_matching=True))
+        keys = as_tuple(config.disable if config else ()) + as_tuple(ignore)
+        return keys and SchedulerConfig.match_item_keys(
+            name, keys, use_pattern_matching=True, match_item_parents=True
         )
