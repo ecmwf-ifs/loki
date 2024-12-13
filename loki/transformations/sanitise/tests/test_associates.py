@@ -33,7 +33,7 @@ subroutine transform_associates_simple
   real :: local_var
 
   associate (a => some_obj%a)
-    local_var = a
+    local_var = a(:)
   end associate
 end subroutine transform_associates_simple
 """
@@ -42,7 +42,7 @@ end subroutine transform_associates_simple
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
     assign = FindNodes(ir.Assignment).visit(routine.body)[0]
-    assert assign.rhs == 'a' and 'some_obj' not in assign.rhs
+    assert assign.rhs == 'a(:)' and 'some_obj' not in assign.rhs
     assert assign.rhs.type.dtype == BasicType.DEFERRED
 
     # Now apply the association resolver
@@ -51,7 +51,7 @@ end subroutine transform_associates_simple
     assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
     assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
     assign = FindNodes(ir.Assignment).visit(routine.body)[0]
-    assert assign.rhs == 'some_obj%a'
+    assert assign.rhs == 'some_obj%a(:)'
     assert assign.rhs.parent == 'some_obj'
     assert assign.rhs.type.dtype == BasicType.DEFERRED
     assert assign.rhs.scope == routine
@@ -146,6 +146,67 @@ end subroutine transform_associates_simple
 
     # Test the special case of shapes derived from allocations
     assert routine.variable_map['local_arr'].type.shape == ('some_obj%a%n',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_array_slices(frontend):
+    """
+    Test the resolution of associated array slices.
+    """
+    fcode = """
+subroutine transform_associates_slices(arr2d, arr3d)
+  use some_module, only: some_obj, another_routine
+  implicit none
+  real, intent(inout) :: arr2d(:,:), arr3d(:,:,:)
+  integer :: i, j
+  integer, parameter :: idx_a = 2
+  integer, parameter :: idx_c = 3
+
+  associate (a => arr2d(:, 1), b=>arr2d(:, idx_a), &
+           & c => arr3d(:,:,idx_c), idx => some_obj%idx)
+    b(:) = 42.0
+    do i=1, 5
+      a(i) = b(i+2)
+      call another_routine(i, a(2:4), b)
+      do j=1, 7
+        c(i, j) = c(i, j) + b(j)
+        c(i, idx) = c(i, idx) + 42.0
+      end do
+    end do
+  end associate
+end subroutine transform_associates_slices
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments[1] == 'a(2:4)'
+    assert calls[0].arguments[2] == 'b'
+
+    # Now apply the association resolver
+    do_resolve_associates(routine)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    assert assigns[0].lhs == 'arr2d(:, idx_a)'
+    assert assigns[1].lhs == 'arr2d(i, 1)'
+    assert assigns[1].rhs == 'arr2d(i+2, idx_a)'
+    assert assigns[2].lhs == 'arr3d(i, j, idx_c)'
+    assert assigns[2].rhs == 'arr3d(i, j, idx_c) + arr2d(j, idx_a)'
+    assert assigns[3].lhs == 'arr3d(i, some_obj%idx, idx_c)'
+    assert assigns[3].rhs == 'arr3d(i, some_obj%idx, idx_c) + 42.0'
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments[1] == 'arr2d(2:4, 1)'
+    assert calls[0].arguments[2] == 'arr2d(:, idx_a)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(

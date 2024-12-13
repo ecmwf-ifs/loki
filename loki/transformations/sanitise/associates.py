@@ -13,8 +13,9 @@ code easier.
 """
 
 from loki.batch import Transformation
-from loki.expression import LokiIdentityMapper
+from loki.expression import symbols as sym,  LokiIdentityMapper
 from loki.ir import nodes as ir, Transformer, NestedTransformer
+from loki.logging import warning
 from loki.scope import SymbolTable
 from loki.tools import dict_override
 
@@ -111,6 +112,27 @@ class ResolveAssociateMapper(LokiIdentityMapper):
         self.start_depth = start_depth
         super().__init__(*args, **kwargs)
 
+    @staticmethod
+    def _match_range_indices(expressions, indices):
+        """ Map :data:`indices` to free ranges in :data:`expressions` """
+        assert isinstance(expressions, tuple)
+        assert isinstance(indices, tuple)
+
+        free_symbols = tuple(e for e in expressions if isinstance(e, sym.RangeIndex))
+        if any(s.lower not in (None, 1) for s in free_symbols):
+            warning('WARNING: Bounds shifts through association is currently not supported')
+
+        if len(free_symbols) == len(indices):
+            # If the provided indices are enough to bind free symbols,
+            # we match them in sequence.
+            it = iter(indices)
+            return tuple(
+                next(it) if isinstance(e, sym.RangeIndex) else e
+                for e in expressions
+            )
+
+        return expressions
+
     def map_scalar(self, expr, *args, **kwargs):
         # Skip unscoped expressions
         if not hasattr(expr, 'scope'):
@@ -143,8 +165,10 @@ class ResolveAssociateMapper(LokiIdentityMapper):
         return expr.clone(scope=scope.parent)
 
     def map_array(self, expr, *args, **kwargs):
-        """ Special case for arrys: we need to preserve the dimensions """
-        new = self.map_variable_symbol(expr, *args, **kwargs)
+        """ Partially resolve dimension indices and handle shape """
+
+        # Recurse over existing array dimensions
+        expr_dims = self.rec(expr.dimensions, *args, **kwargs)
 
         # Recurse over the type's shape
         _type = expr.type
@@ -152,8 +176,20 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             new_shape = self.rec(expr.type.shape, *args, **kwargs)
             _type = expr.type.clone(shape=new_shape)
 
+        # Stop if scope is not an associate
+        if not isinstance(expr.scope, ir.Associate):
+            return expr.clone(dimensions=expr_dims, type=_type)
+
+        new = self.map_scalar(expr, *args, **kwargs)
+
         # Recurse over array dimensions
-        new_dims = self.rec(expr.dimensions, *args, **kwargs)
+        if isinstance(new, sym.Array) and new.dimensions:
+            # Resolve unbound range symbols form existing indices
+            new_dims = self.rec(new.dimensions, *args, **kwargs)
+            new_dims = self._match_range_indices(new_dims, expr_dims)
+        else:
+            new_dims = expr_dims
+
         return new.clone(dimensions=new_dims, type=_type)
 
     map_variable_symbol = map_scalar
