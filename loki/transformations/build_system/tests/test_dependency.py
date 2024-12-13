@@ -135,8 +135,16 @@ MODULE kernel_access_spec_mod
   INTEGER, PUBLIC :: some_const
   INTEGER :: another_const
 
+  type :: t_type_1
+    integer :: i_1
+  end type
+
+  type :: t_type_2
+    integer :: i_2
+  end type
+
 PRIVATE
-PUBLIC kernel, kernel_2, unused_kernel, another_const
+PUBLIC kernel, kernel_2, unused_kernel, another_const, t_type_2
 CONTAINS
     SUBROUTINE kernel(a, b, c)
     IMPLICIT NONE
@@ -215,6 +223,10 @@ END SUBROUTINE driver
     assert kernel.modules[0].variables[0].name == 'some_const'
     assert kernel.modules[0].variables[1].name == 'another_const'
 
+    # Check that the typedefs remains unchanged
+    assert kernel.modules[0].typedefs[0].name == 't_type_1'
+    assert kernel.modules[0].typedefs[1].name == 't_type_2'
+
     # Check that calls and matching import have been diverted to the re-generated routine
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
@@ -232,10 +244,11 @@ END SUBROUTINE driver
     assert 'some_const' in [str(s) for s in driver['driver'].spec.body[2].symbols]
 
     if use_scheduler:
-        assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test', 'another_const')
+        assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test', 'another_const',
+                                                        't_type_2')
     else:
         assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test', 'unused_kernel_test',
-                                                        'another_const')
+                                                        'another_const', 't_type_2')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
