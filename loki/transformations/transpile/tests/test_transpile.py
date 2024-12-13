@@ -1022,7 +1022,7 @@ end subroutine transpile_call_driver
     if chevron:
         calls = FindNodes(ir.CallStatement).visit(routine.body)
         calls[0]._update(chevron=(sym.IntLiteral(1), sym.IntLiteral(1)))
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, path=tmp_path, language=language)
+    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, language=language)
     f2c.apply(source=module.subroutine_map['transpile_call_kernel'], path=tmp_path, role='kernel')
     ccode_kernel = f2c.c_path.read_text().replace(' ', '').replace('\n', '')
     f2c.apply(source=routine, path=tmp_path, role='kernel')
@@ -1465,7 +1465,10 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
 
     proj = here / '../../tests/sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver'],
+        output_dir=tmp_path, frontend=frontend, xmods=[tmp_path]
+    )
 
     dic2p = {'nz': 137}
     cuda_transform = SCCLowLevelParametrise(
@@ -1475,7 +1478,7 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
         use_c_ptr=True, dic2p=dic2p, path=here, mode='cuda'
     )
     scheduler.process(transformation=cuda_transform)
-    f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
+    f2c_transformation = FortranCTransformation(language='cuda', use_c_ptr=True)
     scheduler.process(transformation=f2c_transformation)
 
     kernel = scheduler['kernel_mod#kernel'].ir
@@ -1558,7 +1561,10 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
 
     proj = here / '../../tests/sources/projSccCuf/module'
 
-    scheduler = Scheduler(paths=[proj], config=config, seed_routines=['driver'], frontend=frontend, xmods=[tmp_path])
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['driver'],
+        output_dir=tmp_path, frontend=frontend, xmods=[tmp_path]
+    )
 
     cuda_transform = SCCLowLevelHoist(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
@@ -1567,7 +1573,7 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
         use_c_ptr=True, path=here, mode='cuda'
     )
     scheduler.process(transformation=cuda_transform)
-    f2c_transformation = FortranCTransformation(path=tmp_path, language='cuda', use_c_ptr=True)
+    f2c_transformation = FortranCTransformation(language='cuda', use_c_ptr=True)
     scheduler.process(transformation=f2c_transformation)
 
     kernel = scheduler['kernel_mod#kernel'].ir

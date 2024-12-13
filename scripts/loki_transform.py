@@ -423,8 +423,9 @@ def convert(
         else:
             assert False
         scheduler.process(f2c_transformation)
+        build_args['output_dir'] = build
         for h in definitions:
-            f2c_transformation.apply(h, role='header')
+            f2c_transformation.apply(h, role='header', build_args=build_args)
         # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
         dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
         scheduler.process(dependency)

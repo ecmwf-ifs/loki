@@ -116,10 +116,9 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False, path=None, language='c'):
+    def __init__(self, inline_elementals=True, use_c_ptr=False, language='c'):
         self.inline_elementals = inline_elementals
         self.use_c_ptr = use_c_ptr
-        self.path = Path(path) if path is not None else None
         self.language = language.lower()
         self._supported_languages = ['c', 'cpp', 'cuda']
 
@@ -142,10 +141,12 @@ class FortranCTransformation(Transformation):
         return '.c'
 
     def transform_module(self, module, **kwargs):
-        if self.path is None:
-            path = Path(kwargs.get('path'))
+        if 'path' in kwargs:
+            path = kwargs.get('path')
         else:
-            path = self.path
+            build_args = kwargs.get('build_args')
+            path = Path(build_args.get('output_dir'))
+
         role = kwargs.get('role', 'kernel')
 
         for name, td in module.typedef_map.items():
@@ -163,10 +164,12 @@ class FortranCTransformation(Transformation):
             Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
 
     def transform_subroutine(self, routine, **kwargs):
-        if self.path is None:
-            path = Path(kwargs.get('path'))
+        if 'path' in kwargs:
+            path = kwargs.get('path')
         else:
-            path = self.path
+            build_args = kwargs.get('build_args')
+            path = Path(build_args.get('output_dir'))
+
         role = kwargs.get('role', 'kernel')
         item = kwargs.get('item', None)
         depths = kwargs.get('depths', None)
