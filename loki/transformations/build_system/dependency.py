@@ -137,13 +137,16 @@ class DependencyTransformation(Transformation):
         if self.remove_inactive_items and not kwargs.get('items') is None:
             active_nodes = [item.scope_ir.name.lower() for item in kwargs['items']]
         # rename target names in an access spec for both public and private access specs 
+        variables = module.variables
         if module.public_access_spec:
             module.public_access_spec = self.rename_access_spec_names(
-                module.public_access_spec, targets=targets, active_nodes=active_nodes
+                module.public_access_spec, targets=targets, active_nodes=active_nodes,
+                variables=variables
             )
         if module.private_access_spec:
             module.private_access_spec = self.rename_access_spec_names(
-                module.private_access_spec, targets=targets, active_nodes=active_nodes
+                module.private_access_spec, targets=targets, active_nodes=active_nodes,
+                variables=variables
             )
 
     def transform_subroutine(self, routine, **kwargs):
@@ -341,7 +344,7 @@ class DependencyTransformation(Transformation):
         if import_map:
             source.spec = Transformer(import_map).visit(source.spec)
 
-    def rename_access_spec_names(self, access_spec, targets=None, active_nodes=None):
+    def rename_access_spec_names(self, access_spec, targets=None, active_nodes=None, variables=None):
         """
         Rename target names in an access spec
         
@@ -356,14 +359,20 @@ class DependencyTransformation(Transformation):
             Optional list of subroutine names for which to modify access specs
         active_nodes : list of str
             Optional list of active nodes
+        variables : list of :any:`Expression`
+            Optional list of module variables
         """
-        if active_nodes:
-            access_spec = tuple(elem for elem in access_spec if elem in active_nodes)
+        module_variables = variables or ()
+        if active_nodes is not None:
+            access_spec_routines = tuple(elem for elem in access_spec if elem in active_nodes)
+        else:
+            access_spec_routines = tuple(elem for elem in access_spec if elem not in module_variables)
+        access_spec_vars = tuple(elem for elem in access_spec if elem in module_variables)
         return tuple(
             f'{elem}{self.suffix}' if not targets or elem in targets
             else elem
-            for elem in access_spec
-        )
+            for elem in access_spec_routines
+        ) + access_spec_vars
 
     def rename_interfaces(self, intfs, targets=None):
         """

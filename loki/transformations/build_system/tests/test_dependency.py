@@ -123,7 +123,7 @@ END SUBROUTINE driver
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI removes access specifiers ...')]))
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_access_specs(frontend, use_scheduler, tmp_path, config):
+def test_dependency_transformation_access_spec_names(frontend, use_scheduler, tmp_path, config):
     """
     Test that global variable imports are not renamed as a
     call statement would be.
@@ -133,9 +133,10 @@ def test_dependency_transformation_access_specs(frontend, use_scheduler, tmp_pat
 MODULE kernel_access_spec_mod
 
   INTEGER, PUBLIC :: some_const
+  INTEGER :: another_const
 
 PRIVATE
-PUBLIC kernel, kernel_2, unused_kernel
+PUBLIC kernel, kernel_2, unused_kernel, another_const
 CONTAINS
     SUBROUTINE kernel(a, b, c)
     IMPLICIT NONE
@@ -168,12 +169,12 @@ END MODULE kernel_access_spec_mod
 
     driver_fcode = """
 SUBROUTINE driver(a, b, c)
-    USE kernel_access_spec_mod, only: kernel
+    USE kernel_access_spec_mod, only: kernel, another_const
     USE kernel_access_spec_mod, only: some_const
     IMPLICIT NONE
     INTEGER, INTENT(INOUT) :: a, b, c
 
-    CALL kernel(a, b ,c)
+    CALL kernel(a, b, c)
 END SUBROUTINE driver
     """.strip()
 
@@ -212,13 +213,14 @@ END SUBROUTINE driver
 
     # Check that the global variable declaration remains unchanged
     assert kernel.modules[0].variables[0].name == 'some_const'
+    assert kernel.modules[0].variables[1].name == 'another_const'
 
     # Check that calls and matching import have been diverted to the re-generated routine
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
     imports = FindNodes(Import).visit(driver['driver'].spec)
-    assert len(imports) == 2
+    assert len(imports) == 3
     assert isinstance(imports[0], Import)
     assert driver['driver'].spec.body[0].module == 'kernel_access_spec_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver'].spec.body[0].symbols]
@@ -226,12 +228,14 @@ END SUBROUTINE driver
     # Check that global variable import remains unchanged
     assert isinstance(imports[1], Import)
     assert driver['driver'].spec.body[1].module == 'kernel_access_spec_mod'
-    assert 'some_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
+    assert 'another_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
+    assert 'some_const' in [str(s) for s in driver['driver'].spec.body[2].symbols]
 
     if use_scheduler:
-        assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test')
+        assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test', 'another_const')
     else:
-        assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test', 'unused_kernel_test')
+        assert kernel.modules[0].public_access_spec == ('kernel_test', 'kernel_2_test', 'unused_kernel_test',
+                                                        'another_const')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
