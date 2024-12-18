@@ -6,4 +6,5 @@
 # nor does it submit to any jurisdiction.
 
 from loki.transformations.transpile.fortran_c import * # noqa
+from loki.transformations.transpile.fortran_iso_c_wrapper import * # noqa
 from loki.transformations.transpile.fortran_python import * # noqa
