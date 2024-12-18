@@ -253,7 +253,7 @@ def test_inline_statement_functions(frontend, stmt_decls):
     real :: FOEDELTA
     FOEDELTA ( PTARE ) = PTARE + 1.0
     real :: FOEEW
-    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE)
+    FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE) + EXP(PTARE)
     """.strip()
 
     fcode = f"""
@@ -280,10 +280,10 @@ end subroutine stmt_func
 
     assert not FindNodes(ir.StatementFunction).visit(routine.spec)
     if stmt_decls:
-        assert not FindInlineCalls().visit(routine.body)
+        assert len(FindInlineCalls().visit(routine.body)) == 1
         assignments = FindNodes(ir.Assignment).visit(routine.body)
         assert assignments[0].lhs  == 'ret'
-        assert assignments[0].rhs  ==  "arr + arr + 1.0"
+        assert assignments[0].rhs  ==  "arr + arr + 1.0 + exp(arr)"
         assert assignments[1].lhs  == 'ret2'
         assert assignments[1].rhs  ==  "3.0 + 1.0"
     else:
