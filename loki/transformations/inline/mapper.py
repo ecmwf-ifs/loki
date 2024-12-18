@@ -58,8 +58,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         return expr.clone(parent=parent)
 
     def map_inline_call(self, expr, *args, **kwargs):
-        if expr.procedure_type is None or expr.procedure_type is BasicType.DEFERRED \
-           or expr.procedure_type.is_intrinsic:
+        if expr.procedure_type in (None, BasicType.DEFERRED) or expr.procedure_type.is_intrinsic:
             # Unkonw inline call, potentially an intrinsic
             # We still need to recurse and ensure re-scoping
             return super().map_inline_call(expr, *args, **kwargs)
