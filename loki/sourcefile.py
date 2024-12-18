@@ -72,6 +72,18 @@ class Sourcefile:
         self._incomplete = incomplete
         self._parser_classes = parser_classes
 
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        if 'path' not in kwargs:
+            kwargs['path'] = self.path
+        if self.ir is not None and 'ir' not in kwargs:
+            kwargs['ir'] = self.ir.recursive_clone()
+        if self.source is not None and 'source' not in kwargs:
+            kwargs['source'] = self._source.clone(file=kwargs['path']) # .clone()
+        return type(self)(**kwargs)
+
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
                   includes=None, defines=None, omni_includes=None,
