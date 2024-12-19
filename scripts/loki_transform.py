@@ -43,7 +43,9 @@ from loki.transformations.single_column import (
     ExtractSCATransformation, CLAWTransformation, SCCVectorPipeline,
     SCCHoistPipeline, SCCStackPipeline, SCCRawStackPipeline,
 )
-from loki.transformations.transpile import FortranCTransformation
+from loki.transformations.transpile import (
+    FortranCTransformation, FortranISOCWrapperTransformation
+)
 from loki.transformations.block_index_transformations import (
         LowerBlockIndexTransformation, InjectBlockIndexTransformation,
         LowerBlockLoopTransformation
@@ -417,15 +419,18 @@ def convert(
     mode = mode.replace('-', '_')  # Sanitize mode string
     if mode in ['c', 'cuda_parametrise', 'cuda_hoist']:
         if mode == 'c':
-            f2c_transformation = FortranCTransformation(path=build)
+            f2c_transformation = FortranCTransformation()
+            f2c_wrapper = FortranISOCWrapperTransformation()
         elif mode in ['cuda_parametrise', 'cuda_hoist']:
-            f2c_transformation = FortranCTransformation(path=build, language='cuda', use_c_ptr=True)
+            f2c_transformation = FortranCTransformation(language='cuda', use_c_ptr=True)
+            f2c_wrapper = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
         else:
             assert False
         scheduler.process(f2c_transformation)
+        scheduler.process(f2c_wrapper)
         build_args['output_dir'] = build
         for h in definitions:
-            f2c_transformation.apply(h, role='header', build_args=build_args)
+            f2c_wrapper.apply(h, role='header', build_args=build_args)
         # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
         dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
         scheduler.process(dependency)

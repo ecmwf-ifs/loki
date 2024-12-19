@@ -5,13 +5,17 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from pathlib import Path
 from collections import OrderedDict
 
+from loki.backend import cgen, fgen, cudagen, cppgen
+from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.expression import symbols as sym
 from loki.ir import (
     nodes as ir, FindNodes, SubstituteExpressions, Transformer
 )
 from loki.module import Module
+from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.types import BasicType, DerivedType, SymbolAttributes
 from loki.tools import as_tuple
@@ -23,8 +27,109 @@ __all__ = [
     'c_intrinsic_kind', 'iso_c_intrinsic_import',
     'iso_c_intrinsic_kind', 'c_struct_typedef',
     'generate_iso_c_interface', 'generate_iso_c_wrapper_routine',
-    'generate_iso_c_wrapper_module', 'generate_c_header'
+    'generate_iso_c_wrapper_module', 'generate_c_header',
+    'FortranISOCWrapperTransformation'
 ]
+
+
+class FortranISOCWrapperTransformation(Transformation):
+    """
+    Wrapper transformation that generates ISO-C Fortran wrappers and C
+    headers for translated kernels or additional header modules.
+
+    In addition to :any:`Subroutine` objects with the role
+    ``'kernel'``, this transformation will process :any:`Module`
+    objects with the role ``'header'``. This will generate ISO-C
+    wrappers for derived types and the corresponding C-compatible
+    structs in C header files.
+
+    Parameters
+    ----------
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
+    language : string
+        Actual C-style language to generate; must be on of ``'c'``,
+        ``'cpp'`` or ``'cuda'`` for C, C++ and CUDA respectively.
+    """
+
+    item_filter = (ProcedureItem, ModuleItem)
+
+    _supported_languages = ['c', 'cpp', 'cuda']
+
+    def __init__(self, use_c_ptr=False, language='c'):
+        self.use_c_ptr = use_c_ptr
+        self.language = language.lower()
+
+        if self.language == 'c':
+            self.codegen = cgen
+        elif self.language == 'cpp':
+            self.codegen = cppgen
+        elif self.language == 'cuda':
+            self.codegen = cudagen
+        else:
+            raise ValueError(f'language "{self.language}" is not supported!'
+                             f' (supported languages: "{self._supported_languages}")')
+
+        # Maps from original type name to ISO-C and C-struct types
+        self.c_structs = OrderedDict()
+
+    def file_suffix(self):
+        if self.language == 'cpp':
+            return '.cpp'
+        return '.c'
+
+    def transform_module(self, module, **kwargs):
+        if 'path' in kwargs:
+            path = kwargs.get('path')
+        else:
+            build_args = kwargs.get('build_args')
+            path = Path(build_args.get('output_dir'))
+
+        role = kwargs.get('role', 'kernel')
+
+        for name, td in module.typedef_map.items():
+            self.c_structs[name.lower()] = c_struct_typedef(td, use_c_ptr=self.use_c_ptr)
+
+        if role == 'header':
+            # Generate Fortran wrapper module
+            wrapper = generate_iso_c_wrapper_module(
+                module, use_c_ptr=self.use_c_ptr, language=self.language
+            )
+            wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            Sourcefile.to_file(source=fgen(wrapper), path=wrapperpath)
+
+            # Generate C header file from module
+            c_header = generate_c_header(module)
+            c_path = (path/c_header.name.lower()).with_suffix('.h')
+            Sourcefile.to_file(source=self.codegen(c_header), path=c_path)
+
+
+    def transform_subroutine(self, routine, **kwargs):
+        if 'path' in kwargs:
+            path = kwargs.get('path')
+        else:
+            build_args = kwargs.get('build_args')
+            path = Path(build_args.get('output_dir'))
+
+        role = kwargs.get('role', 'kernel')
+
+        for arg in routine.arguments:
+            if isinstance(arg.type.dtype, DerivedType):
+                self.c_structs[arg.type.dtype.name.lower()] = c_struct_typedef(arg.type, use_c_ptr=self.use_c_ptr)
+
+        if role == 'kernel':
+            # Generate Fortran wrapper module
+            bind_name = None if self.language in ['c', 'cpp'] else f'{routine.name.lower()}_c_launch'
+            wrapper = generate_iso_c_wrapper_routine(
+                routine, self.c_structs, bind_name=bind_name,
+                use_c_ptr=self.use_c_ptr, language=self.language
+            )
+            contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), wrapper))
+            wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
+            module.spec = ir.Section(body=(ir.Import(module='iso_c_binding'),))
+            Sourcefile.to_file(source=fgen(module), path=wrapperpath)
 
 
 def c_intrinsic_kind(_type, scope):

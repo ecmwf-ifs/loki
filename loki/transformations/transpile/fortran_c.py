@@ -6,9 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-from collections import OrderedDict
 
-from loki.backend import cgen, fgen, cudagen, cppgen
+from loki.backend import cgen, cudagen, cppgen
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, Variable, InlineCall, Scalar, Array,
@@ -16,12 +15,11 @@ from loki.expression import (
     SubstituteExpressionsMapper
 )
 from loki.ir import (
-    Section, Import, Intrinsic, Interface, CallStatement, Assignment,
+    Import, Intrinsic, Interface, CallStatement, Assignment,
     Transformer, FindNodes, Comment, SubstituteExpressions,
     FindInlineCalls
 )
 from loki.logging import debug
-from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType, DerivedType
@@ -35,10 +33,6 @@ from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
 from loki.transformations.sanitise import do_resolve_associates
-from loki.transformations.transpile.fortran_iso_c_wrapper import (
-    c_struct_typedef, generate_iso_c_wrapper_routine,
-    generate_iso_c_wrapper_module, generate_c_header
-)
 from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics, sanitise_imports
 )
@@ -100,8 +94,7 @@ class DeReferenceTrafo(Transformer):
 
 class FortranCTransformation(Transformation):
     """
-    Fortran-to-C transformation that translates the given routine
-    into C and generates the corresponding ISO-C wrappers.
+    Fortran-to-C transformation that translates the given routine into C.
 
     Parameters
     ----------
@@ -136,38 +129,10 @@ class FortranCTransformation(Transformation):
             raise ValueError(f'language "{self.language}" is not supported!'
                              f' (supported languages: "{self._supported_languages}")')
 
-        # Maps from original type name to ISO-C and C-struct types
-        self.c_structs = OrderedDict()
-
     def file_suffix(self):
         if self.language == 'cpp':
             return '.cpp'
         return '.c'
-
-    def transform_module(self, module, **kwargs):
-        if 'path' in kwargs:
-            path = kwargs.get('path')
-        else:
-            build_args = kwargs.get('build_args')
-            path = Path(build_args.get('output_dir'))
-
-        role = kwargs.get('role', 'kernel')
-
-        for name, td in module.typedef_map.items():
-            self.c_structs[name.lower()] = c_struct_typedef(td, use_c_ptr=self.use_c_ptr)
-
-        if role == 'header':
-            # Generate Fortran wrapper module
-            wrapper = generate_iso_c_wrapper_module(
-                module, use_c_ptr=self.use_c_ptr, language=self.language
-            )
-            wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-            Sourcefile.to_file(source=fgen(wrapper), path=wrapperpath)
-
-            # Generate C header file from module
-            c_header = generate_c_header(module)
-            c_path = (path/c_header.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=self.codegen(c_header), path=c_path)
 
     def transform_subroutine(self, routine, **kwargs):
         if 'path' in kwargs:
@@ -194,31 +159,13 @@ class FortranCTransformation(Transformation):
             self.interface_to_import(routine, targets)
             return
 
-        for arg in routine.arguments:
-            if isinstance(arg.type.dtype, DerivedType):
-                self.c_structs[arg.type.dtype.name.lower()] = c_struct_typedef(arg.type, use_c_ptr=self.use_c_ptr)
-
         # for calls and inline calls: convert kwarguments to arguments
         self.convert_kwargs_to_args(routine, targets)
 
         if role == 'kernel':
-            # Generate Fortran wrapper module
-            bind_name = None if self.language in ['c', 'cpp'] else f'{routine.name.lower()}_c_launch'
-            wrapper = generate_iso_c_wrapper_routine(
-                routine, self.c_structs, bind_name=bind_name,
-                use_c_ptr=self.use_c_ptr, language=self.language
-            )
-            contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
-            wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-            module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
-            module.spec = Section(body=(Import(module='iso_c_binding'),))
-
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(routine, targets=targets)
-            c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
-            Sourcefile.to_file(source=fgen(module), path=wrapperpath)
 
-            # Generate C source file from Loki IR
             for successor in successors:
                 c_kernel.spec.prepend(Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
 
