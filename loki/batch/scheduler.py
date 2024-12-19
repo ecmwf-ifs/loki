@@ -13,8 +13,9 @@ from codetiming import Timer
 from loki.batch.configure import SchedulerConfig
 from loki.batch.item import (
     FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
-    InterfaceItem, TypeDefItem, ExternalItem, ItemFactory
+    InterfaceItem, TypeDefItem, ExternalItem
 )
+from loki.batch.item_factory import ItemFactory
 from loki.batch.pipeline import Pipeline
 from loki.batch.sfilter import SFilter
 from loki.batch.sgraph import SGraph
