@@ -5,9 +5,12 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from pathlib import Path
 from collections import OrderedDict
 
-from loki import Subroutine, Module
+from loki import Subroutine, Module, Sourcefile
+from loki.backend import cgen, fgen, cudagen, cppgen
+from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.expression import symbols as sym
 from loki.ir import (
     nodes as ir, FindNodes, SubstituteExpressions, Transformer
@@ -22,8 +25,61 @@ __all__ = [
     'c_intrinsic_kind', 'iso_c_intrinsic_import',
     'iso_c_intrinsic_kind', 'c_struct_typedef',
     'generate_iso_c_interface', 'generate_iso_c_wrapper_routine',
-    'generate_iso_c_wrapper_module', 'generate_c_header'
+    'generate_iso_c_wrapper_module', 'generate_c_header',
+    'FortranISOCWrapperTransformation'
 ]
+
+
+class FortranISOCWrapperTransformation(Transformation):
+    """
+    
+    """
+
+    item_filter = (ProcedureItem, ModuleItem)
+
+    _supported_languages = ['c', 'cpp', 'cuda']
+
+    def __init__(self, use_c_ptr=False, language='c'):
+        self.use_c_ptr = use_c_ptr
+        self.language = language.lower()
+
+        if self.language == 'c':
+            self.codegen = cgen
+        elif self.language == 'cpp':
+            self.codegen = cppgen
+        elif self.language == 'cuda':
+            self.codegen = cudagen
+        else:
+            raise ValueError(f'language "{self.language}" is not supported!'
+                             f' (supported languages: "{self._supported_languages}")')
+
+        # Maps from original type name to ISO-C and C-struct types
+        self.c_structs = OrderedDict()
+
+    def transform_module(self, module, **kwargs):
+        if 'path' in kwargs:
+            path = kwargs.get('path')
+        else:
+            build_args = kwargs.get('build_args')
+            path = Path(build_args.get('output_dir'))
+
+        role = kwargs.get('role', 'kernel')
+
+        for name, td in module.typedef_map.items():
+            self.c_structs[name.lower()] = c_struct_typedef(td, use_c_ptr=self.use_c_ptr)
+
+        if role == 'header':
+            # Generate Fortran wrapper module
+            wrapper = generate_iso_c_wrapper_module(
+                module, use_c_ptr=self.use_c_ptr, language=self.language
+            )
+            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            Sourcefile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+
+            # Generate C header file from module
+            c_header = generate_c_header(module)
+            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
+            Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
 
 
 def c_intrinsic_kind(_type, scope):
