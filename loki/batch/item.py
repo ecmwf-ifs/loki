@@ -7,6 +7,7 @@
 
 from functools import reduce
 import sys
+from pathlib import Path
 
 from loki.batch.configure import SchedulerConfig, ItemConfig
 from loki.frontend import REGEX, RegexParserClass
@@ -24,6 +25,7 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
 
+# pylint: disable=too-many-lines
 
 __all__ = [
     'Item', 'FileItem', 'ModuleItem', 'ProcedureItem', 'TypeDefItem',
@@ -137,7 +139,20 @@ class Item(ItemConfig):
         self.name = name
         self.source = source
         self.trafo_data = {}
+        self.plan_data = {}
         super().__init__(config)
+
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        if 'name' not in kwargs:
+            kwargs['name'] = self.name
+        if 'source' not in kwargs:
+            kwargs['source'] = self.source.clone() # self.source.clone()
+        if self.config is not None and 'config' not in kwargs:
+            kwargs['config'] = self.config
+        return type(self)(**kwargs)
 
     def __repr__(self):
         return f'loki.batch.{self.__class__.__name__}<{self.name}>'
@@ -632,10 +647,28 @@ class ModuleItem(Item):
         Return the list of :any:`Import` nodes that constitute dependencies
         for this module, filtering out imports to intrinsic modules.
         """
-        return tuple(
+        deps = tuple(
             imprt for imprt in self.ir.imports
             if not imprt.c_import and str(imprt.nature).lower() != 'intrinsic'
         )
+        # potentially add dependencies due to transformations that added some
+        if 'additional_dependencies' in self.plan_data:
+            deps += self.plan_data['additional_dependencies']
+        # potentially remove dependencies due to transformations that removed some of those
+        if 'removed_dependencies' in self.plan_data:
+            new_deps = ()
+            for dep in deps:
+                if isinstance(dep, Import):
+                    new_symbols = ()
+                    for symbol in dep.symbols:
+                        if str(symbol.name).lower() not in self.plan_data['removed_dependencies']:
+                            new_symbols += (symbol,)
+                    if new_symbols:
+                        new_deps += (dep.clone(symbols=new_symbols),)
+                else:
+                    new_deps += (dep,)
+            return new_deps
+        return deps
 
     @property
     def local_name(self):
@@ -703,7 +736,29 @@ class ProcedureItem(Item):
                 import_map = self.scope.import_map
                 typedefs += tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
                 imports += tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
-        return imports + interfaces + typedefs + calls + inline_calls
+        deps = imports + interfaces + typedefs + calls + inline_calls
+        # potentially add dependencies due to transformations that added some
+        if 'additional_dependencies' in self.plan_data:
+            deps += self.plan_data['additional_dependencies']
+        # potentially remove dependencies due to transformations that removed some of those
+        if 'removed_dependencies' in self.plan_data:
+            new_deps = ()
+            for dep in deps:
+                if isinstance(dep, CallStatement):
+                    if str(dep.name).lower() not in self.plan_data['removed_dependencies']:
+                        new_deps += (dep,)
+                elif isinstance(dep, Import):
+                    new_symbols = ()
+                    for symbol in dep.symbols:
+                        if str(symbol.name).lower() not in self.plan_data['removed_dependencies']:
+                            new_symbols += (symbol,)
+                    if new_symbols:
+                        new_deps += (dep.clone(symbols=new_symbols),)
+                else:
+                    # TODO: handle interfaces and inline calls as well ...
+                    new_deps += (dep,)
+            return new_deps
+        return deps
 
 
 class TypeDefItem(Item):
@@ -958,6 +1013,53 @@ class ItemFactory:
         Check if an item under the given name exists in the :attr:`item_cache`
         """
         return key in self.item_cache
+
+    def clone_procedure_item(self, item, suffix='', module_suffix=''):
+        """
+        Clone and create a :any:`ProcedureItem` and additionally create a :any:`ModuleItem`
+        (if the passed :any:`ProcedureItem` lives within a module ) as well
+        as a :any:`FileItem`.
+        """
+
+        path = Path(item.path)
+        new_path = Path(item.path).with_suffix(f'.{module_suffix}{item.path.suffix}')
+
+        local_routine_name = item.local_name
+        new_local_routine_name = f'{local_routine_name}_{suffix}'
+
+        mod_name = item.name.split('#')[0]
+        if mod_name:
+            new_mod_name = mod_name.replace('mod', f'{module_suffix}_mod')\
+                    if 'mod' in mod_name else f'{mod_name}{module_suffix}'
+        else:
+            new_mod_name = ''
+        new_routine_name = f'{new_mod_name}#{new_local_routine_name}'
+
+        # create new source
+        orig_source = item.source
+        new_source = orig_source.clone(path=new_path)
+        if not mod_name:
+            new_source[local_routine_name].name = new_local_routine_name
+        else:
+            new_source[mod_name][local_routine_name].name = new_local_routine_name
+            new_source[mod_name].name = new_mod_name
+
+        # create new ModuleItem
+        if mod_name:
+            orig_mod = self.item_cache[mod_name]
+            self.item_cache[new_mod_name] = orig_mod.clone(name=new_mod_name, source=new_source)
+
+        # create new ProcedureItem
+        self.item_cache[new_routine_name] = item.clone(name=new_routine_name, source=new_source)
+
+        # create new FileItem
+        orig_file_item = self.item_cache[str(path)]
+        self.item_cache[str(new_path)] = orig_file_item.clone(name=str(new_path), source=new_source)
+
+        # return the newly created procedure/routine
+        if mod_name:
+            return new_source[new_mod_name][new_local_routine_name]
+        return new_source[new_local_routine_name]
 
     def create_from_ir(self, node, scope_ir, config=None, ignore=None):
         """

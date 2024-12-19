@@ -46,6 +46,18 @@ class Source:
         self.string = string
         self.file = file
 
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        if 'lines' not in kwargs:
+            kwargs['lines'] = self.lines
+        if self.string is not None and 'string' not in kwargs:
+            kwargs['string'] = self.string
+        if self.file is not None and 'file' not in kwargs:
+            kwargs['file'] = self.file
+        return type(self)(**kwargs)
+
     def __repr__(self):
         line_end = f'-{self.lines[1]}' if self.lines[1] else ''
         return f'Source<line {self.lines[0]}{line_end}>'

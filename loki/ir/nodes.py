@@ -32,7 +32,6 @@ from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
 
-
 __all__ = [
     # Abstract base classes
     'Node', 'InternalNode', 'LeafNode', 'ScopedNode',
@@ -461,6 +460,23 @@ class Section(InternalNode, _SectionBase):
 
     def __repr__(self):
         return 'Section::'
+
+    def recursive_clone(self, **kwargs):
+        """
+        Clone the object and recursively clone all the elements
+        of the object's body.
+
+        Parameters
+        ----------
+        **kwargs :
+            Any parameters from the constructor of the class.
+
+        Returns
+        -------
+        Object of type ``self.__class__``
+            The cloned object.
+        """
+        return self.clone(body=tuple(elem.clone(**kwargs) for elem in self.body), **kwargs)
 
 
 @dataclass_strict(frozen=True)
