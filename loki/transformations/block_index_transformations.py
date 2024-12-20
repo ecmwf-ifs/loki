@@ -358,9 +358,10 @@ class InjectBlockIndexTransformation(Transformation):
         exclude_arrays = []
         if (item := kwargs.get('item', None)):
             exclude_arrays = item.config.get('exclude_arrays', [])
+            force_demote_arrays = item.config.get('force_demote_arrays', [])
 
         if role == 'kernel':
-            self.process_kernel(routine, targets, exclude_arrays)
+            self.process_kernel(routine, targets, exclude_arrays, force_demote_arrays)
 
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
@@ -377,12 +378,11 @@ class InjectBlockIndexTransformation(Transformation):
 
         return rank
 
-    def get_block_index(self, routine):
+    def get_block_index(self, routine, variable_map):
         """
         Utility to retrieve the block-index loop induction variable.
         """
 
-        variable_map = routine.variable_map
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
         if (block_index := [i for i in self.block_dim.indices
@@ -390,7 +390,7 @@ class InjectBlockIndexTransformation(Transformation):
             return routine.resolve_typebound_var(block_index[0], variable_map)
         return None
 
-    def process_body(self, body, block_index, targets, exclude_arrays):
+    def process_body(self, body, block_index, targets, exclude_arrays, force_demote_arrays):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
         call_args = []
@@ -422,20 +422,28 @@ class InjectBlockIndexTransformation(Transformation):
                     dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (decl_rank - 1))
                     vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
 
+        for var in force_demote_arrays:
+            dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (len(var.shape) - 1))
+            vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
+
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
 
-    def process_kernel(self, routine, targets, exclude_arrays):
+    def process_kernel(self, routine, targets, exclude_arrays, force_demote_arrays):
 
         # we skip routines that do not contain the block index or any known alias
-        if not (block_index := self.get_block_index(routine)):
+        variable_map = routine.variable_map
+        if not (block_index := self.get_block_index(routine, variable_map)):
             return
 
+        # replace strings with variables
+        force_demote_arrays = [routine.resolve_typebound_var(var, variable_map) for var in force_demote_arrays]
+
         # for kernels we process the entire subroutine body
-        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays)
+        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays, force_demote_arrays)
 
 
 class LowerBlockIndexTransformation(Transformation):
