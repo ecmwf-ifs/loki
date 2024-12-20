@@ -142,7 +142,7 @@ def test_dependency_duplicate_plan(tmp_path, frontend, suffix, module_suffix, co
     )
 
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
-                        kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_kernels=('kernel',), duplicate_suffix=suffix,
                         duplicate_module_suffix=module_suffix)
 
     plan_file = tmp_path/'plan.cmake'
@@ -189,7 +189,7 @@ def test_dependency_duplicate_trafo(tmp_path, frontend, suffix, module_suffix, c
     )
 
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
-                        kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_kernels=('kernel',), duplicate_suffix=suffix,
                         duplicate_module_suffix=module_suffix)
 
     scheduler.process(pipeline)
@@ -231,7 +231,7 @@ def test_dependency_remove(tmp_path, frontend, config):
         frontend=frontend, xmods=[tmp_path]
     )
     pipeline = Pipeline(classes=(RemoveKernel, FileWriteTransformation),
-                        kernels=('kernel',))
+                        remove_kernels=('kernel',))
 
     plan_file = tmp_path/'plan.cmake'
     root_path = tmp_path
@@ -267,7 +267,7 @@ def test_dependency_duplicate_plan_no_module(tmp_path, frontend, suffix, module_
     )
 
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
-                        kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_kernels=('kernel',), duplicate_suffix=suffix,
                         duplicate_module_suffix=module_suffix)
 
     plan_file = tmp_path/'plan.cmake'
@@ -306,7 +306,7 @@ def test_dependency_duplicate_trafo_no_module(tmp_path, frontend, suffix, module
     )
 
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
-                        kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_kernels=('kernel',), duplicate_suffix=suffix,
                         duplicate_module_suffix=module_suffix)
 
     scheduler.process(pipeline)
@@ -339,7 +339,7 @@ def test_dependency_remove_plan_no_module(tmp_path, frontend, config, full_parse
         frontend=frontend, xmods=[tmp_path], full_parse=full_parse
     )
     pipeline = Pipeline(classes=(RemoveKernel, FileWriteTransformation),
-                        kernels=('kernel',))
+                        remove_kernels=('kernel',))
 
     plan_file = tmp_path/'plan.cmake'
     scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
@@ -366,7 +366,7 @@ def test_dependency_remove_trafo_no_module(tmp_path, frontend, config):
         frontend=frontend, xmods=[tmp_path]
     )
     pipeline = Pipeline(classes=(RemoveKernel, FileWriteTransformation),
-                        kernels=('kernel',))
+                        remove_kernels=('kernel',))
 
     scheduler.process(pipeline)
     driver = scheduler["#driver"].ir

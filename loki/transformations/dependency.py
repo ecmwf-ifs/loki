@@ -18,16 +18,16 @@ class DuplicateKernel(Transformation):
 
     reverse_traversal = True
 
-    def __init__(self, kernels=None, duplicate_suffix='duplicated',
+    def __init__(self, duplicate_kernels=None, duplicate_suffix='duplicated',
                  duplicate_module_suffix=None):
         self.suffix = duplicate_suffix
         self.module_suffix = duplicate_module_suffix or duplicate_suffix
-        self.kernels = tuple(kernel.lower() for kernel in as_tuple(kernels))
+        self.duplicate_kernels = tuple(kernel.lower() for kernel in as_tuple(duplicate_kernels))
 
     def _create_duplicate_items(self, successors, item_factory, config):
         new_items = ()
         for item in successors:
-            if item.local_name in self.kernels:
+            if item.local_name in self.duplicate_kernels:
                 # Determine new item name
                 scope_name = item.scope_name
                 local_name = f'{item.local_name}{self.suffix}'
@@ -72,7 +72,7 @@ class DuplicateKernel(Transformation):
         new_imports = []
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             call_name = str(call.name).lower()
-            if call_name in self.kernels:
+            if call_name in self.duplicate_kernels:
                 # Duplicate the call
                 new_call_name = f'{call_name}{self.suffix}'.lower()
                 new_item = new_dependencies[new_call_name]
@@ -102,13 +102,13 @@ class RemoveKernel(Transformation):
 
     creates_items = True
 
-    def __init__(self, kernels=None):
-        self.kernels = tuple(kernel.lower() for kernel in as_tuple(kernels))
+    def __init__(self, remove_kernels=None):
+        self.remove_kernels = tuple(kernel.lower() for kernel in as_tuple(remove_kernels))
 
     def transform_subroutine(self, routine, **kwargs):
         call_map = {
             call: None for call in FindNodes(ir.CallStatement).visit(routine.body)
-            if str(call.name).lower() in self.kernels
+            if str(call.name).lower() in self.remove_kernels
         }
         routine.body = Transformer(call_map).visit(routine.body)
 
@@ -118,5 +118,5 @@ class RemoveKernel(Transformation):
         successors = as_tuple(kwargs.get('successors'))
         item.plan_data.setdefault('removed_dependencies', ())
         item.plan_data['removed_dependencies'] += tuple(
-            child for child in successors if child.local_name in self.kernels
+            child for child in successors if child.local_name in self.remove_kernels
         )
