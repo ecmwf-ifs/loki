@@ -275,10 +275,10 @@ class ItemFactory:
             if scope_name:
                 scope = new_source[item.scope_name]
                 scope.name = scope_name
-                ir = scope[item.local_name]
+                item_ir = scope[item.local_name]
             else:
-                ir = new_source[item.local_name]
-            ir.name = local_name
+                item_ir = new_source[item.local_name]
+            item_ir.name = local_name
 
             # Create a new FileItem for the new source
             new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
@@ -297,7 +297,10 @@ class ItemFactory:
         if scope_name and scope_name in self.item_cache:
             scope = self.item_cache[scope_name].ir
             if local_name not in scope:
-                raise RuntimeError(f'Cloning item {item.name} as {name} failed, {local_name} not found in existing scope {scope_name}')
+                raise RuntimeError((
+                    f'Cloning item {item.name} as {name} failed, '
+                    f'{local_name} not found in existing scope {scope_name}'
+                ))
             return self.create_from_ir(scope[local_name], scope, config=config)
 
         raise RuntimeError(f'Failed to clone item {item.name} as {name}')
