@@ -55,8 +55,8 @@ def fixture_config():
     }
 
 
-@pytest.fixture(scope='module', name='fcode_as_module')
-def fixture_fcode_as_module():
+@pytest.fixture(name='fcode_as_module')
+def fixture_fcode_as_module(tmp_path):
     fcode_driver = """
 subroutine driver(NLON, NB, FIELD1)
     use kernel_mod, only: kernel
@@ -90,10 +90,12 @@ contains
     end subroutine kernel
 end module kernel_mod
     """.strip()
-    return fcode_driver, fcode_kernel
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
 
-@pytest.fixture(scope='module', name='fcode_no_module')
-def fixture_fcode_no_module():
+
+@pytest.fixture(name='fcode_no_module')
+def fixture_fcode_no_module(tmp_path):
     fcode_driver = """
 subroutine driver(NLON, NB, FIELD1)
     implicit none
@@ -122,69 +124,111 @@ subroutine kernel(klon, field1)
 
 end subroutine kernel
     """.strip()
-    return fcode_driver, fcode_kernel
-
-@pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('duplicate_suffix', (('duplicated', None), ('dupl1', 'dupl2'), ('d_test_1', 'd_test_2')))
-def test_dependency_duplicate(fcode_as_module, tmp_path, frontend, duplicate_suffix, config):
-
-    fcode_driver, fcode_kernel = fcode_as_module
     (tmp_path/'driver.F90').write_text(fcode_driver)
-    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'kernel.F90').write_text(fcode_kernel)
+
+
+@pytest.mark.usefixtures('fcode_as_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('suffix,module_suffix', (
+    ('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')
+))
+@pytest.mark.parametrize('full_parse', (True, False))
+def test_dependency_duplicate_plan(tmp_path, frontend, suffix, module_suffix, config, full_parse):
 
     scheduler = Scheduler(
-        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path], full_parse=full_parse
     )
 
-    suffix = duplicate_suffix[0]
-    module_suffix = duplicate_suffix[1] or duplicate_suffix[0]
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
                         kernels=('kernel',), duplicate_suffix=suffix,
                         duplicate_module_suffix=module_suffix)
 
     plan_file = tmp_path/'plan.cmake'
-    root_path = tmp_path
     scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
-    scheduler.write_cmake_plan(filepath=plan_file, rootpath=root_path)
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
+
+    module_suffix = module_suffix or suffix
+
+    # Validate the Scheduler graph:
+    # - New procedure item has been added
+    # - Module item has been created but is not in the sgraph
+    assert f'kernel_mod{module_suffix}' in scheduler.item_factory.item_cache
+    item = scheduler.item_factory.item_cache[f'kernel_mod{module_suffix}']
+    assert isinstance(item, ModuleItem)
+    assert item.ir.name == item.local_name
+    assert f'kernel_mod{module_suffix}' not in scheduler
+
+    assert f'kernel_mod{module_suffix}#kernel{suffix}' in scheduler.item_factory.item_cache
+    assert f'kernel_mod{module_suffix}#kernel{suffix}' in scheduler
+    item = scheduler[f'kernel_mod{module_suffix}#kernel{suffix}']
+    assert isinstance(item, ProcedureItem)
+    assert item.ir.name == item.local_name
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
     loki_plan = plan_file.read_text()
     plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
     plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
-    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'kernel_mod', f'kernel_mod.{module_suffix}', 'driver'}
-    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'kernel_mod', f'kernel_mod.{module_suffix}', 'driver'}
-    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'kernel_mod.{module_suffix}.idem', 'kernel_mod.idem', 'driver.idem'}
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'kernel_mod', 'driver'}
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'kernel_mod', 'driver'}
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'kernel_mod{module_suffix}.idem', 'kernel_mod.idem', 'driver.idem'}
+
+
+@pytest.mark.usefixtures('fcode_as_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('suffix,module_suffix', (
+    ('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')
+))
+def test_dependency_duplicate_trafo(tmp_path, frontend, suffix, module_suffix, config):
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
+
+    pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
+                        kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_module_suffix=module_suffix)
 
     scheduler.process(pipeline)
+
+    module_suffix = module_suffix or suffix
+
+    # Validate the Scheduler graph:
+    # - New procedure item has been added
+    # - Module item has been created but is not in the sgraph
+    assert f'kernel_mod{module_suffix}' in scheduler.item_factory.item_cache
+    item = scheduler.item_factory.item_cache[f'kernel_mod{module_suffix}']
+    assert isinstance(item, ModuleItem)
+    assert item.ir.name == item.local_name
+    assert f'kernel_mod{module_suffix}' not in scheduler
+
+    assert f'kernel_mod{module_suffix}#kernel{suffix}' in scheduler.item_factory.item_cache
+    assert f'kernel_mod{module_suffix}#kernel{suffix}' in scheduler
+    item = scheduler[f'kernel_mod{module_suffix}#kernel{suffix}']
+    assert isinstance(item, ProcedureItem)
+    assert item.ir.name == item.local_name
+
     driver = scheduler["#driver"].ir
     kernel = scheduler["kernel_mod#kernel"].ir
-    new_kernel = scheduler[f"kernel_{module_suffix}_mod#kernel_{suffix}"].ir
-
-    item_cache = dict(scheduler.item_factory.item_cache)
-    assert f'kernel_{module_suffix}_mod' in item_cache
-    assert isinstance(item_cache['kernel_mod'], ModuleItem)
-    assert item_cache['kernel_mod'].name == 'kernel_mod'
-    assert f'kernel_{module_suffix}_mod#kernel_{suffix}' in item_cache
-    assert isinstance(item_cache[f'kernel_{module_suffix}_mod#kernel_{suffix}'], ProcedureItem)
-    assert item_cache[f'kernel_{module_suffix}_mod#kernel_{suffix}'].name\
-            == f'kernel_{module_suffix}_mod#kernel_{suffix}'
+    new_kernel = scheduler[f"kernel_mod{module_suffix}#kernel{suffix}"].ir
 
     calls_driver = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls_driver) == 2
-    assert id(new_kernel) != id(kernel)
+    assert new_kernel is not kernel
     assert calls_driver[0].routine == kernel
     assert calls_driver[1].routine == new_kernel
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_dependency_remove(fcode_as_module, tmp_path, frontend, config):
 
-    fcode_driver, fcode_kernel = fcode_as_module
-    (tmp_path/'driver.F90').write_text(fcode_driver)
-    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+@pytest.mark.usefixtures('fcode_as_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_remove(tmp_path, frontend, config):
 
     scheduler = Scheduler(
-        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
     )
     pipeline = Pipeline(classes=(RemoveKernel, FileWriteTransformation),
                         kernels=('kernel',))
@@ -210,71 +254,96 @@ def test_dependency_remove(fcode_as_module, tmp_path, frontend, config):
     calls_driver = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls_driver) == 0
 
-@pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('duplicate_suffix', (('duplicated', None), ('dupl1', 'dupl2'), ('d_test_1', 'd_test_2')))
-def test_dependency_duplicate_no_module(fcode_no_module, tmp_path, frontend, duplicate_suffix, config):
 
-    fcode_driver, fcode_kernel = fcode_no_module
-    (tmp_path/'driver.F90').write_text(fcode_driver)
-    (tmp_path/'kernel.F90').write_text(fcode_kernel)
+@pytest.mark.usefixtures('fcode_no_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('suffix, module_suffix', (('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')))
+@pytest.mark.parametrize('full_parse', (True, False))
+def test_dependency_duplicate_plan_no_module(tmp_path, frontend, suffix, module_suffix, config, full_parse):
 
     scheduler = Scheduler(
-        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path], full_parse=full_parse
     )
 
-    suffix = duplicate_suffix[0]
-    module_suffix = duplicate_suffix[1] or duplicate_suffix[0]
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
                         kernels=('kernel',), duplicate_suffix=suffix,
                         duplicate_module_suffix=module_suffix)
 
     plan_file = tmp_path/'plan.cmake'
-    root_path = tmp_path # if use_rootpath else None
     scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
-    scheduler.write_cmake_plan(filepath=plan_file, rootpath=root_path)
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
+
+    # Validate Scheduler graph
+    assert f'#kernel{suffix}' in scheduler.item_factory.item_cache
+    assert f'#kernel{suffix}' in scheduler
+    assert isinstance(scheduler[f'#kernel{suffix}'], ProcedureItem)
+    assert scheduler[f'#kernel{suffix}'].ir.name == f'kernel{suffix}'
+
+    # Validate IR objects
+    kernel = scheduler["#kernel"].ir
+    new_kernel = scheduler[f"#kernel{suffix}"].ir
+    assert new_kernel is not kernel
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
     loki_plan = plan_file.read_text()
     plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
     plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
-    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'kernel', f'kernel.{module_suffix}', 'driver'}
-    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'kernel', f'kernel.{module_suffix}', 'driver'}
-    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'kernel.{module_suffix}.idem', 'kernel.idem', 'driver.idem'}
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'kernel', 'driver'}
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'kernel', 'driver'}
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'kernel{suffix}.idem', 'kernel.idem', 'driver.idem'}
+
+
+@pytest.mark.usefixtures('fcode_no_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('suffix, module_suffix', (('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')))
+def test_dependency_duplicate_trafo_no_module(tmp_path, frontend, suffix, module_suffix, config):
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
+
+    pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
+                        kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_module_suffix=module_suffix)
 
     scheduler.process(pipeline)
+
+    # Validate Scheduler graph
+    assert f'#kernel{suffix}' in scheduler.item_factory.item_cache
+    assert f'#kernel{suffix}' in scheduler
+    assert isinstance(scheduler[f'#kernel{suffix}'], ProcedureItem)
+    assert scheduler[f'#kernel{suffix}'].ir.name == f'kernel{suffix}'
+
+    # Validate transformed objects
     driver = scheduler["#driver"].ir
     kernel = scheduler["#kernel"].ir
-    new_kernel = scheduler[f"#kernel_{suffix}"].ir
-
-    item_cache = dict(scheduler.item_factory.item_cache)
-    assert f'#kernel_{suffix}' in item_cache
-    assert isinstance(item_cache[f'#kernel_{suffix}'], ProcedureItem)
-    assert item_cache[f'#kernel_{suffix}'].name == f'#kernel_{suffix}'
+    new_kernel = scheduler[f"#kernel{suffix}"].ir
 
     calls_driver = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls_driver) == 2
-    assert id(new_kernel) != id(kernel)
+    assert new_kernel is not kernel
     assert calls_driver[0].routine == kernel
     assert calls_driver[1].routine == new_kernel
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_dependency_remove_no_module(fcode_no_module, tmp_path, frontend, config):
 
-    fcode_driver, fcode_kernel = fcode_no_module
-    (tmp_path/'driver.F90').write_text(fcode_driver)
-    (tmp_path/'kernel.F90').write_text(fcode_kernel)
+@pytest.mark.usefixtures('fcode_no_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('full_parse', (True, False))
+def test_dependency_remove_plan_no_module(tmp_path, frontend, config, full_parse):
 
     scheduler = Scheduler(
-        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path], full_parse=full_parse
     )
     pipeline = Pipeline(classes=(RemoveKernel, FileWriteTransformation),
                         kernels=('kernel',))
 
     plan_file = tmp_path/'plan.cmake'
-    root_path = tmp_path
     scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
-    scheduler.write_cmake_plan(filepath=plan_file, rootpath=root_path)
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
@@ -285,9 +354,22 @@ def test_dependency_remove_no_module(fcode_no_module, tmp_path, frontend, config
     assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'driver'}
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {'driver.idem'}
 
+    assert '#kernel' not in scheduler
+
+
+@pytest.mark.usefixtures('fcode_no_module')
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_remove_trafo_no_module(tmp_path, frontend, config):
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
+    pipeline = Pipeline(classes=(RemoveKernel, FileWriteTransformation),
+                        kernels=('kernel',))
+
     scheduler.process(pipeline)
     driver = scheduler["#driver"].ir
     assert "#kernel" not in scheduler
 
-    calls_driver = FindNodes(ir.CallStatement).visit(driver.body)
-    assert len(calls_driver) == 0
+    assert not FindNodes(ir.CallStatement).visit(driver.body)
