@@ -671,6 +671,76 @@ end subroutine procedure_item_external_item
     assert [it.origin_cls for it in items] == [ModuleItem, ProcedureItem]
 
 
+def test_procedure_item_from_item1(testdir, default_config):
+    proj = testdir/'sources/projBatch'
+
+    # A file with a single subroutine definition that calls a routine via interface block
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    file_item = item_factory.get_or_create_file_item_from_path(proj/'source/comp1.F90', config=scheduler_config)
+    item = file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
+    assert item.name == '#comp1'
+    assert isinstance(item, ProcedureItem)
+
+    expected_cache = {str(proj/'source/comp1.F90').lower(), '#comp1'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Create a new item by duplicating the existing item
+    new_item = item_factory.get_or_create_item_from_item('#new_comp1', item, config=scheduler_config)
+    expected_cache |= {str(proj/'source/new_comp1.F90').lower(), '#new_comp1'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Assert the new item differs from the existing item in the name, with the original
+    # item unchanged
+    assert new_item.name == '#new_comp1'
+    assert isinstance(new_item, ProcedureItem)
+    assert new_item.ir.name == 'new_comp1'
+    assert item.ir.name == 'comp1'
+
+    # Make sure both items have the same dependencies but the dependency
+    # objects are distinct objects
+    assert item.dependencies == new_item.dependencies
+    assert all(d is not new_d for d, new_d in zip(item.dependencies, new_item.dependencies))
+
+
+def test_procedure_item_from_item2(testdir, default_config):
+    proj = testdir/'sources/projBatch'
+
+    # A file with a single subroutine declared in a module that calls a typebound procedure
+    # where the type is imported via an import statement in the module scope
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    file_item = item_factory.get_or_create_file_item_from_path(proj/'module/other_mod.F90', config=scheduler_config)
+    mod_item = file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
+    assert mod_item.name == 'other_mod'
+    assert isinstance(mod_item, ModuleItem)
+    item = mod_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
+    assert item.name == 'other_mod#mod_proc'
+    assert isinstance(item, ProcedureItem)
+
+    expected_cache = {str(proj/'module/other_mod.F90').lower(), 'other_mod', 'other_mod#mod_proc'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Create a new item by duplicating the existing item
+    new_item = item_factory.get_or_create_item_from_item('my_mod#new_proc', item, config=scheduler_config)[0]
+    expected_cache |= {str(proj/'module/my_mod.F90').lower(), 'my_mod', 'my_mod#new_proc'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Assert the new item differs from the existing item in the name, with the original
+    # item unchanged
+    assert new_item.name == 'my_mod#new_proc'
+    assert isinstance(new_item, ProcedureItem)
+    assert new_item.ir.name == 'new_proc'
+    assert new_item.ir.parent.name == 'my_mod'
+    assert item.ir.name == 'mod_proc'
+    assert item.ir.parent.name == 'other_mod'
+
+    # Make sure both items have the same dependencies but the dependency
+    # objects are distinct objects
+    assert item.dependencies == new_item.dependencies
+    assert all(d is not new_d for d, new_d in zip(item.dependencies, new_item.dependencies))
+
+
 def test_typedef_item(testdir):
     proj = testdir/'sources/projBatch'
 

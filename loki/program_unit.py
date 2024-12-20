@@ -288,7 +288,7 @@ class ProgramUnit(Scope):
         xmods = frontend_args.get('xmods')
         parser_classes = frontend_args.get('parser_classes', RegexParserClass.AllClasses)
         if frontend == Frontend.REGEX and self._parser_classes:
-            if self._parser_classes == parser_classes:
+            if self._parser_classes == (self._parser_classes | parser_classes):
                 return
             parser_classes = parser_classes | self._parser_classes
 
@@ -442,6 +442,7 @@ class ProgramUnit(Scope):
         if self._source is not None and 'source' not in kwargs:
             kwargs['source'] = self._source
         kwargs.setdefault('incomplete', self._incomplete)
+        kwargs.setdefault('parser_classes', self._parser_classes)
 
         # Rebuild IRs
         rebuild = Transformer({}, rebuild_scopes=True)

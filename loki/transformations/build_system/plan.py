@@ -80,6 +80,13 @@ class CMakePlanTransformation(Transformation):
             return
 
         sourcepath = item.path.resolve()
+
+        # This makes sure the sourcepath does in fact exist. Combined with
+        # item duplication or other transformations we might end up adding
+        # items on-the-fly that did not exist before, with fake paths.
+        # There is possibly a better way of doing this, though.
+        source_exists = sourcepath.exists()
+
         if self.rootpath is not None:
             sourcepath = sourcepath.relative_to(self.rootpath)
 
@@ -88,14 +95,16 @@ class CMakePlanTransformation(Transformation):
         debug(f'Planning:: {item.name} (role={item.role}, mode={item.mode})')
 
         if newsource not in self.sources_to_append:
-            self.sources_to_transform += [sourcepath]
+            if source_exists:
+                self.sources_to_transform += [sourcepath]
             if item.replicate:
                 # Add new source file next to the old one
                 self.sources_to_append += [newsource]
             else:
                 # Replace old source file to avoid ghosting
                 self.sources_to_append += [newsource]
-                self.sources_to_remove += [sourcepath]
+                if source_exists:
+                    self.sources_to_remove += [sourcepath]
 
     def write_plan(self, filepath):
         """
