@@ -76,13 +76,31 @@ class Sourcefile:
         """
         Replicate the object with the provided overrides.
         """
-        if 'path' not in kwargs:
-            kwargs['path'] = self.path
+        kwargs.setdefault('path', self.path)
         if self.ir is not None and 'ir' not in kwargs:
-            kwargs['ir'] = self.ir.recursive_clone()
+            kwargs['ir'] = self.ir
+            ir_needs_clone = True
+        else:
+            ir_needs_clone = False
+        if self._ast is not None and 'ast' not in kwargs:
+            kwargs['ast'] = self._ast
         if self.source is not None and 'source' not in kwargs:
-            kwargs['source'] = self._source.clone(file=kwargs['path']) # .clone()
-        return type(self)(**kwargs)
+            kwargs['source'] = self._source.clone(file=kwargs['path'])
+        kwargs.setdefault('incomplete', self._incomplete)
+        if self._parser_classes is not None and 'parser_classes' not in kwargs:
+            kwargs['parser_classes'] = self._parser_classes
+
+        obj = type(self)(**kwargs)
+
+        # When the IR has been carried over from the current sourcefile
+        # we need to make sure we perform a deep copy
+        if obj.ir and ir_needs_clone:
+            ir_body = tuple(
+                node.clone(rescope_symbols=True) if isinstance(node, ProgramUnit)
+                else node.clone() for node in obj.ir.body
+            )
+            obj.ir = obj.ir.clone(body=ir_body)
+        return obj
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
