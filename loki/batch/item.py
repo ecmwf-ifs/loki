@@ -330,21 +330,22 @@ class Item(ItemConfig):
         tuple
             The list of :any:`Item` nodes
         """
-        if not (dependencies := self.dependencies):
-            return ()
-
         ignore = [*self.disable, *self.block]
-        items = tuple(
-            item
-            for node in dependencies
-            for item in as_tuple(item_factory.create_from_ir(node, self.scope_ir, config, ignore=ignore))
-            if item is not None
-        )
+        items = as_tuple(self.plan_data.get('additional_dependencies'))
+        if (dependencies := self.dependencies):
+            items += tuple(
+                item
+                for node in dependencies
+                for item in as_tuple(item_factory.create_from_ir(node, self.scope_ir, config, ignore=ignore))
+                if item is not None
+            )
         if self.disable:
             items = tuple(
                 item for item in items
                 if not SchedulerConfig.match_item_keys(item.name, self.disable)
             )
+        if (removed_dependencies := self.plan_data.get('removed_dependencies')):
+            items = tuple(item for item in items if item not in removed_dependencies)
 
         if only:
             items = tuple(item for item in items if isinstance(item, only))
@@ -670,28 +671,10 @@ class ModuleItem(Item):
         Return the list of :any:`Import` nodes that constitute dependencies
         for this module, filtering out imports to intrinsic modules.
         """
-        deps = tuple(
+        return tuple(
             imprt for imprt in self.ir.imports
             if not imprt.c_import and str(imprt.nature).lower() != 'intrinsic'
         )
-        # potentially add dependencies due to transformations that added some
-        if 'additional_dependencies' in self.plan_data:
-            deps += self.plan_data['additional_dependencies']
-        # potentially remove dependencies due to transformations that removed some of those
-        if 'removed_dependencies' in self.plan_data:
-            new_deps = ()
-            for dep in deps:
-                if isinstance(dep, Import):
-                    new_symbols = ()
-                    for symbol in dep.symbols:
-                        if str(symbol.name).lower() not in self.plan_data['removed_dependencies']:
-                            new_symbols += (symbol,)
-                    if new_symbols:
-                        new_deps += (dep.clone(symbols=new_symbols),)
-                else:
-                    new_deps += (dep,)
-            return new_deps
-        return deps
 
     @property
     def local_name(self):
@@ -759,29 +742,7 @@ class ProcedureItem(Item):
                 import_map = self.scope.import_map
                 typedefs += tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
                 imports += tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
-        deps = imports + interfaces + typedefs + calls + inline_calls
-        # potentially add dependencies due to transformations that added some
-        if 'additional_dependencies' in self.plan_data:
-            deps += self.plan_data['additional_dependencies']
-        # potentially remove dependencies due to transformations that removed some of those
-        if 'removed_dependencies' in self.plan_data:
-            new_deps = ()
-            for dep in deps:
-                if isinstance(dep, CallStatement):
-                    if str(dep.name).lower() not in self.plan_data['removed_dependencies']:
-                        new_deps += (dep,)
-                elif isinstance(dep, Import):
-                    new_symbols = ()
-                    for symbol in dep.symbols:
-                        if str(symbol.name).lower() not in self.plan_data['removed_dependencies']:
-                            new_symbols += (symbol,)
-                    if new_symbols:
-                        new_deps += (dep.clone(symbols=new_symbols),)
-                else:
-                    # TODO: handle interfaces and inline calls as well ...
-                    new_deps += (dep,)
-            return new_deps
-        return deps
+        return imports + interfaces + typedefs + calls + inline_calls
 
 
 class TypeDefItem(Item):
