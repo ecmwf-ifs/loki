@@ -535,17 +535,26 @@ class Scheduler:
                     include_external=self.config.default.get('strict', True)
                 )
 
+            # Collect common transformation arguments
+            kwargs = {
+                'depths': graph.depths,
+                'build_args': self.build_args,
+                'plan_mode': proc_strategy == ProcessingStrategy.PLAN,
+            }
+
+            if transformation.renames_items or transformation.creates_items:
+                kwargs['item_factory'] = self.item_factory
+                kwargs['scheduler_config'] = self.config
+
             for _item in traversal:
                 if isinstance(_item, ExternalItem):
                     raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
 
                 transformation.apply(
-                    _item.scope_ir, role=_item.role, mode=_item.mode,
-                    item=_item, targets=_item.targets, items=_get_definition_items(_item, sgraph_items),
+                    _item.scope_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
                     successors=graph.successors(_item, item_filter=item_filter),
-                    depths=graph.depths, build_args=self.build_args,
-                    plan_mode=proc_strategy == ProcessingStrategy.PLAN,
-                    item_factory=self.item_factory
+                    role=_item.role, mode=_item.mode, targets=_item.targets,
+                    **kwargs
                 )
 
         if transformation.renames_items:
@@ -553,7 +562,8 @@ class Scheduler:
 
         if transformation.creates_items:
             self._discover()
-            self._parse_items()
+            if self.full_parse:
+                self._parse_items()
 
     def callgraph(self, path, with_file_graph=False, with_legend=False):
         """
