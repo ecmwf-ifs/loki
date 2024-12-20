@@ -28,7 +28,8 @@ from loki.transformations.data_offload import (
 )
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
-    inline_constant_parameters, inline_elemental_functions
+    inline_constant_parameters, inline_elemental_functions,
+    inline_statement_functions
 )
 
 __all__ = [
@@ -53,8 +54,19 @@ class InlineTransformation(Transformation):
         if role == 'kernel':
 
             inline_constant_parameters(routine, external_only=True)
-            inline_elemental_functions(routine)
+            # inline_elemental_functions(routine)
+            # inline_statement_functions(routine)
 
+class InlineStatementTransformation(Transformation):
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+
+        if role == 'kernel':
+
+            # inline_constant_parameters(routine, external_only=True)
+            # inline_elemental_functions(routine)
+            inline_statement_functions(routine)
 
 SCCLowLevelCuf = partial(
     Pipeline, classes=(
@@ -255,10 +267,11 @@ mode: str
 
 SCCLowLevelParametrise = partial(
     Pipeline, classes=(
-        InlineTransformation,
+        InlineStatementTransformation,
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        # InlineTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -351,10 +364,11 @@ dic2p: dict
 
 SCCLowLevelHoist = partial(
     Pipeline, classes=(
-        InlineTransformation,
+        InlineStatementTransformation,
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        # InlineTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,

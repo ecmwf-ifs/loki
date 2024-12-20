@@ -194,6 +194,19 @@ def convert(
         scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
 
         mode = mode.replace('-', '_')  # Sanitize mode string
+        if mode in ['c', 'cuda_parametrise', 'cuda_hoist']:
+            if mode == 'c':
+                f2c_transformation = FortranCTransformation(path=build)
+            elif mode in ['cuda_parametrise', 'cuda_hoist']:
+                f2c_transformation = FortranCTransformation(path=build, language='cuda', use_c_ptr=True)
+            else:
+                assert False
+            scheduler.process(f2c_transformation)
+            for h in definitions:
+                f2c_transformation.apply(h, role='header')
+            # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+            dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
+            scheduler.process(dependency)
 
         # Write out all modified source files into the build directory
         file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
