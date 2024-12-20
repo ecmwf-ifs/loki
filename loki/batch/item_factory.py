@@ -5,8 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
-
 from loki.batch.configure import SchedulerConfig
 from loki.batch.item import (
     get_all_import_map, ExternalItem, FileItem, InterfaceItem, ModuleItem,
@@ -47,53 +45,6 @@ class ItemFactory:
         Check if an item under the given name exists in the :attr:`item_cache`
         """
         return key in self.item_cache
-
-    def clone_procedure_item(self, item, suffix='', module_suffix=''):
-        """
-        Clone and create a :any:`ProcedureItem` and additionally create a :any:`ModuleItem`
-        (if the passed :any:`ProcedureItem` lives within a module ) as well
-        as a :any:`FileItem`.
-        """
-
-        path = Path(item.path)
-        new_path = Path(item.path).with_suffix(f'.{module_suffix}{item.path.suffix}')
-
-        local_routine_name = item.local_name
-        new_local_routine_name = f'{local_routine_name}_{suffix}'
-
-        mod_name = item.name.split('#')[0]
-        if mod_name:
-            new_mod_name = mod_name.replace('mod', f'{module_suffix}_mod')\
-                    if 'mod' in mod_name else f'{mod_name}{module_suffix}'
-        else:
-            new_mod_name = ''
-        new_routine_name = f'{new_mod_name}#{new_local_routine_name}'
-
-        # create new source
-        orig_source = item.source
-        new_source = orig_source.clone(path=new_path)
-        if not mod_name:
-            new_source[local_routine_name].name = new_local_routine_name
-        else:
-            new_source[mod_name][local_routine_name].name = new_local_routine_name
-            new_source[mod_name].name = new_mod_name
-
-        # create new ModuleItem
-        if mod_name:
-            orig_mod = self.item_cache[mod_name]
-            self.item_cache[new_mod_name] = orig_mod.clone(name=new_mod_name, source=new_source)
-
-        # create new ProcedureItem
-        self.item_cache[new_routine_name] = item.clone(name=new_routine_name, source=new_source)
-
-        # create new FileItem
-        orig_file_item = self.item_cache[str(path)]
-        self.item_cache[str(new_path)] = orig_file_item.clone(name=str(new_path), source=new_source)
-
-        # return the newly created procedure/routine
-        if mod_name:
-            return new_source[new_mod_name][new_local_routine_name]
-        return new_source[new_local_routine_name]
 
     def create_from_ir(self, node, scope_ir, config=None, ignore=None):
         """
@@ -264,6 +215,92 @@ class ItemFactory:
             item = item_cls(item_name, source=source, config=item_conf)
         self.item_cache[item_name] = item
         return item
+
+    def get_or_create_item_from_item(self, name, item, config=None):
+        """
+        Helper method to instantiate an :any:`Item` as a clone of a given :data:`item`
+        with the given new :data:`name`.
+
+        This helper method checks for the presence of :data:`name` in the
+        :attr:`item_cache` and returns that instance. If none is in the cache, it tries
+        a lookup via the scope, if applicable. Otherwise, a new item is created as
+        a duplicate.
+
+        This duplication is performed by replicating the corresponding :any:`FileItem`
+        and any enclosing scope items, applying name changes for scopes as implied by
+        :data:`name`.
+
+        Parameters
+        ----------
+        name : str
+            The name of the item to create
+        item : :any:`Item`
+            The item to duplicate to create the new item
+        config : :any:`SchedulerConfig`, optional
+            The config object to use when instantiating the new item
+
+        Returns
+        -------
+        :any:`Item`
+            The new item object
+        """
+        # Sanity checks and early return if an item by that name exists
+        if name in self.item_cache:
+            return self.item_cache[name]
+
+        if not isinstance(item, ProcedureItem):
+            raise NotImplementedError(f'Cloning of Items is not supported for {type(item)}')
+
+        # Derive name components for the new item
+        pos = name.find('#')
+        local_name = name[pos+1:]
+        if pos == -1:
+            scope_name = None
+            if local_name == item.local_name:
+                raise RuntimeError(f'Cloning item {item.name} with the same name in global scope')
+            if item.scope_name:
+                raise RuntimeError(f'Cloning item {item.name} from local scope to global scope is not supported')
+        else:
+            scope_name = name[:pos]
+            if scope_name and scope_name == item.scope_name:
+                raise RuntimeError(f'Cloning item {item.name} as {name} creates name conflict for scope {scope_name}')
+            if scope_name and not item.scope_name:
+                raise RuntimeError(f'Cloning item {item.name} from global scope to local scope is not supported')
+
+        # We may need to create a new item as a clone of the given item
+        # For this, we start with replicating the source and updating the
+        if not scope_name or scope_name not in self.item_cache:
+            # Clone the source and update names
+            new_source = item.source.clone()
+            if scope_name:
+                scope = new_source[item.scope_name]
+                scope.name = scope_name
+                ir = scope[item.local_name]
+            else:
+                ir = new_source[item.local_name]
+            ir.name = local_name
+
+            # Create a new FileItem for the new source
+            new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
+            file_item = self.get_or_create_file_item_from_source(new_source, config=config)
+
+            # Get the definition items for the FileItem and return the new item
+            definition_items = {
+                it.name: it for it in file_item.create_definition_items(item_factory=self, config=config)
+            }
+            self.item_cache.update(definition_items)
+
+            if name in definition_items:
+                return definition_items[name]
+
+        # Check for existing scope item
+        if scope_name and scope_name in self.item_cache:
+            scope = self.item_cache[scope_name].ir
+            if local_name not in scope:
+                raise RuntimeError(f'Cloning item {item.name} as {name} failed, {local_name} not found in existing scope {scope_name}')
+            return self.create_from_ir(scope[local_name], scope, config=config)
+
+        raise RuntimeError(f'Failed to clone item {item.name} as {name}')
 
     def get_or_create_file_item_from_path(self, path, config, frontend_args=None):
         """
