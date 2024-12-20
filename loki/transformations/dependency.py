@@ -7,7 +7,7 @@
 
 from loki.batch import Transformation
 from loki.ir import nodes as ir, Transformer, FindNodes
-from loki.tools.util import as_tuple
+from loki.tools.util import as_tuple, CaseInsensitiveDict
 
 __all__ = ['DuplicateKernel', 'RemoveKernel']
 
@@ -16,66 +16,87 @@ class DuplicateKernel(Transformation):
 
     creates_items = True
 
+    reverse_traversal = True
+
     def __init__(self, kernels=None, duplicate_suffix='duplicated',
                  duplicate_module_suffix=None):
         self.suffix = duplicate_suffix
         self.module_suffix = duplicate_module_suffix or duplicate_suffix
-        print(f"suffix: {self.suffix}")
-        print(f"module_suffix: {self.module_suffix}")
         self.kernels = tuple(kernel.lower() for kernel in as_tuple(kernels))
 
+    def _create_duplicate_items(self, successors, item_factory, config):
+        new_items = ()
+        for item in successors:
+            if item.local_name in self.kernels:
+                # Determine new item name
+                scope_name = item.scope_name
+                local_name = f'{item.local_name}{self.suffix}'
+                if scope_name:
+                    scope_name = f'{scope_name}{self.module_suffix}'
+
+                # Try to get existing item from cache
+                new_item_name = f'{scope_name or ""}#{local_name}'
+                new_item = item_factory.item_cache.get(new_item_name)
+
+                # Try to get an item for the scope or create that first
+                if new_item is None and scope_name:
+                    scope_item = item_factory.item_cache.get(scope_name)
+                    if scope_item:
+                        scope = scope_item.ir
+                        if local_name not in scope and item.local_name in scope:
+                            # Rename the existing item to the new name
+                            scope[item.local_name].name = local_name
+
+                        if local_name in scope:
+                            new_item = item_factory.create_from_ir(
+                                scope[local_name], scope, config=config
+                            )
+
+                # Create new item
+                if new_item is None:
+                    new_item = item_factory.get_or_create_item_from_item(new_item_name, item, config=config)
+                new_items += as_tuple(new_item)
+        return tuple(new_items)
+
     def transform_subroutine(self, routine, **kwargs):
+        # Create new dependency items
+        new_dependencies = self._create_duplicate_items(
+            successors=as_tuple(kwargs.get('successors')),
+            item_factory=kwargs.get('item_factory'),
+            config=kwargs.get('scheduler_config')
+        )
+        new_dependencies = CaseInsensitiveDict((new_item.local_name, new_item) for new_item in new_dependencies)
 
-        item = kwargs.get('item', None)
-        item_factory = kwargs.get('item_factory', None)
-        if not item and 'items' in kwargs:
-            if kwargs['items']:
-                item = kwargs['items'][0]
-
-        successors = as_tuple(kwargs.get('successors'))
-        item.plan_data['additional_dependencies'] = ()
-        new_deps = {}
-        for child in successors:
-            if child.local_name.lower() in self.kernels:
-                new_dep = item_factory.clone_procedure_item(child, self.suffix, self.module_suffix)
-                new_deps[new_dep.name.lower()] = new_dep
-
-        imports = as_tuple(FindNodes(ir.Import).visit(routine.spec))
-        parent_imports = as_tuple(FindNodes(ir.Import).visit(routine.parent.ir)) if routine.parent is not None else ()
-        all_imports = imports + parent_imports
-        import_map = {}
-        for _imp in all_imports:
-            for symbol in _imp.symbols:
-                import_map[symbol] = _imp
-
-        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        # Duplicate calls to kernels
         call_map = {}
-        for call in calls:
-            if str(call.name).lower() in self.kernels:
-                new_call_name = f'{str(call.name)}_{self.suffix}'.lower()
-                call_map[call] = (call, call.clone(name=new_deps[new_call_name].procedure_symbol))
-                if call.name in import_map:
-                    new_import_module = \
-                            import_map[call.name].module.upper().replace('MOD', f'{self.module_suffix.upper()}_MOD')
-                    new_symbols = [symbol.clone(name=f"{symbol.name}_{self.suffix}")
-                                   for symbol in import_map[call.name].symbols]
-                    new_import = ir.Import(module=new_import_module, symbols=as_tuple(new_symbols))
-                    routine.spec.append(new_import)
-        routine.body = Transformer(call_map).visit(routine.body)
+        new_imports = []
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            call_name = str(call.name).lower()
+            if call_name in self.kernels:
+                # Duplicate the call
+                new_call_name = f'{call_name}{self.suffix}'.lower()
+                new_item = new_dependencies[new_call_name]
+                proc_symbol = new_item.ir.procedure_symbol.rescope(scope=routine)
+                call_map[call] = (call, call.clone(name=proc_symbol))
+
+                # Register the module import
+                if new_item.scope_name:
+                    new_imports += [ir.Import(module=new_item.scope_name, symbols=(proc_symbol,))]
+
+        if call_map:
+            routine.body = Transformer(call_map).visit(routine.body)
+            if new_imports:
+                routine.spec.prepend(as_tuple(new_imports))
 
     def plan_subroutine(self, routine, **kwargs):
-        item = kwargs.get('item', None)
-        item_factory = kwargs.get('item_factory', None)
-        if not item and 'items' in kwargs:
-            if kwargs['items']:
-                item = kwargs['items'][0]
+        item = kwargs.get('item')
+        item.plan_data.setdefault('additional_dependencies', ())
+        item.plan_data['additional_dependencies'] += self._create_duplicate_items(
+            successors=as_tuple(kwargs.get('successors')),
+            item_factory=kwargs.get('item_factory'),
+            config=kwargs.get('scheduler_config')
+        )
 
-        successors = as_tuple(kwargs.get('successors'))
-        item.plan_data['additional_dependencies'] = ()
-        for child in successors:
-            if child.local_name.lower() in self.kernels:
-                new_dep = item_factory.clone_procedure_item(child, self.suffix, self.module_suffix)
-                item.plan_data['additional_dependencies'] += as_tuple(new_dep)
 
 class RemoveKernel(Transformation):
 
@@ -85,27 +106,17 @@ class RemoveKernel(Transformation):
         self.kernels = tuple(kernel.lower() for kernel in as_tuple(kernels))
 
     def transform_subroutine(self, routine, **kwargs):
-        calls = FindNodes(ir.CallStatement).visit(routine.body)
-        call_map = {}
-        for call in calls:
-            if str(call.name).lower() in self.kernels:
-                call_map[call] = None
+        call_map = {
+            call: None for call in FindNodes(ir.CallStatement).visit(routine.body)
+            if str(call.name).lower() in self.kernels
+        }
         routine.body = Transformer(call_map).visit(routine.body)
 
     def plan_subroutine(self, routine, **kwargs):
-        item = kwargs.get('item', None)
-        item_factory = kwargs.get('item_factory', None)
-        if not item and 'items' in kwargs:
-            if kwargs['items']:
-                item = kwargs['items'][0]
+        item = kwargs.get('item')
 
         successors = as_tuple(kwargs.get('successors'))
-        item.plan_data['removed_dependencies'] = ()
-        for child in successors:
-            if child.local_name.lower() in self.kernels:
-                item.plan_data['removed_dependencies'] += (child.local_name.lower(),)
-        # propagate 'removed_dependencies' to corresponding module (if it exists)
-        module_name = item.name.split('#')[0]
-        if module_name:
-            module_item = item_factory.item_cache[item.name.split('#')[0]]
-            module_item.plan_data['removed_dependencies'] = item.plan_data['removed_dependencies']
+        item.plan_data.setdefault('removed_dependencies', ())
+        item.plan_data['removed_dependencies'] += tuple(
+            child for child in successors if child.local_name in self.kernels
+        )
