@@ -258,7 +258,9 @@ def test_dependency_remove(tmp_path, frontend, config):
 
 @pytest.mark.usefixtures('fcode_no_module')
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('suffix, module_suffix', (('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')))
+@pytest.mark.parametrize('suffix, module_suffix', (
+    ('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')
+))
 @pytest.mark.parametrize('full_parse', (True, False))
 def test_dependency_duplicate_plan_no_module(tmp_path, frontend, suffix, module_suffix, config, full_parse):
 
@@ -298,7 +300,9 @@ def test_dependency_duplicate_plan_no_module(tmp_path, frontend, suffix, module_
 
 @pytest.mark.usefixtures('fcode_no_module')
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('suffix, module_suffix', (('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')))
+@pytest.mark.parametrize('suffix, module_suffix', (
+    ('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')
+))
 def test_dependency_duplicate_trafo_no_module(tmp_path, frontend, suffix, module_suffix, config):
 
     scheduler = Scheduler(
