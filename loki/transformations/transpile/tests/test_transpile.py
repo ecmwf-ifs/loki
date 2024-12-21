@@ -15,7 +15,9 @@ import loki.expression.symbols as sym
 from loki.frontend import available_frontends
 from loki import ir
 
-from loki.transformations.transpile import FortranCTransformation
+from loki.transformations.transpile import (
+    FortranCTransformation, FortranISOCWrapperTransformation
+)
 from loki.transformations.single_column import SCCLowLevelHoist, SCCLowLevelParametrise
 
 # pylint: disable=too-many-lines
@@ -85,7 +87,7 @@ end subroutine transpile_case_sensitivity
     inline_call_assignment = ir.Assignment(lhs=routine.variable_map['a'], rhs=inline_call)
     routine.body = (routine.body, assignment, call, inline_call_assignment)
 
-    f2c = FortranCTransformation(language=language, use_c_ptr=language=='cuda')
+    f2c = FortranCTransformation(language=language)
     f2c.apply(source=routine, path=tmp_path)
     ccode = cpath(tmp_path, routine).read_text().replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '')
     assert convert_case('transpile_case_sensitivity_c(inta,intsOmE_vAr,intoTher_VaR)', case_sensitive) in ccode
@@ -141,8 +143,11 @@ end subroutine simple_loops
                              [13., 23., 33., 43.]])
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -237,8 +242,11 @@ end subroutine transpile_arguments
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -322,12 +330,13 @@ end subroutine transp_der_type
     assert a_struct.c == 12.
 
     # Translate the header module to expose parameters
-    mod2c = FortranCTransformation(use_c_ptr=use_c_ptr)
-    mod2c.apply(source=module, path=tmp_path, role='header')
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=module, path=tmp_path, role='header')
 
     # Create transformation object and apply
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path, role='kernel')
+    f2cwrap.apply(source=routine, path=tmp_path, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, wrapperpath(tmp_path, routine), cpath(tmp_path, routine)]
@@ -396,12 +405,13 @@ end subroutine transp_assoc
     assert a_struct.c == 24.
 
     # Translate the header module to expose parameters
-    mod2c = FortranCTransformation()
-    mod2c.apply(source=module, path=tmp_path, role='header')
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=module, path=tmp_path, role='header')
 
     # Create transformation object and apply
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path, role='kernel')
+    f2cwrap.apply(source=routine, path=tmp_path, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [module, wrapperpath(tmp_path, routine), cpath(tmp_path, routine)]
@@ -497,12 +507,13 @@ end subroutine transp_mod_var
     assert a == 3 and b == 5. and c == 4.
 
     # Translate the header module to expose parameters
-    mod2c = FortranCTransformation(use_c_ptr=use_c_ptr)
-    mod2c.apply(source=module, path=tmp_path, role='header')
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=module, path=tmp_path, role='header')
 
     # Create transformation object and apply
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path, role='kernel')
+    f2cwrap.apply(source=routine, path=tmp_path, role='kernel')
 
     # Build and wrap the cross-compiled library
     sources = [
@@ -561,8 +572,11 @@ end subroutine transp_vect
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -615,8 +629,11 @@ end subroutine transpile_intrinsics
     assert vmin_nested == 1. and vmax_nested == 5.
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -682,8 +699,11 @@ end subroutine transp_loop_ind
     assert mask3[-1] == 3.
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -742,8 +762,11 @@ end subroutine logical_stmts
             assert v_val[0] and not v_val[1]
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -811,8 +834,11 @@ end subroutine multibody_cond
     clean_test(filepath)
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -881,8 +907,11 @@ end subroutine inline_elemental
     # Now transpile with supplied elementals but without module
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
 
-    f2c = FortranCTransformation(inline_elementals=True, use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation(inline_elementals=True)
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -957,8 +986,11 @@ end subroutine inline_elementals_rec
     # Now transpile with supplied elementals but without module
     routine = Subroutine.from_source(fcode, definitions=module, frontend=frontend, xmods=[tmp_path])
 
-    f2c = FortranCTransformation(inline_elementals=True, use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation(inline_elementals=True)
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -1009,8 +1041,11 @@ end subroutine transpile_expressions
     assert np.all(vector == [i * scalar for i in range(1, n+1)])
 
     # Generate and test the transpiled C kernel
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
+    f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(use_c_ptr=use_c_ptr)
+    f2cwrap.apply(source=routine, path=tmp_path)
+
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(
         [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
@@ -1033,11 +1068,10 @@ end subroutine transpile_expressions
     assert np.all(vector == [i * scalar for i in range(1, n+1)])
 
 
-@pytest.mark.parametrize('use_c_ptr', (False, True))
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('language', ('c', 'cuda'))
 @pytest.mark.parametrize('chevron', (False, True))
-def test_transpile_call(tmp_path, frontend, use_c_ptr, language, chevron):
+def test_transpile_call(tmp_path, frontend, language, chevron):
     fcode_module = """
 module transpile_call_kernel_mod
   implicit none
@@ -1072,7 +1106,7 @@ end subroutine transpile_call_driver
     if chevron:
         calls = FindNodes(ir.CallStatement).visit(routine.body)
         calls[0]._update(chevron=(sym.IntLiteral(1), sym.IntLiteral(1)))
-    f2c = FortranCTransformation(use_c_ptr=use_c_ptr, language=language)
+    f2c = FortranCTransformation(language=language)
     f2c.apply(source=module.subroutine_map['transpile_call_kernel'], path=tmp_path, role='kernel')
     ccode_kernel = cpath(tmp_path, module.routines[0]).read_text().replace(' ', '').replace('\n', '')
     f2c.apply(source=routine, path=tmp_path, role='kernel')
@@ -1271,6 +1305,8 @@ end subroutine multi_cond_simple
     # apply F2C trafo
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation()
+    f2cwrap.apply(source=routine, path=tmp_path)
 
     # check whether 'switch' statement is within C code
     assert 'switch' in codegen(routine)
@@ -1337,6 +1373,8 @@ end subroutine multi_cond
     # apply F2C trafo
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation()
+    f2cwrap.apply(source=routine, path=tmp_path)
 
     # check whether 'switch' statement is within C code
     assert 'switch' in cgen(routine)
@@ -1410,6 +1448,8 @@ end subroutine transpile_special_functions
     # apply F2C trafo
     f2c = FortranCTransformation()
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation()
+    f2cwrap.apply(source=routine, path=tmp_path)
 
     # check whether correct modulo was inserted
     ccode = cpath(tmp_path, routine).read_text()
@@ -1538,8 +1578,10 @@ def test_scc_cuda_parametrise(tmp_path, here, frontend, config, horizontal, vert
         use_c_ptr=True, dic2p=dic2p, path=here, mode='cuda'
     )
     scheduler.process(transformation=cuda_transform)
-    f2c_transformation = FortranCTransformation(language='cuda', use_c_ptr=True)
+    f2c_transformation = FortranCTransformation(language='cuda')
     scheduler.process(transformation=f2c_transformation)
+    f2cwrap = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
+    scheduler.process(transformation=f2cwrap)
 
     kernel = scheduler['kernel_mod#kernel'].ir
     kernel_variable_map = kernel.variable_map
@@ -1633,8 +1675,10 @@ def test_scc_cuda_hoist(tmp_path, here, frontend, config, horizontal, vertical, 
         use_c_ptr=True, path=here, mode='cuda'
     )
     scheduler.process(transformation=cuda_transform)
-    f2c_transformation = FortranCTransformation(language='cuda', use_c_ptr=True)
+    f2c_transformation = FortranCTransformation(language='cuda')
     scheduler.process(transformation=f2c_transformation)
+    f2cwrap = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
+    scheduler.process(transformation=f2cwrap)
 
     kernel = scheduler['kernel_mod#kernel'].ir
     kernel_variable_map = kernel.variable_map
@@ -1784,9 +1828,11 @@ end subroutine transpile_optional_args
 
     clean_test(filepath)
 
-    # transpile
+    # transpile
     f2c = FortranCTransformation(language=language)
     f2c.apply(source=routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation(language=language)
+    f2cwrap.apply(source=routine, path=tmp_path)
 
     # compile and testC/C++ version
     libname = f'fc_{routine.name}_{language}_{frontend}'

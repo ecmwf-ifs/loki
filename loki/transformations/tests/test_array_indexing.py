@@ -22,7 +22,9 @@ from loki.transformations.array_indexing import (
     LowerConstantArrayIndices, remove_explicit_array_dimensions,
     add_explicit_array_dimensions
 )
-from loki.transformations.transpile import FortranCTransformation
+from loki.transformations.transpile import (
+    FortranCTransformation, FortranISOCWrapperTransformation
+)
 
 
 @pytest.fixture(scope='function', name='builder')
@@ -546,6 +548,8 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     f2c_routine = Subroutine.from_source(fcode, frontend=frontend)
     f2c = FortranCTransformation()
     f2c.apply(source=f2c_routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation()
+    f2cwrap.apply(source=f2c_routine, path=tmp_path)
     libname = f'fc_{f2c_routine.name}_{start_index}_{frontend}'
     c_kernel = jit_compile_lib(
         [tmp_path/f'{f2c_routine.name}_fc.F90', tmp_path/f'{f2c_routine.name}_c.c'],

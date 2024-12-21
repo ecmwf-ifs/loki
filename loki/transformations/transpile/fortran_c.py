@@ -113,9 +113,8 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, use_c_ptr=False, language='c'):
+    def __init__(self, inline_elementals=True, language='c'):
         self.inline_elementals = inline_elementals
-        self.use_c_ptr = use_c_ptr
         self.language = language.lower()
         self._supported_languages = ['c', 'cpp', 'cuda']
 
