@@ -20,6 +20,23 @@ from loki.transformations.single_column import SCCLowLevelHoist, SCCLowLevelPara
 
 # pylint: disable=too-many-lines
 
+
+def wrapperpath(path, module_or_routine):
+    """
+    Utility that generates the ``<name>_fc.F90`` path for Fortran wrappers
+    """
+    name = f'{module_or_routine.name}_fc'
+    return (path/name.lower()).with_suffix('.F90')
+
+
+def cpath(path, module_or_routine, suffix='.c'):
+    """
+    Utility that generates the ``<name>_c.h`` path for Fortran wrappers
+    """
+    name = f'{module_or_routine.name}_c'
+    return (path/name.lower()).with_suffix(suffix)
+
+
 @pytest.fixture(scope='function', name='builder')
 def fixture_builder(tmp_path):
     yield Builder(source_dirs=tmp_path, build_dir=tmp_path)
@@ -70,7 +87,7 @@ end subroutine transpile_case_sensitivity
 
     f2c = FortranCTransformation(language=language, use_c_ptr=language=='cuda')
     f2c.apply(source=routine, path=tmp_path)
-    ccode = f2c.c_path.read_text().replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '')
+    ccode = cpath(tmp_path, routine).read_text().replace(' ', '').replace('\n', ' ').replace('\r', '').replace('\t', '')
     assert convert_case('transpile_case_sensitivity_c(inta,intsOmE_vAr,intoTher_VaR)', case_sensitive) in ccode
     assert convert_case('a=threadIdx%x;', case_sensitive) in ccode
     assert convert_case('somE_cALl(a);', case_sensitive) in ccode
@@ -127,11 +144,14 @@ end subroutine simple_loops
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.simple_loops_fc_mod.simple_loops_fc
 
     # check the generated F2C wrapper
-    with open(f2c.wrapperpath, 'r') as f2c_f:
+    with open(wrapperpath(tmp_path, routine), 'r') as f2c_f:
         f2c_str = f2c_f.read().upper().replace(' ', '')
         if use_c_ptr:
             assert f2c_str.count('TARGET') == 2
@@ -220,11 +240,14 @@ end subroutine transpile_arguments
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transpile_arguments_fc_mod.transpile_arguments_fc
 
     # check the generated F2C wrapper
-    with open(f2c.wrapperpath, 'r') as f2c_f:
+    with open(wrapperpath(tmp_path, routine), 'r') as f2c_f:
         f2c_str = f2c_f.read().upper().replace(' ', '')
         if use_c_ptr:
             assert f2c_str.count('TARGET') == 2
@@ -307,7 +330,7 @@ end subroutine transp_der_type
     f2c.apply(source=routine, path=tmp_path, role='kernel')
 
     # Build and wrap the cross-compiled library
-    sources = [module, f2c.wrapperpath, f2c.c_path]
+    sources = [module, wrapperpath(tmp_path, routine), cpath(tmp_path, routine)]
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(sources=sources, path=tmp_path, name=libname, builder=builder)
 
@@ -381,7 +404,7 @@ end subroutine transp_assoc
     f2c.apply(source=routine, path=tmp_path, role='kernel')
 
     # Build and wrap the cross-compiled library
-    sources = [module, f2c.wrapperpath, f2c.c_path]
+    sources = [module, wrapperpath(tmp_path, routine), cpath(tmp_path, routine)]
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(sources=sources, path=tmp_path, name=libname, builder=builder)
 
@@ -482,8 +505,11 @@ end subroutine transp_mod_var
     f2c.apply(source=routine, path=tmp_path, role='kernel')
 
     # Build and wrap the cross-compiled library
-    sources = [module, mod2c.wrapperpath, f2c.wrapperpath, f2c.c_path]
-    wrap = [tmp_path/'mod_var_type_mod.f90', f2c.wrapperpath.name]
+    sources = [
+        module, wrapperpath(tmp_path, module),
+        wrapperpath(tmp_path, routine), cpath(tmp_path, routine)
+    ]
+    wrap = [tmp_path/'mod_var_type_mod.f90', wrapperpath(tmp_path, routine).name]
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
     c_kernel = jit_compile_lib(sources=sources, wrap=wrap, path=tmp_path, name=libname, builder=builder)
 
@@ -538,7 +564,10 @@ end subroutine transp_vect
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transp_vect_fc_mod.transp_vect_fc
 
     # Test the trnapiled C kernel
@@ -589,7 +618,10 @@ end subroutine transpile_intrinsics
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transpile_intrinsics_fc_mod.transpile_intrinsics_fc
 
     vmin, vmax, vabs, vmin_nested, vmax_nested = fc_function(v1, v2, v3, v4)
@@ -653,7 +685,10 @@ end subroutine transp_loop_ind
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transp_loop_ind_fc_mod.transp_loop_ind_fc
 
     mask1 = np.zeros(shape=(n,), order='F', dtype=np.int32)
@@ -710,7 +745,10 @@ end subroutine logical_stmts
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.logical_stmts_fc_mod.logical_stmts_fc
 
     for v1 in range(2):
@@ -776,7 +814,10 @@ end subroutine multibody_cond
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.multibody_cond_fc_mod.multibody_cond_fc
 
     out1, out2 = fc_function(5)
@@ -843,7 +884,10 @@ end subroutine inline_elemental
     f2c = FortranCTransformation(inline_elementals=True, use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_mod = c_kernel.inline_elemental_fc_mod
 
     v2, v3 = fc_mod.inline_elemental_fc(11.)
@@ -916,7 +960,10 @@ end subroutine inline_elementals_rec
     f2c = FortranCTransformation(inline_elementals=True, use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_mod = c_kernel.inline_elementals_rec_fc_mod
 
     v2, v3 = fc_mod.inline_elementals_rec_fc(10.)
@@ -965,11 +1012,14 @@ end subroutine transpile_expressions
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr)
     f2c.apply(source=routine, path=tmp_path)
     libname = f'fc_{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transpile_expressions_fc_mod.transpile_expressions_fc
 
     # Make sure minus signs are represented correctly in the C code
-    ccode = f2c.c_path.read_text()
+    ccode = cpath(tmp_path, routine).read_text()
     # double minus due to index shift to 0
     assert 'vector[i - 1 - 1]' in ccode or 'vector[-1 + i - 1]' in ccode
     assert 'vector[i - 1]' in ccode
@@ -1024,9 +1074,9 @@ end subroutine transpile_call_driver
         calls[0]._update(chevron=(sym.IntLiteral(1), sym.IntLiteral(1)))
     f2c = FortranCTransformation(use_c_ptr=use_c_ptr, language=language)
     f2c.apply(source=module.subroutine_map['transpile_call_kernel'], path=tmp_path, role='kernel')
-    ccode_kernel = f2c.c_path.read_text().replace(' ', '').replace('\n', '')
+    ccode_kernel = cpath(tmp_path, module.routines[0]).read_text().replace(' ', '').replace('\n', '')
     f2c.apply(source=routine, path=tmp_path, role='kernel')
-    ccode_driver = f2c.c_path.read_text().replace(' ', '').replace('\n', '')
+    ccode_driver = cpath(tmp_path, routine).read_text().replace(' ', '').replace('\n', '')
 
     assert "int*a,intb,int*c" in ccode_kernel
     # check for applied Dereference
@@ -1227,7 +1277,10 @@ end subroutine multi_cond_simple
 
     # compile C version
     libname = f'fc_{routine.name}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.multi_cond_simple_fc_mod.multi_cond_simple_fc
     # test C version
     for i, val in enumerate(test_vals):
@@ -1290,7 +1343,10 @@ end subroutine multi_cond
 
     # compile C version
     libname = f'fc_{routine.name}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.multi_cond_fc_mod.multi_cond_fc
     # test C version
     for val in test_results:
@@ -1356,7 +1412,7 @@ end subroutine transpile_special_functions
     f2c.apply(source=routine, path=tmp_path)
 
     # check whether correct modulo was inserted
-    ccode = Path(f2c.c_path).read_text()
+    ccode = cpath(tmp_path, routine).read_text()
     if dtype == 'integer' and not add_float:
         assert '%' in ccode
     if dtype == 'real' or add_float:
@@ -1364,13 +1420,17 @@ end subroutine transpile_special_functions
 
     # compile C version
     libname = f'fc_{routine.name}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine)],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transpile_special_functions_fc_mod.transpile_special_functions_fc
     # test C version
     for i, val in enumerate(test_vals):
         in_var = val
         fc_function(in_var, out_var)
         assert int(out_var) == expected_results[i]
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transpile_interface_to_module(tmp_path, frontend):
@@ -1730,7 +1790,10 @@ end subroutine transpile_optional_args
 
     # compile and testC/C++ version
     libname = f'fc_{routine.name}_{language}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [wrapperpath(tmp_path, routine), cpath(tmp_path, routine, suffix=f'.{language}')],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transpile_optional_args_fc_mod.transpile_optional_args_fc
     if language != 'c':
         out_var, out_var2 = init_out_vars()

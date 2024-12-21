@@ -161,13 +161,13 @@ class FortranCTransformation(Transformation):
             wrapper = generate_iso_c_wrapper_module(
                 module, use_c_ptr=self.use_c_ptr, language=self.language
             )
-            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
-            Sourcefile.to_file(source=fgen(wrapper), path=self.wrapperpath)
+            wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            Sourcefile.to_file(source=fgen(wrapper), path=wrapperpath)
 
             # Generate C header file from module
             c_header = generate_c_header(module)
-            self.c_path = (path/c_header.name.lower()).with_suffix('.h')
-            Sourcefile.to_file(source=self.codegen(c_header), path=self.c_path)
+            c_path = (path/c_header.name.lower()).with_suffix('.h')
+            Sourcefile.to_file(source=self.codegen(c_header), path=c_path)
 
     def transform_subroutine(self, routine, **kwargs):
         if 'path' in kwargs:
@@ -209,14 +209,14 @@ class FortranCTransformation(Transformation):
                 use_c_ptr=self.use_c_ptr, language=self.language
             )
             contains = Section(body=(Intrinsic('CONTAINS'), wrapper))
-            self.wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
+            wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
             module.spec = Section(body=(Import(module='iso_c_binding'),))
 
             # Generate C source file from Loki IR
             c_kernel = self.generate_c_kernel(routine, targets=targets)
-            self.c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
-            Sourcefile.to_file(source=fgen(module), path=self.wrapperpath)
+            c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
+            Sourcefile.to_file(source=fgen(module), path=wrapperpath)
 
             # Generate C source file from Loki IR
             for successor in successors:
@@ -226,8 +226,8 @@ class FortranCTransformation(Transformation):
                 if self.language != 'c':
                     c_kernel_launch = c_kernel.clone(name=f"{c_kernel.name}_launch", prefix="extern_c")
                     self.generate_c_kernel_launch(c_kernel_launch, c_kernel)
-                    self.c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
-                    Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=self.c_path)
+                    c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
+                    Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=c_path)
 
             assignments = FindNodes(Assignment).visit(c_kernel.body)
             assignments2remove = ['griddim', 'blockdim']
@@ -237,9 +237,8 @@ class FortranCTransformation(Transformation):
 
             if depth > 1:
                 c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
-            self.c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
-            Sourcefile.to_file(source=self.codegen(c_kernel, extern=self.language=='cpp'),
-                               path=self.c_path)
+            c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
+            Sourcefile.to_file(source=self.codegen(c_kernel, extern=self.language=='cpp'), path=c_path)
             header_path = (path/c_kernel.name.lower()).with_suffix('.h')
             Sourcefile.to_file(source=self.codegen(c_kernel, header=True), path=header_path)
 
