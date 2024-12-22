@@ -192,7 +192,24 @@ def c_struct_typedef(derived, use_c_ptr=False):
 
 def generate_iso_c_interface(routine, bind_name, c_structs, scope, use_c_ptr=False, language='c'):
     """
-    Generate the ISO-C subroutine interface
+    Generate the ISO-C subroutine :any:`Interface` object for a given :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine for which to generate the interface
+    bind_name : str
+        Name of the C-function to which this interface corresponds.
+    c_structs : dict of str to str
+        Map from Fortran derived type name to  C-struct type name
+    scope : :any:`Scope`
+        Parent scope in which to create the :any:`Interface`
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
+    language : string
+        C-style language to generate; if this is ``'c'``, we resolve
+        non-C imports.
     """
     intf_name = f'{routine.name}_iso_c'
     intf_routine = Subroutine(name=intf_name, body=None, args=(), parent=scope, bind=bind_name)
@@ -239,6 +256,34 @@ def generate_iso_c_interface(routine, bind_name, c_structs, scope, use_c_ptr=Fal
 
 
 def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr=False, language='c'):
+    """
+    Generate Fortran ISO-C wrapper :any:`Subroutine` that corresponds
+    to a transpiled C method.
+
+    The new wrapper subroutine will have the suffix ``'_fc'`` appended
+    to the name original subroutine name and bind to a C function with
+    the suffix ``'_c'``.
+
+    This method will call :meth:`generate_iso_c_interface` to generate
+    the ISO-C compatible interface for the C function and generate a
+    wrapper :any:`Subroutine` that converts the native Fortran arguments
+    to a call to the C function with ISO-C compatible arguments.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine for which to generate the interface
+    c_structs : dict of str to str
+        Map from Fortran derived type name to  C-struct type name
+    bind_name : str
+        Name of the C-function to which this interface corresponds.
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
+    language : string
+        C-style language to generate; if this is ``'c'``, we resolve
+        non-C imports.
+    """
     wrapper = Subroutine(name=f'{routine.name}_fc')
 
     if bind_name is None:
@@ -325,9 +370,28 @@ def generate_iso_c_wrapper_module(module, use_c_ptr=False, language='c'):
     """
     Generate the ISO-C wrapper module for a raw Fortran module.
 
-    Note, we only create getter functions for module variables here,
-    since certain type definitions cannot be used in ISO-C interfaces
-    due to pointer variables, etc.
+    The new wrapper module will have the suffix ``'_fc'`` appended to
+    the name and contain ISO-C function interfaces for contained
+    :any:`Subroutine` objects. This method will call
+    :meth:`generate_iso_c_routine` to generate the ISO-C compatible
+    procedure interfaces.
+
+    Note
+    ----
+    If the module contains global variables, we generate templated
+    getter functions here, as global Fortran variables are not
+    accessible via ISO-C interfaces.
+
+    Parameters
+    ----------
+    module : :any:`Module`
+        The module for which to generate the interface module
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
+    language : string
+        C-style language to generate; if this is ``'c'``, we resolve
+        non-C imports.
     """
     modname = f'{module.name}_fc'
     wrapper_module = Module(name=modname)
@@ -394,6 +458,14 @@ def generate_c_header(module):
     """
     Re-generate the C header as a module with all pertinent nodes,
     but not Fortran-specific intrinsics (eg. implicit none or save).
+
+    The new header module will have the suffix ``'_c'`` appended to
+    the original module name.
+
+    Parameters
+    ----------
+    module : :any:`Module`
+        The module for which to generate the C header
     """
     header_module = Module(name=f'{module.name}_c')
 
