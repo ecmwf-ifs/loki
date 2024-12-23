@@ -71,9 +71,6 @@ class FortranISOCWrapperTransformation(Transformation):
             raise ValueError(f'language "{self.language}" is not supported!'
                              f' (supported languages: "{self._supported_languages}")')
 
-        # Maps from original type name to ISO-C and C-struct types
-        self.c_structs = OrderedDict()
-
     def file_suffix(self):
         if self.language == 'cpp':
             return '.cpp'
@@ -88,8 +85,9 @@ class FortranISOCWrapperTransformation(Transformation):
 
         role = kwargs.get('role', 'kernel')
 
+        c_structs = {}
         for name, td in module.typedef_map.items():
-            self.c_structs[name.lower()] = c_struct_typedef(td, use_c_ptr=self.use_c_ptr)
+            c_structs[name.lower()] = c_struct_typedef(td, use_c_ptr=self.use_c_ptr)
 
         if role == 'header':
             # Generate Fortran wrapper module
@@ -114,15 +112,16 @@ class FortranISOCWrapperTransformation(Transformation):
 
         role = kwargs.get('role', 'kernel')
 
+        c_structs = {}
         for arg in routine.arguments:
             if isinstance(arg.type.dtype, DerivedType):
-                self.c_structs[arg.type.dtype.name.lower()] = c_struct_typedef(arg.type, use_c_ptr=self.use_c_ptr)
+                c_structs[arg.type.dtype.name.lower()] = c_struct_typedef(arg.type, use_c_ptr=self.use_c_ptr)
 
         if role == 'kernel':
             # Generate Fortran wrapper module
             bind_name = None if self.language in ['c', 'cpp'] else f'{routine.name.lower()}_c_launch'
             wrapper = generate_iso_c_wrapper_routine(
-                routine, self.c_structs, bind_name=bind_name,
+                routine, c_structs, bind_name=bind_name,
                 use_c_ptr=self.use_c_ptr, language=self.language
             )
             contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), wrapper))
