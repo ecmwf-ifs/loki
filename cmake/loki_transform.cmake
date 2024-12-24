@@ -366,41 +366,6 @@ endfunction()
 ##############################################################################
 # .rst:
 #
-# loki_transform_transpile
-# ========================
-#
-# **Removed:** Apply Loki transformation in transpile mode.::
-#
-#   loki_transform_transpile(
-#   )
-#
-#  ..warning::
-#      loki_transform_transpile() was removed!
-#
-#  Please use
-#       loki_transform( COMMAND convert [...] )
-#   or
-#       loki_transform_target( COMMAND convert [...] ).
-#
-##############################################################################
-
-function( loki_transform_transpile )
-
-    ecbuild_critical( "\
-loki_transform_transpile() was removed!
-Please use
-    loki_transform( COMMAND convert [...] )
-or
-    loki_transform_target( COMMAND convert [...] ).
-"
-    )
-
-endfunction()
-
-
-##############################################################################
-# .rst:
-#
 # claw_compile
 # ============
 #
