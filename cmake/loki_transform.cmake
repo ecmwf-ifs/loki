@@ -386,62 +386,6 @@ endfunction()
 ##############################################################################
 # .rst:
 #
-# loki_transform_convert
-# ======================
-#
-# Deprecated interface to loki-transform.py. Use loki_transform( COMMAND convert ) instead.::
-#
-##############################################################################
-
-function( loki_transform_convert )
-
-    ecbuild_warn( "\
-loki_transform_convert() is deprecated and will be removed in a future version!
-Please use
-    loki_transform( COMMAND convert [...] )
-or
-    loki_transform_target( COMMAND convert [...] ).
-"
-    )
-
-    set( options
-         CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD
-         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS
-	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
-    )
-    set( oneValueArgs
-         MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH
-    )
-    set( multiValueArgs
-         OUTPUT DEPENDS INCLUDES HEADERS DEFINITIONS OMNI_INCLUDE XMOD
-    )
-
-    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
-
-    if( _PAR_UNPARSED_ARGUMENTS )
-        ecbuild_critical( "Unknown keywords given to loki_transform_convert(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
-    endif()
-
-    #
-    # Rewrite old argument names
-    #
-
-    # PATH -> SOURCES
-    list( TRANSFORM ARGV REPLACE "^PATH$" "SOURCES" )
-
-    # OUTPATH -> BUILDDIR
-    list( TRANSFORM ARGV REPLACE "^OUTPATH$" "BUILDDIR" )
-
-    #
-    # Call loki_transform
-    #
-    loki_transform( COMMAND "convert" ${ARGV} )
-
-endfunction()
-
-##############################################################################
-# .rst:
-#
 # loki_transform_transpile
 # ========================
 #
