@@ -291,26 +291,6 @@ function( loki_transform_target )
             list( APPEND _TRANSFORM_OPTIONS CPP )
         endif()
 
-        if( _PAR_T_INLINE_MEMBERS )
-            list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
-        endif()
-
-        if( _PAR_T_RESOLVE_SEQUENCE_ASSOCIATION )
-            list( APPEND _TRANSFORM_OPTIONS RESOLVE_SEQUENCE_ASSOCIATION )
-        endif()
-
-        if( _PAR_T_DERIVE_ARGUMENT_ARRAY_SHAPE )
-            list( APPEND _TRANSFORM_OPTIONS DERIVE_ARGUMENT_ARRAY_SHAPE )
-        endif()
-
-        if( _PAR_T_TRIM_VECTOR_SECTIONS )
-            list( APPEND _TRANSFORM_OPTIONS TRIM_VECTOR_SECTIONS )
-        endif()
-
-        if( _PAR_T_GLOBAL_VAR_OFFLOAD )
-            list( APPEND _TRANSFORM_OPTIONS GLOBAL_VAR_OFFLOAD )
-        endif()
-
         loki_transform(
             COMMAND     ${_PAR_T_COMMAND}
             OUTPUT      ${LOKI_SOURCES_TO_APPEND}
