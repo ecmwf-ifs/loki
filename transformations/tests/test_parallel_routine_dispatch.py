@@ -40,7 +40,9 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=='DR_HOOK']
@@ -62,7 +64,9 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
     var_lst=["YL_ZRDG_CVGQ",
         "ZRDG_CVGQ",
@@ -118,7 +122,9 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     var_lst = ["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
@@ -172,7 +178,9 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     dcls = [fgen(dcl) for dcl in routine.spec.body[-13:-1]]
@@ -208,7 +216,9 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     
@@ -251,7 +261,9 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     get_data = item.trafo_data['create_parallel']['map_routine']['map_region']['get_data']
@@ -399,7 +411,9 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     synchost = item.trafo_data['create_parallel']['map_routine']['map_region']['synchost']
@@ -447,7 +461,9 @@ def test_parallel_routine_dispatch_nullify(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     nullify = item.trafo_data['create_parallel']['map_routine']['map_region']['nullify']
@@ -494,8 +510,10 @@ def test_parallel_routine_dispatch_compute_openmp(here, frontend):
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
@@ -557,7 +575,9 @@ def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
@@ -635,7 +655,9 @@ def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
@@ -731,7 +753,9 @@ def test_parallel_routine_dispatch_variables(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     variables = item.trafo_data['create_parallel']['map_routine']['variable_declarations']
@@ -763,7 +787,9 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     imports = item.trafo_data['create_parallel']['map_routine']['imports']
@@ -797,7 +823,9 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     routine_str = fgen(routine)
@@ -822,7 +850,9 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+            path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
 
@@ -847,7 +877,9 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
 #    ]
 #    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 #
-#    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
+#    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+#    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
+#            path_map_index, path_map_openacc)
 #    transformation.apply(source['dispatch_routine'], item=item)
 #
 #    loops = [loop for loop in FindNodes(Loop).visit(routine) if loop.variable.name=="JLON"]

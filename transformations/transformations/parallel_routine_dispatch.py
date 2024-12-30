@@ -764,19 +764,19 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         if is_get_data:
             if self.is_intent:
-                raise NotImplementedError(
-                    "Reading the intent from interface isn't implemented yes"
-                )
-                map_intent = get_access_rw(region, map_routine)
+#                raise NotImplementedError(
+#                    "Reading the intent from interface isn't implemented yes"
+#                )
+                map_intent = get_access_rw(region, map_routine, map_region)
 
         for var in region_map_var_sorted:
             if is_get_data :
                 if not self.is_intent:
                     intent = "RDWR"
                 else:
-                    raise NotImplementedError(
-                        "Reading the intent from interface isn't implemented yes"
-                    )
+#                    raise NotImplementedError(
+#                        "Reading the intent from interface isn't implemented yes"
+#                    )
                     intent = map_intent[var.name] 
             else:
                 intent = "RDWR"  # for SYNCHOST, always RDWR
@@ -791,7 +791,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         return sync_data
 
-    def get_access_rw(region, map_routine):
+    def get_access_rw(region, map_routine, map_region):
         """
         Use interface reading and dataflow analysis 
         to get data access (RDONLY/RDWR).
@@ -818,12 +818,16 @@ class ParallelRoutineDispatchTransformation(Transformation):
                     intent, map_intent[arg_name]
                 )
 
-        #switch from in/out to rdwr
+        #switch from in/out to rdwr + change var name
+        region_map_arrays = map_region["map_arrays"]
+        region_map_derived = map_region["map_derived"]
+        region_map_vars = region_map_arrays | region_map_derived
+
         map_intent_access = {}
         map_intent_access["in"] = "RDONLY"
         map_intent_access["out"] = "RDWR"
         map_intent_access["inout"] = "RDWR"
-        new_map_intent = {var_name: map_intent_access[intent] for var_name, value in map_intent.items()}
+        new_map_intent = {region_map_vars[var_name][1]: map_intent_access[intent] for var_name, value in map_intent.items()}
         return(new_map_intent)
 
     def analyse_intent(intent1, intent2):
@@ -1307,11 +1311,6 @@ class ParallelRoutineDispatchTransformation(Transformation):
     def create_scc(
         self, routine, region, region_name, map_routine, map_region, pragma1, pragma2
     ):
-        # ==============================================================
-        # ==============================================================
-        # TODO : generate lst_private !!!! see LLHMT in CALL ACSOL
-        # ==============================================================
-        # ==============================================================
         cpg_opts = map_routine["cpg_opts"]
         lower_bound = routine.resolve_typebound_var(f"{cpg_opts}%JBLKMIN")
         upper_bound = routine.resolve_typebound_var(f"{cpg_opts}%JBLKMAX")
