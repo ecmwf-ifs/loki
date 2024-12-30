@@ -20,6 +20,7 @@ from loki import (
     as_tuple,
     parse_expr,
     single_variable_declaration,
+    dataflow_analysis_attached,
 )
 from loki.expression import symbols as sym
 from loki.ir import (
@@ -44,7 +45,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
     """
     Applying the transformation to create _parallel.F90 routine.
     """
-    def __init__(self, is_intent, horizontal, path_map_derived_field):
+    def __init__(self, is_intent, horizontal, path_map_derived_field, path_map_openacc):
         self.is_intent = (
             is_intent  # set to True if the intent are read for interface block
         )
@@ -59,6 +60,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         self.path_map_derived_field = path_map_derived_field
         with open(path_map_derived_field, "rb") as fp:
             self.map_derived_field = pickle.load(fp)
+
+        self.path_map_openacc = path_map_openacc
+        with open(path_map_openacc, "rb") as fp:
+            #map_openacc contains path to kernel routine 
+            #in order to read their interface and know variable intent
+            self.map_openacc = pickle.load(fp)
 
 
 
@@ -119,6 +126,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_routine["c_imports_parallel"] = []
         map_routine["imports_mapper"] = {}
         map_routine["call_mapper"] = {}
+        map_routine["map_call_interface"] = {}
     
         return(map_routine)
     
@@ -127,12 +135,13 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_region = {}
         in_pragma_calls = []
         with pragma_regions_attached(routine):
-            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
-                if is_loki_pragma(region.pragma):
-                    in_pragma_calls += FindNodes(ir.CallStatement).visit(region)
-                    self.process_parallel_region(
-                        routine, region, map_routine, map_region
-                    )
+            with dataflow_analysis_attached(routine):
+                for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                    if is_loki_pragma(region.pragma):
+                        in_pragma_calls += FindNodes(ir.CallStatement).visit(region)
+                        self.process_parallel_region(
+                            routine, region, map_routine, map_region
+                        )
         map_routine["not_in_pragma_calls"] = [
             call for call in calls if call not in in_pragma_calls
         ]
@@ -148,7 +157,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         self.get_region_variables(routine, region, map_routine, map_region)
 
-        self.create_synchost(routine, region_name, map_region)
+        self.create_synchost(routine, region, region_name, map_region, map_routine)
         self.create_nullify(routine, region_name, map_region)
 
 
@@ -337,7 +346,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
             #todo : clean
             get_data = True
             map_region["get_data"][target] = self.create_pt_sync(
-                routine, target, region_name, get_data, map_region
+                routine, region, target, region_name, get_data, map_region,
+                map_routine
             )
             map_region["compute"][target] = self.map_call_compute[target](
                 routine, region, region_name, map_routine, map_region
@@ -728,7 +738,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         tuple_routine_args = tuple(lst_routine_args)
         routine.arguments = tuple_routine_args
 
-    def create_pt_sync(self, routine, target, region_name, is_get_data, map_region):
+    def create_pt_sync(self, routine, region, target, region_name, is_get_data, map_region, map_routine):
+
+
         region_map_var_sorted = map_region["var_sorted"]
         if is_get_data:  # GET_***_DATA
             hook_name = "GET_DATA"
@@ -750,17 +762,24 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         sync_data = [dr_hook_calls[0]]
 
+        if is_get_data:
+            if self.is_intent:
+                raise NotImplementedError(
+                    "Reading the intent from interface isn't implemented yes"
+                )
+                map_intent = get_access_rw(region, map_routine)
+
         for var in region_map_var_sorted:
-            if is_get_data:
+            if is_get_data :
                 if not self.is_intent:
                     intent = "RDWR"
                 else:
                     raise NotImplementedError(
                         "Reading the intent from interface isn't implemented yes"
                     )
+                    intent = map_intent[var.name] 
             else:
                 intent = "RDWR"  # for SYNCHOST, always RDWR
-
             call = sym.InlineCall(
                 sym.Variable(name=f"{sync_name}_{intent}"), parameters=(var[0],)
             )
@@ -772,9 +791,101 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         return sync_data
 
-    def create_synchost(self, routine, region_name, map_region):
+    def get_access_rw(region, map_routine):
+        """
+        Use interface reading and dataflow analysis 
+        to get data access (RDONLY/RDWR).
+        """
+        
+        #interface intent: 
+        map_call_intent = intfb_intent_analysis(region, map_routine)
+    
+        #dataflow intent:
+        rdonly = region.uses_symbols
+        rdwr = region.defines_symbols
+
+        #switch rdonly/rdwr to in/out:
+        map_intent = {var.name.name : "in" for var in rdonly}
+        map_intent = map_intent | {var.name.name : "out" for var in rdwr}
+         
+        #merge dataflow intents and interface intents
+        for arg_name in map_call_intent:
+            intent = map_call_intent[arg_name]
+            if arg_name not in map_intent:
+                map_intent[arg_name] = intent
+            else:
+                map_intent[arg_name] = analyse_intent(
+                    intent, map_intent[arg_name]
+                )
+
+        #switch from in/out to rdwr
+        map_intent_access = {}
+        map_intent_access["in"] = "RDONLY"
+        map_intent_access["out"] = "RDWR"
+        map_intent_access["inout"] = "RDWR"
+        new_map_intent = {var_name: map_intent_access[intent] for var_name, value in map_intent.items()}
+        return(new_map_intent)
+
+    def analyse_intent(intent1, intent2):
+        """
+        Rules for updating the intent of a variable already 
+        having an intent.
+        """
+        if intent1 or intent2 == "out":
+            return "out"
+        elif intent1 or intent2 == "inout":
+            return "inout"
+        elif intent1 and intent2 == "in":
+            return "in"
+
+    def read_interface(call_name, map_call_interface):
+
+        interface_path = self.map_openacc[call_name]
+#        with open(map_call_interface[call_name]) :
+##TODO check call_name format and path in... self.map_openacc => diff path if in pack or in test mode, for the moment just do test mode...) Use pathpack, pathview etc should work fine to build the interface_path)
+#    
+    def intfb_intent_analysis(region, map_routine):
+        """
+        Read the interface of the call statement of the region
+        in order to get arguments intent. Return a arg_name : intent 
+        dict. 
+        """
+        map_call_interface = map_routine["map_call_interface"]
+
+        calls = [call for call in FindNodes(ir.CallStatement).visit(region)]
+        map_calls_intent = {}
+        
+        for call in calls :
+            if call.name.name not in map_call_interface:
+                map_call_interface[call.name.name] = read_interface(call.name.name, map_call_interface)
+            call_intfb = map_call_interface[call.name.name]
+            if len(call.arguments) != len(routine.arguments):
+            # # same nb of arguments, that may be due to optional args, 
+            #or smthg else that wasn't anticipated
+                raise NotImplementedError(
+                    "Optional arguments not implemented here"
+                )
+            #Can't use args name, dummy and actual args may have different names
+            for arg_idx in len(call.arguments):
+                arg_name = call.arguments[arg_idx]
+                intent = call_intfb.arguments[arg_idx].type.intent
+        
+                if arg_name not in map_calls_intent:
+                    map_calls_intent[arg_name] = intent
+                    #map_region_intent[arg_name] = map_intent[call_name][arg_name]
+                else:
+                    map_calls_intent[arg_name] = analyse_intent(
+                        intent, map_calls_intent[arg_name]
+                    )  # comparing intent of the arg in the other calls with the intent of the arg in the call
+        
+        return(map_region_intent)
+
+
+
+    def create_synchost(self, routine, region, region_name, map_region, map_routine):
         get_data = False
-        synchost = self.create_pt_sync(routine, None, region_name, get_data, map_region)
+        synchost = self.create_pt_sync(routine, region, None, region_name, get_data, map_region,
+                                        map_routine)
         condition = sym.InlineCall(
             sym.Variable(name="LSYNCHOST"),
             parameters=(sym.StringLiteral(value=f"{routine.name}:{region_name}"),),
