@@ -18,6 +18,8 @@ from transformations.parallel_routine_dispatch import ParallelRoutineDispatchTra
 
 import os
 
+import pickle
+
 
 @pytest.fixture(scope='module', name='here')
 def fixture_here():
@@ -40,7 +42,7 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -64,7 +66,7 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -122,7 +124,7 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -178,7 +180,7 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -216,7 +218,7 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -254,14 +256,21 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    is_intent = False 
+    is_intent = True
+    #build path_to_openacc.pkl:
+    path =  os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/cpphinp.intfb.h"
+    dic = {} 
+    dic["cpphinp"] = path
+    with open(os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl", "wb") as f:
+        pickle.dump(dic, f)
+
     horizontal = [
             "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -269,28 +278,6 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
     get_data = item.trafo_data['create_parallel']['map_routine']['map_region']['get_data']
     
     test_get_data = {}
-#    test_get_data["OpenMP"] = """
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)
-#ZRDG_CVGQ => GET_HOST_DATA_RDWR(YL_ZRDG_CVGQ)
-#ZRDG_MU0 => GET_HOST_DATA_RDWR(YL_ZRDG_MU0)
-#ZRDG_MU0LU => GET_HOST_DATA_RDWR(YL_ZRDG_MU0LU)
-#ZRDG_MU0M => GET_HOST_DATA_RDWR(YL_ZRDG_MU0M)
-#ZRDG_MU0N => GET_HOST_DATA_RDWR(YL_ZRDG_MU0N)
-#Z_YDCPG_DYN0_CTY_EVEL => GET_HOST_DATA_RDONLY(YDCPG_DYN0%CTY%F_EVEL)
-#Z_YDCPG_PHY0_XYB_RDELP => GET_HOST_DATA_RDONLY(YDCPG_PHY0%XYB%F_RDELP)
-#Z_YDVARS_CVGQ_DL => GET_HOST_DATA_RDONLY(YDVARS%CVGQ%FDL)
-#Z_YDVARS_CVGQ_DM => GET_HOST_DATA_RDONLY(YDVARS%CVGQ%FDM)
-#Z_YDVARS_CVGQ_T0 => GET_HOST_DATA_RDONLY(YDVARS%CVGQ%FT0)
-#Z_YDVARS_GEOMETRY_GELAM_T0 => GET_HOST_DATA_RDONLY(YDVARS%GEOMETRY%GELAM%FT0)
-#Z_YDVARS_GEOMETRY_GEMU_T0 => GET_HOST_DATA_RDONLY(YDVARS%GEOMETRY%GEMU%FT0)
-#Z_YDVARS_Q_DL => GET_HOST_DATA_RDONLY(YDVARS%Q%FDL)
-#Z_YDVARS_Q_DM => GET_HOST_DATA_RDONLY(YDVARS%Q%FDM)
-#Z_YDVARS_Q_T0 => GET_HOST_DATA_RDONLY(YDVARS%Q%FT0)
-#Z_YDVARS_U_T0 => GET_HOST_DATA_RDONLY(YDVARS%U%FT0)
-#Z_YDVARS_V_T0 => GET_HOST_DATA_RDONLY(YDVARS%V%FT0)
-#Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_HOST_DATA_RDONLY(YDMF_PHYS_SURF%GSD_VF%F_Z0F)
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
-#"""
     test_get_data["OpenMP"] = """
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)
 ZRDG_CVGQ => GET_HOST_DATA_RDWR(YL_ZRDG_CVGQ)
@@ -298,47 +285,48 @@ ZRDG_MU0 => GET_HOST_DATA_RDWR(YL_ZRDG_MU0)
 ZRDG_MU0LU => GET_HOST_DATA_RDWR(YL_ZRDG_MU0LU)
 ZRDG_MU0M => GET_HOST_DATA_RDWR(YL_ZRDG_MU0M)
 ZRDG_MU0N => GET_HOST_DATA_RDWR(YL_ZRDG_MU0N)
-Z_YDCPG_DYN0_CTY_EVEL => GET_HOST_DATA_RDWR(YDCPG_DYN0%CTY%F_EVEL)
-Z_YDCPG_PHY0_XYB_RDELP => GET_HOST_DATA_RDWR(YDCPG_PHY0%XYB%F_RDELP)
-Z_YDVARS_CVGQ_DL => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FDL)
-Z_YDVARS_CVGQ_DM => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FDM)
-Z_YDVARS_CVGQ_T0 => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FT0)
-Z_YDVARS_GEOMETRY_GELAM_T0 => GET_HOST_DATA_RDWR(YDVARS%GEOMETRY%GELAM%FT0)
-Z_YDVARS_GEOMETRY_GEMU_T0 => GET_HOST_DATA_RDWR(YDVARS%GEOMETRY%GEMU%FT0)
-Z_YDVARS_Q_DL => GET_HOST_DATA_RDWR(YDVARS%Q%FDL)
-Z_YDVARS_Q_DM => GET_HOST_DATA_RDWR(YDVARS%Q%FDM)
-Z_YDVARS_Q_T0 => GET_HOST_DATA_RDWR(YDVARS%Q%FT0)
-Z_YDVARS_U_T0 => GET_HOST_DATA_RDWR(YDVARS%U%FT0)
-Z_YDVARS_V_T0 => GET_HOST_DATA_RDWR(YDVARS%V%FT0)
+Z_YDCPG_DYN0_CTY_EVEL => GET_HOST_DATA_RDONLY(YDCPG_DYN0%CTY%F_EVEL)
+Z_YDCPG_PHY0_XYB_RDELP => GET_HOST_DATA_RDONLY(YDCPG_PHY0%XYB%F_RDELP)
+Z_YDVARS_CVGQ_DL => GET_HOST_DATA_RDONLY(YDVARS%CVGQ%FDL)
+Z_YDVARS_CVGQ_DM => GET_HOST_DATA_RDONLY(YDVARS%CVGQ%FDM)
+Z_YDVARS_CVGQ_T0 => GET_HOST_DATA_RDONLY(YDVARS%CVGQ%FT0)
+Z_YDVARS_GEOMETRY_GELAM_T0 => GET_HOST_DATA_RDONLY(YDVARS%GEOMETRY%GELAM%FT0)
+Z_YDVARS_GEOMETRY_GEMU_T0 => GET_HOST_DATA_RDONLY(YDVARS%GEOMETRY%GEMU%FT0)
+Z_YDVARS_Q_DL => GET_HOST_DATA_RDONLY(YDVARS%Q%FDL)
+Z_YDVARS_Q_DM => GET_HOST_DATA_RDONLY(YDVARS%Q%FDM)
+Z_YDVARS_Q_T0 => GET_HOST_DATA_RDONLY(YDVARS%Q%FT0)
+Z_YDVARS_U_T0 => GET_HOST_DATA_RDONLY(YDVARS%U%FT0)
+Z_YDVARS_V_T0 => GET_HOST_DATA_RDONLY(YDVARS%V%FT0)
 Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_HOST_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)
-TOTO => GET_HOST_DATA_RDWR(YL_TOTO)
+TOTO => GET_HOST_DATA_RDONLY(YL_TOTO)
 Z_YDMF_PHYS_OUT_CT => GET_HOST_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 """
-    test_get_data["OpenMPSingleColumn"] = test_get_data["OpenMP"]
-
-#    test_get_data["OpenACCSingleColumn"] = """
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)                                                                       
-#ZRDG_CVGQ => GET_DEVICE_DATA_RDWR(YL_ZRDG_CVGQ)                                                                                                                
-#ZRDG_MU0 => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0)                                                                                                                  
-#ZRDG_MU0LU => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0LU)                                                                                                              
-#ZRDG_MU0M => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0M)                                                                                                                
-#ZRDG_MU0N => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0N)                                                                                                                
-#Z_YDCPG_DYN0_CTY_EVEL => GET_DEVICE_DATA_RDONLY(YDCPG_DYN0%CTY%F_EVEL)                                                                                         
-#Z_YDCPG_PHY0_XYB_RDELP => GET_DEVICE_DATA_RDONLY(YDCPG_PHY0%XYB%F_RDELP)                                                                                       
-#Z_YDVARS_CVGQ_DL => GET_DEVICE_DATA_RDONLY(YDVARS%CVGQ%FDL)                                                                                                    
-#Z_YDVARS_CVGQ_DM => GET_DEVICE_DATA_RDONLY(YDVARS%CVGQ%FDM)                                                                                                    
-#Z_YDVARS_CVGQ_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%CVGQ%FT0)                                                                                                    
-#Z_YDVARS_GEOMETRY_GELAM_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%GEOMETRY%GELAM%FT0)                                                                                
-#Z_YDVARS_GEOMETRY_GEMU_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%GEOMETRY%GEMU%FT0)                                                                                  
-#Z_YDVARS_Q_DL => GET_DEVICE_DATA_RDONLY(YDVARS%Q%FDL)                                                                                                          
-#Z_YDVARS_Q_DM => GET_DEVICE_DATA_RDONLY(YDVARS%Q%FDM)                                                                                                          
-#Z_YDVARS_Q_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%Q%FT0)                                                                                                          
-#Z_YDVARS_U_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%U%FT0)                                                                                                          
-#Z_YDVARS_V_T0 => GET_DEVICE_DATA_RDONLY (YDVARS%V%FT0)                                                                                                          
-#Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_DEVICE_DATA_RDONLY(YDMF_PHYS_SURF%GSD_VF%F_Z0F)                                                                          |276 REAL(KIND=JPRB)     :: ZPFL_FPLSH (YDCPG_OPTS%KLON, 0:YDCPG_OPTS%KFLEVG)                                                                                           
-#IF(LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
+#    test_get_data["OpenMP"] = """
+#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)
+#ZRDG_CVGQ => GET_HOST_DATA_RDWR(YL_ZRDG_CVGQ)
+#ZRDG_MU0 => GET_HOST_DATA_RDWR(YL_ZRDG_MU0)
+#ZRDG_MU0LU => GET_HOST_DATA_RDWR(YL_ZRDG_MU0LU)
+#ZRDG_MU0M => GET_HOST_DATA_RDWR(YL_ZRDG_MU0M)
+#ZRDG_MU0N => GET_HOST_DATA_RDWR(YL_ZRDG_MU0N)
+#Z_YDCPG_DYN0_CTY_EVEL => GET_HOST_DATA_RDWR(YDCPG_DYN0%CTY%F_EVEL)
+#Z_YDCPG_PHY0_XYB_RDELP => GET_HOST_DATA_RDWR(YDCPG_PHY0%XYB%F_RDELP)
+#Z_YDVARS_CVGQ_DL => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FDL)
+#Z_YDVARS_CVGQ_DM => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FDM)
+#Z_YDVARS_CVGQ_T0 => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FT0)
+#Z_YDVARS_GEOMETRY_GELAM_T0 => GET_HOST_DATA_RDWR(YDVARS%GEOMETRY%GELAM%FT0)
+#Z_YDVARS_GEOMETRY_GEMU_T0 => GET_HOST_DATA_RDWR(YDVARS%GEOMETRY%GEMU%FT0)
+#Z_YDVARS_Q_DL => GET_HOST_DATA_RDWR(YDVARS%Q%FDL)
+#Z_YDVARS_Q_DM => GET_HOST_DATA_RDWR(YDVARS%Q%FDM)
+#Z_YDVARS_Q_T0 => GET_HOST_DATA_RDWR(YDVARS%Q%FT0)
+#Z_YDVARS_U_T0 => GET_HOST_DATA_RDWR(YDVARS%U%FT0)
+#Z_YDVARS_V_T0 => GET_HOST_DATA_RDWR(YDVARS%V%FT0)
+#Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_HOST_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)
+#TOTO => GET_HOST_DATA_RDWR(YL_TOTO)
+#Z_YDMF_PHYS_OUT_CT => GET_HOST_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
+#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 #"""
+    test_get_data["OpenMPSingleColumn"] = test_get_data["OpenMP"]
 
     test_get_data["OpenACCSingleColumn"] = """
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)                                                                       
@@ -347,23 +335,48 @@ ZRDG_MU0 => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0)
 ZRDG_MU0LU => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0LU)                                                                                                              
 ZRDG_MU0M => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0M)                                                                                                                
 ZRDG_MU0N => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0N)                                                                                                                
-Z_YDCPG_DYN0_CTY_EVEL => GET_DEVICE_DATA_RDWR(YDCPG_DYN0%CTY%F_EVEL)                                                                                         
-Z_YDCPG_PHY0_XYB_RDELP => GET_DEVICE_DATA_RDWR(YDCPG_PHY0%XYB%F_RDELP)                                                                                       
-Z_YDVARS_CVGQ_DL => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FDL)                                                                                                    
-Z_YDVARS_CVGQ_DM => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FDM)                                                                                                    
-Z_YDVARS_CVGQ_T0 => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FT0)                                                                                                    
-Z_YDVARS_GEOMETRY_GELAM_T0 => GET_DEVICE_DATA_RDWR(YDVARS%GEOMETRY%GELAM%FT0)                                                                                
-Z_YDVARS_GEOMETRY_GEMU_T0 => GET_DEVICE_DATA_RDWR(YDVARS%GEOMETRY%GEMU%FT0)                                                                                  
-Z_YDVARS_Q_DL => GET_DEVICE_DATA_RDWR(YDVARS%Q%FDL)                                                                                                          
-Z_YDVARS_Q_DM => GET_DEVICE_DATA_RDWR(YDVARS%Q%FDM)                                                                                                          
-Z_YDVARS_Q_T0 => GET_DEVICE_DATA_RDWR(YDVARS%Q%FT0)                                                                                                          
-Z_YDVARS_U_T0 => GET_DEVICE_DATA_RDWR(YDVARS%U%FT0)                                                                                                          
-Z_YDVARS_V_T0 => GET_DEVICE_DATA_RDWR(YDVARS%V%FT0)                                                                                                          
-Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_DEVICE_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)                                                                          |276 REAL(KIND=JPRB)     :: ZPFL_FPLSH (YDCPG_OPTS%KLON, 0:YDCPG_OPTS%KFLEVG)                                                                                           
-TOTO => GET_DEVICE_DATA_RDWR(YL_TOTO)
+Z_YDCPG_DYN0_CTY_EVEL => GET_DEVICE_DATA_RDONLY(YDCPG_DYN0%CTY%F_EVEL)                                                                                         
+Z_YDCPG_PHY0_XYB_RDELP => GET_DEVICE_DATA_RDONLY(YDCPG_PHY0%XYB%F_RDELP)                                                                                       
+Z_YDVARS_CVGQ_DL => GET_DEVICE_DATA_RDONLY(YDVARS%CVGQ%FDL)                                                                                                    
+Z_YDVARS_CVGQ_DM => GET_DEVICE_DATA_RDONLY(YDVARS%CVGQ%FDM)                                                                                                    
+Z_YDVARS_CVGQ_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%CVGQ%FT0)                                                                                                    
+Z_YDVARS_GEOMETRY_GELAM_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%GEOMETRY%GELAM%FT0)                                                                                
+Z_YDVARS_GEOMETRY_GEMU_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%GEOMETRY%GEMU%FT0)                                                                                  
+Z_YDVARS_Q_DL => GET_DEVICE_DATA_RDONLY(YDVARS%Q%FDL)                                                                                                          
+Z_YDVARS_Q_DM => GET_DEVICE_DATA_RDONLY(YDVARS%Q%FDM)                                                                                                          
+Z_YDVARS_Q_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%Q%FT0)                                                                                                          
+Z_YDVARS_U_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%U%FT0)                                                                                                          
+Z_YDVARS_V_T0 => GET_DEVICE_DATA_RDONLY(YDVARS%V%FT0)                                                                                                          
+Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_DEVICE_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)   
+TOTO => GET_DEVICE_DATA_RDONLY(YL_TOTO)
 Z_YDMF_PHYS_OUT_CT => GET_DEVICE_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 """
+
+#    test_get_data["OpenACCSingleColumn"] = """
+#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)                                                                       
+#ZRDG_CVGQ => GET_DEVICE_DATA_RDWR(YL_ZRDG_CVGQ)                                                                                                                
+#ZRDG_MU0 => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0)                                                                                                                  
+#ZRDG_MU0LU => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0LU)                                                                                                              
+#ZRDG_MU0M => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0M)                                                                                                                
+#ZRDG_MU0N => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0N)                                                                                                                
+#Z_YDCPG_DYN0_CTY_EVEL => GET_DEVICE_DATA_RDWR(YDCPG_DYN0%CTY%F_EVEL)                                                                                         
+#Z_YDCPG_PHY0_XYB_RDELP => GET_DEVICE_DATA_RDWR(YDCPG_PHY0%XYB%F_RDELP)                                                                                       
+#Z_YDVARS_CVGQ_DL => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FDL)                                                                                                    
+#Z_YDVARS_CVGQ_DM => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FDM)                                                                                                    
+#Z_YDVARS_CVGQ_T0 => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FT0)                                                                                                    
+#Z_YDVARS_GEOMETRY_GELAM_T0 => GET_DEVICE_DATA_RDWR(YDVARS%GEOMETRY%GELAM%FT0)                                                                                
+#Z_YDVARS_GEOMETRY_GEMU_T0 => GET_DEVICE_DATA_RDWR(YDVARS%GEOMETRY%GEMU%FT0)                                                                                  
+#Z_YDVARS_Q_DL => GET_DEVICE_DATA_RDWR(YDVARS%Q%FDL)                                                                                                          
+#Z_YDVARS_Q_DM => GET_DEVICE_DATA_RDWR(YDVARS%Q%FDM)                                                                                                          
+#Z_YDVARS_Q_T0 => GET_DEVICE_DATA_RDWR(YDVARS%Q%FT0)                                                                                                          
+#Z_YDVARS_U_T0 => GET_DEVICE_DATA_RDWR(YDVARS%U%FT0)                                                                                                          
+#Z_YDVARS_V_T0 => GET_DEVICE_DATA_RDWR(YDVARS%V%FT0)                                                                                                          
+#Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_DEVICE_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)                                                                          |276 REAL(KIND=JPRB)     :: ZPFL_FPLSH (YDCPG_OPTS%KLON, 0:YDCPG_OPTS%KFLEVG)                                                                                           
+#TOTO => GET_DEVICE_DATA_RDWR(YL_TOTO)
+#Z_YDMF_PHYS_OUT_CT => GET_DEVICE_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
+#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
+#"""
 
     for target in get_data:
         for node in get_data[target]:
@@ -411,7 +424,7 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -461,7 +474,7 @@ def test_parallel_routine_dispatch_nullify(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -510,7 +523,7 @@ def test_parallel_routine_dispatch_compute_openmp(here, frontend):
             "KPROMA", "YDDIM%NPROMA", "NPROMA"
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
 
@@ -575,7 +588,7 @@ def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -655,7 +668,7 @@ def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -753,7 +766,7 @@ def test_parallel_routine_dispatch_variables(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -787,7 +800,7 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -823,7 +836,7 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -850,7 +863,7 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
     ]
     path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 
-    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
             path_map_index, path_map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
@@ -877,7 +890,7 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
 #    ]
 #    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
 #
-#    path_map_openacc = os.getcwd()+"/transformations/transformations/path_to_openacc.pkl"
+#    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
 #    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
 #            path_map_index, path_map_openacc)
 #    transformation.apply(source['dispatch_routine'], item=item)

@@ -21,6 +21,7 @@ from loki import (
     parse_expr,
     single_variable_declaration,
     dataflow_analysis_attached,
+    Sourcefile,
 )
 from loki.expression import symbols as sym
 from loki.ir import (
@@ -61,11 +62,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
         with open(path_map_derived_field, "rb") as fp:
             self.map_derived_field = pickle.load(fp)
 
-        self.path_map_openacc = path_map_openacc
-        with open(path_map_openacc, "rb") as fp:
-            #map_openacc contains path to kernel routine 
-            #in order to read their interface and know variable intent
-            self.map_openacc = pickle.load(fp)
+        if self.is_intent:
+            self.path_map_openacc = path_map_openacc
+            with open(path_map_openacc, "rb") as fp:
+                #map_openacc contains path to kernel routine 
+                #in order to read their interface and know variable intent
+                self.map_openacc = pickle.load(fp)
 
 
 
@@ -767,7 +769,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #                raise NotImplementedError(
 #                    "Reading the intent from interface isn't implemented yes"
 #                )
-                map_intent = get_access_rw(region, map_routine, map_region)
+                map_intent = self.get_access_rw(region, map_routine, map_region)
 
         for var in region_map_var_sorted:
             if is_get_data :
@@ -777,7 +779,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #                    raise NotImplementedError(
 #                        "Reading the intent from interface isn't implemented yes"
 #                    )
-                    intent = map_intent[var.name] 
+                    intent = map_intent[var[1].name] 
             else:
                 intent = "RDWR"  # for SYNCHOST, always RDWR
             call = sym.InlineCall(
@@ -791,31 +793,30 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
         return sync_data
 
-    def get_access_rw(region, map_routine, map_region):
+    def get_access_rw(self, region, map_routine, map_region):
         """
         Use interface reading and dataflow analysis 
         to get data access (RDONLY/RDWR).
         """
         
         #interface intent: 
-        map_call_intent = intfb_intent_analysis(region, map_routine)
-    
+        map_call_intent = self.intfb_intent_analysis(region, map_routine)
         #dataflow intent:
-        rdonly = region.uses_symbols
-        rdwr = region.defines_symbols
+        rdonly = region.uses_symbols 
+        rdwr = region.defines_symbols - region.uses_symbols
 
         #switch rdonly/rdwr to in/out:
-        map_intent = {var.name.name : "in" for var in rdonly}
-        map_intent = map_intent | {var.name.name : "out" for var in rdwr}
+        map_intent = {var : "in" for var in rdonly}
+        map_intent = map_intent | {var : "out" for var in rdwr}
          
         #merge dataflow intents and interface intents
-        for arg_name in map_call_intent:
-            intent = map_call_intent[arg_name]
-            if arg_name not in map_intent:
-                map_intent[arg_name] = intent
+        for arg in map_call_intent:
+            intent = map_call_intent[arg]
+            if arg not in map_intent:
+                map_intent[arg] = intent
             else:
-                map_intent[arg_name] = analyse_intent(
-                    intent, map_intent[arg_name]
+                map_intent[arg] = self.analyse_intent(
+                    intent, map_intent[arg]
                 )
 
         #switch from in/out to rdwr + change var name
@@ -827,28 +828,43 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_intent_access["in"] = "RDONLY"
         map_intent_access["out"] = "RDWR"
         map_intent_access["inout"] = "RDWR"
-        new_map_intent = {region_map_vars[var_name][1]: map_intent_access[intent] for var_name, value in map_intent.items()}
+        new_map_intent = {}
+        for var, value in map_intent.items():
+            if var.name in region_map_vars:
+                new_map_intent[region_map_vars[var.name][1].name] = map_intent_access[value]
+             #region_map_vars[var.name][1]: map_intent_access[intent] for var, value in map_intent.items()}
+        
         return(new_map_intent)
 
-    def analyse_intent(intent1, intent2):
+    def analyse_intent(self, intent1, intent2):
         """
         Rules for updating the intent of a variable already 
         having an intent.
         """
-        if intent1 or intent2 == "out":
+        if (intent1 or intent2) == "out":
             return "out"
-        elif intent1 or intent2 == "inout":
+        elif (intent1 or intent2) == "inout":
             return "inout"
-        elif intent1 and intent2 == "in":
+        elif (intent1 and intent2) == "in":
             return "in"
 
-    def read_interface(call_name, map_call_interface):
+    def read_interface(self, call_name, map_call_interface):
+        
+        call_name = call_name.lower()
+        if call_name.upper() not in map_call_interface:
+            interface_path = self.map_openacc[call_name]
+            with open(interface_path) as f:
+                lines = f.readlines()
+            lines = lines[1:-1]# rm INTERFACE and END INTERFACE from the routine
+            content_call = "".join(lines)
+            call_source = Sourcefile.from_source(content_call)
+            call_ir = call_source[call_name.upper()]
+            map_call_interface[call_name.upper()] = call_ir
 
-        interface_path = self.map_openacc[call_name]
 #        with open(map_call_interface[call_name]) :
 ##TODO check call_name format and path in... self.map_openacc => diff path if in pack or in test mode, for the moment just do test mode...) Use pathpack, pathview etc should work fine to build the interface_path)
 #    
-    def intfb_intent_analysis(region, map_routine):
+    def intfb_intent_analysis(self, region, map_routine):
         """
         Read the interface of the call statement of the region
         in order to get arguments intent. Return a arg_name : intent 
@@ -861,28 +877,28 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
         for call in calls :
             if call.name.name not in map_call_interface:
-                map_call_interface[call.name.name] = read_interface(call.name.name, map_call_interface)
+                self.read_interface(call.name.name, map_call_interface)
             call_intfb = map_call_interface[call.name.name]
-            if len(call.arguments) != len(routine.arguments):
+            if len(call.arguments) != len(call_intfb.arguments):
             # # same nb of arguments, that may be due to optional args, 
             #or smthg else that wasn't anticipated
                 raise NotImplementedError(
                     "Optional arguments not implemented here"
                 )
             #Can't use args name, dummy and actual args may have different names
-            for arg_idx in len(call.arguments):
-                arg_name = call.arguments[arg_idx]
+            for arg_idx in range(len(call.arguments)):
+                arg = call.arguments[arg_idx]
                 intent = call_intfb.arguments[arg_idx].type.intent
         
-                if arg_name not in map_calls_intent:
-                    map_calls_intent[arg_name] = intent
+                if arg not in map_calls_intent:
+                    map_calls_intent[arg] = intent
                     #map_region_intent[arg_name] = map_intent[call_name][arg_name]
                 else:
-                    map_calls_intent[arg_name] = analyse_intent(
-                        intent, map_calls_intent[arg_name]
+                    map_calls_intent[arg] = self.analyse_intent(
+                        intent, map_calls_intent[arg]
                     )  # comparing intent of the arg in the other calls with the intent of the arg in the call
         
-        return(map_region_intent)
+        return(map_calls_intent)
 
 
 
