@@ -25,6 +25,23 @@ import pickle
 def fixture_here():
     return Path(__file__).parent
 
+def init_transformation(here, frontend):
+
+
+    horizontal = [
+            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
+            "KPROMA", "YDDIM%NPROMA", "NPROMA"
+    ]
+    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
+    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    with open(path_map_index, "rb") as fp:
+        map_index = pickle.load(fp)
+
+    with open(path_map_openacc, "rb") as f:
+        map_openacc = pickle.load(f)
+
+    return horizontal, map_index, map_openacc
+
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
 def test_parallel_routine_dispatch_dr_hook(here, frontend):
@@ -33,18 +50,11 @@ def test_parallel_routine_dispatch_dr_hook(here, frontend):
     item = ProcedureItem(name='parallel_routine_dispatch', source=source)
     routine = source['dispatch_routine']
 
-    calls = FindNodes(CallStatement).visit(routine.body)
-    assert len(calls) == 4
-
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
+
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     calls = [call for call in FindNodes(CallStatement).visit(routine.body) if call.name.name=='DR_HOOK']
@@ -60,15 +70,9 @@ def test_parallel_routine_dispatch_decl_local_arrays(here, frontend):
 
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
     var_lst=["YL_ZRDG_CVGQ",
         "ZRDG_CVGQ",
@@ -118,15 +122,9 @@ def test_parallel_routine_dispatch_decl_field_create_delete(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     var_lst = ["YL_ZRDG_CVGQ", "ZRDG_CVGQ", "YL_ZRDG_MU0LU", "ZRDG_MU0LU", "YL_ZRDG_MU0M", "ZRDG_MU0M", "YL_ZRDG_MU0N", "ZRDG_MU0N", "YL_ZRDG_MU0", "ZRDG_MU0"]
@@ -174,15 +172,9 @@ def test_parallel_routine_dispatch_derived_dcl(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     dcls = [fgen(dcl) for dcl in routine.spec.body[-13:-1]]
@@ -212,15 +204,9 @@ def test_parallel_routine_dispatch_derived_var(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     
@@ -257,22 +243,13 @@ def test_parallel_routine_dispatch_get_data(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = True
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     #build path_to_openacc.pkl:
     path =  os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/cpphinp.intfb.h"
-    dic = {} 
-    dic["cpphinp"] = path
-    with open(os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl", "wb") as f:
-        pickle.dump(dic, f)
-
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    map_openacc = {} 
+    map_openacc["cpphinp"] = path
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     get_data = item.trafo_data['create_parallel']['map_routine']['map_region']['get_data']
@@ -302,30 +279,6 @@ TOTO => GET_HOST_DATA_RDONLY(YL_TOTO)
 Z_YDMF_PHYS_OUT_CT => GET_HOST_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 """
-#    test_get_data["OpenMP"] = """
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)
-#ZRDG_CVGQ => GET_HOST_DATA_RDWR(YL_ZRDG_CVGQ)
-#ZRDG_MU0 => GET_HOST_DATA_RDWR(YL_ZRDG_MU0)
-#ZRDG_MU0LU => GET_HOST_DATA_RDWR(YL_ZRDG_MU0LU)
-#ZRDG_MU0M => GET_HOST_DATA_RDWR(YL_ZRDG_MU0M)
-#ZRDG_MU0N => GET_HOST_DATA_RDWR(YL_ZRDG_MU0N)
-#Z_YDCPG_DYN0_CTY_EVEL => GET_HOST_DATA_RDWR(YDCPG_DYN0%CTY%F_EVEL)
-#Z_YDCPG_PHY0_XYB_RDELP => GET_HOST_DATA_RDWR(YDCPG_PHY0%XYB%F_RDELP)
-#Z_YDVARS_CVGQ_DL => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FDL)
-#Z_YDVARS_CVGQ_DM => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FDM)
-#Z_YDVARS_CVGQ_T0 => GET_HOST_DATA_RDWR(YDVARS%CVGQ%FT0)
-#Z_YDVARS_GEOMETRY_GELAM_T0 => GET_HOST_DATA_RDWR(YDVARS%GEOMETRY%GELAM%FT0)
-#Z_YDVARS_GEOMETRY_GEMU_T0 => GET_HOST_DATA_RDWR(YDVARS%GEOMETRY%GEMU%FT0)
-#Z_YDVARS_Q_DL => GET_HOST_DATA_RDWR(YDVARS%Q%FDL)
-#Z_YDVARS_Q_DM => GET_HOST_DATA_RDWR(YDVARS%Q%FDM)
-#Z_YDVARS_Q_T0 => GET_HOST_DATA_RDWR(YDVARS%Q%FT0)
-#Z_YDVARS_U_T0 => GET_HOST_DATA_RDWR(YDVARS%U%FT0)
-#Z_YDVARS_V_T0 => GET_HOST_DATA_RDWR(YDVARS%V%FT0)
-#Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_HOST_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)
-#TOTO => GET_HOST_DATA_RDWR(YL_TOTO)
-#Z_YDMF_PHYS_OUT_CT => GET_HOST_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
-#"""
     test_get_data["OpenMPSingleColumn"] = test_get_data["OpenMP"]
 
     test_get_data["OpenACCSingleColumn"] = """
@@ -353,62 +306,10 @@ Z_YDMF_PHYS_OUT_CT => GET_DEVICE_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
 IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
 """
 
-#    test_get_data["OpenACCSingleColumn"] = """
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 0, ZHOOK_HANDLE_FIELD_API)                                                                       
-#ZRDG_CVGQ => GET_DEVICE_DATA_RDWR(YL_ZRDG_CVGQ)                                                                                                                
-#ZRDG_MU0 => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0)                                                                                                                  
-#ZRDG_MU0LU => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0LU)                                                                                                              
-#ZRDG_MU0M => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0M)                                                                                                                
-#ZRDG_MU0N => GET_DEVICE_DATA_RDWR(YL_ZRDG_MU0N)                                                                                                                
-#Z_YDCPG_DYN0_CTY_EVEL => GET_DEVICE_DATA_RDWR(YDCPG_DYN0%CTY%F_EVEL)                                                                                         
-#Z_YDCPG_PHY0_XYB_RDELP => GET_DEVICE_DATA_RDWR(YDCPG_PHY0%XYB%F_RDELP)                                                                                       
-#Z_YDVARS_CVGQ_DL => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FDL)                                                                                                    
-#Z_YDVARS_CVGQ_DM => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FDM)                                                                                                    
-#Z_YDVARS_CVGQ_T0 => GET_DEVICE_DATA_RDWR(YDVARS%CVGQ%FT0)                                                                                                    
-#Z_YDVARS_GEOMETRY_GELAM_T0 => GET_DEVICE_DATA_RDWR(YDVARS%GEOMETRY%GELAM%FT0)                                                                                
-#Z_YDVARS_GEOMETRY_GEMU_T0 => GET_DEVICE_DATA_RDWR(YDVARS%GEOMETRY%GEMU%FT0)                                                                                  
-#Z_YDVARS_Q_DL => GET_DEVICE_DATA_RDWR(YDVARS%Q%FDL)                                                                                                          
-#Z_YDVARS_Q_DM => GET_DEVICE_DATA_RDWR(YDVARS%Q%FDM)                                                                                                          
-#Z_YDVARS_Q_T0 => GET_DEVICE_DATA_RDWR(YDVARS%Q%FT0)                                                                                                          
-#Z_YDVARS_U_T0 => GET_DEVICE_DATA_RDWR(YDVARS%U%FT0)                                                                                                          
-#Z_YDVARS_V_T0 => GET_DEVICE_DATA_RDWR(YDVARS%V%FT0)                                                                                                          
-#Z_YDMF_PHYS_SURF_GSD_VF_PZ0F => GET_DEVICE_DATA_RDWR(YDMF_PHYS_SURF%GSD_VF%F_Z0F)                                                                          |276 REAL(KIND=JPRB)     :: ZPFL_FPLSH (YDCPG_OPTS%KLON, 0:YDCPG_OPTS%KFLEVG)                                                                                           
-#TOTO => GET_DEVICE_DATA_RDWR(YL_TOTO)
-#Z_YDMF_PHYS_OUT_CT => GET_DEVICE_DATA_RDWR(YDMF_PHYS%OUT%F_CT)
-#IF (LHOOK) CALL DR_HOOK('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA', 1, ZHOOK_HANDLE_FIELD_API)
-#"""
-
     for target in get_data:
         for node in get_data[target]:
             assert fgen(node) in test_get_data[target]
 
-###@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
-###def test_parallel_routine_dispatch_synchost(here, frontend):
-###
-###    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
-###    routine = source['dispatch_routine']
-###
-    is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-###    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, path_map_index)
-###    transformation.apply(source['dispatch_routine'], item=item)
-###
-###    get_data = transformation.get_data
-###    
-###    test_get_data = """
-###IF (LHOOK) CALL DR_HOOK ('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA',0,ZHOOK_HANDLE_FIELD_API)
-###Z_YDMF_PHYS_SURF_GSD_VV_PZ0H => GET_HOST_DATA_RDWR (YDMF_PHYS_SURF%GSD_VV%F_Z0H)
-###IF (LHOOK) CALL DR_HOOK ('DISPATCH_ROUTINE_PARALLEL:CPPHINP:GET_DATA',1,ZHOOK_HANDLE_FIELD_API)
-###"""
-###
-###    for node in get_data:
-###        assert fgen(node) in test_get_data
-###
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
 def test_parallel_routine_dispatch_synchost(here, frontend):
@@ -418,15 +319,9 @@ def test_parallel_routine_dispatch_synchost(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     synchost = item.trafo_data['create_parallel']['map_routine']['map_region']['synchost']
@@ -468,15 +363,9 @@ def test_parallel_routine_dispatch_nullify(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     nullify = item.trafo_data['create_parallel']['map_routine']['map_region']['nullify']
@@ -518,14 +407,9 @@ def test_parallel_routine_dispatch_compute_openmp(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
 
     transformation.apply(source['dispatch_routine'], item=item)
 
@@ -582,15 +466,9 @@ def test_parallel_routine_dispatch_compute_openmpscc(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
@@ -662,15 +540,9 @@ def test_parallel_routine_dispatch_compute_openaccscc(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     map_compute = item.trafo_data['create_parallel']['map_routine']['map_region']['compute']
@@ -760,15 +632,9 @@ def test_parallel_routine_dispatch_variables(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     variables = item.trafo_data['create_parallel']['map_routine']['variable_declarations']
@@ -794,15 +660,9 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     imports = item.trafo_data['create_parallel']['map_routine']['imports']
@@ -830,15 +690,9 @@ def test_parallel_routine_dispatch_imports(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
     routine_str = fgen(routine)
@@ -857,15 +711,9 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
     routine = source['dispatch_routine']
 
     is_intent = False 
-    horizontal = [
-            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-    ]
-    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-
-    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
+    horizontal, map_index, map_openacc = init_transformation(here, frontend)
     transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-            path_map_index, path_map_openacc)
+            map_index, map_openacc)
     transformation.apply(source['dispatch_routine'], item=item)
 
 
@@ -876,33 +724,3 @@ def test_parallel_routine_dispatch_lparallel(here, frontend):
     assert "'OPENACCSINGLECOLUMN'" in fgen(routine_str)
 
 
-#@pytest.mark.parametrize('frontend', available_frontends(skip=[OMNI]))
-#def test_parallel_routine_dispatch_lparallel(here, frontend):
-#
-#    source = Sourcefile.from_file(here/'sources/projParallelRoutineDispatch/dispatch_routine.F90', frontend=frontend)
-#    item = ProcedureItem(name='parallel_routine_dispatch', source=source)
-#    routine = source['dispatch_routine']
-#
-#    is_intent = False 
-#    horizontal = [
-#            "KLON", "YDCPG_OPTS%KLON", "YDGEOMETRY%YRDIM%NPROMA",
-#            "KPROMA", "YDDIM%NPROMA", "NPROMA"
-#    ]
-#    path_map_index = os.getcwd()+"/transformations/transformations/field_index.pkl"
-#
-#    path_map_openacc = os.getcwd()+"/transformations/tests/sources/projParallelRoutineDispatch/path_map_openacc.pkl"
-#    transformation = ParallelRoutineDispatchTransformation(is_intent, horizontal, 
-#            path_map_index, path_map_openacc)
-#    transformation.apply(source['dispatch_routine'], item=item)
-#
-#    loops = [loop for loop in FindNodes(Loop).visit(routine) if loop.variable.name=="JLON"]
-#
-#    str_loops_body = [fgen(loop.body) for loop in loops]
-##    str_loops_spec = [fgen(loop.spec) for loop in loops]
-#    #str_loops = [fgen(loop) for loop in loops]
-#
-#    test_loop="Z_YDMF_PHYS_OUT_CT(JLON, JBLK) = TOTO(JLON, JBLK)"
-#
-#    print(fgen(routine.body))
-#    assert test_loop in str_loops_body
-        

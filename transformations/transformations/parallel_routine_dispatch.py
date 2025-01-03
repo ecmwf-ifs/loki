@@ -46,7 +46,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
     """
     Applying the transformation to create _parallel.F90 routine.
     """
-    def __init__(self, is_intent, horizontal, path_map_derived_field, path_map_openacc):
+    def __init__(self, is_intent, horizontal, map_derived_field, map_openacc):
         self.is_intent = (
             is_intent  # set to True if the intent are read for interface block
         )
@@ -58,17 +58,18 @@ class ParallelRoutineDispatchTransformation(Transformation):
             "OpenACCSingleColumn": self.create_compute_openaccscc,
         }
 
-        self.path_map_derived_field = path_map_derived_field
-        with open(path_map_derived_field, "rb") as fp:
-            self.map_derived_field = pickle.load(fp)
+#        self.path_map_derived_field = path_map_derived_field
+        self.map_derived_field = map_derived_field
+#        with open(path_map_derived_field, "rb") as fp:
+#            self.map_derived_field = pickle.load(fp)
 
-        if self.is_intent:
-            self.path_map_openacc = path_map_openacc
-            with open(path_map_openacc, "rb") as fp:
-                #map_openacc contains path to kernel routine 
-                #in order to read their interface and know variable intent
-                self.map_openacc = pickle.load(fp)
-
+#        if self.is_intent:
+#            self.path_map_openacc = path_map_openacc
+#            with open(path_map_openacc, "rb") as fp:
+#                #map_openacc contains path to kernel routine 
+#                #in order to read their interface and know variable intent
+#                self.map_openacc = pickle.load(fp)
+        self.map_openacc = map_openacc
 
 
     def transform_subroutine(self, routine, **kwargs):
