@@ -37,7 +37,7 @@ class FieldPointerMap:
     This utility is used to store arrays passed to target kernel calls
     and easily access corresponding device pointers added by the transformation.
     """
-    def __init__(self, inargs, inoutargs, outargs, scope, ptr_prefix='loki_devptr_'):
+    def __init__(self, inargs, inoutargs, outargs, scope, ptr_prefix='loki_ptr_'):
         # Ensure no duplication between in/inout/out args
         inoutargs += tuple(v for v in inargs if v in outargs)
         inargs = tuple(v for v in inargs if v not in inoutargs)
@@ -60,9 +60,9 @@ class FieldPointerMap:
         Returns a contiguous pointer :any:`Variable` with types matching the array :data:`a`.
         """
         shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
-        devptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
+        dataptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
-        return sym.Variable(name=self.ptr_prefix + base_name, type=devptr_type, dimensions=shape)
+        return sym.Variable(name=self.ptr_prefix + base_name, type=dataptr_type, dimensions=shape)
 
     @staticmethod
     def field_ptr_from_view(field_view):
@@ -74,12 +74,14 @@ class FieldPointerMap:
         return field_view.parent.get_derived_type_member(field_type_name)
 
     @property
+    def args(self):
+        """ A tuple of all argument symbols, concatanating in/inout/out arguments """
+        return tuple(chain(*(self.inargs, self.inoutargs, self.outargs)))
+
+    @property
     def dataptrs(self):
         """ Create a list of contiguous data pointer symbols """
-        return tuple(dict.fromkeys(
-            self.dataptr_from_array(a)
-            for a in chain(*(self.inargs, self.inoutargs, self.outargs))
-        ))
+        return tuple(dict.fromkeys(self.dataptr_from_array(a) for a in self.args))
 
     @property
     def host_to_device_calls(self):

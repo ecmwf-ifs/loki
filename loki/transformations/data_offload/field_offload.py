@@ -5,8 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from itertools import chain
-
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import Array, symbols as sym
@@ -172,16 +170,16 @@ def replace_kernel_args(driver, offload_map, offload_index):
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
 
-    args = tuple(chain(offload_map.inargs, offload_map.inoutargs, offload_map.outargs))
+    args = offload_map.args
     for arg in FindVariables().visit(driver.body):
         if not arg.name in args:
             continue
 
-        devptr = offload_map.dataptr_from_array(arg)
+        dataptr = offload_map.dataptr_from_array(arg)
         if len(arg.dimensions) != 0:
             dims = arg.dimensions + (offload_idx_expr,)
         else:
-            dims = (sym.RangeIndex((None, None)),) * (len(devptr.shape)-1) + (offload_idx_expr,)
-        change_map[arg] = devptr.clone(dimensions=dims)
+            dims = (sym.RangeIndex((None, None)),) * (len(dataptr.shape)-1) + (offload_idx_expr,)
+        change_map[arg] = dataptr.clone(dimensions=dims)
 
     driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)
