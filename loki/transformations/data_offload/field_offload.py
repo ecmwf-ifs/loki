@@ -30,7 +30,9 @@ __all__ = [
 class FieldOffloadTransformation(Transformation):
     """
 
-    Transformation to offload arrays owned by Field API fields to the device. **This transformation is IFS specific.**
+    Transformation to offload arrays owned by Field API fields to the device.
+
+    **This transformation is IFS specific.**
 
     The transformation assumes that fields are wrapped in derived types specified in
     ``field_group_types`` and will only offload arrays that are members of such derived types.
@@ -91,6 +93,27 @@ class FieldOffloadTransformation(Transformation):
 
 
 def find_offload_variables(driver, region, field_group_types):
+    """
+    Finds the sets of array variable symbols for which we can generate
+    Field API offload code.
+
+    Note
+    ----
+    This method requires Loki's dataflow analysis to be run on the
+    :data:`region` via :meth:`dataflow_analysis_attached`.
+
+    Parameters
+    ----------
+    region : :any:`PragmaRegion`
+        Code region object for which to determine offload variables
+    field_group_types : list or tuple of str, optional
+        Names of the field group types with members that may be offloaded (defaults to ``['']``).
+
+    Returns
+    -------
+    (inargs, inoutargs, outargs) : (tuple, tuple, tuple)
+        The sets of array symbols split into three tuples according to access type.
+    """
 
     # Use dataflow analysis to find in, out and inout variables to that region
     inargs = region.uses_symbols - region.defines_symbols

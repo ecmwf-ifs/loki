@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 """
-A set utility classes for dealing with FIELD API boilerplate in
+A set of utility classes for dealing with FIELD API boilerplate in
 parallel kernels and offload regions.
 """
 
@@ -35,10 +35,7 @@ class FieldPointerMap:
     Helper class to map FIELD API pointers to intents and access descriptors.
 
     This utility is used to store arrays passed to target kernel calls
-    and the corresponding device pointers added by the transformation.
-
-    The pointer/array variable pairs are exposed through the class
-    properties, based on the intent of the kernel argument.
+    and easily access corresponding device pointers added by the transformation.
     """
     def __init__(self, inargs, inoutargs, outargs, scope, ptr_prefix='loki_devptr_'):
         # Ensure no duplication between in/inout/out args
