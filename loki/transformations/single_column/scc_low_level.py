@@ -31,6 +31,7 @@ from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions,
     inline_statement_functions
 )
+from loki.transformations.array_indexing import LowerConstantArrayIndices
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -74,6 +75,7 @@ SCCLowLevelCuf = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCRevectorTransformation,
+        LowerConstantArrayIndices,
         LowerBlockIndexTransformation,
         InjectBlockIndexTransformation,
         LowerBlockLoopTransformation,
@@ -153,6 +155,7 @@ SCCLowLevelCufParametrise = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCRevectorTransformation,
+        LowerConstantArrayIndices,
         LowerBlockIndexTransformation,
         InjectBlockIndexTransformation,
         LowerBlockLoopTransformation,
@@ -212,6 +215,7 @@ SCCLowLevelCufHoist = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCRevectorTransformation,
+        LowerConstantArrayIndices,
         LowerBlockIndexTransformation,
         InjectBlockIndexTransformation,
         LowerBlockLoopTransformation,
@@ -276,6 +280,7 @@ SCCLowLevelParametrise = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCRevectorTransformation,
+        LowerConstantArrayIndices,
         LowerBlockIndexTransformation,
         InjectBlockIndexTransformation,
         LowerBlockLoopTransformation,
@@ -373,6 +378,7 @@ SCCLowLevelHoist = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCRevectorTransformation,
+        LowerConstantArrayIndices,
         LowerBlockIndexTransformation,
         InjectBlockIndexTransformation,
         LowerBlockLoopTransformation,
