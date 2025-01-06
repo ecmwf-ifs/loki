@@ -100,13 +100,8 @@ class FortranCTransformation(Transformation):
     ----------
     inline_elementals : bool, optional
         Inline known elemental function via expression substitution. Default is ``True``.
-    use_c_ptr : bool, optional
-        Use ``c_ptr`` for array declarations in the F2C wrapper and ``c_loc(...)`` to pass
-        the corresponding argument. Default is ``False``.
-    codegen : 
-        Wrapper function calling the Stringifier instance. 
-    path : str, optional
-        Path to generate C sources.
+    language : str
+        C-style language to generate; should be one of ``['c', 'cpp', 'cuda']``.
     """
     # pylint: disable=unused-argument
 

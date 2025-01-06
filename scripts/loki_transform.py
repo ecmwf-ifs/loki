@@ -422,7 +422,7 @@ def convert(
             f2c_transformation = FortranCTransformation()
             f2c_wrapper = FortranISOCWrapperTransformation()
         elif mode in ['cuda_parametrise', 'cuda_hoist']:
-            f2c_transformation = FortranCTransformation(language='cuda', use_c_ptr=True)
+            f2c_transformation = FortranCTransformation(language='cuda')
             f2c_wrapper = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
         else:
             assert False
