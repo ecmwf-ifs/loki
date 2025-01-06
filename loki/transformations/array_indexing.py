@@ -805,7 +805,6 @@ class LowerConstantArrayIndices(Transformation):
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         if role == 'driver' or self.recurse_to_kernels:
-            inline_constant_parameters(routine, external_only=self.inline_external_only)
             self.process(routine, targets)
 
     def process(self, routine, targets):
