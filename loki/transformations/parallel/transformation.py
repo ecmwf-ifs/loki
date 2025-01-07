@@ -247,7 +247,12 @@ class AddHostDataDriverLoopTransformation(Transformation):
                         *offload_variables, scope=routine, ptr_prefix=""
                     )
                     declare_device_ptrs(routine, deviceptrs=offload_map.dataptrs)
-                    add_field_offload_calls(routine, region, offload_map)
+
+                    # Add host-side pointer extraction boiler plate
+                    update_map = {
+                        region: offload_map.device_to_host_calls + (region,)
+                    }
+                    Transformer(update_map, inplace=True).visit(routine.body)                    
                     replace_kernel_args(routine, offload_map, offload_index='IBL')
 
                 if self.add_openmp_regions:
