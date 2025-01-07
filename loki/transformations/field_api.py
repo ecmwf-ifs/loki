@@ -19,9 +19,9 @@ from loki.scope import Scope
 
 
 __all__ = [
-    'FieldAPITransferType', 'FieldPointerMap', 'get_field_type',
-    'field_get_device_data', 'field_sync_host', 'field_get_host_data',
-    'field_delete_device_data'
+    'FieldAPITransferType', 'FieldAPIDestination', 'FieldPointerMap',
+    'get_field_type', 'field_get_device_data', 'field_sync_host',
+    'field_get_host_data', 'field_delete_device_data'
 ]
 
 
@@ -29,6 +29,11 @@ class FieldAPITransferType(Enum):
     READ_ONLY = 1
     READ_WRITE = 2
     WRITE_ONLY = 3
+
+
+class FieldAPIDestination(Enum):
+    HOST = 1
+    DEVICE = 2
 
 
 class FieldPointerMap:
@@ -95,15 +100,36 @@ class FieldPointerMap:
         Returns a tuple of :any:`CallStatement` for host-to-device transfers on fields.
         """
         READ_ONLY, READ_WRITE = FieldAPITransferType.READ_ONLY, FieldAPITransferType.READ_WRITE
+        DEVICE = FieldAPIDestination.DEVICE
 
-        host_to_device = tuple(field_get_device_data(
-            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_ONLY, scope=self.scope
+        host_to_device = tuple(field_get_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_ONLY, DEVICE, scope=self.scope
         ) for arg in self.inargs)
-        host_to_device += tuple(field_get_device_data(
-            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, scope=self.scope
+        host_to_device += tuple(field_get_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, DEVICE, scope=self.scope
         ) for arg in self.inoutargs)
-        host_to_device += tuple(field_get_device_data(
-            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, scope=self.scope
+        host_to_device += tuple(field_get_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, DEVICE, scope=self.scope
+        ) for arg in self.outargs)
+
+        return tuple(dict.fromkeys(host_to_device))
+
+    @property
+    def device_to_host_calls(self):
+        """
+        Returns a tuple of :any:`CallStatement` for device-to-device transfers on fields.
+        """
+        READ_ONLY, READ_WRITE = FieldAPITransferType.READ_ONLY, FieldAPITransferType.READ_WRITE
+        HOST = FieldAPIDestination.HOST
+
+        host_to_device = tuple(field_get_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_ONLY, HOST, scope=self.scope
+        ) for arg in self.inargs)
+        host_to_device += tuple(field_get_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, HOST, scope=self.scope
+        ) for arg in self.inoutargs)
+        host_to_device += tuple(field_get_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), READ_WRITE, HOST, scope=self.scope
         ) for arg in self.outargs)
 
         return tuple(dict.fromkeys(host_to_device))
@@ -149,22 +175,29 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
     return field_type
 
 
-def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope):
+def field_get_data(
+        field_ptr, dataptr, transfer_type: FieldAPITransferType,
+        dest: FieldAPIDestination, scope: Scope
+):
     """
-    Utility function to generate a :any:`CallStatement` corresponding to a Field API
-    ``GET_DEVICE_DATA`` call.
+    Utility function to generate a :any:`CallStatement` corresponding
+    to a Field API ``GET_DEVICE_DATA`` or ``GET_HOST_DATA`` call.
 
     Parameters
     ----------
     field_ptr: pointer to field object
         Pointer to the field to call ``GET_DEVICE_DATA`` from.
-    dev_ptr: :any:`Array`
-        Device pointer array
+    dataptr: :any:`Array`
+        Device or host pointer symbol
     transfer_type: :any:`FieldAPITransferType`
         Field API transfer type to determine which ``GET_DEVICE_DATA`` method to call.
+    transfer_dest: :any:`FieldAPIDestination`
+        Transfer destination, either ``HOST`` or ``DEVICE``
     scope: :any:`Scope`
         Scope of the created :any:`CallStatement`
     """
+    assert isinstance(dest, FieldAPIDestination)
+
     if not isinstance(transfer_type, FieldAPITransferType):
         raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
     if transfer_type == FieldAPITransferType.READ_ONLY:
@@ -175,9 +208,12 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
         suffix = 'WRONLY'
     else:
         suffix = ''
-    procedure_name = 'GET_DEVICE_DATA_' + suffix
-    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            arguments=(dev_ptr.clone(dimensions=None),), )
+    procedure_dest = 'HOST' if dest == FieldAPIDestination.HOST else 'DEVICE'
+    procedure_name = f'GET_{procedure_dest}_DATA_' + suffix
+    return ir.CallStatement(
+        name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+        arguments=(dataptr.clone(dimensions=None),),
+    )
 
 
 def field_get_host_data(field_ptr, host_ptr, transfer_type: FieldAPITransferType, scope: Scope):
