@@ -105,6 +105,21 @@ class ParallelRoutineDispatchTransformation(Transformation):
             routine.name + "_PARALLEL"
         )
 
+    def not_an_arg(self,arg):
+    
+        if(
+        isinstance(arg, sym.LogicalOr)
+        or isinstance(arg, sym.LogicalAnd)
+        or isinstance(arg, sym.StringLiteral)
+        or isinstance(arg, sym.LogicLiteral)
+        or isinstance(arg, sym.IntLiteral)
+        or isinstance(arg, sym.FloatLiteral)
+        or isinstance(arg, sym.Product)
+        or isinstance(arg, sym.Sum)
+        ):
+            return(True)
+        else:
+            return(False)
     def init_map_routine(self, routine):
         """
         Init map_routine dictionnary. This dictionnary contains information useful 
@@ -831,8 +846,9 @@ class ParallelRoutineDispatchTransformation(Transformation):
         map_intent_access["inout"] = "RDWR"
         new_map_intent = {}
         for var, value in map_intent.items():
-            if var.name in region_map_vars:
-                new_map_intent[region_map_vars[var.name][1].name] = map_intent_access[value]
+            if not self.not_an_arg(var):
+                if var.name in region_map_vars:
+                    new_map_intent[region_map_vars[var.name][1].name] = map_intent_access[value]
              #region_map_vars[var.name][1]: map_intent_access[intent] for var, value in map_intent.items()}
         
         return(new_map_intent)
@@ -842,11 +858,11 @@ class ParallelRoutineDispatchTransformation(Transformation):
         Rules for updating the intent of a variable already 
         having an intent.
         """
-        if (intent1 or intent2) == "out":
+        if intent1 == "out" or intent2 == "out":
             return "out"
-        elif (intent1 or intent2) == "inout":
+        elif intent1 == "inout" or intent2 == "inout":
             return "inout"
-        elif (intent1 and intent2) == "in":
+        elif intent1 == "in" and intent2 == "in":
             return "in"
 
     def read_interface(self, call_name, map_call_interface):
@@ -1161,16 +1177,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
     ):
         if arg not in vars_call:
             vars_call.append(arg)
-        if not (
-            isinstance(arg, sym.LogicalOr)
-            or isinstance(arg, sym.LogicalAnd)
-            or isinstance(arg, sym.IntLiteral)
-            or isinstance(arg, sym.LogicLiteral)
-            or isinstance(arg, sym.Product)
-            or isinstance(arg, sym.Sum)
-        ):
-            #             or isinstance(arg, sym.StringLiteral)):
-
+        if not ( self.not_an_arg(arg)):
             if arg.name in region_map_arrays:
                 return self.update_arg_dims(arg, region_map_arrays)
             if arg.name in region_map_derived:
@@ -1501,13 +1508,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
 
                 new_arguments = []
                 for arg in call.arguments:
-                    if not (
-                        isinstance(arg, sym.LogicalOr)
-                        or isinstance(arg, sym.LogicalAnd)
-                        or isinstance(arg, sym.StringLiteral)
-                        or isinstance(arg, sym.LogicLiteral)
-                        or isinstance(arg, sym.FloatLiteral)
-                    ):
+                    if not ( self.not_an_arg(arg)):
                         if arg.name in map_region["map_arrays"]:
                             new_arguments += [map_region["map_arrays"][arg.name][0]]
                         elif arg.name in map_region["map_derived"]:
