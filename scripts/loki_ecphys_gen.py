@@ -483,7 +483,7 @@ def parallel(source, build, header, remove_block_loop, promote_local_arrays, log
 
             # Re-insert driver loop with FIELD API data pointers extracted
             AddHostDataDriverLoopTransformation(
-                dimension=blocking_outer,
+                dimension=blocking_driver,
                 field_group_types=field_group_types+fgroup_firstprivates,
             ).apply(driver)
 
