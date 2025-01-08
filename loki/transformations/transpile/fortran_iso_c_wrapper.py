@@ -85,10 +85,6 @@ class FortranISOCWrapperTransformation(Transformation):
 
         role = kwargs.get('role', 'kernel')
 
-        c_structs = {}
-        for name, td in module.typedef_map.items():
-            c_structs[name.lower()] = c_struct_typedef(td, use_c_ptr=self.use_c_ptr)
-
         if role == 'header':
             # Generate Fortran wrapper module
             wrapper = generate_iso_c_wrapper_module(
@@ -112,12 +108,12 @@ class FortranISOCWrapperTransformation(Transformation):
 
         role = kwargs.get('role', 'kernel')
 
-        c_structs = {}
-        for arg in routine.arguments:
-            if isinstance(arg.type.dtype, DerivedType):
-                c_structs[arg.type.dtype.name.lower()] = c_struct_typedef(arg.type, use_c_ptr=self.use_c_ptr)
-
         if role == 'kernel':
+            c_structs = {}
+            for arg in routine.arguments:
+                if isinstance(arg.type.dtype, DerivedType):
+                    c_structs[arg.type.dtype.name.lower()] = c_struct_typedef(arg.type, use_c_ptr=self.use_c_ptr)
+
             # Generate Fortran wrapper module
             bind_name = None if self.language in ['c', 'cpp'] else f'{routine.name.lower()}_c_launch'
             wrapper = generate_iso_c_wrapper_routine(
