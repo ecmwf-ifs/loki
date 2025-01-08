@@ -19,13 +19,10 @@ from loki.logging import debug, detail
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash
 from loki.ir import VariableDeclaration, Intrinsic, FindNodes
-from loki.frontend.util import OMNI, FP, REGEX, Frontend
+from loki.frontend.util import OMNI, FP, REGEX
 
 
 __all__ = ['preprocess_cpp', 'sanitize_input', 'sanitize_registry', 'PPRule']
-
-
-OFP = Frontend.OFP
 
 
 def preprocess_cpp(source, filepath=None, includes=None, defines=None):
@@ -233,17 +230,6 @@ sanitize_registry = {
         'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
     },
     OMNI: {},
-    OFP: {
-        # Remove various IBM directives
-        'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
-
-        # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
-        'CONTIGUOUS': PPRule(
-            match=re.compile(r', CONTIGUOUS', re.I), replace='', postprocess=reinsert_contiguous),
-
-        # Strip line annotations from Fypp preprocessor
-        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
-    },
     FP: {
         # Remove various IBM directives
         'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
