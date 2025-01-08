@@ -128,6 +128,16 @@ class FortranISOCWrapperTransformation(Transformation):
 
 
 def c_intrinsic_kind(_type, scope):
+    """
+    Determine the intrinsic C-type for a given symbol table entry.
+
+    Parameters
+    ----------
+    _type : :any:`SymbolAttr`
+        The symbols type attribute to determine type and kind
+    scope : :any:`Scope`
+        The containing scope in which to clone the type symbol
+    """
     if _type.dtype == BasicType.LOGICAL:
         return sym.Variable(name='int', scope=scope)
     if _type.dtype == BasicType.INTEGER:
@@ -142,6 +152,17 @@ def c_intrinsic_kind(_type, scope):
 
 
 def iso_c_intrinsic_import(scope, use_c_ptr=False):
+    """
+    Create :any:`Import` object for the intrinsic C base types.
+
+    Parameters
+    ----------
+    scope : :any:`Scope`
+        The scope in which to create the import node and type symbols.
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
+    """
     import_symbols = ['c_int', 'c_double', 'c_float']
     if use_c_ptr:
         import_symbols += ['c_ptr', 'c_loc']
@@ -151,6 +172,19 @@ def iso_c_intrinsic_import(scope, use_c_ptr=False):
 
 
 def iso_c_intrinsic_kind(_type, scope, is_array=False, use_c_ptr=False):
+    """
+    Determine the intrinsic ISO-C type for a given symbol table entry.
+
+    Parameters
+    ----------
+    _type : :any:`SymbolAttr`
+        The symbols type attribute to determine type and kind
+    is_array : bool
+        Flag indicating if the passed type belongs to an array symbol.
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
+    """
     if _type.dtype == BasicType.INTEGER:
         return sym.Variable(name='c_int', scope=scope)
 
@@ -169,6 +203,12 @@ def iso_c_intrinsic_kind(_type, scope, is_array=False, use_c_ptr=False):
 def c_struct_typedef(derived, use_c_ptr=False):
     """
     Create the :class:`TypeDef` for the C-wrapped struct definition.
+
+    Parameters
+    ----------
+    use_c_ptr : bool, optional
+        Use ``c_ptr`` for array declarations and ``c_loc(...)`` to
+        pass the corresponding argument. Default is ``False``.
     """
     typename = f'{derived.name if isinstance(derived, ir.TypeDef) else derived.dtype.name}_c'
     typedef = ir.TypeDef(name=typename.lower(), body=(), bind_c=True)  # pylint: disable=unexpected-keyword-arg
