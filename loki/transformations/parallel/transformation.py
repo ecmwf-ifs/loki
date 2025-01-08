@@ -198,7 +198,7 @@ class AddHostDataDriverLoopTransformation(Transformation):
             )
             if regions:
                 inline_marked_subroutines(
-                    routine, adjust_imports=True, allowed_aliases=['JL', 'JRF']
+                    routine, adjust_imports=True, allowed_aliases=['JL', 'JRF', 'ZHOOK_HANDLE']
                 )
 
                 do_remove_dead_code(routine)
