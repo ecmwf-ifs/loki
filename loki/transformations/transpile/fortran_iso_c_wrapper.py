@@ -71,11 +71,6 @@ class FortranISOCWrapperTransformation(Transformation):
             raise ValueError(f'language "{self.language}" is not supported!'
                              f' (supported languages: "{self._supported_languages}")')
 
-    def file_suffix(self):
-        if self.language == 'cpp':
-            return '.cpp'
-        return '.c'
-
     def transform_module(self, module, **kwargs):
         if 'path' in kwargs:
             path = kwargs.get('path')
