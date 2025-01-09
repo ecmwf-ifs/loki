@@ -197,6 +197,10 @@ def test_simplify_collect_coefficients(source, ref):
     ('.false. .or. .false.', 'False'),
     ('2 == 1 .and. 1 == 1', 'False'),
     ('2 == 1 .or. 1 == 1', 'True'),
+    ('.true. .or. a', 'True'),
+    ('.false. .or. a', 'a'),
+    ('.false. .and. a', 'False'),
+    ('.true. .and. a', 'a'),
 ])
 def test_simplify_logic_evaluation(source, ref):
     scope = Scope()

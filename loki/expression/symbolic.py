@@ -585,21 +585,25 @@ class SimplifyMapper(LokiIdentityMapper):
 
     def map_logical_and(self, expr, *args, **kwargs):
         children = tuple(self.rec(child, *args, **kwargs) for child in expr.children)
-        if all(isinstance(c, sym.LogicLiteral) for c in children):
-            if all(c == 'True' for c in children):
-                return sym.LogicLiteral('True')
-            return sym.LogicLiteral('False')
+        if self.enabled_simplifications & Simplification.LogicEvaluation:
+            if any(c == 'False' for c in children):
+                return sym.LogicLiteral('False')
+            if any(c == 'True' for c in children):
+                # Trim all literals and return .true. if all were .true.
+                children = tuple(c for c in children if not c == 'True')
 
-        return sym.LogicalAnd(children)
+        return sym.LogicalAnd(children) if len(children) > 0 else sym.LogicLiteral('True')
 
     def map_logical_or(self, expr, *args, **kwargs):
         children = tuple(self.rec(child, *args, **kwargs) for child in expr.children)
-        if all(isinstance(c, sym.LogicLiteral) for c in children):
+        if self.enabled_simplifications & Simplification.LogicEvaluation:
             if any(c == 'True' for c in children):
                 return sym.LogicLiteral('True')
-            return sym.LogicLiteral('False')
+            if any(c == 'False' for c in children):
+                # Trim all literals and return .false. if all were .false.
+                children = tuple(c for c in children if not c == 'False')
 
-        return sym.LogicalOr(children)
+        return sym.LogicalOr(children) if len(children) > 0 else sym.LogicLiteral('False')
 
 
 def simplify(expr, enabled_simplifications=Simplification.ALL):
