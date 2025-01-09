@@ -9,7 +9,7 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.ir import (
     nodes as ir, FindNodes, pragma_regions_attached, is_loki_pragma,
-    get_pragma_parameters, Transformer
+    get_pragma_parameters, Transformer, SubstituteStringExpressions
 )
 from loki.types import BasicType, SymbolAttributes
 
@@ -267,3 +267,10 @@ class AddHostDataDriverLoopTransformation(Transformation):
                             dimension=self.dimension,
                             shared_variables=shared_variables
                         )
+
+                    # Sledgehammer this! Who cares?!
+                    dim_map = {
+                        'IDIMS%KIDIA': '1',
+                        'IDIMS%KFDIA': 'ICEND'
+                    }
+                    routine.body = SubstituteStringExpressions(dim_map, scope=routine).visit(routine.body)
