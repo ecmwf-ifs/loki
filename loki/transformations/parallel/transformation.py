@@ -259,9 +259,11 @@ class AddHostDataDriverLoopTransformation(Transformation):
                     # Need to re-generate dataflow info here, as prior
                     # transformers might have added new symbols.
                     with dataflow_analysis_attached(routine):
+                        shared_variables = tuple(p.name for p in offload_map.dataptrs)
 
                         # Add OpenMP parallel region
                         add_openmp_parallel_region(
                             region=region, routine=routine,
                             dimension=self.dimension,
+                            shared_variables=shared_variables
                         )
