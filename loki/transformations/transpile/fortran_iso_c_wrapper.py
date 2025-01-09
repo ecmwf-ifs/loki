@@ -426,12 +426,6 @@ def generate_iso_c_wrapper_module(module, use_c_ptr=False, language='c'):
     modname = f'{module.name}_fc'
     wrapper_module = Module(name=modname)
 
-    # Generate bind(c) intrinsics for module variables
-    original_import = ir.Import(module=module.name)
-    isoc_import = iso_c_intrinsic_import(module, use_c_ptr=use_c_ptr)
-    implicit_none = ir.Intrinsic(text='implicit none')
-    spec = [original_import, isoc_import, implicit_none]
-
     # Create getter methods for module-level variables (I know... :( )
     if language == 'c':
         wrappers = []
@@ -456,28 +450,6 @@ def generate_iso_c_wrapper_module(module, use_c_ptr=False, language='c'):
                 getter.variables = as_tuple(sym.Variable(name=gettername, type=isoctype, scope=getter))
                 wrappers += [getter]
         wrapper_module.contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), *wrappers))
-
-    # Create function interface definitions for module functions
-    intfs = []
-    for fct in module.subroutines:
-        if fct.is_function:
-            intf_fct = fct.clone(bind=f'{fct.name.lower()}')
-            intf_fct.body = ir.Section(body=())
-
-            intf_args = []
-            for arg in intf_fct.arguments:
-                # Only scalar, intent(in) arguments are pass by value
-                # Pass by reference for array types
-                value = isinstance(arg, sym.Scalar) and arg.type.intent and arg.type.intent.lower() == 'in'
-                kind = iso_c_intrinsic_kind(arg.type, intf_fct, use_c_ptr=use_c_ptr)
-                ctype = SymbolAttributes(arg.type.dtype, value=value, kind=kind)
-                dimensions = arg.dimensions if isinstance(arg, sym.Array) else None
-                var = sym.Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_fct)
-                intf_args += (var,)
-            intf_fct.arguments = intf_args
-            sanitise_imports(intf_fct)
-            intfs.append(intf_fct)
-    spec.append(ir.Interface(body=(as_tuple(intfs),)))
 
     # Remove any unused imports
     sanitise_imports(wrapper_module)
@@ -531,18 +503,6 @@ def generate_c_header(module):
             )]
         header_td._update(body=as_tuple(declarations))
         spec += [header_td]
-
-    # Generate a header declaration for module routines
-    for fct in module.subroutines:
-        if fct.is_function:
-            fct_type = 'void'
-            if fct.name in fct.variables:
-                fct_type = c_intrinsic_kind(fct.variable_map[fct.name.lower()].type, header_module)
-
-            args = [f'{c_intrinsic_kind(a.type, header_module)} {a.name.lower()}'
-                    for a in fct.arguments]
-            fct_decl = f'{fct_type} {fct.name.lower()}({", ".join(args)});'
-            spec.append(ir.Intrinsic(text=fct_decl))
 
     header_module.spec = spec
     header_module.rescope_symbols()
