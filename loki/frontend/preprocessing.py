@@ -18,7 +18,7 @@ from codetiming import Timer
 from loki.logging import debug, detail
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash
-from loki.ir import VariableDeclaration, Intrinsic, FindNodes
+from loki.ir import Intrinsic, FindNodes
 from loki.frontend.util import OMNI, FP, REGEX
 
 
@@ -124,18 +124,6 @@ def sanitize_input(source, frontend):
         source = new_source
 
     return source, pp_info
-
-
-def reinsert_contiguous(ir, pp_info):
-    """
-    Reinsert the CONTIGUOUS marker into declaration variables.
-    """
-    if pp_info:
-        for decl in FindNodes(VariableDeclaration).visit(ir):
-            if decl.source.lines[0] in pp_info:
-                for var in decl.symbols:
-                    var.scope.symbol_attrs[var.name] = var.scope.symbol_attrs[var.name].clone(contiguous=True)
-    return ir
 
 
 def reinsert_convert_endian(ir, pp_info):

@@ -21,7 +21,7 @@ from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
 from loki.frontend import (
-    available_frontends, OMNI, FP, HAVE_FP, parse_fparser_expression
+    available_frontends, OMNI, HAVE_FP, parse_fparser_expression
 )
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindExpressions,
@@ -921,43 +921,6 @@ end subroutine expression_nested_masked_statements
     ref1[vec1 < 2.0] = 0.0
     function(length, vec1)
     assert np.all(ref1 == vec1)
-    clean_test(filepath)
-
-
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
-    (OMNI, 'Not implemented'), (FP, 'Not implemented')
-]))
-def test_data_declaration(tmp_path, frontend):
-    """
-    Variable initialization with DATA statements
-    """
-    fcode = """
-subroutine data_declaration(data_out)
-  implicit none
-  integer, dimension(5, 4), intent(out) :: data_out
-  integer, dimension(5, 4) :: data1, data2
-  integer, dimension(3) :: data3
-  integer :: i, j
-
-  data data1 /20*5/
-
-  data ((data2(i,j), i=1,5), j=1,4) /20*3/
-
-  data data3(1), data3(3), data3(2) /1, 2, 3/
-
-  data_out(:,:) = data1(:,:) + data2(:,:)
-  data_out(1:3,1) = data3
-end subroutine data_declaration
-"""
-    filepath = tmp_path/(f'expression_data_declaration_{frontend}.f90')
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='data_declaration')
-
-    expected = np.ones(shape=(5, 4), dtype=np.int32, order='F') * 8
-    expected[[0, 1, 2], 0] = [1, 3, 2]
-    result = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
-    function(result)
-    assert np.all(result == expected)
     clean_test(filepath)
 
 
