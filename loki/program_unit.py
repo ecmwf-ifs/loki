@@ -149,11 +149,6 @@ class ProgramUnit(Scope):
                 includes = omni_includes
             source = preprocess_cpp(source=source, includes=includes, defines=defines)
 
-        # Preprocess using internal frontend-specific PP rules
-        # to sanitize input and work around known frontend problems.
-        if frontend != Frontend.OMNI:
-            source, pp_info = sanitize_input(source=source, frontend=frontend)
-
         if frontend == Frontend.REGEX:
             return cls.from_regex(raw_source=source, parser_classes=parser_classes, parent=parent)
 
@@ -164,6 +159,10 @@ class ProgramUnit(Scope):
                                  type_map=type_map, parent=parent)
 
         if frontend == Frontend.FP:
+            # Preprocess using internal frontend-specific PP rules
+            # to sanitize input and work around known frontend problems.
+            source, pp_info = sanitize_input(source=source, frontend=frontend)
+
             ast = parse_fparser_source(source)
             return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions,
                                     pp_info=pp_info, parent=parent)
