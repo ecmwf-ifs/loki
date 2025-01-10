@@ -323,7 +323,7 @@ function( loki_transform_target )
             HEADERS     ${_PAR_T_HEADERS}
             DEFINITIONS ${_PAR_T_DEFINITIONS}
             INCLUDES    ${_PAR_T_INCLUDES}
-            DEPENDS     ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADER} ${_PAR_T_CONFIG}
+            DEPENDS     ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADERS} ${_PAR_T_CONFIG}
             ${_TRANSFORM_OPTIONS}
         )
     endif()
