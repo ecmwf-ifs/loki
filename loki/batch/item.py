@@ -143,6 +143,9 @@ class Item(ItemConfig):
     trafo_data : any:`dict`
         Container object for analysis passes to store analysis data. This can be used
         in subsequent transformation passes.
+    plan_data : any:`dict`
+        Container object for plan dry-run passes to store information about
+        additional and removed dependencies.
 
     Parameters
     ----------
@@ -164,18 +167,6 @@ class Item(ItemConfig):
         self.trafo_data = {}
         self.plan_data = {}
         super().__init__(config)
-
-    def clone(self, **kwargs):
-        """
-        Replicate the object with the provided overrides.
-        """
-        if 'name' not in kwargs:
-            kwargs['name'] = self.name
-        if 'source' not in kwargs:
-            kwargs['source'] = self.source.clone() # self.source.clone()
-        if self.config is not None and 'config' not in kwargs:
-            kwargs['config'] = self.config
-        return type(self)(**kwargs)
 
     def __repr__(self):
         return f'loki.batch.{self.__class__.__name__}<{self.name}>'

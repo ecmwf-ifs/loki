@@ -13,9 +13,25 @@ __all__ = ['DuplicateKernel', 'RemoveKernel']
 
 
 class DuplicateKernel(Transformation):
+    """
+    Duplicate subroutines which includes the creation of new :any:`Item`s
+    as well as the addition of the corresponding new dependencies.
+
+    Therefore, this transformation creates a new item and also implements
+    the relevant routines for dry-run pipeline planning runs.
+
+    Parameters
+    ----------
+    duplicate_kernels : str|tuple|list, optional
+        Kernel name(s) to be duplicated.
+    duplicate_suffix : str, optional
+        Suffix to be used to append the original kernel name(s).
+    duplicate_module_suffix : str, optional
+        Suffix to be used to append the original module name(s),
+        if defined, otherwise `duplicate_suffix`
+    """
 
     creates_items = True
-
     reverse_traversal = True
 
     def __init__(self, duplicate_kernels=None, duplicate_suffix='duplicated',
@@ -25,6 +41,24 @@ class DuplicateKernel(Transformation):
         self.duplicate_kernels = tuple(kernel.lower() for kernel in as_tuple(duplicate_kernels))
 
     def _create_duplicate_items(self, successors, item_factory, config):
+        """
+        Create new/duplicated items.
+
+        Parameters
+        ----------
+        successors : tuple
+            Tuple of :any:`Item`s representing the successor items for which
+            new/duplicated items are created..
+        item_factory : :any:`ItemFactory`
+            The :any:`ItemFactory` to use when creating the items.
+        config : :any:`SchedulerConfig`
+            The scheduler config to use when instantiating new items.
+        Returns
+        -------
+        tuple
+            Tuple of newly created items.
+        """
+
         new_items = ()
         for item in successors:
             if item.local_name in self.duplicate_kernels:
@@ -99,6 +133,18 @@ class DuplicateKernel(Transformation):
 
 
 class RemoveKernel(Transformation):
+    """
+    Remove subroutines which includes the removal of the relevant :any:`Item`s
+    as well as the removal of the corresponding dependencies.
+
+    Therefore, this transformation creates a new item and also implements
+    the relevant routines for dry-run pipeline planning runs.
+
+    Parameters
+    ----------
+    remove_kernels : str|tuple|list, optional
+        Kernel name(s) to be removed.
+    """
 
     creates_items = True
 
