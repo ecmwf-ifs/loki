@@ -9,7 +9,7 @@ from abc import abstractmethod
 
 from loki.expression import Variable, parse_expr
 from loki.frontend import (
-    Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
+    Frontend, parse_omni_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
 )
 from loki.ir import (
@@ -149,11 +149,6 @@ class ProgramUnit(Scope):
                 includes = omni_includes
             source = preprocess_cpp(source=source, includes=includes, defines=defines)
 
-        # Preprocess using internal frontend-specific PP rules
-        # to sanitize input and work around known frontend problems.
-        if frontend != Frontend.OMNI:
-            source, pp_info = sanitize_input(source=source, frontend=frontend)
-
         if frontend == Frontend.REGEX:
             return cls.from_regex(raw_source=source, parser_classes=parser_classes, parent=parent)
 
@@ -163,12 +158,11 @@ class ProgramUnit(Scope):
             return cls.from_omni(ast=ast, raw_source=source, definitions=definitions,
                                  type_map=type_map, parent=parent)
 
-        if frontend == Frontend.OFP:
-            ast = parse_ofp_source(source)
-            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions,
-                                pp_info=pp_info, parent=parent) # pylint: disable=possibly-used-before-assignment
-
         if frontend == Frontend.FP:
+            # Preprocess using internal frontend-specific PP rules
+            # to sanitize input and work around known frontend problems.
+            source, pp_info = sanitize_input(source=source, frontend=frontend)
+
             ast = parse_fparser_source(source)
             return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions,
                                     pp_info=pp_info, parent=parent)
@@ -196,28 +190,6 @@ class ProgramUnit(Scope):
         typetable : dict, optional
             A mapping from type hash identifiers to type definitions, as provided in
             OMNI's ``typeTable`` parse tree node
-        """
-
-    @classmethod
-    @abstractmethod
-    def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
-        """
-        Create the :any:`ProgramUnit` object from an :any:`OFP` parse tree.
-
-        This method must be implemented by the derived class.
-
-        Parameters
-        ----------
-        ast :
-            The OFP parse tree
-        raw_source : str
-            Fortran source string
-        definitions : list
-            List of external :any:`Module` to provide derived-type and procedure declarations
-        pp_info :
-            Preprocessing info as obtained by :any:`sanitize_input`
-        parent : :any:`Scope`, optional
-            The enclosing parent scope of the module.
         """
 
     @classmethod

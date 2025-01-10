@@ -18,14 +18,11 @@ from codetiming import Timer
 from loki.logging import debug, detail
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash
-from loki.ir import VariableDeclaration, Intrinsic, FindNodes
-from loki.frontend.util import OMNI, FP, REGEX, Frontend
+from loki.ir import Intrinsic, FindNodes
+from loki.frontend.util import OMNI, FP, REGEX
 
 
 __all__ = ['preprocess_cpp', 'sanitize_input', 'sanitize_registry', 'PPRule']
-
-
-OFP = Frontend.OFP
 
 
 def preprocess_cpp(source, filepath=None, includes=None, defines=None):
@@ -129,18 +126,6 @@ def sanitize_input(source, frontend):
     return source, pp_info
 
 
-def reinsert_contiguous(ir, pp_info):
-    """
-    Reinsert the CONTIGUOUS marker into declaration variables.
-    """
-    if pp_info:
-        for decl in FindNodes(VariableDeclaration).visit(ir):
-            if decl.source.lines[0] in pp_info:
-                for var in decl.symbols:
-                    var.scope.symbol_attrs[var.name] = var.scope.symbol_attrs[var.name].clone(contiguous=True)
-    return ir
-
-
 def reinsert_convert_endian(ir, pp_info):
     """
     Reinsert the CONVERT='BIG_ENDIAN' or CONVERT='LITTLE_ENDIAN' arguments
@@ -233,17 +218,6 @@ sanitize_registry = {
         'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
     },
     OMNI: {},
-    OFP: {
-        # Remove various IBM directives
-        'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),
-
-        # Despite F2008 compatability, OFP does not recognise the CONTIGUOUS keyword :(
-        'CONTIGUOUS': PPRule(
-            match=re.compile(r', CONTIGUOUS', re.I), replace='', postprocess=reinsert_contiguous),
-
-        # Strip line annotations from Fypp preprocessor
-        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
-    },
     FP: {
         # Remove various IBM directives
         'IBM_DIRECTIVES': PPRule(match=re.compile(r'(@PROCESS.*\n)'), replace='\n'),

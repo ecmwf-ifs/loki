@@ -8,27 +8,24 @@
 
 import atexit
 import fnmatch
-from functools import wraps
 from hashlib import md5
 from importlib import import_module, reload, invalidate_caches
 import os
 from pathlib import Path
-import pickle
 import re
 import shutil
 import sys
 import tempfile
 
-from loki.logging import debug, info
+from loki.logging import debug
 from loki.tools.util import as_tuple, flatten
 from loki.config import config
 
 
 __all__ = [
     'LokiTempdir', 'gettempdir', 'filehash', 'delete', 'find_paths',
-    'find_files', 'disk_cached', 'load_module',
-    'write_env_launch_script', 'local_loki_setup',
-    'local_loki_cleanup'
+    'find_files', 'load_module', 'write_env_launch_script',
+    'local_loki_setup', 'local_loki_cleanup'
 ]
 
 
@@ -181,50 +178,6 @@ def find_files(pattern, srcdir='.'):
     rule = re.compile(fnmatch.translate(pattern), re.IGNORECASE)
     return [Path(dirpath)/fname for dirpath, _, fnames in os.walk(str(srcdir))
             for fname in fnames if rule.match(fname)]
-
-
-def disk_cached(argname, suffix='cache'):
-    """
-    A function that creates a decorator which will cache the result of a function
-
-    :param argname: Name of the argument that holds the filename
-    """
-    def decorator(fn):
-
-        @wraps(fn)
-        def cached(*args, **kwargs):
-            """
-            Wrapper that will cache the output of a function on disk.
-
-            The first argument is assumed to be the name of the file
-            that needs to be cached, and the cache will be put next
-            to that file with the suffix ``.cache``.
-            """
-            filename = kwargs[argname]
-            cachefile = f'{filename}.{suffix}'
-
-            # Read cached file from disc if it's been cached before
-            if config['disk-cache'] and os.path.exists(cachefile):
-                # Only use cache if it is newer than the file
-                filetime = os.path.getmtime(filename)
-                cachetime = os.path.getmtime(cachefile)
-                if cachetime >= filetime:
-                    with open(cachefile, 'rb') as cachehandle:
-                        info(f'Loading cache: "{cachefile}"')
-                        return pickle.load(cachehandle)
-
-            # Execute the function with all arguments passed
-            res = fn(*args, **kwargs)
-
-            # Write to cache file
-            if config['disk-cache']:
-                with open(cachefile, 'wb') as cachehandle:
-                    info(f'Saving cache: "{cachefile}"')
-                    pickle.dump(res, cachehandle)
-
-            return res
-        return cached
-    return decorator
 
 
 def load_module(module, path=None):

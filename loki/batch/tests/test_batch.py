@@ -22,11 +22,11 @@ from loki.batch import (
     ProcedureBindingItem, ExternalItem, InterfaceItem, SGraph,
     SchedulerConfig, ItemFactory
 )
-from loki.frontend import HAVE_FP, HAVE_OFP, REGEX, RegexParserClass
+from loki.frontend import HAVE_FP, REGEX, RegexParserClass
 from loki.ir import nodes as ir
 
 
-pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
+pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
 @pytest.fixture(scope='module', name='here')
