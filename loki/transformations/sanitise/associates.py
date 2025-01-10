@@ -161,8 +161,11 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             expr = scope.inverse_map[expr.basename]
             return self.rec(expr, *args, **kwargs)
 
-        # Update the scope, as this one will be removed
-        return expr.clone(scope=scope.parent)
+        # Update the scope, as any inner associates will be removed.
+        # For this we count backwards the nested scopes, the tail of
+        # which will the (innermost) associates.
+        new_scope = scope.parents[::-1][depth-self.start_depth-1]
+        return expr.clone(scope=new_scope)
 
     def map_array(self, expr, *args, **kwargs):
         """ Partially resolve dimension indices and handle shape """
