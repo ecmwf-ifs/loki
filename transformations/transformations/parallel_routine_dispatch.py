@@ -46,7 +46,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
     """
     Applying the transformation to create _parallel.F90 routine.
     """
-    def __init__(self, is_intent, horizontal, map_derived_field, map_openacc):
+    def __init__(self, is_intent, horizontal, map_derived_field, map_intfb):
         self.is_intent = (
             is_intent  # set to True if the intent are read for interface block
         )
@@ -64,12 +64,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
 #            self.map_derived_field = pickle.load(fp)
 
 #        if self.is_intent:
-#            self.path_map_openacc = path_map_openacc
-#            with open(path_map_openacc, "rb") as fp:
-#                #map_openacc contains path to kernel routine 
+#            self.path_map_intfb = path_map_intfb
+#            with open(path_map_intfb, "rb") as fp:
+#                #map_intfb contains path to kernel routine 
 #                #in order to read their interface and know variable intent
-#                self.map_openacc = pickle.load(fp)
-        self.map_openacc = map_openacc
+#                self.map_intfb = pickle.load(fp)
+        self.map_intfb = map_intfb
 
 
     def transform_subroutine(self, routine, **kwargs):
@@ -869,7 +869,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
         
         call_name = call_name.lower()
         if call_name.upper() not in map_call_interface:
-            interface_path = self.map_openacc[call_name]
+            interface_path = self.map_intfb[call_name]
             with open(interface_path) as f:
                 lines = f.readlines()
             lines = lines[1:-1]# rm INTERFACE and END INTERFACE from the routine
@@ -879,7 +879,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             map_call_interface[call_name.upper()] = call_ir
 
 #        with open(map_call_interface[call_name]) :
-##TODO check call_name format and path in... self.map_openacc => diff path if in pack or in test mode, for the moment just do test mode...) Use pathpack, pathview etc should work fine to build the interface_path)
+##TODO check call_name format and path in... self.map_intfb => diff path if in pack or in test mode, for the moment just do test mode...) Use pathpack, pathview etc should work fine to build the interface_path)
 #    
     def intfb_intent_analysis(self, region, map_routine):
         """
