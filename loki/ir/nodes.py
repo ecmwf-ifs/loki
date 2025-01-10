@@ -32,7 +32,6 @@ from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
 
-
 __all__ = [
     # Abstract base classes
     'Node', 'InternalNode', 'LeafNode', 'ScopedNode',

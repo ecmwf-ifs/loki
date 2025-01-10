@@ -352,3 +352,93 @@ end subroutine myroutine
     assert '! Comment outside' in code
     assert '! Comment inside' in code
     assert '! Other comment outside' in code
+
+
+@pytest.mark.parametrize('frontend', available_frontends(include_regex=True))
+def test_sourcefile_clone(frontend, tmp_path):
+    """
+    Make sure cloning a source file works as expected
+    """
+    fcode = """
+! Comment outside
+module my_mod
+  implicit none
+  contains
+    subroutine my_routine
+      implicit none
+    end subroutine my_routine
+end module my_mod
+
+subroutine other_routine
+  use my_mod, only: my_routine
+  implicit none
+  call my_routine()
+end subroutine other_routine
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
+    # Clone the source file twice
+    new_source = source.clone()
+    new_new_source = source.clone()
+
+    # Apply some changes that should only be affecting each clone
+    new_source['other_routine'].name = 'new_name'
+    new_new_source['my_mod']['my_routine'].name = 'new_mod_routine'
+
+    assert 'other_routine' in source
+    assert 'other_routine' not in new_source
+    assert 'other_routine' in new_new_source
+
+    assert 'new_name' not in source
+    assert 'new_name' in new_source
+    assert 'new_name' not in new_new_source
+
+    assert 'my_mod' in source
+    assert 'my_mod' in new_source
+    assert 'my_mod' in new_new_source
+
+    assert 'my_routine' in source['my_mod']
+    assert 'my_routine' in new_source['my_mod']
+    assert 'my_routine' not in new_new_source['my_mod']
+
+    assert 'new_mod_routine' not in source['my_mod']
+    assert 'new_mod_routine' not in new_source['my_mod']
+    assert 'new_mod_routine' in new_new_source['my_mod']
+
+    if not source._incomplete:
+        assert isinstance(source.ir.body[0], Comment)
+        comment_text = source.ir.body[0].text
+        new_comment_text = comment_text + ' some more text'
+        source.ir.body[0]._update(text=new_comment_text)
+
+        assert source.ir.body[0].text == new_comment_text
+        assert new_source.ir.body[0].text == comment_text
+        assert new_new_source.ir.body[0].text == comment_text
+    else:
+        assert new_source._incomplete
+        assert new_new_source._incomplete
+
+        assert source['other_routine']._incomplete
+        assert new_source['new_name']._incomplete
+        assert new_new_source['other_routine']._incomplete
+
+        assert new_source['new_name']._parser_classes == source['other_routine']._parser_classes
+        assert new_new_source['other_routine']._parser_classes == source['other_routine']._parser_classes
+
+        mod = source['my_mod']
+        new_mod = new_source['my_mod']
+        new_new_mod = new_new_source['my_mod']
+
+        assert mod._incomplete
+        assert new_mod._incomplete
+        assert new_new_mod._incomplete
+
+        assert new_mod._parser_classes == mod._parser_classes
+        assert new_new_mod._parser_classes == mod._parser_classes
+
+        assert mod['my_routine']._incomplete
+        assert new_mod['my_routine']._incomplete
+        assert new_new_mod['new_mod_routine']._incomplete
+
+        assert new_mod['my_routine']._parser_classes == mod['my_routine']._parser_classes
+        assert new_new_mod['new_mod_routine']._parser_classes == mod['my_routine']._parser_classes
