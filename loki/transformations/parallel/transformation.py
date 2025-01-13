@@ -7,12 +7,14 @@
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
+from loki.expression import symbols as sym
 from loki.ir import (
     nodes as ir, FindNodes, pragma_regions_attached, is_loki_pragma,
     get_pragma_parameters, Transformer, SubstituteStringExpressions
 )
 from loki.types import BasicType, SymbolAttributes
 
+from loki.transformations.argument_shape import infer_array_shape_caller
 from loki.transformations.drhook import DrHookTransformation
 from loki.transformations.field_api import FieldPointerMap
 from loki.transformations.inline import inline_marked_subroutines
@@ -236,6 +238,10 @@ class AddHostDataDriverLoopTransformation(Transformation):
                         inplace=True, dimension=self.dimension,
                         default_type=default_type
                     ).visit(region, scope=routine)
+
+                # Do some more sanitisation to get array shapes right
+                # TODO: This should be a preprocessing step
+                infer_array_shape_caller(region)
 
                 # Use pieces of the FieldOffloadTransformation to generate the field pointers
                 field_group_types = tuple(typename.lower() for typename in self.field_group_types)
