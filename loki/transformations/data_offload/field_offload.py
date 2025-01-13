@@ -133,17 +133,24 @@ def find_offload_variables(driver, region, field_group_types):
             if not isinstance(param, Array):
                 continue
             try:
-                parent = arg.parent
+                parent = arg.parents[0] if len(arg.parents) > 1 else arg.parent
                 if parent.type.dtype.name.lower() not in field_group_types:
                     warning(f'[Loki] Data offload: The parent object {parent.name} of type ' +
                             f'{parent.type.dtype} is not in the list of field wrapper types')
                     continue
+
+                if parent.type.intent == 'in':
+                    inargs += (arg,)
+                if parent.type.intent == 'inout':
+                    inoutargs += (arg,)
+                if parent.type.intent == 'out':
+                    outargs += (arg,)
             except AttributeError:
                 warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in'
                         + f' {driver.name} that is not wrapped by a Field API object')
                 continue
 
-    return inargs, inoutargs, outargs
+    return tuple(dict.fromkeys(inargs)), tuple(dict.fromkeys(inoutargs)), tuple(dict.fromkeys(outargs))
 
 
 def declare_device_ptrs(driver, deviceptrs):
