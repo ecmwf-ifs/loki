@@ -22,15 +22,19 @@ declarations and call signatures.
 
 
 from loki.batch import Transformation
-from loki.expression import Array
+from loki.expression import symbols as sym, Array
 from loki.ir import (
-    FindNodes, CallStatement, Transformer, FindVariables, SubstituteExpressions
+    nodes as ir, FindNodes, CallStatement, Transformer, FindVariables,
+    SubstituteExpressions
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
 
 
-__all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation']
+__all__ = [
+    'ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation',
+    'infer_array_shape_caller'
+]
 
 
 class ArgumentArrayShapeAnalysis(Transformation):
@@ -166,3 +170,26 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
 
         # Replace all adjusted calls on the caller-side
         routine.body = Transformer(call_map).visit(routine.body)
+
+
+def infer_array_shape_caller(region):
+    """
+    Infer shape and type information for argument arrays from callee, if not on argument
+    """
+    for call in FindNodes(ir.CallStatement).visit(region):
+        if call.routine is BasicType.DEFERRED:
+            continue
+
+        arg_map = {}
+        for param, arg in call.arg_iter():
+            if not isinstance(param, sym.Array):
+                continue
+
+            if not isinstance(arg, sym.Array) or not arg.dimensions or not arg.shape:
+                newdims = tuple(sym.RangeIndex((None, None)) for _ in param.shape)
+                newtype = arg.type.clone(dtype=param.type.dtype, kind=param.type.kind, shape=param.shape)
+                arg_map[arg] = arg.clone(dimensions=newdims, type=newtype)
+
+        arguments = tuple(arg_map[a] if a in arg_map else a for a in call.arguments)
+        kwarguments = tuple((k, arg_map[v] if v in arg_map else v) for k, v in call.kwarguments)
+        call._update(arguments=arguments, kwarguments=kwarguments)
