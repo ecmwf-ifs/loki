@@ -10,9 +10,10 @@ import pytest
 
 from loki import  Subroutine, Scheduler, Sourcefile, flatten
 from loki.frontend import available_frontends, OMNI, HAVE_FP, FP
-from loki.ir import CallStatement, FindNodes
+from loki.ir import nodes as ir, CallStatement, FindNodes
 from loki.transformations import (
-    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
+    ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation,
+    infer_array_shape_caller
 )
 from loki.expression import symbols as sym
 from loki.types import BasicType
@@ -539,3 +540,57 @@ def test_argument_size_assumed_size(transform):
         assert isinstance(arguments[5].dimensions[2], sym.RangeIndex)
         assert arguments[5].dimensions[2].lower == 3
         assert arguments[5].dimensions[2].upper == '2 + nlev*nlon'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_argument_shape_caller(frontend):
+    """
+    Test backward propagation of shape info from callee to caller.
+    """
+
+    fcode_driver = """
+subroutine test_driver(n, m, a)
+  use my_mod, only: my_type
+  implicit none
+  integer, intent(in) :: n, m
+  real, intent(inout) :: a(:)
+  type(my_type), intent(inout) :: obj
+
+  call test_kernel(n, m, a, obj%b(:,:), c=obj%c)
+end subroutine test_driver
+    """
+
+    fcode_kernel = """
+subroutine test_kernel(n, m, a, b, c)
+  implicit none
+  integer, intent(in) :: n, m
+  real, intent(inout) :: a(n)
+  real, intent(inout) :: b(n,m)
+  real, intent(inout) :: c(n,m,m)
+
+end subroutine test_kernel
+    """
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver.enrich(kernel)
+
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(calls) == 1
+    assert calls[0].name.type.dtype.procedure == kernel
+    assert driver.variable_map['a'].shape == (':',)
+
+    infer_array_shape_caller(driver.body)
+
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(calls) == 1
+
+    assert len(calls[0].arguments) == 4
+    assert calls[0].arguments[0] == 'n'
+    assert calls[0].arguments[1] == 'm'
+    assert calls[0].arguments[2] == 'a(:)'
+    assert calls[0].arguments[2].shape == ('n',)
+    assert calls[0].arguments[3] == 'obj%b(:,:)'
+    assert calls[0].arguments[3].shape == ('n', 'm')
+    assert len(calls[0].kwarguments) == 1
+    assert calls[0].kwarguments[0] == ('c', 'obj%c(:,:,:)')
+    assert calls[0].kwarguments[0][1].shape == ('n', 'm', 'm')
