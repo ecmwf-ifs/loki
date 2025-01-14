@@ -896,6 +896,7 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if call.name.name not in map_call_interface:
                 self.read_interface(call.name.name, map_call_interface)
             call_intfb = map_call_interface[call.name.name]
+            call_intfb_arguments_name = [arg.name for arg in call_intfb.arguments]
 
             for arg_idx in range(len(call.arguments)):
                 arg = call.arguments[arg_idx]
@@ -903,12 +904,17 @@ class ParallelRoutineDispatchTransformation(Transformation):
                 self.complete_map_calls_intent(arg, intent, map_calls_intent)
             for kwarg_idx in range(len(call.kwarguments)):
                 kwarg = call.kwarguments[kwarg_idx]
+                kwarg = kwarg[0]
                 if kwarg in call_intfb.arguments:
                     kwarg_idx_intfb = call_intfb.arguments.index(kwarg)
-                    intent = call_intfb[kwarg_idx_intfb].type.intent
-                    self.complete_map_calls_intent(kwarg, intent, map_calls_intent)
+                elif kwarg in call_intfb_arguments_name:
+                    #isn't it a bug?
+                    kwarg_idx_intfb = call_intfb_arguments_name.index(kwarg)
                 else:
                     raise Exception(f"{kwarg} should be in {call.name} arguments!")
+                arg = call_intfb.arguments[kwarg_idx_intfb]
+                intent = arg.type.intent
+                self.complete_map_calls_intent(arg, intent, map_calls_intent)
 
         return(map_calls_intent)
 
