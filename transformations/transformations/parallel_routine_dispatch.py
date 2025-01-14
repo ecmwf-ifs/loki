@@ -896,26 +896,55 @@ class ParallelRoutineDispatchTransformation(Transformation):
             if call.name.name not in map_call_interface:
                 self.read_interface(call.name.name, map_call_interface)
             call_intfb = map_call_interface[call.name.name]
-            if len(call.arguments) != len(call_intfb.arguments):
-            # # same nb of arguments, that may be due to optional args, 
-            #or smthg else that wasn't anticipated
-                raise NotImplementedError(
-                    "Optional arguments not implemented here"
-                )
-            #Can't use args name, dummy and actual args may have different names
+
             for arg_idx in range(len(call.arguments)):
                 arg = call.arguments[arg_idx]
                 intent = call_intfb.arguments[arg_idx].type.intent
-        
-                if arg not in map_calls_intent:
-                    map_calls_intent[arg] = intent
-                    #map_region_intent[arg_name] = map_intent[call_name][arg_name]
+                self.complete_map_calls_intent(arg, intent, map_calls_intent)
+            for kwarg_idx in range(len(call.kwarguments)):
+                kwarg = call.kwarguments[kwarg_idx]
+                if kwarg in call_intfb.arguments:
+                    kwarg_idx_intfb = call_intfb.arguments.index(kwarg)
+                    intent = call_intfb[kwarg_idx_intfb].type.intent
+                    self.complete_map_calls_intent(kwarg, intent, map_calls_intent)
                 else:
-                    map_calls_intent[arg] = self.analyse_intent(
-                        intent, map_calls_intent[arg]
-                    )  # comparing intent of the arg in the other calls with the intent of the arg in the call
-        
+                    raise Exception(f"{kwarg} should be in {call.name} arguments!")
+
         return(map_calls_intent)
+
+    def complete_map_calls_intent(self, arg, intent, map_calls_intent):
+        """
+        Add or update arg intent in map_calls_intent.
+        """
+
+        if arg not in map_calls_intent:
+            map_calls_intent[arg] = intent
+            #map_region_intent[arg_name] = map_intent[call_name][arg_name]
+        else:
+            map_calls_intent[arg] = self.analyse_intent(
+                intent, map_calls_intent[arg]
+            )  # comparing intent of the arg in the other calls with the intent of the arg in the call
+
+#            if len(call.arguments) != len(call_intfb.arguments):
+#            # # same nb of arguments, that may be due to optional args, 
+#            #or smthg else that wasn't anticipated
+#                raise NotImplementedError(
+#                    "Optional arguments not implemented here"
+#                )
+#                
+#            #Can't use args name, dummy and actual args may have different names
+#            for arg_idx in range(len(call.arguments)):
+#                arg = call.arguments[arg_idx]
+#                intent = call_intfb.arguments[arg_idx].type.intent
+#        
+#                if arg not in map_calls_intent:
+#                    map_calls_intent[arg] = intent
+#                    #map_region_intent[arg_name] = map_intent[call_name][arg_name]
+#                else:
+#                    map_calls_intent[arg] = self.analyse_intent(
+#                        intent, map_calls_intent[arg]
+#                    )  # comparing intent of the arg in the other calls with the intent of the arg in the call
+        
 
 
 
