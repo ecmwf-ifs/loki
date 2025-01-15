@@ -182,8 +182,12 @@ def convert(
     # Create a scheduler to bulk-apply source transformations
     paths = [Path(p).resolve() for p in as_tuple(source)]
     paths += [Path(h).resolve().parent for h in as_tuple(header)]
+    # Skip full source parse for planning mode
+    full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend, definitions=definitions, output_dir=build, **build_args
+        paths=paths, config=config, frontend=frontend,
+        full_parse=full_parse, definitions=definitions,
+        output_dir=build, **build_args
     )
 
     # If requested, apply a custom pipeline from the scheduler config
