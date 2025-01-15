@@ -133,11 +133,20 @@ subroutine my_NOT_ALL_lowercase_ROUTINE(VAR1, another_VAR, lower_case, MiXeD_Cas
     do K=1,ANOTHER_VAR
         LOWER_CASE(MIXEd_cASE(1, K)) = K - 1
     end do
+
+    miXed_CasE(1, 1) = Max(mIn(sQrT(9.0), 2.0), 1.0)
 end subroutine my_NOT_ALL_lowercase_ROUTINE
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
     convert_to_lower_case(routine)
-    assert all(var.name.islower() and str(var).islower() for var in FindVariables(unique=False).visit(routine.ir))
+    assert all(
+        var.name.islower() and str(var).islower()
+        for var in FindVariables(unique=True).visit(routine.ir)
+    )
+    assert all(
+        f.name.islower() and str(f).islower()
+        for f in FindInlineCalls().visit(routine.ir)
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
