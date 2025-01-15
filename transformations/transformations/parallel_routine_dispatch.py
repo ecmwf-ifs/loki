@@ -818,8 +818,8 @@ class ParallelRoutineDispatchTransformation(Transformation):
         #interface intent: 
         map_call_intent = self.intfb_intent_analysis(region, map_routine)
         #dataflow intent:
-        rdonly = region.uses_symbols 
-        rdwr = region.defines_symbols - region.uses_symbols
+        rdonly = region.uses_symbols - region.defines_symbols
+        rdwr = region.defines_symbols
 
         #switch rdonly/rdwr to in/out:
         map_intent = {var : "in" for var in rdonly}
