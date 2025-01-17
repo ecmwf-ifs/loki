@@ -21,11 +21,8 @@ include( loki_transform_helpers )
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
 #       CONFIG <config-file>
-#       [DIRECTIVE <directive>]
 #       [CPP]
 #       [FRONTEND <frontend>]
-#       [INLINE_MEMBERS]
-#       [RESOLVE_SEQUENCE_ASSOCIATION]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -45,16 +42,9 @@ include( loki_transform_helpers )
 
 function( loki_transform )
 
-    set( options
-         CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-         REMOVE_DERIVED_ARGS INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
-    )
-    set( oneValueArgs
-         COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR
-    )
-    set( multiValueArgs
-         OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD
-    )
+    set( options CPP )
+    set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
+    set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
@@ -79,8 +69,9 @@ function( loki_transform )
     # Translate function args to arguments for loki-transform.py
     _loki_transform_parse_args()
 
-    # Translate function options to arguments for loki-transform.py
-    _loki_transform_parse_options()
+    if( _PAR_CPP )
+        list( APPEND _ARGS --cpp )
+    endif()
 
     # Ensure transformation script and environment is available
     _loki_transform_env_setup()
@@ -91,7 +82,7 @@ function( loki_transform )
         OUTPUT ${_PAR_OUTPUT}
         COMMAND ${_LOKI_TRANSFORM} ${_ARGS}
         DEPENDS ${_PAR_DEPENDS} ${_LOKI_TRANSFORM_DEPENDENCY}
-        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} directive=${_PAR_DIRECTIVE} frontend=${_PAR_FRONTEND}"
+        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}"
     )
 
 endfunction()
@@ -139,8 +130,9 @@ function( loki_transform_plan )
     # Translate function args to arguments for loki-transform.py
     _loki_transform_parse_args()
 
-    # Translate function options to arguments for loki-transform.py
-    _loki_transform_parse_options()
+    if( _PAR_CPP )
+        list( APPEND _ARGS --cpp )
+    endif()
 
     if( NOT _PAR_NO_SOURCEDIR )
         if( _PAR_SOURCEDIR )
@@ -191,10 +183,9 @@ endfunction()
 #       PLAN <plan-file>
 #       [CPP] [CPP_PLAN]
 #       [FRONTEND <frontend>]
-#       [DIRECTIVE <openacc|openmp|...>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
-#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION]
+#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED]
 #   )
 #
 # Applies a Loki bulk transformation to the source files belonging to a particular
@@ -223,11 +214,8 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options
-         NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS
-	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-    )
-    set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
+    set( single_value_args TARGET COMMAND MODE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS DEFINITIONS INCLUDES )
 
     cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
@@ -291,32 +279,11 @@ function( loki_transform_target )
             list( APPEND _TRANSFORM_OPTIONS CPP )
         endif()
 
-        if( _PAR_T_INLINE_MEMBERS )
-            list( APPEND _TRANSFORM_OPTIONS INLINE_MEMBERS )
-        endif()
-
-        if( _PAR_T_RESOLVE_SEQUENCE_ASSOCIATION )
-            list( APPEND _TRANSFORM_OPTIONS RESOLVE_SEQUENCE_ASSOCIATION )
-        endif()
-
-        if( _PAR_T_DERIVE_ARGUMENT_ARRAY_SHAPE )
-            list( APPEND _TRANSFORM_OPTIONS DERIVE_ARGUMENT_ARRAY_SHAPE )
-        endif()
-
-        if( _PAR_T_TRIM_VECTOR_SECTIONS )
-            list( APPEND _TRANSFORM_OPTIONS TRIM_VECTOR_SECTIONS )
-        endif()
-
-        if( _PAR_T_GLOBAL_VAR_OFFLOAD )
-            list( APPEND _TRANSFORM_OPTIONS GLOBAL_VAR_OFFLOAD )
-        endif()
-
         loki_transform(
             COMMAND     ${_PAR_T_COMMAND}
             OUTPUT      ${LOKI_SOURCES_TO_APPEND}
             MODE        ${_PAR_T_MODE}
             CONFIG      ${_PAR_T_CONFIG}
-            DIRECTIVE   ${_PAR_T_DIRECTIVE}
             FRONTEND    ${_PAR_T_FRONTEND}
             BUILDDIR    ${CMAKE_CURRENT_BINARY_DIR}
             SOURCES     ${_PAR_T_SOURCES}
@@ -382,97 +349,6 @@ function( loki_transform_target )
     endif()
 
 endfunction()
-
-##############################################################################
-# .rst:
-#
-# loki_transform_convert
-# ======================
-#
-# Deprecated interface to loki-transform.py. Use loki_transform( COMMAND convert ) instead.::
-#
-##############################################################################
-
-function( loki_transform_convert )
-
-    ecbuild_warn( "\
-loki_transform_convert() is deprecated and will be removed in a future version!
-Please use
-    loki_transform( COMMAND convert [...] )
-or
-    loki_transform_target( COMMAND convert [...] ).
-"
-    )
-
-    set( options
-         CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR GLOBAL_VAR_OFFLOAD
-         TRIM_VECTOR_SECTIONS REMOVE_DERIVED_ARGS INLINE_MEMBERS
-	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
-    )
-    set( oneValueArgs
-         MODE DIRECTIVE FRONTEND CONFIG PATH OUTPATH
-    )
-    set( multiValueArgs
-         OUTPUT DEPENDS INCLUDES HEADERS DEFINITIONS OMNI_INCLUDE XMOD
-    )
-
-    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
-
-    if( _PAR_UNPARSED_ARGUMENTS )
-        ecbuild_critical( "Unknown keywords given to loki_transform_convert(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
-    endif()
-
-    #
-    # Rewrite old argument names
-    #
-
-    # PATH -> SOURCES
-    list( TRANSFORM ARGV REPLACE "^PATH$" "SOURCES" )
-
-    # OUTPATH -> BUILDDIR
-    list( TRANSFORM ARGV REPLACE "^OUTPATH$" "BUILDDIR" )
-
-    #
-    # Call loki_transform
-    #
-    loki_transform( COMMAND "convert" ${ARGV} )
-
-endfunction()
-
-##############################################################################
-# .rst:
-#
-# loki_transform_transpile
-# ========================
-#
-# **Removed:** Apply Loki transformation in transpile mode.::
-#
-#   loki_transform_transpile(
-#   )
-#
-#  ..warning::
-#      loki_transform_transpile() was removed!
-#
-#  Please use
-#       loki_transform( COMMAND convert [...] )
-#   or
-#       loki_transform_target( COMMAND convert [...] ).
-#
-##############################################################################
-
-function( loki_transform_transpile )
-
-    ecbuild_critical( "\
-loki_transform_transpile() was removed!
-Please use
-    loki_transform( COMMAND convert [...] )
-or
-    loki_transform_target( COMMAND convert [...] ).
-"
-    )
-
-endfunction()
-
 
 ##############################################################################
 # .rst:
