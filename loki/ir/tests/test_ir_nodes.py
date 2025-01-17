@@ -96,6 +96,12 @@ def test_loop(scope, one, i, n, a_i):
     loop = ir.Loop(variable=i, bounds=bounds, body=( assign, (assign,), assign, None))
     assert loop.body == (assign, assign, assign)
 
+    # Test auto-casting with unnamed constructor args
+    loop = ir.Loop(i, bounds, assign)
+    assert loop.body == (assign,)
+    loop = ir.Loop(i, bounds, [(assign,), None, assign])
+    assert loop.body == (assign, assign)
+
     # Test errors for wrong contructor usage
     with pytest.raises(ValidationError):
         ir.Loop(variable=i, bounds=bounds, body=n)
@@ -147,6 +153,14 @@ def test_conditional(scope, n, a_i):
         condition=condition, body=(), else_body=( assign, (assign,), assign, None)
     )
     assert not cond.body and cond.else_body == (assign, assign, assign)
+
+    # Test auto-casting with unnamed constructor args
+    cond = ir.Conditional(condition)
+    assert cond.body is () and not cond.else_body
+    cond = ir.Conditional(condition, assign)
+    assert cond.body == (assign,) and not cond.else_body
+    cond = ir.Conditional(condition, body=[assign, (assign,)], else_body=[assign, None, (assign,)])
+    assert cond.body == (assign, assign) and cond.else_body == (assign, assign)
 
     # TODO: Test inline, name, has_elseif
 
@@ -235,6 +249,12 @@ def test_section(n, a_n, a_i):
     sec = ir.Section((assign, (func,), assign, None))
     assert sec.body == (assign, func, assign)
 
+    # Test auto-casting with unnamed constructor args
+    sec = ir.Section()
+    assert sec.body is ()
+    sec = ir.Section([(assign,), assign, None, assign])
+    assert sec.body == (assign, assign, assign)
+
     # Test prepend/insert/append additions
     sec = ir.Section(body=func)
     assert sec.body == (func,)
@@ -280,6 +300,12 @@ def test_callstatement(scope, one, i, n, a_i):
     assert not call.arguments and call.kwarguments == (('i', i), ('j', one))
     call = ir.CallStatement(name=cname, kwarguments=None)
     assert not call.arguments and not call.kwarguments
+
+    # Test auto-casting with unnamed constructor args
+    call = ir.CallStatement(cname, a_i)
+    assert call.arguments == (a_i,) and not call.kwarguments
+    call = ir.CallStatement(cname, [a_i, one], [('i', i), ('j', one)])
+    assert call.arguments == (a_i, one) and call.kwarguments == (('i', i), ('j', one))
 
     # Test errors for wrong contructor usage
     with pytest.raises(ValidationError):
