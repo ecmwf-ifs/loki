@@ -133,8 +133,8 @@ def convert(
     # If requested, apply a custom pipeline from the scheduler config
     # Note that this new entry point will bypass all other default
     # behaviour and exit immediately after.
-    if not mode in config.pipelines:
-        msg = '[Loki] ERROR: Pipeline or transformation mode not found in config file.\n'
+    if mode not in config.pipelines:
+        msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
         msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
         sys.exit(msg)
 
