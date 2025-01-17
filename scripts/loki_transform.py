@@ -8,8 +8,8 @@
 # nor does it submit to any jurisdiction.
 
 """
-Loki head script for source-to-source transformations concerning ECMWF
-physics, including "Single Column" (SCA) and CLAW transformations.
+Loki head script for source-to-source transformations for batch processing
+via the :any:`Scheduler`.
 """
 
 from pathlib import Path
@@ -159,8 +159,8 @@ def convert(
 
 
 @cli.command('plan')
-@click.option('--mode', '-m', default='sca',
-              type=click.Choice(['idem', 'idem-stack', 'sca', 'claw', 'scc', 'scc-hoist', 'scc-stack']))
+@click.option('--mode', '-m', default='idem', type=click.STRING,
+              help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
 @click.option('--header', '-I', type=click.Path(), multiple=True,
