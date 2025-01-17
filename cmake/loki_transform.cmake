@@ -82,7 +82,7 @@ function( loki_transform )
         OUTPUT ${_PAR_OUTPUT}
         COMMAND ${_LOKI_TRANSFORM} ${_ARGS}
         DEPENDS ${_PAR_DEPENDS} ${_LOKI_TRANSFORM_DEPENDENCY}
-        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} directive=${_PAR_DIRECTIVE} frontend=${_PAR_FRONTEND}"
+        COMMENT "[Loki] Pre-processing: command=${_PAR_COMMAND} mode=${_PAR_MODE} frontend=${_PAR_FRONTEND}"
     )
 
 endfunction()
@@ -284,7 +284,6 @@ function( loki_transform_target )
             OUTPUT      ${LOKI_SOURCES_TO_APPEND}
             MODE        ${_PAR_T_MODE}
             CONFIG      ${_PAR_T_CONFIG}
-            DIRECTIVE   ${_PAR_T_DIRECTIVE}
             FRONTEND    ${_PAR_T_FRONTEND}
             BUILDDIR    ${CMAKE_CURRENT_BINARY_DIR}
             SOURCES     ${_PAR_T_SOURCES}
