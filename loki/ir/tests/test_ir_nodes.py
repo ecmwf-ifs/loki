@@ -156,7 +156,7 @@ def test_conditional(scope, n, a_i):
 
     # Test auto-casting with unnamed constructor args
     cond = ir.Conditional(condition)
-    assert cond.body == () and not cond.else_body
+    assert cond.body is () and not cond.else_body
     cond = ir.Conditional(condition, assign)
     assert cond.body == (assign,) and not cond.else_body
     cond = ir.Conditional(condition, body=[assign, (assign,)], else_body=[assign, None, (assign,)])
@@ -251,7 +251,7 @@ def test_section(n, a_n, a_i):
 
     # Test auto-casting with unnamed constructor args
     sec = ir.Section()
-    assert sec.body == ()
+    assert sec.body is ()
     sec = ir.Section([(assign,), assign, None, assign])
     assert sec.body == (assign, assign, assign)
 
