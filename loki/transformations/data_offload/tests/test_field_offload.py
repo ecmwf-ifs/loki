@@ -367,9 +367,8 @@ def test_field_offload_unknown_kernel(caplog, frontend, state_module, tmp_path):
                                                          offload_index='i',
                                                          field_group_types=['state_type'])
     caplog.clear()
-    with caplog.at_level(log_levels['ERROR']):
-        with pytest.raises(RuntimeError):
-            driver.apply(field_offload_trafo, role='driver', targets=['another_kernel'])
+    with caplog.at_level(log_levels['WARNING']):
+        driver.apply(field_offload_trafo, role='driver', targets=['another_kernel'])
         assert len(caplog.records) == 1
         assert ('[Loki] Data offload: Routine driver_routine has not been enriched '+
                 'in another_kernel') in caplog.records[0].message
