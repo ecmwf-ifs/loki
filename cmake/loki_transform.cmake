@@ -21,11 +21,8 @@ include( loki_transform_helpers )
 #       DEPENDS <dependency1> [<dependency2> ...]
 #       MODE <mode>
 #       CONFIG <config-file>
-#       [DIRECTIVE <directive>]
 #       [CPP]
 #       [FRONTEND <frontend>]
-#       [INLINE_MEMBERS]
-#       [RESOLVE_SEQUENCE_ASSOCIATION]
 #       [BUILDDIR <build-path>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
@@ -45,16 +42,9 @@ include( loki_transform_helpers )
 
 function( loki_transform )
 
-    set( options
-         CPP DATA_OFFLOAD REMOVE_OPENMP ASSUME_DEVICEPTR TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-         REMOVE_DERIVED_ARGS INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE
-    )
-    set( oneValueArgs
-         COMMAND MODE DIRECTIVE FRONTEND CONFIG BUILDDIR
-    )
-    set( multiValueArgs
-         OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD
-    )
+    set( options CPP )
+    set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
+    set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
@@ -79,8 +69,9 @@ function( loki_transform )
     # Translate function args to arguments for loki-transform.py
     _loki_transform_parse_args()
 
-    # Translate function options to arguments for loki-transform.py
-    _loki_transform_parse_options()
+    if( _PAR_CPP )
+        list( APPEND _ARGS --cpp )
+    endif()
 
     # Ensure transformation script and environment is available
     _loki_transform_env_setup()
@@ -139,8 +130,9 @@ function( loki_transform_plan )
     # Translate function args to arguments for loki-transform.py
     _loki_transform_parse_args()
 
-    # Translate function options to arguments for loki-transform.py
-    _loki_transform_parse_options()
+    if( _PAR_CPP )
+        list( APPEND _ARGS --cpp )
+    endif()
 
     if( NOT _PAR_NO_SOURCEDIR )
         if( _PAR_SOURCEDIR )
@@ -191,10 +183,9 @@ endfunction()
 #       PLAN <plan-file>
 #       [CPP] [CPP_PLAN]
 #       [FRONTEND <frontend>]
-#       [DIRECTIVE <openacc|openmp|...>]
 #       [SOURCES <source1> [<source2> ...]]
 #       [HEADERS <header1> [<header2> ...]]
-#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED INLINE_MEMBERS RESOLVE_SEQUENCE_ASSOCIATION]
+#       [NO_PLAN_SOURCEDIR COPY_UNMODIFIED]
 #   )
 #
 # Applies a Loki bulk transformation to the source files belonging to a particular
@@ -223,11 +214,8 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options
-         NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN INLINE_MEMBERS
-	 RESOLVE_SEQUENCE_ASSOCIATION DERIVE_ARGUMENT_ARRAY_SHAPE TRIM_VECTOR_SECTIONS GLOBAL_VAR_OFFLOAD
-    )
-    set( single_value_args TARGET COMMAND MODE DIRECTIVE FRONTEND CONFIG PLAN )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
+    set( single_value_args TARGET COMMAND MODE FRONTEND CONFIG PLAN )
     set( multi_value_args SOURCES HEADERS DEFINITIONS INCLUDES )
 
     cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )

@@ -74,21 +74,6 @@ endmacro()
 
 ##############################################################################
 
-#
-# Utility macro to translate options in loki_transform to command line
-# arguments for loki-transform.py
-#
-macro( _loki_transform_parse_options )
-
-    if( _PAR_CPP )
-        list( APPEND _ARGS --cpp )
-    endif()
-
-
-endmacro()
-
-##############################################################################
-
 macro( _loki_transform_env_setup )
 
     # The full path of the loki-transform.py executable
