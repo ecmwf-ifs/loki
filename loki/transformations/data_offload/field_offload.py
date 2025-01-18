@@ -12,7 +12,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, pragma_regions_attached, is_loki_pragma
 )
-from loki.logging import warning, error
+from loki.logging import warning
 from loki.types import BasicType
 
 from loki.transformations.field_api import FieldPointerMap
@@ -126,9 +126,9 @@ def find_offload_variables(driver, region, field_group_types):
     # Do some sanity checking and warning for enclosed calls
     for call in FindNodes(ir.CallStatement).visit(region):
         if call.routine is BasicType.DEFERRED:
-            error(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
+            warning(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
                     f'in {str(call.name).lower()}')
-            raise RuntimeError
+            continue
         for param, arg in call.arg_iter():
             if not isinstance(param, Array):
                 continue
