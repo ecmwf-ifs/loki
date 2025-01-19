@@ -33,8 +33,6 @@ jdk_certificate=""
 venv_path=
 with_jdk=false
 with_ant=false
-with_claw=false
-claw_install_env=""
 with_omni=false
 with_ofp=false
 with_docs=false
@@ -61,14 +59,12 @@ print_usage_with_options() {
   echo "  --use-venv[=]<path>          Use existing virtual environment at <path>"
   echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
   echo "  --with[out]-ant              Install ant instead of using system version (default: use system version)"
-  echo "  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)"
-  echo "  --with[out]-omni             Install OMNI Compiler; cannot be combined with --with-claw (default: disabled)"
+  echo "  --with[out]-omni             Install OMNI Compiler (default: disabled)"
   echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
   echo "  --with[out]-dace             Install DaCe (default: enabled)"
   echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
   echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
   echo "  --with[out]-examples         Install dependencies to run the example notebooks (default: enabled)"
-  echo "  --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install"
 }
 
 print_step() {
@@ -98,13 +94,6 @@ while getopts "$optspec" optchar; do
         jdk-certificate=*)
           jdk_certificate=$(realpath "${!OPTARG#*=}")
           ;;
-        claw-install-env)    # Provide custom environment variables for CLAW build
-          claw_install_env="${!OPTIND}"
-          OPTIND=$(( OPTIND + 1 ))
-          ;;
-        claw-install-env=*)  # Provide custom environment variables for CLAW build
-          claw_install_env="${!OPTARG#*=}"
-          ;;
         hpc2020)     # Load ECMWF HPC2020 (Atos) specific modules and settings
           is_hpc2020=true
           ;;
@@ -132,12 +121,6 @@ while getopts "$optspec" optchar; do
           ;;
         without-ofp) # Disable installation of OFP
           with_ofp=false
-          ;;
-        with-claw)   # Enable installation of OMNI+CLAW
-          with_claw=true
-          ;;
-        without-claw) # Disable installation of OMNI+CLAW
-          with_claw=false
           ;;
         with-omni)   # Enable installation of OMNI
           with_omni=true
@@ -197,12 +180,6 @@ while getopts "$optspec" optchar; do
   esac
 done
 
-if [ "$with_omni" == true ]; then
-  if [ "$with_claw" == true ]; then
-    echo "ERROR: Cannot combine --with-claw and --with-omni"
-    exit 1
-  fi
-fi
 
 # Print configuration
 if [ "$verbose" == true ]; then
@@ -212,7 +189,6 @@ if [ "$verbose" == true ]; then
   [[ "$venv_path" != "" ]]   && echo "    --use-venv='$venv_path'"
   [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
   [[ "$with_ant" == true ]]  && echo "    --with-ant"
-  [[ "$with_claw" == true ]] && echo "    --with-claw"
   [[ "$with_omni" == true ]] && echo "    --with-omni"
   [[ "$with_ofp" == false ]] && echo "    --without-ofp"
   [[ "$with_dace" == false ]] && echo "    --without-dace"
@@ -384,34 +360,6 @@ if [ "$with_ant" == true ]; then
 fi
 
 #
-# Install CLAW+OMNI
-#
-
-if [ "$with_claw" == true ]; then
-  print_step "Downloading and installing CLAW and OMNI Compiler"
-
-  CLAW_INSTALL_DIR=${venv_path}/opt/claw
-  mkdir -p "${CLAW_INSTALL_DIR}"
-  cd "${CLAW_INSTALL_DIR}"
-  rm -rf claw-compiler
-  # git clone --recursive --single-branch https://github.com/claw-project/claw-compiler.git claw-compiler
-
-  # Note that the deprecated CLAW variants in CLOUDSC will fail due to faulty offload
-  # directives with current CLAW-master. The fixes exist in this pinned branch:
-  # However, this branch fails to build with recent GNU versions (GNU 10+)
-  git clone --recursive --single-branch --branch=mlange-dev https://github.com/mlange05/claw-compiler.git claw-compiler
-  cd claw-compiler
-
-  (
-    set -a
-    eval ${claw_install_env}
-    cmake -S . -B build -DCMAKE_INSTALL_PREFIX="${CLAW_INSTALL_DIR}"
-    cmake --build build
-    cmake --install build
-  )
-fi
-
-#
 # Install OMNI
 #
 
@@ -531,11 +479,6 @@ if [ "$with_jdk" == true ]; then
 export JAVA_HOME=\"\${JAVA_HOME}\"
 " >> "${loki_path}/loki-activate"
   path_var=${JAVA_HOME}/bin:$path_var
-fi
-
-# Inject CLAW into env
-if [ "$with_claw" == true ]; then
-  path_var=${CLAW_INSTALL_DIR}/bin:$path_var
 fi
 
 # Inject OMNI into env

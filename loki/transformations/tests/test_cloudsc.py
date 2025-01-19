@@ -78,7 +78,6 @@ def test_cloudsc(here, frontend):
     # Run the produced binaries
     binaries = [
         ('dwarf-cloudsc-loki-idem', '2', '16000', '32'),
-        ('dwarf-cloudsc-loki-sca', '2', '16000', '32'),
         ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
         ('dwarf-cloudsc-loki-c', '2', '16000', '32'),

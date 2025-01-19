@@ -328,7 +328,7 @@ function( loki_transform_target )
         # Mark the generated stuff as build-time generated
         set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
 
-        # Add the Loki-generated sources to our target (CLAW is not called)
+        # Add the Loki-generated sources to our target
         target_sources( ${_PAR_T_TARGET} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
     endif()
 
@@ -347,79 +347,6 @@ function( loki_transform_target )
             NEW_LIST ${_target_sources_copy}
         )
     endif()
-
-endfunction()
-
-##############################################################################
-# .rst:
-#
-# claw_compile
-# ============
-#
-# Call the CLAW on a file.::
-#
-#   claw_compile(
-#       OUTPUT <outfile>
-#       SOURCE <source>
-#       MODEL_CONFIG <config>
-#       TARGET <cpu|gpu>
-#       DIRECTIVE <openmp|openacc|none>
-#       [INCLUDE <include1> [<include2> ...]]
-#       [XMOD <xmod-dir1> [<xmod-dir2> ...]]
-#       [DEPENDS <dependency1> [<dependency2> ...]]
-#   )
-#
-##############################################################################
-function( claw_compile )
-
-    set( options )
-    set( oneValueArgs MODEL_CONFIG TARGET DIRECTIVE SOURCE OUTPUT )
-    set( multiValueArgs INCLUDE XMOD DEPENDS )
-
-    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
-
-    if( NOT _PAR_SOURCE )
-        ecbuild_critical( "No SOURCE given for claw_compile()" )
-    endif()
-
-    if( NOT _PAR_OUTPUT )
-        ecbuild_critical( "No OUTPUT given for claw_compile()" )
-    endif()
-
-    set( _ARGS )
-
-    if( _PAR_MODEL_CONFIG )
-        list( APPEND _ARGS --model-config=${_PAR_MODEL_CONFIG})
-    endif()
-
-    if( NOT _PAR_TARGET )
-        ecbuild_critical( "No TARGET given for claw_compile()" )
-    endif()
-    list( APPEND _ARGS --target=${_PAR_TARGET})
-
-    if( NOT _PAR_DIRECTIVE )
-        ecbuild_critical( "No TARGET given for claw_compile()" )
-    endif()
-    list( APPEND _ARGS --directive=${_PAR_DIRECTIVE})
-
-    if( _PAR_INCLUDE )
-        foreach( INCLUDE ${_PAR_INCLUDE} )
-            list( APPEND _ARGS -I ${INCLUDE} )
-        endforeach()
-    endif()
-
-    if( _PAR_XMOD )
-        foreach( XMOD ${_PAR_XMOD} )
-            list( APPEND _ARGS -J ${XMOD} )
-        endforeach()
-    endif()
-
-    add_custom_command(
-        OUTPUT ${_PAR_OUTPUT}
-        COMMAND clawfc -w 132 ${_ARGS} -o ${_PAR_OUTPUT} ${_PAR_SOURCE}
-        DEPENDS ${_PAR_SOURCE} ${_PAR_DEPENDS}
-        COMMENT "[clawfc] Pre-processing: target=${_PAR_TARGET} directive=${_PAR_DIRECTIVE}"
-    )
 
 endfunction()
 
@@ -468,14 +395,7 @@ function( generate_xmod )
         endforeach()
     endif()
 
-    if( TARGET clawfc AND NOT TARGET F_Front )
-        get_target_property( _CLAWFC_EXECUTABLE clawfc IMPORTED_LOCATION )
-        get_filename_component( _CLAWFC_LOCATION ${_CLAWFC_EXECUTABLE} DIRECTORY )
-        set( _F_FRONT_EXECUTABLE ${_CLAWFC_LOCATION}/F_Front )
-        list( APPEND _PAR_DEPENDS clawfc )
-    else()
-        set( _F_FRONT_EXECUTABLE F_Front )
-    endif()
+    set( _F_FRONT_EXECUTABLE F_Front )
 
     add_custom_command(
         OUTPUT ${_PAR_OUTPUT}
