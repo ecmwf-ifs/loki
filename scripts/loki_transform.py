@@ -120,8 +120,8 @@ def convert(
         definitions = definitions + list(sfile.definitions)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(p).resolve() for p in as_tuple(source)]
-    paths += [Path(h).resolve().parent for h in as_tuple(header)]
+    paths = [Path(p) for p in as_tuple(source)]
+    paths += [Path(h).parent for h in as_tuple(header)]
     # Skip full source parse for planning mode
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
