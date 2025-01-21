@@ -115,7 +115,7 @@ class GlobalVariableAnalysis(Transformation):
             import_map.update(scope.import_map)
             scope = scope.parent
 
-        with DataFlowAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis().dataflow_analysis_attached(routine):
             # Gather read and written symbols that have been imported
             uses_imported_symbols = {
                 var for var in routine.body.uses_symbols
