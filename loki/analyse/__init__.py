@@ -8,4 +8,4 @@
 Advanced analysis utilities, such as dataflow analysis functionalities.
 """
 
-from loki.analyse.LiveVariableAnalysis import *  # noqa
+from loki.analyse.DataFlowAnalysis import *  # noqa

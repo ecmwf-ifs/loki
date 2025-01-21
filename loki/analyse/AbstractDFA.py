@@ -8,25 +8,22 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 
-from loki import Transformer, FindVariables
+from loki import Transformer
 
 __all__ = ['AbstractDataflowAnalysis']
 
 class AbstractDataflowAnalysis(Transformer, ABC):
-    class Attacher(Transformer):
+    class _Attacher(Transformer):
         pass
 
-    class Detacher(Transformer):
+    class _Detacher(Transformer):
         pass
 
-    @staticmethod
-    def _symbols_from_expr(expr, condition=None):
-        """
-        Return set of symbols found in an expression.
-        """
-        if condition is not None:
-            return {v.clone(dimensions=None) for v in FindVariables().visit(expr) if condition(v)}
-        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+    def get_attacher(self):
+        return self._Attacher()
+
+    def get_detacher(self):
+        return self._Detacher()
 
     @abstractmethod
     def attach_dataflow_analysis(self, module_or_routine):
@@ -40,9 +37,9 @@ class AbstractDataflowAnalysis(Transformer, ABC):
         """
 
         if hasattr(module_or_routine, 'spec'):
-            self.Detacher().visit(module_or_routine.spec)
+            self.get_detacher().visit(module_or_routine.spec)
         if hasattr(module_or_routine, 'body'):
-            self.Detacher().visit(module_or_routine.body)
+            self.get_detacher().visit(module_or_routine.body)
 
     @contextmanager
     def dataflow_analysis_attached(self, module_or_routine):

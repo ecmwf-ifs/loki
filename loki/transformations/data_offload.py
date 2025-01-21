@@ -8,7 +8,7 @@
 from collections import defaultdict
 from itertools import chain
 
-from loki.analyse import LiveVariableAnalysis
+from loki.analyse import DataFlowAnalysis
 from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.expression import Scalar, Array
 from loki.ir import (
@@ -289,7 +289,7 @@ class GlobalVariableAnalysis(Transformation):
             import_map.update(scope.import_map)
             scope = scope.parent
 
-        with LiveVariableAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis.dataflow_analysis_attached(routine):
             # Gather read and written symbols that have been imported
             uses_imported_symbols = {
                 var for var in routine.body.uses_symbols
