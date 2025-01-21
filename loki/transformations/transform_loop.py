@@ -15,7 +15,7 @@ import operator as op
 import numpy as np
 
 from loki.analyse import (
-    LiveVariableAnalysis, read_after_write_vars,
+    DataFlowAnalysis, read_after_write_vars,
     loop_carried_dependencies
 )
 from loki.expression import (
@@ -566,7 +566,7 @@ def do_loop_fission(routine, promote=True, warn_loop_carries=True):
     if not pragma_loops:
         return
 
-    with optional(promote or warn_loop_carries, LiveVariableAnalysis.dataflow_analysis_attached, routine):
+    with optional(promote or warn_loop_carries, DataFlowAnalysis.dataflow_analysis_attached, routine):
         for pragma in pragma_loops:
             # Now, sort the loops enclosing each pragma from outside to inside and
             # keep only the ones relevant for fission
@@ -599,7 +599,7 @@ def do_loop_fission(routine, promote=True, warn_loop_carries=True):
 
     # Warn about broken loop-carried dependencies
     if warn_loop_carries:
-        with LiveVariableAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis.dataflow_analysis_attached(routine):
             for pragma, loop_carries in loop_carried_vars.items():
                 loop, *remainder = fission_trafo.split_loops[pragma]
                 if not remainder:
