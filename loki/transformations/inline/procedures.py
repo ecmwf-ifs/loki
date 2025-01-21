@@ -10,7 +10,7 @@ from collections import defaultdict, ChainMap
 from loki.ir import (
     Import, Comment, VariableDeclaration, CallStatement, Transformer,
     FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions,
-    pragmas_attached, is_loki_pragma, Interface, Pragma
+    pragmas_attached, is_loki_pragma, Interface, Pragma, AttachScopes
 )
 from loki.expression import symbols as sym
 from loki.types import BasicType
@@ -18,7 +18,7 @@ from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import error
 from loki.subroutine import Subroutine
 
-from loki.transformations.sanitise import transform_sequence_association_append_map
+from loki.transformations.sanitise import SequenceAssociationTransformer
 from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update
 )
@@ -37,9 +37,9 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
     or in calls to procedures that have been marked with an inline pragma (if ``inline_marked = True``).
     If both ``inline_internals`` and ``inline_marked`` are ``False``, no processing is done.
     """
-    call_map = {}
-    with pragmas_attached(routine, node_type=CallStatement):
-        for call in FindNodes(CallStatement).visit(routine.body):
+    class SequenceAssociationForInlineCallsTransformer(SequenceAssociationTransformer):
+
+        def visit_CallStatement(self, call, **kwargs):
             condition = (
                 (inline_marked and is_loki_pragma(call.pragma, starts_with='inline')) or
                 (inline_internals and call.routine in routine.routines)
@@ -56,9 +56,11 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
                         "the source code of the procedure. " +
                         "If running in batch processing mode, please recheck Scheduler configuration."
                     )
-                transform_sequence_association_append_map(call_map, call)
-        if call_map:
-            routine.body = Transformer(call_map).visit(routine.body)
+
+            return super().visit_CallStatement(call, **kwargs)
+
+    with pragmas_attached(routine, node_type=CallStatement):
+        routine.body = SequenceAssociationForInlineCallsTransformer(inplace=True).visit(routine.body)
 
 
 def map_call_to_procedure_body(call, caller, callee=None):
@@ -159,6 +161,9 @@ def map_call_to_procedure_body(call, caller, callee=None):
         {pragma: None for pragma in FindNodes(Pragma).visit(callee_body)
          if is_loki_pragma(pragma, starts_with='routine')}
     ).visit(callee_body)
+
+    # Ensure all symbols are rescoped to the caller
+    AttachScopes().visit(callee_body, scope=caller)
 
     # Inline substituted body within a pair of marker comments
     comment = Comment(f'! [Loki] inlined child subroutine: {callee.name}')
@@ -326,6 +331,10 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                     routine, calls, callee, allowed_aliases=allowed_aliases
                 )
 
+            if adjust_imports:
+                # Move imports that the callee uses up to the caller
+                propagate_callee_imports(routine, callee)
+
     # Remove imported symbols that have become obsolete
     if adjust_imports:
         callees = tuple(callee.procedure_symbol for callee in call_sets.keys())
@@ -356,23 +365,6 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
                 else:
                     import_map[intf] = None
 
-        # Now move any callee imports we might need over to the caller
-        new_imports = set()
-        imported_module_map = CaseInsensitiveDict((im.module, im) for im in routine.imports)
-        for callee in call_sets.keys():
-            for impt in callee.imports:
-
-                # Add any callee module we do not yet know
-                if impt.module not in imported_module_map:
-                    new_imports.add(impt)
-
-                # If we're importing the same module, check for missing symbols
-                if m := imported_module_map.get(impt.module):
-                    _m = import_map.get(m, m)
-                    if not all(s in _m.symbols for s in impt.symbols):
-                        new_symbols = tuple(s.rescope(routine) for s in impt.symbols)
-                        import_map[m] = m.clone(symbols=tuple(set(_m.symbols + new_symbols)))
-
         # Finally, apply the import remapping
         routine.spec = Transformer(import_map).visit(routine.spec)
 
@@ -388,8 +380,38 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
         if new_intfs:
             routine.spec.append(Interface(body=as_tuple(new_intfs)))
 
-        # Add Fortran imports to the top, and C-style interface headers at the bottom
-        c_imports = tuple(im for im in new_imports if im.c_import)
-        f_imports = tuple(im for im in new_imports if not im.c_import)
-        routine.spec.prepend(f_imports)
-        routine.spec.append(c_imports)
+
+def propagate_callee_imports(routine, callee):
+    """
+    Move any :any:`Import` nodes from the :data:`callee` routine to
+    the caller, trimming symbols where needed.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine to which to propagate imports.
+    callee : :any:`Subroutine`
+        The subroutine from which to get the relevant imports.
+    """
+
+    # Now move any callee imports we might need over to the caller
+    new_imports = tuple()
+    imported_module_map = CaseInsensitiveDict((im.module, im) for im in routine.imports)
+
+    for impt in callee.imports:
+        # Add any callee module we do not yet know
+        if impt.module not in imported_module_map:
+            new_imports += (impt,)
+
+        # If we're importing the same module, check for missing symbols
+        if m := imported_module_map.get(impt.module):
+            if not all(s in m.symbols for s in impt.symbols):
+                # Add new, rescoped symbols in-place
+                new_symbols = tuple(s.rescope(routine) for s in impt.symbols)
+                m._update(symbols=tuple(dict.fromkeys(m.symbols + new_symbols)))
+
+    # Add Fortran imports to the top, and C-style interface headers at the bottom
+    c_imports = tuple(im for im in new_imports if im.c_import)
+    f_imports = tuple(im for im in new_imports if not im.c_import)
+    routine.spec.prepend(f_imports)
+    routine.spec.append(c_imports)

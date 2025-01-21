@@ -9,10 +9,12 @@ from abc import abstractmethod
 
 from loki.expression import Variable, parse_expr
 from loki.frontend import (
-    Frontend, parse_omni_source, parse_ofp_source, parse_fparser_source,
+    Frontend, parse_omni_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
 )
-from loki.ir import nodes as ir, FindNodes, Transformer
+from loki.ir import (
+    nodes as ir, FindNodes, Transformer, ExpressionTransformer
+)
 from loki.logging import debug
 from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
@@ -78,7 +80,7 @@ class ProgramUnit(Scope):
             if not isinstance(contains, ir.Section):
                 contains = ir.Section(body=as_tuple(contains))
             for node in contains.body:
-                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():
+                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():  # pylint: disable=no-member
                     break
                 if isinstance(node, ProgramUnit):
                     contains.prepend(ir.Intrinsic(text='CONTAINS'))
@@ -147,11 +149,6 @@ class ProgramUnit(Scope):
                 includes = omni_includes
             source = preprocess_cpp(source=source, includes=includes, defines=defines)
 
-        # Preprocess using internal frontend-specific PP rules
-        # to sanitize input and work around known frontend problems.
-        if frontend != Frontend.OMNI:
-            source, pp_info = sanitize_input(source=source, frontend=frontend)
-
         if frontend == Frontend.REGEX:
             return cls.from_regex(raw_source=source, parser_classes=parser_classes, parent=parent)
 
@@ -161,12 +158,11 @@ class ProgramUnit(Scope):
             return cls.from_omni(ast=ast, raw_source=source, definitions=definitions,
                                  type_map=type_map, parent=parent)
 
-        if frontend == Frontend.OFP:
-            ast = parse_ofp_source(source)
-            return cls.from_ofp(ast=ast, raw_source=source, definitions=definitions,
-                                pp_info=pp_info, parent=parent) # pylint: disable=possibly-used-before-assignment
-
         if frontend == Frontend.FP:
+            # Preprocess using internal frontend-specific PP rules
+            # to sanitize input and work around known frontend problems.
+            source, pp_info = sanitize_input(source=source, frontend=frontend)
+
             ast = parse_fparser_source(source)
             return cls.from_fparser(ast=ast, raw_source=source, definitions=definitions,
                                     pp_info=pp_info, parent=parent)
@@ -194,28 +190,6 @@ class ProgramUnit(Scope):
         typetable : dict, optional
             A mapping from type hash identifiers to type definitions, as provided in
             OMNI's ``typeTable`` parse tree node
-        """
-
-    @classmethod
-    @abstractmethod
-    def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
-        """
-        Create the :any:`ProgramUnit` object from an :any:`OFP` parse tree.
-
-        This method must be implemented by the derived class.
-
-        Parameters
-        ----------
-        ast :
-            The OFP parse tree
-        raw_source : str
-            Fortran source string
-        definitions : list
-            List of external :any:`Module` to provide derived-type and procedure declarations
-        pp_info :
-            Preprocessing info as obtained by :any:`sanitize_input`
-        parent : :any:`Scope`, optional
-            The enclosing parent scope of the module.
         """
 
     @classmethod
@@ -286,7 +260,7 @@ class ProgramUnit(Scope):
         xmods = frontend_args.get('xmods')
         parser_classes = frontend_args.get('parser_classes', RegexParserClass.AllClasses)
         if frontend == Frontend.REGEX and self._parser_classes:
-            if self._parser_classes == parser_classes:
+            if self._parser_classes == (self._parser_classes | parser_classes):
                 return
             parser_classes = parser_classes | self._parser_classes
 
@@ -327,7 +301,8 @@ class ProgramUnit(Scope):
         """
         definitions_map = CaseInsensitiveDict((r.name, r) for r in as_tuple(definitions))
 
-        for imprt in self.imports:
+        # Enrich type info from all known imports (including parent scopes)
+        for imprt in self.all_imports:
             if not (module := definitions_map.get(imprt.module)):
                 # Skip modules that are not available in the definitions list
                 continue
@@ -349,14 +324,17 @@ class ProgramUnit(Scope):
                 # Take care of renaming upon import
                 local_name = symbol.name
                 remote_name = symbol.type.use_name or local_name
-                remote_node = module[remote_name]
+                try:
+                    remote_node = module[remote_name]
+                except KeyError:
+                    remote_node = None
 
-                if hasattr(remote_node, 'procedure_type'):
+                if remote_node and hasattr(remote_node, 'procedure_type'):
                     # This is a subroutine/function defined in the remote module
                     updated_symbol_attrs[local_name] = symbol.type.clone(
                         dtype=remote_node.procedure_type, imported=True, module=module
                     )
-                elif hasattr(remote_node, 'dtype'):
+                elif remote_node and hasattr(remote_node, 'dtype'):
                     # This is a derived type defined in the remote module
                     updated_symbol_attrs[local_name] = symbol.type.clone(
                         dtype=remote_node.dtype, imported=True, module=module
@@ -368,7 +346,7 @@ class ProgramUnit(Scope):
                         if getattr(type_.dtype, 'name') == remote_node.dtype.name
                     }
                     updated_symbol_attrs.update(variables_with_this_type)
-                elif hasattr(remote_node, 'type'):
+                elif remote_node and hasattr(remote_node, 'type'):
                     # This is a global variable or interface import
                     updated_symbol_attrs[local_name] = remote_node.type.clone(
                         imported=True, module=module, use_name=symbol.type.use_name
@@ -396,6 +374,9 @@ class ProgramUnit(Scope):
                 elif isinstance(attrs.dtype, DerivedType) and attrs.dtype.typedef is BasicType.DEFERRED:
                     updated_symbol_attrs[name] = attrs.clone(dtype=self.parent.symbol_attrs[name].dtype)
             self.symbol_attrs.update(updated_symbol_attrs)
+
+        # Rebuild local symbols to ensure correct symbol types
+        self.spec = ExpressionTransformer(inplace=True).visit(self.spec)
 
         if recurse:
             for routine in self.subroutines:
@@ -433,6 +414,7 @@ class ProgramUnit(Scope):
         if self._source is not None and 'source' not in kwargs:
             kwargs['source'] = self._source
         kwargs.setdefault('incomplete', self._incomplete)
+        kwargs.setdefault('parser_classes', self._parser_classes)
 
         # Rebuild IRs
         rebuild = Transformer({}, rebuild_scopes=True)

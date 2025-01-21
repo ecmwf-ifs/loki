@@ -11,7 +11,7 @@ from loki import Module, Subroutine, Sourcefile
 from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import Intrinsic, DataDeclaration
+from loki.ir import DataDeclaration
 from loki.types import ProcedureType, BasicType
 
 
@@ -88,6 +88,32 @@ end module some_mod
     body_lines = body_code.splitlines()
     assert len(body_lines) == 4
     assert all(len(line) < 132 for line in body_lines)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_character_list_linebreak(frontend, tmp_path):
+    fcode = """
+module some_mod
+  implicit none
+  character(len=*), parameter :: IceModelName(0:5) = (/ 'Monochromatic         ', &
+       &                                                'Fu-IFS                ', &
+       &                                                'Baran-EXPERIMENTAL    ', &
+       &                                                'Baran2016             ', &
+       &                                                'Baran2017-EXPERIMENTAL', &
+       &                                                'Yi                    ' /)
+end module some_mod
+    """
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    generated_fcode = module.to_fortran()
+    for ice_model_name in (
+        "'Monochromatic         '",
+        "'Fu-IFS                '",
+        "'Baran-EXPERIMENTAL    '",
+        "'Baran2016             '",
+        "'Baran2017-EXPERIMENTAL'",
+        "'Yi                    '"
+    ):
+        assert ice_model_name in generated_fcode
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

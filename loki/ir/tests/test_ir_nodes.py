@@ -5,9 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import pytest
-
 from dataclasses import FrozenInstanceError
+
+import pytest
 from pymbolic.primitives import Expression
 from pydantic import ValidationError
 
@@ -52,17 +52,17 @@ def test_assignment(scope, a_i):
     assert assign.comment is None
 
     # Ensure "frozen" status of node objects
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         assign.lhs = sym.Scalar('b', scope=scope)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         assign.rhs = sym.Scalar('b', scope=scope)
 
     # Test errors for wrong contructor usage
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Assignment(lhs='a', rhs=sym.Literal(42.0))
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Assignment(lhs=a_i, rhs='42.0 + 6.0')
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0), comment=a_i)
 
 
@@ -81,11 +81,11 @@ def test_loop(scope, one, i, n, a_i):
     assert loop.children == ( i, bounds, (assign,) )
 
     # Ensure "frozen" status of node objects
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         loop.variable = sym.Scalar('j', scope=scope)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         loop.bounds = sym.Range((n, sym.Scalar('k', scope=scope)))
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         loop.body = (assign, assign, assign)
 
     # Test auto-casting of the body to tuple
@@ -96,18 +96,24 @@ def test_loop(scope, one, i, n, a_i):
     loop = ir.Loop(variable=i, bounds=bounds, body=( assign, (assign,), assign, None))
     assert loop.body == (assign, assign, assign)
 
+    # Test auto-casting with unnamed constructor args
+    loop = ir.Loop(i, bounds, assign)
+    assert loop.body == (assign,)
+    loop = ir.Loop(i, bounds, [(assign,), None, assign])
+    assert loop.body == (assign, assign)
+
     # Test errors for wrong contructor usage
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Loop(variable=i, bounds=bounds, body=n)
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Loop(variable=None, bounds=bounds, body=(assign,))
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Loop(variable=i, bounds=None, body=(assign,))
 
     # TODO: Test pragmas, names and labels
 
 
-def test_conditional(scope, one, i, n, a_i):
+def test_conditional(scope, n, a_i):
     """
     Test constructors of :any:`Conditional`.
     """
@@ -124,34 +130,42 @@ def test_conditional(scope, one, i, n, a_i):
     assert all(isinstance(n, ir.Node) for n in cond.else_body)
     assert cond.children == ( condition, (assign, assign), (assign,) )
 
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         cond.condition = parse_expr('k == 0', scope=scope)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         cond.body = (assign, assign, assign)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         cond.else_body = (assign, assign, assign)
 
     # Test auto-casting of the body / else_body to tuple
     cond = ir.Conditional(condition=condition, body=assign)
-    assert cond.body == (assign,) and cond.else_body == ()
+    assert cond.body == (assign,) and not cond.else_body
     cond = ir.Conditional(condition=condition, body=( (assign,), ))
-    assert cond.body == (assign,) and cond.else_body == ()
+    assert cond.body == (assign,) and not cond.else_body
     cond = ir.Conditional(condition=condition, body=( assign, (assign,), assign, None))
-    assert cond.body == (assign, assign, assign) and cond.else_body == ()
+    assert cond.body == (assign, assign, assign) and not cond.else_body
 
     cond = ir.Conditional(condition=condition, body=(), else_body=assign)
-    assert cond.body == () and cond.else_body == (assign,)
+    assert not cond.body and cond.else_body == (assign,)
     cond = ir.Conditional(condition=condition, body=(), else_body=( (assign,), ))
-    assert cond.body == () and cond.else_body == (assign,)
+    assert not cond.body and cond.else_body == (assign,)
     cond = ir.Conditional(
         condition=condition, body=(), else_body=( assign, (assign,), assign, None)
     )
-    assert cond.body == () and cond.else_body == (assign, assign, assign)
+    assert not cond.body and cond.else_body == (assign, assign, assign)
+
+    # Test auto-casting with unnamed constructor args
+    cond = ir.Conditional(condition)
+    assert cond.body is () and not cond.else_body
+    cond = ir.Conditional(condition, assign)
+    assert cond.body == (assign,) and not cond.else_body
+    cond = ir.Conditional(condition, body=[assign, (assign,)], else_body=[assign, None, (assign,)])
+    assert cond.body == (assign, assign) and cond.else_body == (assign, assign)
 
     # TODO: Test inline, name, has_elseif
 
 
-def test_multi_conditional(scope, one, i, n, a_i):
+def test_multi_conditional(i, a_i):
     """
     Test nested chains of constructors of :any:`Conditional` to form
     multi-conditional.
@@ -199,7 +213,7 @@ def test_multi_conditional(scope, one, i, n, a_i):
     assert else_bodies[1][0].lhs == 'a(i)' and else_bodies[1][0].rhs == '1.0'
 
 
-def test_section(scope, one, i, n, a_n, a_i):
+def test_section(n, a_n, a_i):
     """
     Test constructors and behaviour of :any:`Section` nodes.
     """
@@ -213,13 +227,13 @@ def test_section(scope, one, i, n, a_n, a_i):
     sec = ir.Section(body=(assign, assign))
     assert isinstance(sec.body, tuple) and len(sec.body) == 2
     assert all(isinstance(n, ir.Node) for n in sec.body)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         sec.body = (assign, assign)
 
     sec = ir.Section(body=(func, func))
     assert isinstance(sec.body, tuple) and len(sec.body) == 2
     assert all(isinstance(n, Scope) for n in sec.body)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         sec.body = (func, func)
 
     sec = ir.Section((assign, assign))
@@ -234,6 +248,12 @@ def test_section(scope, one, i, n, a_n, a_i):
     assert sec.body == (assign, assign, assign)
     sec = ir.Section((assign, (func,), assign, None))
     assert sec.body == (assign, func, assign)
+
+    # Test auto-casting with unnamed constructor args
+    sec = ir.Section()
+    assert sec.body is ()
+    sec = ir.Section([(assign,), assign, None, assign])
+    assert sec.body == (assign, assign, assign)
 
     # Test prepend/insert/append additions
     sec = ir.Section(body=func)
@@ -264,29 +284,35 @@ def test_callstatement(scope, one, i, n, a_i):
     )
 
     # Ensure "frozen" status of node objects
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         call.name = sym.ProcedureSymbol('dave', scope=scope)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         call.arguments = (a_i, n, one)
-    with pytest.raises(FrozenInstanceError) as error:
+    with pytest.raises(FrozenInstanceError):
         call.kwarguments = (('i', one), ('j', i))
 
     # Test auto-casting of the body to tuple
     call = ir.CallStatement(name=cname, arguments=[a_i, one])
-    assert call.arguments == (a_i, one) and call.kwarguments == ()
+    assert call.arguments == (a_i, one) and not call.kwarguments
     call = ir.CallStatement(name=cname, arguments=None)
-    assert call.arguments == () and call.kwarguments == ()
+    assert not call.arguments and not call.kwarguments
     call = ir.CallStatement(name=cname, kwarguments=[('i', i), ('j', one)])
-    assert call.arguments == () and call.kwarguments == (('i', i), ('j', one))
+    assert not call.arguments and call.kwarguments == (('i', i), ('j', one))
     call = ir.CallStatement(name=cname, kwarguments=None)
-    assert call.arguments == () and call.kwarguments == ()
+    assert not call.arguments and not call.kwarguments
+
+    # Test auto-casting with unnamed constructor args
+    call = ir.CallStatement(cname, a_i)
+    assert call.arguments == (a_i,) and not call.kwarguments
+    call = ir.CallStatement(cname, [a_i, one], [('i', i), ('j', one)])
+    assert call.arguments == (a_i, one) and call.kwarguments == (('i', i), ('j', one))
 
     # Test errors for wrong contructor usage
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.CallStatement(name='a', arguments=(sym.Literal(42.0),))
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.CallStatement(name=cname, arguments=('a',))
-    with pytest.raises(ValidationError) as error:
+    with pytest.raises(ValidationError):
         ir.Assignment(
             name=cname, arguments=(sym.Literal(42.0),), kwarguments=('i', 'i')
         )
@@ -304,7 +330,7 @@ def test_associate(scope, a_i):
     assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     assign2 = ir.Assignment(lhs=a_i.clone(parent=b), rhs=sym.Literal(66.6))
 
-    assoc = ir.Associate(associations=((b_a, a),), body=(assign, assign2), parent=scope)
+    assoc = ir.Associate(associations=((b_a, a),), body=(assign, assign2), parent=scope)  # pylint: disable=unexpected-keyword-arg
     assert isinstance(assoc.associations, tuple)
     assert all(isinstance(n, tuple) and len(n) == 2 for n in assoc.associations)
     assert isinstance(assoc.body, tuple)

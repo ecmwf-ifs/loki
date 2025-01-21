@@ -66,11 +66,6 @@ config.register('omni-dump-xml', False, env_variable='LOKI_OMNI_DUMP_XML',
 config.register('frontend-strict-mode', False, env_variable='LOKI_FRONTEND_STRICT_MODE',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)
 
-# Disk-caching, which causes OFP ASTs to be cached on disk for
-# fast re-parsing of unchanged source files
-config.register('disk-cache', False, env_variable='LOKI_DISK_CACHE',
-                preprocess=lambda i: bool(i) if isinstance(i, int) else i)
-
 # Force symbol comparison and object equality to be case sensitive
 config.register('case-sensitive', False, env_variable='LOKI_CASE_SENSITIVE',
                 preprocess=lambda i: bool(i) if isinstance(i, int) else i)

@@ -405,7 +405,7 @@ end subroutine test_type_kind_value
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_type_contiguous(here, frontend):
+def test_type_contiguous(frontend):
     """
     Test pointer arguments with contiguous attribute (a F2008-feature, which is not supported by
     all frontends).
@@ -418,14 +418,9 @@ subroutine routine_contiguous(vec)
   vec(:) = 2.
 end subroutine routine_contiguous
     """
-    # We need to write this one to file as OFP has to preprocess the file
-    filepath = here/(f'routine_contiguous_{frontend}.f90')
-    Sourcefile.to_file(fcode, filepath)
-
-    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_contiguous']
+    routine = Sourcefile.from_source(fcode, frontend=frontend, preprocess=True)['routine_contiguous']
     assert len(routine.arguments) == 1
     assert routine.arguments[0].type.contiguous and routine.arguments[0].type.pointer
-    filepath.unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -15,9 +15,9 @@ from codetiming import Timer
 from loki.backend.fgen import fgen
 from loki.backend.cufgen import cufgen
 from loki.frontend import (
-    Frontend, OMNI, FP, REGEX, sanitize_input, Source, read_file, preprocess_cpp,
-    parse_omni_source, parse_ofp_source, parse_fparser_source,
-    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, parse_regex_source,
+    Frontend, OMNI, FP, REGEX, sanitize_input, Source, read_file,
+    preprocess_cpp, parse_omni_source, parse_fparser_source,
+    parse_omni_ast, parse_fparser_ast, parse_regex_source,
     RegexParserClass
 
 )
@@ -30,9 +30,6 @@ from loki.tools import flatten, as_tuple
 
 
 __all__ = ['Sourcefile']
-
-
-OFP = Frontend.OFP
 
 
 class Sourcefile:
@@ -71,6 +68,36 @@ class Sourcefile:
         self._source = source
         self._incomplete = incomplete
         self._parser_classes = parser_classes
+
+    def clone(self, **kwargs):
+        """
+        Replicate the object with the provided overrides.
+        """
+        kwargs.setdefault('path', self.path)
+        if self.ir is not None and 'ir' not in kwargs:
+            kwargs['ir'] = self.ir
+            ir_needs_clone = True
+        else:
+            ir_needs_clone = False
+        if self._ast is not None and 'ast' not in kwargs:
+            kwargs['ast'] = self._ast
+        if self.source is not None and 'source' not in kwargs:
+            kwargs['source'] = self._source.clone(file=kwargs['path'])
+        kwargs.setdefault('incomplete', self._incomplete)
+        if self._parser_classes is not None and 'parser_classes' not in kwargs:
+            kwargs['parser_classes'] = self._parser_classes
+
+        obj = type(self)(**kwargs)
+
+        # When the IR has been carried over from the current sourcefile
+        # we need to make sure we perform a deep copy
+        if obj.ir and ir_needs_clone:
+            ir_body = tuple(
+                node.clone(rescope_symbols=True) if isinstance(node, ProgramUnit)
+                else node.clone() for node in obj.ir.body
+            )
+            obj.ir = obj.ir.clone(body=ir_body)
+        return obj
 
     @classmethod
     def from_file(cls, filename, definitions=None, preprocess=False,
@@ -136,9 +163,6 @@ class Sourcefile:
                                      includes=includes, defines=defines,
                                      xmods=xmods, omni_includes=omni_includes)
 
-            if frontend == OFP:
-                return cls.from_ofp(source, filepath, definitions=definitions)
-
             if frontend == FP:
                 return cls.from_fparser(source, filepath, definitions=definitions)
 
@@ -200,42 +224,6 @@ class Sourcefile:
             ast=ast, definitions=definitions, raw_source=raw_source,
             type_map=type_map, symbol_map=symbol_map
         )
-
-        lines = (1, raw_source.count('\n') + 1)
-        source = Source(lines, string=raw_source, file=path)
-        return cls(path=path, ir=ir, ast=ast, source=source)
-
-    @classmethod
-    def from_ofp(cls, raw_source, filepath, definitions=None):
-        """
-        Parse a given source string using the Open Fortran Parser (OFP) frontend
-
-        Parameters
-        ----------
-        raw_source : str
-            Fortran source string
-        filepath : str or :any:`pathlib.Path`
-            The filepath of this source file
-        definitions : list
-            List of external :any:`Module` to provide derived-type and procedure declarations
-        """
-        # Preprocess using internal frontend-specific PP rules
-        # to sanitize input and work around known frontend problems.
-        source, pp_info = sanitize_input(source=raw_source, frontend=OFP)
-
-        # Parse the file content into a Fortran AST
-        ast = parse_ofp_source(source, filepath=filepath)
-
-        return cls._from_ofp_ast(path=filepath, ast=ast, definitions=definitions,
-                                 pp_info=pp_info, raw_source=raw_source)
-
-    @classmethod
-    def _from_ofp_ast(cls, ast, path=None, raw_source=None, definitions=None, pp_info=None):
-        """
-        Generate the full set of :any:`Subroutine` and :any:`Module` members
-        in the :any:`Sourcefile`.
-        """
-        ir = parse_ofp_ast(ast.find('file'), pp_info=pp_info, definitions=definitions, raw_source=raw_source)
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
@@ -343,9 +331,6 @@ class Sourcefile:
             return cls.from_omni(source, filepath=None, definitions=definitions, includes=includes,
                                  defines=defines, xmods=xmods, omni_includes=omni_includes)
 
-        if frontend == OFP:
-            return cls.from_ofp(source, filepath=None, definitions=definitions)
-
         if frontend == FP:
             return cls.from_fparser(source, filepath=None, definitions=definitions)
 
@@ -378,7 +363,7 @@ class Sourcefile:
             elif frontend == OMNI:
                 frontend_argnames = ['definitions', 'type_map', 'symbol_map', 'scope']
                 xmods = frontend_args.get('xmods')
-            elif frontend in (OFP, FP):
+            elif frontend == FP:
                 frontend_argnames = ['definitions', 'scope']
             else:
                 raise NotImplementedError(f'Unknown frontend: {frontend}')
@@ -402,10 +387,6 @@ class Sourcefile:
                     elif frontend == OMNI:
                         ast = parse_omni_source(source=source, xmods=xmods)
                         ir_ = parse_omni_ast(ast=ast, raw_source=raw_source, **sanitized_frontend_args)
-                    elif frontend == OFP:
-                        ast = parse_ofp_source(source=source)
-                        ir_ = parse_ofp_ast(ast, raw_source=raw_source, pp_info=pp_info,
-                                            **sanitized_frontend_args)
                     elif frontend == FP:
                         # Fparser is unable to parse comment-only source files/strings,
                         # so we see if this is only comments and convert them ourselves

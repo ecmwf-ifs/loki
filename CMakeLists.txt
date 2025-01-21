@@ -19,7 +19,6 @@
 # :NO_INSTALL:  Do not install Loki itself but make the CMake configuration
 #               available (Default: ``OFF``)
 # :EDITABLE:    Install Loki as an editable package (Default: ``OFF``)
-# :CLAW:        Install CLAW and OMNI Compiler (Default: ``OFF``)
 #
 # Installation procedure
 # ----------------------
@@ -70,15 +69,9 @@ ecbuild_add_option(
     DESCRIPTION "Install Loki as an editable Python package"
 )
 ecbuild_add_option(
-    FEATURE CLAW
-    DEFAULT OFF
-    DESCRIPTION "Build OMNI compiler and CLAW compiler"
-)
-ecbuild_add_option(
     FEATURE OMNI
     DEFAULT OFF
     DESCRIPTION "Build OMNI compiler as Loki frontend"
-    CONDITION NOT HAVE_CLAW
 )
 
 include( loki_transform )
@@ -99,11 +92,6 @@ endforeach()
 # Install Loki and dependencies
 if( NOT HAVE_NO_INSTALL )
 
-    if( HAVE_CLAW )
-        include( claw_compiler )
-        install_claw_compiler( mlange-dev )
-    endif()
-
     if( HAVE_OMNI )
         include( omni_compiler )
         install_omni_compiler( master )
@@ -119,10 +107,7 @@ if( NOT HAVE_NO_INSTALL )
     # Enable Pytest tests as ecbuild/ctest targets
     if( HAVE_TESTS )
 
-        if( HAVE_CLAW )
-            set( _TEST_SELECTOR "not ofp" )
-            set( _TEST_PATH "${CLAW_DIR}/bin:$ENV{PATH}" )
-        elseif( HAVE_OMNI )
+        if( HAVE_OMNI )
             set( _TEST_SELECTOR "not ofp" )
             set( _TEST_PATH "${OMNI_DIR}/bin:$ENV{PATH}" )
         else()

@@ -30,7 +30,7 @@ __all__ = [
     # Mix-ins
     'StrCompareMixin',
     # Typed leaf nodes
-    'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol',
+    'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol', 'DerivedTypeSymbol',
     'MetaSymbol', 'Scalar', 'Array', 'Variable',
     # Non-typed leaf nodes
     'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
@@ -481,6 +481,34 @@ class ProcedureSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint:
     mapper_method = intern('map_procedure_symbol')
 
 
+class DerivedTypeSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):
+    """
+    Internal representation of a symbol that represents a named
+    derived type.
+
+    This is used to represent the derived type symbolically in
+    :any:`Import` statements and when defining derived types.
+
+    Parameters
+    ----------
+    name : str
+        The name of the symbol.
+    scope : :any:`Scope`
+        The scope in which the symbol is declared.
+    type : optional
+        The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
+    """
+
+    def __init__(self, name, scope=None, type=None, **kwargs):
+        # pylint: disable=redefined-builtin
+        assert type is None or isinstance(type.dtype, DerivedType)
+        if type is not None:
+            assert name.lower() == type.dtype.name.lower()
+        super().__init__(name=name, scope=scope, type=type, **kwargs)
+
+    mapper_method = intern('map_derived_type_symbol')
+
+
 class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
     Base class for meta symbols to encapsulate a symbol node with optional
@@ -868,9 +896,8 @@ class Variable:
             return ProcedureSymbol(**kwargs)
 
         if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
-            # This is a constructor call (or a type imported in an ``IMPORT`` statement, in which
-            # case this is classified wrong...)
-            return ProcedureSymbol(**kwargs)
+            # This the name of a derived type, as found in USE import statements
+            return DerivedTypeSymbol(**kwargs)
 
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
             # Convenience: This way we can construct Scalar variables with `dimensions=None`
@@ -1315,7 +1342,9 @@ class InlineCall(pmbl.CallWithKwargs):
         # Unfortunately, have to accept MetaSymbol here for the time being as
         # rescoping before injecting statement functions may create InlineCalls
         # with Scalar/Variable function names.
-        assert isinstance(function, (ProcedureSymbol, DeferredTypeSymbol, MetaSymbol))
+        assert isinstance(function, (
+            ProcedureSymbol, DerivedTypeSymbol, DeferredTypeSymbol, MetaSymbol
+        ))
         parameters = parameters or ()
         kw_parameters = kw_parameters or {}
 
@@ -1420,6 +1449,42 @@ class InlineCall(pmbl.CallWithKwargs):
         kw_parameters = kwargs.get('kw_parameters', self.kw_parameters)
         return InlineCall(function, parameters, kw_parameters)
 
+    def _sort_kwarguments(self):
+        """
+        Helper routine to sort the kwarguments/kw_parameters according to the order of the
+        arguments (``self.routine.arguments``)`.
+        """
+        routine = self.routine
+        assert routine is not BasicType.DEFERRED
+        kwargs = CaseInsensitiveDict(self.kwarguments)
+        r_arg_names = [arg.name for arg in routine.arguments if arg.name in kwargs]
+        new_kwarguments = tuple((arg_name, kwargs[arg_name]) for arg_name in r_arg_names)
+        return new_kwarguments
+
+    def is_kwargs_order_correct(self):
+        """
+        Check whether kwarguments/kw_parameters are correctly ordered
+        in respect to the arguments (``self.routine.arguments``).
+        """
+        return self.kwarguments == self._sort_kwarguments()
+
+    def clone_with_sorted_kwargs(self):
+        """
+        Sort and update the kwarguments/kw_parameters according to the order of the
+        arguments (``self.routine.arguments``) and return the
+        conveted clone/copy of the inline call.
+        """
+        new_kwarguments = self._sort_kwarguments()
+        return self.clone(kw_parameters=new_kwarguments)
+
+    def clone_with_kwargs_as_args(self):
+        """
+        Convert all kwarguments/kw_parameters to arguments and
+        return the converted clone/copy of the inline call.
+        """
+        new_kwarguments = self._sort_kwarguments()
+        new_args = tuple(arg[1] for arg in new_kwarguments)
+        return self.clone(parameters=self.arguments + new_args, kw_parameters=())
 
 class Cast(pmbl.Call):
     """

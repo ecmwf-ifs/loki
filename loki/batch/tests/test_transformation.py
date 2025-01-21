@@ -629,8 +629,8 @@ end subroutine test_pipeline_compose
     assert comments[4].text == '! No !'
 
     # Check that the string representation is sane
-    assert '<YesTrafo  [test_transformation]' in str(pipe)
-    assert '<MaybeTrafo  [test_transformation]' in str(pipe)
-    assert '<MaybeNotTrafo  [test_transformation]' in str(pipe)
-    assert '<YesTrafo  [test_transformation]' in str(pipe)
-    assert '<NoTrafo  [test_transformation]' in str(pipe)
+    assert '<YesTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
+    assert '<MaybeTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
+    assert '<MaybeNotTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
+    assert '<YesTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
+    assert '<NoTrafo  [loki.batch.tests.test_transformation]' in str(pipe)

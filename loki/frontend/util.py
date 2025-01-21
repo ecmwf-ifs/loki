@@ -39,8 +39,6 @@ class Frontend(IntEnum):
     """
     #: The OMNI compiler frontend
     OMNI = 1
-    #: The Open Fortran Parser
-    OFP = 2
     #: Fparser 2 from STFC
     FP = 3
     #: Reduced functionality parsing using regular expressions
@@ -68,7 +66,7 @@ def available_frontends(xfail=None, skip=None, include_regex=False):
     Use as
 
     ..code-block::
-        @pytest.mark.parametrize('frontend', available_frontends(xfail=[OMNI, (OFP, 'Because...')]))
+        @pytest.mark.parametrize('frontend', available_frontends(xfail=[OMNI, (FP, 'Because...')]))
         def my_test(frontend):
             source = Sourcefile.from_file('some.F90', frontend=frontend)
             # ...
@@ -112,8 +110,6 @@ def available_frontends(xfail=None, skip=None, include_regex=False):
     # Build the list of parameters
     params = []
     for f in Frontend:
-        if f == Frontend.OFP:
-            continue  # OFP is now deprecated!
         if f in skip:
             params += [pytest.param(f, marks=pytest.mark.skip(reason=skip[f]))]
         elif f in xfail:
@@ -201,7 +197,7 @@ def inline_labels(ir):
     """
     Find labels and merge them onto the following node.
 
-    Note: This is currently only required for OMNI and OFP frontends which
+    Note: This is currently only required for the OMNI frontend which
     has labels as nodes next to the corresponding statement without
     any connection between both.
     """
@@ -382,10 +378,9 @@ def sanitize_ir(_ir, frontend, pp_registry=None, pp_info=None):
         # Revert OMNI's array dimension expansion from `a(n)` => `arr(1:n)`
         _ir = RangeIndexTransformer(invalidate_source=False).visit(_ir)
 
-    if frontend in (OMNI, Frontend.OFP):
         _ir = inline_labels(_ir)
 
-    if frontend in (FP, Frontend.OFP):
+    if frontend == FP:
         _ir = CombineMultilinePragmasTransformer(inplace=True, invalidate_source=False).visit(_ir)
         _ir = RemoveDuplicateVariableDeclarationsForExternalProcedures(inplace=True, invalidate_source=False).visit(_ir)
 

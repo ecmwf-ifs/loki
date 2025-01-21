@@ -7,11 +7,12 @@
 
 from loki.expression import symbols as sym
 from loki.frontend import (
-    parse_omni_ast, parse_ofp_ast, parse_fparser_ast, get_fparser_node,
+    parse_omni_ast, parse_fparser_ast, get_fparser_node,
     parse_regex_source
 )
 from loki.ir import (
-    nodes as ir, FindNodes, Transformer, pragmas_attached
+    nodes as ir, FindNodes, Transformer, ExpressionTransformer,
+    pragmas_attached
 )
 from loki.logging import debug
 from loki.program_unit import ProgramUnit
@@ -177,31 +178,6 @@ class Subroutine(ProgramUnit):
         return parse_omni_ast(
             ast=ast, definitions=definitions, raw_source=raw_source,
             type_map=type_map, scope=parent
-        )
-
-    @classmethod
-    def from_ofp(cls, ast, raw_source, definitions=None, pp_info=None, parent=None):
-        """
-        Create :any:`Subroutine` from :any:`OFP` parse tree
-
-        Parameters
-        ----------
-        ast :
-            The OFP parse tree
-        raw_source : str
-            Fortran source string
-        definitions : list
-            List of external :any:`Module` to provide derived-type and procedure declarations
-        pp_info :
-            Preprocessing info as obtained by :any:`sanitize_input`
-        parent : :any:`Scope`, optional
-            The enclosing parent scope of the subroutine, typically a :any:`Module`.
-        """
-        if ast.tag not in ('subroutine', 'function'):
-            ast = [r for r in as_tuple(ast.find('file')) if r.tag in ('subroutine', 'function')].pop()
-        return parse_ofp_ast(
-            ast=ast, pp_info=pp_info, raw_source=raw_source,
-            definitions=definitions, scope=parent
         )
 
     @classmethod
@@ -487,6 +463,9 @@ class Subroutine(ProgramUnit):
                 # Need to update the call's symbol to establish link to routine
                 symbol = symbol.clone(scope=self, type=symbol.type.clone(dtype=routine.procedure_type))
                 call._update(name=symbol)
+
+        # Rebuild local symbols to ensure correct symbol types
+        self.body = ExpressionTransformer(inplace=True).visit(self.body)
 
     def __repr__(self):
         """

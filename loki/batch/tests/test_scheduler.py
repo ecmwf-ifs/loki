@@ -64,15 +64,17 @@ from loki import (
 from loki.batch import (
     Scheduler, SchedulerConfig, Item, ProcedureItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
-    ExternalItem, Transformation, Pipeline
+    ExternalItem, Transformation, Pipeline, ProcessingStrategy
 )
 from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
     available_frontends, OMNI, FP, REGEX, HAVE_FP, HAVE_OMNI
 )
-from loki.ir import nodes as ir, FindNodes, FindInlineCalls
+from loki.ir import (
+    nodes as ir, FindNodes, FindInlineCalls, FindVariables
+)
 from loki.transformations import (
-    DependencyTransformation, ModuleWrapTransformation
+    DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
 
 
@@ -999,10 +1001,13 @@ def test_scheduler_missing_files(testdir, config, frontend, strict, tmp_path):
     # Check processing with missing items
     class CheckApply(Transformation):
 
-        def apply(self, source, post_apply_rescope_symbols=False, **kwargs):
+        def apply(self, source, post_apply_rescope_symbols=False, plan_mode=False, **kwargs):
             assert 'item' in kwargs
             assert not isinstance(kwargs['item'], ExternalItem)
-            super().apply(source, post_apply_rescope_symbols=post_apply_rescope_symbols, **kwargs)
+            super().apply(
+                source, post_apply_rescope_symbols=post_apply_rescope_symbols,
+                plan_mode=plan_mode, **kwargs
+            )
 
     if strict:
         with pytest.raises(RuntimeError):
@@ -1154,35 +1159,35 @@ def test_scheduler_cmake_planner(tmp_path, testdir, frontend):
     proj_b = sourcedir/'projB'
 
     config = SchedulerConfig.from_dict({
-        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'ignore': ('header_mod',)},
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'ignore': ('header_mod',),
+            'mode': 'foobar'
+        },
         'routines': {
             'driverB': {'role': 'driver'},
             'kernelB': {'ignore': ['ext_driver']},
         }
     })
+    builddir = tmp_path/'scheduler_cmake_planner_dummy_dir'
+    builddir.mkdir(exist_ok=True)
 
     # Populate the scheduler
     # (this is the same as SchedulerA in test_scheduler_dependencies_ignore, so no need to
     # check scheduler set-up itself)
     scheduler = Scheduler(
         paths=[proj_a, proj_b], includes=proj_a/'include',
-        config=config, frontend=frontend, xmods=[tmp_path]
+        config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=builddir
     )
 
     # Apply the transformation
-    builddir = tmp_path/'scheduler_cmake_planner_dummy_dir'
-    builddir.mkdir(exist_ok=True)
     planfile = builddir/'loki_plan.cmake'
 
-    scheduler.write_cmake_plan(
-        filepath=planfile, mode='foobar', buildpath=builddir, rootpath=sourcedir
-    )
-
-    # Validate the generated lists
-    expected_files = {
-        proj_a/'module/driverB_mod.f90', proj_a/'module/kernelB_mod.F90',
-        proj_a/'module/compute_l1_mod.f90', proj_a/'module/compute_l2_mod.f90'
-    }
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.write_cmake_plan(filepath=planfile, rootpath=sourcedir)
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
@@ -2920,3 +2925,103 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[2].directive == 'openacc'
     assert pipeline.transformations[3].trim_vector_sections is True
     assert pipeline.transformations[7].replace_ignore_items is True
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('enable_imports', [False, True])
+@pytest.mark.parametrize('import_level', ['module', 'subroutine'])
+def test_scheduler_indirect_import(frontend, tmp_path, enable_imports, import_level):
+    fcode_mod_a = """
+module a_mod
+    implicit none
+    public
+    integer :: global_a = 1
+end module a_mod
+"""
+
+    fcode_mod_b = """
+module b_mod
+    use a_mod
+    implicit none
+    public
+    type type_b
+        integer :: val
+    end type type_b
+end module b_mod
+"""
+
+    module_import_stmt = ""
+    routine_import_stmt = ""
+    if import_level == 'module':
+        module_import_stmt = "use b_mod, only: type_b, global_a"
+    elif import_level == 'subroutine':
+        routine_import_stmt = "use b_mod, only: type_b, global_a"
+
+    fcode_mod_c = f"""
+module c_mod
+    {module_import_stmt}
+    implicit none
+contains
+    subroutine c(b)
+        {routine_import_stmt}
+        implicit none
+        type(type_b), intent(inout) :: b
+        b%val = global_a
+    end subroutine c
+end module c_mod
+"""
+
+    # Set-up paths and write sources
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    out_path = tmp_path/'build'
+    out_path.mkdir()
+
+    (src_path/'a.F90').write_text(fcode_mod_a)
+    (src_path/'b.F90').write_text(fcode_mod_b)
+    (src_path/'c.F90').write_text(fcode_mod_c)
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'enable_imports': enable_imports
+        },
+        'routines': {'c': {'role': 'driver'}}
+    })
+    try:
+        scheduler = Scheduler(
+            paths=[src_path], config=config, frontend=frontend,
+            output_dir=out_path, xmods=[out_path]
+        )
+    except CalledProcessError as e:
+        if frontend == OMNI and not enable_imports:
+            # Without taking care of imports, OMNI will fail to parse the files
+            # because it is missing the xmod files for the header modules
+            pytest.xfail('Without parsing imports, OMNI does not have the xmod for imported modules')
+        raise e
+
+    # Check for all items in the dependency graph
+    expected_items = {'a_mod', 'b_mod', 'b_mod#type_b', 'c_mod#c'}
+    assert expected_items == {item.name for item in scheduler.items}
+
+    # Verify the type information for the imported symbols:
+    # They will have enriched information if the imports are enabled
+    # and deferred type otherwise
+    type_b = scheduler['b_mod#type_b'].ir
+    c_mod_c = scheduler['c_mod#c'].ir
+    var_map = CaseInsensitiveDict(
+        (v.name, v) for v in FindVariables().visit(c_mod_c.body)
+    )
+    global_a = var_map['global_a']
+    b_dtype = var_map['b'].type.dtype
+
+    if enable_imports:
+        assert global_a.type.dtype is BasicType.INTEGER
+        assert global_a.type.initial == '1'
+        assert b_dtype.typedef is type_b
+    else:
+        assert global_a.type.dtype is BasicType.DEFERRED
+        assert global_a.type.initial is None
+        assert b_dtype.typedef is BasicType.DEFERRED

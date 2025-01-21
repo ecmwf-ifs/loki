@@ -13,53 +13,70 @@ code easier.
 """
 
 from loki.batch import Transformation
-from loki.expression import Array, RangeIndex, LokiIdentityMapper
-from loki.ir import nodes as ir, FindNodes, Transformer, NestedTransformer
+from loki.expression import symbols as sym,  LokiIdentityMapper
+from loki.ir import nodes as ir, Transformer, NestedTransformer
+from loki.logging import warning
 from loki.scope import SymbolTable
-from loki.tools import as_tuple, dict_override
-from loki.types import BasicType
+from loki.tools import dict_override
 
 
 __all__ = [
-    'SanitiseTransformation', 'resolve_associates', 'merge_associates',
-    'ResolveAssociatesTransformer', 'transform_sequence_association',
-    'transform_sequence_association_append_map'
+    'AssociatesTransformation', 'do_resolve_associates',
+    'ResolveAssociatesTransformer', 'do_merge_associates'
 ]
 
 
-class SanitiseTransformation(Transformation):
+class AssociatesTransformation(Transformation):
     """
-    :any:`Transformation` object to apply several code sanitisation
-    steps when batch-processing large source trees via the :any:`Scheduler`.
+    :any:`Transformation` object to apply code sanitisation steps
+    specific to :any:`Associate` nodes.
+
+    It allows merging in nested :any:`Associate` scopes to move
+    independent assocation pairs to the outermost scope, optionally
+    restricted by a number of ``max_parents`` symbols.
+
+    It also provides partial or full resolution of :any:`Associate`
+    nodes by replacing ``identifier`` symbols with the corresponding
+    ``selector`` in the node's body.
 
     Parameters
     ----------
-    resolve_associate_mappings : bool
-        Resolve ASSOCIATE mappings in body of processed subroutines; default: True.
-    resolve_sequence_association : bool
-        Replace scalars that are passed to array arguments with array
-        ranges; default: False.
+    resolve_associates : bool, default: True
+        Enable full or partial resolution of only :any:`Associate`
+        scopes.
+    merge_associates : bool, default: False
+        Enable merging :any:`Associate` to the outermost possible
+        scope in nested associate blocks.
+    start_depth : int, optional
+        Starting depth for partial resolution of :any:`Associate`
+        after merging.
+    max_parents : int, optional
+        Maximum number of parent symbols for valid selector to have
+        when merging :any:`Associate` nodes.
     """
 
     def __init__(
-            self, resolve_associate_mappings=True, resolve_sequence_association=False
+            self, resolve_associates=True, merge_associates=False,
+            start_depth=0, max_parents=None
     ):
-        self.resolve_associate_mappings = resolve_associate_mappings
-        self.resolve_sequence_association = resolve_sequence_association
+        self.resolve_associates = resolve_associates
+        self.merge_associates = merge_associates
+
+        self.start_depth = start_depth
+        self.max_parents = max_parents
 
     def transform_subroutine(self, routine, **kwargs):
 
-        # Associates at the highest level, so they don't interfere
-        # with the sections we need to do for detecting subroutine calls
-        if self.resolve_associate_mappings:
-            resolve_associates(routine)
+        # Merge associates first so that remainig ones can be resolved
+        if self.merge_associates:
+            do_merge_associates(routine, max_parents=self.max_parents)
 
-        # Transform arrays passed with scalar syntax to array syntax
-        if self.resolve_sequence_association:
-            transform_sequence_association(routine)
+        # Resolve remaining associates depending on start_depth
+        if self.resolve_associates:
+            do_resolve_associates(routine, start_depth=self.start_depth)
 
 
-def resolve_associates(routine, start_depth=0):
+def do_resolve_associates(routine, start_depth=0):
     """
     Resolve :any:`Associate` mappings in the body of a given routine.
 
@@ -95,6 +112,27 @@ class ResolveAssociateMapper(LokiIdentityMapper):
         self.start_depth = start_depth
         super().__init__(*args, **kwargs)
 
+    @staticmethod
+    def _match_range_indices(expressions, indices):
+        """ Map :data:`indices` to free ranges in :data:`expressions` """
+        assert isinstance(expressions, tuple)
+        assert isinstance(indices, tuple)
+
+        free_symbols = tuple(e for e in expressions if isinstance(e, sym.RangeIndex))
+        if any(s.lower not in (None, 1) for s in free_symbols):
+            warning('WARNING: Bounds shifts through association is currently not supported')
+
+        if len(free_symbols) == len(indices):
+            # If the provided indices are enough to bind free symbols,
+            # we match them in sequence.
+            it = iter(indices)
+            return tuple(
+                next(it) if isinstance(e, sym.RangeIndex) else e
+                for e in expressions
+            )
+
+        return expressions
+
     def map_scalar(self, expr, *args, **kwargs):
         # Skip unscoped expressions
         if not hasattr(expr, 'scope'):
@@ -123,11 +161,17 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             expr = scope.inverse_map[expr.basename]
             return self.rec(expr, *args, **kwargs)
 
-        return expr
+        # Update the scope, as any inner associates will be removed.
+        # For this we count backwards the nested scopes, the tail of
+        # which will the (innermost) associates.
+        new_scope = scope.parents[::-1][depth-self.start_depth-1]
+        return expr.clone(scope=new_scope)
 
     def map_array(self, expr, *args, **kwargs):
-        """ Special case for arrys: we need to preserve the dimensions """
-        new = self.map_variable_symbol(expr, *args, **kwargs)
+        """ Partially resolve dimension indices and handle shape """
+
+        # Recurse over existing array dimensions
+        expr_dims = self.rec(expr.dimensions, *args, **kwargs)
 
         # Recurse over the type's shape
         _type = expr.type
@@ -135,8 +179,20 @@ class ResolveAssociateMapper(LokiIdentityMapper):
             new_shape = self.rec(expr.type.shape, *args, **kwargs)
             _type = expr.type.clone(shape=new_shape)
 
+        # Stop if scope is not an associate
+        if not isinstance(expr.scope, ir.Associate):
+            return expr.clone(dimensions=expr_dims, type=_type)
+
+        new = self.map_scalar(expr, *args, **kwargs)
+
         # Recurse over array dimensions
-        new_dims = self.rec(expr.dimensions, *args, **kwargs)
+        if isinstance(new, sym.Array) and new.dimensions:
+            # Resolve unbound range symbols form existing indices
+            new_dims = self.rec(new.dimensions, *args, **kwargs)
+            new_dims = self._match_range_indices(new_dims, expr_dims)
+        else:
+            new_dims = expr_dims
+
         return new.clone(dimensions=new_dims, type=_type)
 
     map_variable_symbol = map_scalar
@@ -149,8 +205,8 @@ class ResolveAssociatesTransformer(Transformer):
     :any:`Transformer` class to resolve :any:`Associate` nodes in IR trees.
 
     This will replace each :any:`Associate` node with its own body,
-    where all `identifier` symbols have been replaced with the
-    corresponding `selector` expression defined in ``associations``.
+    where all ``identifier`` symbols have been replaced with the
+    corresponding ``selector`` expression defined in ``associations``.
 
     Importantly, this :any:`Transformer` can also be applied over partial
     bodies of :any:`Associate` bodies.
@@ -195,7 +251,7 @@ class ResolveAssociatesTransformer(Transformer):
         return o._rebuild(arguments=arguments, kwarguments=kwarguments)
 
 
-def merge_associates(routine, max_parents=None):
+def do_merge_associates(routine, max_parents=None):
     """
     Moves associate mappings in :any:`Associate` within a
     :any:`Subroutine` to the outermost parent scope.
@@ -280,95 +336,3 @@ class MergeAssociatesTransformer(NestedTransformer):
         # that moved associations get the correct defining scope
         o._derive_local_symbol_types(parent_scope=o.parent)
         return o
-
-
-def check_if_scalar_syntax(arg, dummy):
-    """
-    Check if an array argument, arg,
-    is passed to an array dummy argument, dummy,
-    using scalar syntax. i.e. arg(1,1) -> d(m,n)
-
-    Parameters
-    ----------
-    arg:   variable
-    dummy: variable
-    """
-    if isinstance(arg, Array) and isinstance(dummy, Array):
-        if arg.dimensions:
-            if not any(isinstance(d, RangeIndex) for d in arg.dimensions):
-                return True
-    return False
-
-
-def transform_sequence_association(routine):
-    """
-    Housekeeping routine to replace scalar syntax when passing arrays as arguments
-    For example, a call like
-
-    .. code-block::
-
-        real :: a(m,n)
-
-        call myroutine(a(i,j))
-
-    where myroutine looks like
-
-    .. code-block::
-
-        subroutine myroutine(a)
-            real :: a(5)
-        end subroutine myroutine
-
-    should be changed to
-
-    .. code-block::
-
-        call myroutine(a(i:m,j)
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine where calls will be changed
-
-    """
-
-    #List calls in routine, but make sure we have the called routine definition
-    calls = (c for c in FindNodes(ir.CallStatement).visit(routine.body) if not c.procedure_type is BasicType.DEFERRED)
-    call_map = {}
-
-    # Check all calls and record changes to `call_map` if necessary.
-    for call in calls:
-        transform_sequence_association_append_map(call_map, call)
-
-    # Fix sequence association in all calls in one go.
-    if call_map:
-        routine.body = Transformer(call_map).visit(routine.body)
-
-def transform_sequence_association_append_map(call_map, call):
-    """
-    Check if `call` contains the sequence association pattern in one of the arguments,
-    and if so, add the necessary transform data to `call_map`.
-    """
-    new_args = []
-    found_scalar = False
-    for dummy, arg in call.arg_map.items():
-        if check_if_scalar_syntax(arg, dummy):
-            found_scalar = True
-
-            n_dims = len(dummy.shape)
-            new_dims = []
-            for s, lower in zip(arg.shape[:n_dims], arg.dimensions[:n_dims]):
-
-                if isinstance(s, RangeIndex):
-                    new_dims += [RangeIndex((lower, s.stop))]
-                else:
-                    new_dims += [RangeIndex((lower, s))]
-
-            if len(arg.dimensions) > n_dims:
-                new_dims += arg.dimensions[len(dummy.shape):]
-            new_args += [arg.clone(dimensions=as_tuple(new_dims)),]
-        else:
-            new_args += [arg,]
-
-    if found_scalar:
-        call_map[call] = call.clone(arguments = as_tuple(new_args))

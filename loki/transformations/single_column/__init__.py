@@ -7,7 +7,6 @@
 
 from loki.transformations.single_column.annotate import * # noqa
 from loki.transformations.single_column.base import * # noqa
-from loki.transformations.single_column.claw import * # noqa
 from loki.transformations.single_column.hoist import * # noqa
 from loki.transformations.single_column.scc import * # noqa
 from loki.transformations.single_column.scc_cuf import * # noqa

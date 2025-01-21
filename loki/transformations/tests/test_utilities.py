@@ -133,11 +133,20 @@ subroutine my_NOT_ALL_lowercase_ROUTINE(VAR1, another_VAR, lower_case, MiXeD_Cas
     do K=1,ANOTHER_VAR
         LOWER_CASE(MIXEd_cASE(1, K)) = K - 1
     end do
+
+    miXed_CasE(1, 1) = Max(mIn(sQrT(9.0), 2.0), 1.0)
 end subroutine my_NOT_ALL_lowercase_ROUTINE
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
     convert_to_lower_case(routine)
-    assert all(var.name.islower() and str(var).islower() for var in FindVariables(unique=False).visit(routine.ir))
+    assert all(
+        var.name.islower() and str(var).islower()
+        for var in FindVariables(unique=True).visit(routine.ir)
+    )
+    assert all(
+        f.name.islower() and str(f).islower()
+        for f in FindInlineCalls().visit(routine.ir)
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -394,7 +403,7 @@ end module test_get_loop_bounds_mod
     y = Dimension(name='y', size='n', index='i', bounds=('a', 'b'))
     z = Dimension(name='y', size='n', index='i', bounds=('dim%a', 'dim%b'))
 
-    start, end = get_loop_bounds(routine, x)
+    start, end = get_loop_bounds(routine, x)  # pylint: disable=unbalanced-tuple-unpacking
     assert isinstance(start, sym.Scalar)
     assert start.type.dtype == BasicType.INTEGER
     assert start.type.intent == 'in'
@@ -403,10 +412,10 @@ end module test_get_loop_bounds_mod
     assert end.type.intent == 'in'
 
     with pytest.raises(RuntimeError):
-        _, _ = get_loop_bounds(routine, y)
+        _, _ = get_loop_bounds(routine, y)  # pylint: disable=unbalanced-tuple-unpacking
 
     # Test type-bound symbol resolution
-    start, end = get_loop_bounds(routine, z)
+    start, end = get_loop_bounds(routine, z)  # pylint: disable=unbalanced-tuple-unpacking
     assert isinstance(start, sym.Scalar)
     assert start.type.dtype == BasicType.INTEGER
     assert start.type.kind == '8'

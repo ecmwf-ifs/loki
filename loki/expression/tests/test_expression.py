@@ -21,7 +21,7 @@ from loki.backend import cgen, fgen
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
 from loki.frontend import (
-    available_frontends, OMNI, FP, HAVE_FP, parse_fparser_expression
+    available_frontends, OMNI, HAVE_FP, parse_fparser_expression
 )
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindExpressions,
@@ -79,12 +79,51 @@ end subroutine math_intrinsics
 """
     filepath = tmp_path/(f'expression_math_intrinsics_{frontend}.f90')
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
 
+    for assign in FindNodes(ir.Assignment).visit(routine.body):
+        assert isinstance(assign.rhs, sym.InlineCall)
+        assert isinstance(assign.rhs.function, sym.ProcedureSymbol)
+        assert assign.rhs.function.type.dtype.is_intrinsic
+
+    # Test full functionality via JIT example
+    function = jit_compile(routine, filepath=filepath, objname='math_intrinsics')
     vmin, vmax, vabs, vexp, vsqrt, vlog = function(2., 4.)
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vexp == np.exp(6.) and vsqrt == np.sqrt(6.) and vlog == np.log(6.)
     clean_test(filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_general_intrinsics(frontend):
+    """
+    Test general intrinsic functions (size, shape, ubound, lbound,
+    allocated, trim, kind)
+    """
+    fcode = """
+subroutine general_intrinsics(arr, ptr, name)
+  implicit none
+  real(kind=8), intent(inout) :: arr(:,:)
+  real(kind=8), pointer, intent(inout) :: ptr(:,:)
+  character(len=*), intent(inout) :: name
+  integer :: isize, ishape(:), ilower, iupper, mykind
+  logical :: alloc
+  character(len=*) :: myname
+
+  isize = size(arr)
+  ishape = shape(arr)
+  ilower = lbound(arr)
+  iupper = ubound(arr)
+  mykind = kind(arr)
+  alloc = allocated(ptr)
+  myname = trim(name)
+end subroutine general_intrinsics
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    for assign in FindNodes(ir.Assignment).visit(routine.body):
+        assert isinstance(assign.rhs, sym.InlineCall)
+        assert isinstance(assign.rhs.function, sym.ProcedureSymbol)
+        assert assign.rhs.function.type.dtype.is_intrinsic
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -663,6 +702,57 @@ end subroutine my_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_kwargs_inline_call(frontend, tmp_path):
+    """
+    Test inline call with kwargs and correct sorting as well
+    as correct conversion to args.
+    """
+    fcode_routine = """
+subroutine my_kwargs_routine(var, v_a, v_b, v_c, v_d)
+  implicit none
+  integer, intent(out) :: var
+  integer, intent(in) :: v_a, v_b, v_c, v_d
+  var = my_kwargs_func(c=v_c, b=v_b, a=v_a, d=v_d)
+contains
+  function my_kwargs_func(a, b, c, d)
+    integer, intent(in) :: a, b, c, d
+    integer :: my_kwargs_func
+    my_kwargs_func = a - b - c - d 
+  end function my_kwargs_func
+end subroutine my_kwargs_routine
+    """
+    # Test the original implementation
+    filepath = tmp_path/(f'orig_expression_kwargs_call_{frontend}.f90')
+    routine = Subroutine.from_source(fcode_routine, frontend=frontend, xmods=[tmp_path])
+    function = jit_compile(routine, filepath=filepath, objname='my_kwargs_routine')
+    res_orig = function(100, 10, 5, 2)
+    assert res_orig == 83
+
+    # Sort the kwargs and test the transformed code
+    inline_call = list(FindInlineCalls().visit(routine.body))[0]
+    call_map = {inline_call: inline_call.clone_with_sorted_kwargs()}
+    routine.body = SubstituteExpressions(call_map).visit(routine.body)
+    inline_call = list(FindInlineCalls().visit(routine.body))[0]
+    assert inline_call.is_kwargs_order_correct()
+    assert not inline_call.arguments
+    assert inline_call.kwarguments == (('a', 'v_a'), ('b', 'v_b'), ('c', 'v_c'), ('d', 'v_d'))
+    filepath = tmp_path/(f'sorted_expression_kwargs_call_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='my_kwargs_routine')
+    res_sorted = function(100, 10, 5, 2)
+    assert res_sorted == 83
+
+    # Convert kwargs to args and test the transformed code
+    call_map = {inline_call: inline_call.clone_with_kwargs_as_args()}
+    routine.body = SubstituteExpressions(call_map).visit(routine.body)
+    inline_call = list(FindInlineCalls().visit(routine.body))[0]
+    assert not inline_call.kwarguments
+    filepath = tmp_path/(f'converted_expression_kwargs_call_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='my_kwargs_routine')
+    res_args = function(100, 10, 5, 2)
+    assert res_args == 83
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_call_derived_type_arguments(frontend, tmp_path):
     """
     Check that derived type arguments are correctly represented in
@@ -831,43 +921,6 @@ end subroutine expression_nested_masked_statements
     ref1[vec1 < 2.0] = 0.0
     function(length, vec1)
     assert np.all(ref1 == vec1)
-    clean_test(filepath)
-
-
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
-    (OMNI, 'Not implemented'), (FP, 'Not implemented')
-]))
-def test_data_declaration(tmp_path, frontend):
-    """
-    Variable initialization with DATA statements
-    """
-    fcode = """
-subroutine data_declaration(data_out)
-  implicit none
-  integer, dimension(5, 4), intent(out) :: data_out
-  integer, dimension(5, 4) :: data1, data2
-  integer, dimension(3) :: data3
-  integer :: i, j
-
-  data data1 /20*5/
-
-  data ((data2(i,j), i=1,5), j=1,4) /20*3/
-
-  data data3(1), data3(3), data3(2) /1, 2, 3/
-
-  data_out(:,:) = data1(:,:) + data2(:,:)
-  data_out(1:3,1) = data3
-end subroutine data_declaration
-"""
-    filepath = tmp_path/(f'expression_data_declaration_{frontend}.f90')
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    function = jit_compile(routine, filepath=filepath, objname='data_declaration')
-
-    expected = np.ones(shape=(5, 4), dtype=np.int32, order='F') * 8
-    expected[[0, 1, 2], 0] = [1, 3, 2]
-    result = np.zeros(shape=(5, 4), dtype=np.int32, order='F')
-    function(result)
-    assert np.all(result == expected)
     clean_test(filepath)
 
 

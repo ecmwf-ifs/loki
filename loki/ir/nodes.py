@@ -21,7 +21,7 @@ from typing import Any, Tuple, Union, Optional
 from pymbolic.primitives import Expression
 
 from pydantic.dataclasses import dataclass as dataclass_validated
-from pydantic import model_validator
+from pydantic import field_validator
 
 from loki.expression import (
     symbols as sym, Variable, parse_expr, AttachScopesMapper,
@@ -31,7 +31,6 @@ from loki.frontend.source import Source
 from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
-
 
 __all__ = [
     # Abstract base classes
@@ -264,17 +263,10 @@ class InternalNode(Node, _InternalNode):
 
     _traversable = ['body']
 
-    @model_validator(mode='before')
+    @field_validator('body', mode='before')
     @classmethod
-    def pre_init(cls, values):
-        """ Ensure non-nested tuples for body. """
-        if values.kwargs and 'body' in values.kwargs:
-            values.kwargs['body'] = _sanitize_tuple(values.kwargs['body'])
-        if values.args:
-            # ArgsKwargs are immutable, so we need to force it a little
-            new_args = (_sanitize_tuple(values.args[0]),) + values.args[1:]
-            values = type(values)(args=new_args, kwargs=values.kwargs)
-        return values
+    def ensure_tuple(cls, value):
+        return _sanitize_tuple(value)
 
     def __repr__(self):
         raise NotImplementedError
@@ -728,14 +720,10 @@ class Conditional(InternalNode, _ConditionalBase):
 
     _traversable = ['condition', 'body', 'else_body']
 
-    @model_validator(mode='before')
+    @field_validator('body', 'else_body', mode='before')
     @classmethod
-    def pre_init(cls, values):
-        values = super().pre_init(values)
-        # Ensure non-nested tuples for else_body
-        if 'else_body' in values.kwargs:
-            values.kwargs['else_body'] = _sanitize_tuple(values.kwargs['else_body'])
-        return values
+    def ensure_tuple(cls, value):
+        return _sanitize_tuple(value)
 
     def __post_init__(self):
         super().__post_init__()
@@ -967,8 +955,8 @@ class _CallStatementBase():
     """ Type definitions for :any:`CallStatement` node type. """
 
     name: Expression
-    arguments: Optional[Tuple[Expression, ...]] = None
-    kwarguments: Optional[Tuple[Tuple[str, Expression], ...]] = None
+    arguments: Optional[Tuple[Expression, ...]] = ()
+    kwarguments: Optional[Tuple[Tuple[str, Expression], ...]] = ()
     pragma: Optional[Tuple[Node, ...]] = None
     not_active: Optional[bool] = None
     chevron: Optional[Tuple[Expression, ...]] = None
@@ -1004,22 +992,15 @@ class CallStatement(LeafNode, _CallStatementBase):
 
     _traversable = ['name', 'arguments', 'kwarguments']
 
-    @model_validator(mode='before')
+    @field_validator('arguments', mode='before')
     @classmethod
-    def pre_init(cls, values):
-        # Ensure non-nested tuples for arguments
-        if 'arguments' in values.kwargs:
-            values.kwargs['arguments'] = _sanitize_tuple(values.kwargs['arguments'])
-        else:
-            values.kwargs['arguments'] = ()
-        # Ensure two-level nested tuples for kwarguments
-        if 'kwarguments' in values.kwargs:
-            kwarguments = as_tuple(values.kwargs['kwarguments'])
-            kwarguments = tuple(_sanitize_tuple(pair) for pair in kwarguments)
-            values.kwargs['kwarguments'] = kwarguments
-        else:
-            values.kwargs['kwarguments'] = ()
-        return values
+    def ensure_tuple(cls, value):
+        return _sanitize_tuple(value)
+
+    @field_validator('kwarguments', mode='before')
+    @classmethod
+    def ensure_nested_tuple(cls, value):
+        return tuple(_sanitize_tuple(pair) for pair in as_tuple(value))
 
     def __post_init__(self):
         super().__post_init__()
@@ -1116,7 +1097,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         new_kwarguments = tuple((arg_name, kwargs[arg_name]) for arg_name in r_arg_names)
         return new_kwarguments
 
-    def check_kwarguments_order(self):
+    def is_kwargs_order_correct(self):
         """
         Check whether kwarguments are correctly ordered
         in respect to the arguments (``self.routine.arguments``).

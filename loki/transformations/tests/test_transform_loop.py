@@ -16,11 +16,12 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
-    Assignment, FindVariables
+    Assignment, FindVariables, nodes as ir
 )
 
 from loki.transformations.transform_loop import (
-    loop_interchange, loop_fusion, loop_fission, loop_unroll
+    do_loop_interchange, do_loop_fusion, do_loop_fission, do_loop_unroll,
+    TransformLoopsTransformation
 )
 
 
@@ -66,7 +67,7 @@ end subroutine transform_loop_interchange_plain
     assert np.all(a == ref)
 
     # Apply transformation
-    loop_interchange(routine)
+    do_loop_interchange(routine)
 
     interchanged_filepath = tmp_path/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
@@ -137,7 +138,7 @@ end subroutine transform_loop_interchange
     assert np.all(a == ref)
 
     # Apply transformation
-    loop_interchange(routine)
+    do_loop_interchange(routine)
 
     interchanged_filepath = tmp_path/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
@@ -197,7 +198,7 @@ end subroutine transform_loop_interchange_project
     assert np.all(a == ref)
 
     # Apply transformation
-    loop_interchange(routine, project_bounds=True)
+    do_loop_interchange(routine, project_bounds=True)
 
     interchanged_filepath = tmp_path/(f'{routine.name}_interchanged_{frontend}.f90')
     interchanged_function = jit_compile(routine, filepath=interchanged_filepath, objname=routine.name)
@@ -241,7 +242,7 @@ subroutine transform_loop_fuse_ordering(a, b, c, n, m)
       a(j, i) = i + j
     enddo
   end do
-  
+
   do j=1,m
     c(j) = j
   enddo
@@ -256,8 +257,8 @@ end subroutine transform_loop_fuse_ordering
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     assert len(FindNodes(Loop).visit(routine.body)) == 7
-    loop_interchange(routine)
-    loop_fusion(routine)
+    do_loop_interchange(routine)
+    do_loop_fusion(routine)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 5
     loop_0_vars = [var.name.lower() for var in FindVariables().visit(loops[0].body)]
@@ -304,7 +305,7 @@ end subroutine transform_loop_fuse_matching
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
     fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
@@ -366,7 +367,7 @@ end subroutine transform_loop_fuse_subranges
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 3
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
     fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
@@ -438,7 +439,7 @@ end subroutine transform_loop_fuse_groups
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 5
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 2
 
     fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
@@ -481,7 +482,7 @@ end subroutine transform_loop_fuse_failures
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     with pytest.raises(RuntimeError):
-        loop_fusion(routine)
+        do_loop_fusion(routine)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -517,7 +518,7 @@ end subroutine transform_loop_fuse_alignment
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1
 
     fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
@@ -567,7 +568,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fusion(routine)
+    do_loop_fusion(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
@@ -623,7 +624,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fusion(routine)
+    do_loop_fusion(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
@@ -679,7 +680,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fusion(routine)
+    do_loop_fusion(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 1
@@ -740,7 +741,7 @@ end subroutine transform_loop_fuse_collapse
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 4
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.bounds.start == '1' for loop in loops)
@@ -801,7 +802,7 @@ end subroutine transform_loop_fuse_collapse_nonmatching
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 4
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.bounds.start == '1' for loop in loops)
@@ -863,7 +864,7 @@ end subroutine transform_loop_fuse_collapse_range
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 4
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.bounds.start == '1' for loop in loops)
@@ -916,7 +917,7 @@ end subroutine transform_loop_fission_single
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
@@ -971,7 +972,7 @@ end subroutine transform_loop_fission_nested
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 1
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
@@ -1031,7 +1032,7 @@ end subroutine transform_loop_fission_nested_promote
     assert len(FindNodes(Loop).visit(routine.body)) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
@@ -1096,7 +1097,7 @@ end subroutine transform_loop_fission_collapse
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     assert len(FindNodes(Assignment).visit(routine.body)) == 8
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
@@ -1151,7 +1152,7 @@ end subroutine transform_loop_fission_multiple
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
@@ -1206,7 +1207,7 @@ end subroutine transform_loop_fission_promote
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
@@ -1265,7 +1266,7 @@ end subroutine transform_loop_fission_promote_conflicting_lengths
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 4
@@ -1322,7 +1323,7 @@ end subroutine transform_loop_fission_promote_array
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
@@ -1375,7 +1376,7 @@ end subroutine transform_loop_fission_promote_multiple
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
@@ -1441,7 +1442,7 @@ end subroutine transform_loop_fission_multiple_promote
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 5
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
@@ -1500,7 +1501,7 @@ end subroutine transform_loop_fission_promote_read_after_write
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
@@ -1567,7 +1568,7 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 5
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
@@ -1634,9 +1635,9 @@ end subroutine transform_loop_fusion_fission
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 4
-    loop_fusion(routine)
+    do_loop_fusion(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 3
-    loop_fission(routine)
+    do_loop_fission(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 4
@@ -1688,7 +1689,7 @@ end subroutine test_transform_loop_unroll
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 0 and len(FindNodes(Assignment).visit(routine.body)) == 10
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -1713,7 +1714,7 @@ subroutine test_transform_loop_unroll_step(s)
 
     !Loop A
     !$loki loop-unroll
-    do a=1, 10, 2
+    do a=-2, 7, 2
         s = s + a + 1
     end do
 
@@ -1726,11 +1727,11 @@ end subroutine test_transform_loop_unroll_step
     # Test the reference solution
     s = np.zeros(1)
     function(s=s)
-    assert s == sum(x + 1 for x in range(1, 11, 2))
+    assert s == sum(x + 1 for x in range(-2, 8, 2))
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 0 and len(FindNodes(Assignment).visit(routine.body)) == 5
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -1739,7 +1740,7 @@ end subroutine test_transform_loop_unroll_step
     # Test transformation
     s = np.zeros(1)
     unrolled_function(s=s)
-    assert s == sum(x + 1 for x in range(1, 11, 2))
+    assert s == sum(x + 1 for x in range(-2, 8, 2))
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1774,7 +1775,7 @@ end subroutine test_transform_loop_unroll_non_literal_range
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 1
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1 and len(FindNodes(Assignment).visit(routine.body)) == 2
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -1819,7 +1820,7 @@ end subroutine test_transform_loop_unroll_nested
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 0 and len(FindNodes(Assignment).visit(routine.body)) == 50
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -1864,7 +1865,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 10 and len(FindNodes(Assignment).visit(routine.body)) == 10
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -1874,6 +1875,9 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     s = np.zeros(1)
     unrolled_function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
+
+    # check unroll pragma has been removed
+    assert not FindNodes(ir.Pragma).visit(routine.body)
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
@@ -1911,7 +1915,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 1 and len(FindNodes(Assignment).visit(routine.body)) == 6
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -1958,7 +1962,7 @@ end subroutine test_transform_loop_unroll_nested_counters
 
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 2
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 0 and \
            len(FindNodes(Assignment).visit(routine.body)) == len(tuples)
 
@@ -2009,7 +2013,7 @@ end subroutine test_transform_loop_unroll_nested_neighbours
     assert s == 2 * sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
     # Apply transformation
     assert len(FindNodes(Loop).visit(routine.body)) == 3
-    loop_unroll(routine)
+    do_loop_unroll(routine)
     assert len(FindNodes(Loop).visit(routine.body)) == 10 and len(FindNodes(Assignment).visit(routine.body)) == 60
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
@@ -2022,3 +2026,126 @@ end subroutine test_transform_loop_unroll_nested_neighbours
 
     clean_test(filepath)
     clean_test(unrolled_filepath)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('loop_interchange', [False, True])
+@pytest.mark.parametrize('loop_fusion', [False, True])
+@pytest.mark.parametrize('loop_fission', [False, True])
+@pytest.mark.parametrize('loop_unroll', [False, True])
+def test_transform_loop_transformation(frontend, loop_interchange, loop_fusion, loop_fission, loop_unroll):
+    fcode = """
+subroutine transform_loop()
+  integer, parameter :: m = 8
+  integer, parameter :: n = 16
+
+  integer :: array(m,n)
+  integer :: a(n), b(n)
+  integer :: i, j, s
+
+  !$loki loop-interchange
+  do i=1,n
+    do j=1,m
+      array(j, i) = i + j
+    end do
+  end do
+
+  !$loki loop-fusion
+  do i=1,n
+    a(i) = i
+  end do
+
+  !$loki loop-fusion
+  do i=1,n
+    b(i) = n-i+1
+  end do
+
+  do j=1,n
+    a(j) = j
+    !$loki loop-fission
+    b(j) = n-j
+  end do
+
+  !$loki loop-unroll
+  do i=1, 10
+      s = s + i + 1
+  end do
+end subroutine transform_loop
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    transform = TransformLoopsTransformation(loop_interchange=loop_interchange, loop_fusion=loop_fusion,
+                                             loop_fission=loop_fission, loop_unroll=loop_unroll)
+
+    num_pragmas = len(FindNodes(ir.Pragma).visit(routine.body))
+    num_loops = len(FindNodes(ir.Loop).visit(routine.body))
+
+    transform.apply(routine)
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+
+    if loop_interchange:
+        num_pragmas -= 1
+        assert loops[0].variable == 'j'
+        assert not any('loop-interchange' in pragma.content for pragma in pragmas)
+        assert FindNodes(ir.Loop).visit(loops[0].body)[0].variable == 'i'
+
+    if loop_fusion:
+        num_pragmas -= 1
+        num_loops -= 1
+        assert not any('loop-fusion' in pragma.content for pragma in pragmas)
+        assert len(FindNodes(ir.Assignment).visit(loops[2].body)) == 2
+
+    if loop_fission:
+        num_pragmas -= 1
+        num_loops += 1
+        assert not any('loop-fission' in pragma.content for pragma in pragmas)
+
+    if loop_unroll:
+        num_pragmas -= 1
+        num_loops -= 1
+        assert not any('loop-unroll' in pragma.content for pragma in pragmas)
+
+    assert len(loops) == num_loops
+    assert len(pragmas) == num_pragmas
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_loop_unroll_before_fuse(frontend):
+    fcode = """
+    subroutine test_loop_unroll_before_fuse(n, map, a, b)
+       integer, intent(in) :: n
+       integer, intent(in) :: map(3,3)
+       real, intent(inout) :: a(n)
+       real, intent(in) :: b(:)
+
+       integer :: i,j,k
+
+       !$loki loop-unroll
+       do k=1,3
+          !$loki loop-unroll
+          do j=1,3
+            !$loki loop-fusion
+            do i=1,n
+              a(i) = a(i) + b(map(j,k))
+            enddo
+          enddo
+       enddo
+
+    end subroutine test_loop_unroll_before_fuse
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 3
+
+    do_loop_unroll(routine)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 9
+    assert all(loop.variable == 'i' for loop in loops)
+
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
+    assert len(pragmas) == 9
+    assert all(p.content == 'loop-fusion' for p in pragmas)
+
+    do_loop_fusion(routine)
+    assert len(FindNodes(ir.Loop).visit(routine.body)) == 1

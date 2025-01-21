@@ -10,7 +10,7 @@ import pytest
 from loki.backend import fgen
 from loki.batch import Scheduler, SchedulerConfig
 from loki.dimension import Dimension
-from loki.expression import DeferredTypeSymbol, InlineCall, IntLiteral
+from loki.expression import DeferredTypeSymbol, InlineCall, IntLiteral, ProcedureSymbol
 from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, CallStatement, Assignment, Pragma
 from loki.sourcefile import Sourcefile
@@ -282,7 +282,7 @@ end module kernel3_mod
     real = BasicType.REAL
     logical = BasicType.LOGICAL
     jprb = DeferredTypeSymbol('JPRB')
-    srk = InlineCall(function = DeferredTypeSymbol(name = 'SELECTED_REAL_KIND'),
+    srk = InlineCall(function = ProcedureSymbol(name = 'SELECTED_REAL_KIND'),
                      parameters = (IntLiteral(13), IntLiteral(300)))
 
     stack_dict = kernel1_item.trafo_data[transformation._key]['stack_dict']

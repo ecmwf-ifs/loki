@@ -21,7 +21,7 @@ from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import SCCDevectorTransformation
 from loki.transformations.utilities import single_variable_declaration
@@ -342,14 +342,15 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     if horizontal_index.name in call.routine.variables:
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
-                    additional_args += (horizontal_index.clone(),)
+                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'),
+                                                               scope=call.routine),)
                 if horizontal_index.name not in call.arg_map:
-                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone()),)
+                    additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
 
                 if block_dim_index.name not in call.routine.arguments:
                     additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in',
                         scope=call.routine)),)
-                    additional_kwargs += ((block_dim_index.name, block_dim_index.clone()),)
+                    additional_kwargs += ((block_dim_index.name, block_dim_index.clone(scope=routine)),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
                 if additional_args:
@@ -622,7 +623,7 @@ class SccLowLevelDataOffload(Transformation):
         """
 
         v_index = get_integer_variable(routine, name=self.horizontal.index)
-        resolve_associates(routine)
+        do_resolve_associates(routine)
         SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
         SCCDevectorTransformation.kernel_remove_vector_loops(routine, self.horizontal)

@@ -22,11 +22,11 @@ from loki.batch import (
     ProcedureBindingItem, ExternalItem, InterfaceItem, SGraph,
     SchedulerConfig, ItemFactory
 )
-from loki.frontend import HAVE_FP, HAVE_OFP, REGEX, RegexParserClass
+from loki.frontend import HAVE_FP, REGEX, RegexParserClass
 from loki.ir import nodes as ir
 
 
-pytestmark = pytest.mark.skipif(not HAVE_FP and not HAVE_OFP, reason='Fparser and OFP not available')
+pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
 @pytest.fixture(scope='module', name='here')
@@ -347,7 +347,7 @@ def test_module_item4(testdir):
     # Make sure interfaces are correctly identified as definitions
     item = get_item(ModuleItem, proj/'some_module.F90', 'some_module', RegexParserClass.ProgramUnitClass)
     definitions = item.definitions
-    assert len(definitions) == 8
+    assert len(definitions) == 6
     assert len(item.ir.interfaces) == 1
     assert item.ir.interfaces[0] in definitions
 
@@ -355,7 +355,7 @@ def test_module_item4(testdir):
     item_factory.item_cache[item.name] = item
 
     items = item.create_definition_items(item_factory=item_factory)
-    assert len(items) == 10
+    assert len(items) == 8
     assert len(set(items)) == 6
     assert 'some_module#add_args' in item_factory.item_cache
     assert isinstance(item_factory.item_cache['some_module#add_args'], InterfaceItem)
@@ -402,6 +402,7 @@ def test_procedure_item1(testdir):
 
     # To ensure any existing items from the item_cache are re-used, we instantiate one for
     # the procedure binding
+    # pylint: disable=unsupported-binary-operation
     t_mod_t_proc = get_item(
         ProcedureBindingItem, proj/'module/t_mod.F90', 't_mod#t%proc',
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
@@ -670,6 +671,76 @@ end subroutine procedure_item_external_item
     assert [it.origin_cls for it in items] == [ModuleItem, ProcedureItem]
 
 
+def test_procedure_item_from_item1(testdir, default_config):
+    proj = testdir/'sources/projBatch'
+
+    # A file with a single subroutine definition that calls a routine via interface block
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    file_item = item_factory.get_or_create_file_item_from_path(proj/'source/comp1.F90', config=scheduler_config)
+    item = file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
+    assert item.name == '#comp1'
+    assert isinstance(item, ProcedureItem)
+
+    expected_cache = {str(proj/'source/comp1.F90').lower(), '#comp1'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Create a new item by duplicating the existing item
+    new_item = item_factory.get_or_create_item_from_item('#new_comp1', item, config=scheduler_config)
+    expected_cache |= {str(proj/'source/new_comp1.F90').lower(), '#new_comp1'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Assert the new item differs from the existing item in the name, with the original
+    # item unchanged
+    assert new_item.name == '#new_comp1'
+    assert isinstance(new_item, ProcedureItem)
+    assert new_item.ir.name == 'new_comp1'
+    assert item.ir.name == 'comp1'
+
+    # Make sure both items have the same dependencies but the dependency
+    # objects are distinct objects
+    assert item.dependencies == new_item.dependencies
+    assert all(d is not new_d for d, new_d in zip(item.dependencies, new_item.dependencies))
+
+
+def test_procedure_item_from_item2(testdir, default_config):
+    proj = testdir/'sources/projBatch'
+
+    # A file with a single subroutine declared in a module that calls a typebound procedure
+    # where the type is imported via an import statement in the module scope
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    file_item = item_factory.get_or_create_file_item_from_path(proj/'module/other_mod.F90', config=scheduler_config)
+    mod_item = file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
+    assert mod_item.name == 'other_mod'
+    assert isinstance(mod_item, ModuleItem)
+    item = mod_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
+    assert item.name == 'other_mod#mod_proc'
+    assert isinstance(item, ProcedureItem)
+
+    expected_cache = {str(proj/'module/other_mod.F90').lower(), 'other_mod', 'other_mod#mod_proc'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Create a new item by duplicating the existing item
+    new_item = item_factory.get_or_create_item_from_item('my_mod#new_proc', item, config=scheduler_config)[0]
+    expected_cache |= {str(proj/'module/my_mod.F90').lower(), 'my_mod', 'my_mod#new_proc'}
+    assert set(item_factory.item_cache) == expected_cache
+
+    # Assert the new item differs from the existing item in the name, with the original
+    # item unchanged
+    assert new_item.name == 'my_mod#new_proc'
+    assert isinstance(new_item, ProcedureItem)
+    assert new_item.ir.name == 'new_proc'
+    assert new_item.ir.parent.name == 'my_mod'
+    assert item.ir.name == 'mod_proc'
+    assert item.ir.parent.name == 'other_mod'
+
+    # Make sure both items have the same dependencies but the dependency
+    # objects are distinct objects
+    assert item.dependencies == new_item.dependencies
+    assert all(d is not new_d for d, new_d in zip(item.dependencies, new_item.dependencies))
+
+
 def test_typedef_item(testdir):
     proj = testdir/'sources/projBatch'
 
@@ -805,6 +876,7 @@ def test_interface_item_in_subroutine(testdir):
 
 def test_procedure_binding_item1(testdir):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -830,6 +902,7 @@ def test_procedure_binding_item1(testdir):
 
 def test_procedure_binding_item2(testdir, default_config):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -871,6 +944,7 @@ def test_procedure_binding_item2(testdir, default_config):
 
 def test_procedure_binding_item3(testdir):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )
@@ -909,6 +983,7 @@ def test_procedure_binding_item3(testdir):
 ])
 def test_procedure_binding_with_config(testdir, config, expected_dependencies):
     proj = testdir/'sources/projBatch'
+    # pylint: disable=unsupported-binary-operation
     parser_classes = (
         RegexParserClass.ProgramUnitClass | RegexParserClass.TypeDefClass | RegexParserClass.DeclarationClass
     )

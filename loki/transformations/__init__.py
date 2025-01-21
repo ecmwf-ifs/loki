@@ -19,6 +19,7 @@ from loki.transformations.data_offload import * # noqa
 from loki.transformations.constant_propagation import * # noqa
 from loki.transformations.drhook import * # noqa
 from loki.transformations.extract import * # noqa
+from loki.transformations.field_api import * # noqa
 from loki.transformations.hoist_variables import * # noqa
 from loki.transformations.idempotence import * # noqa
 from loki.transformations.inline import * # noqa
@@ -37,3 +38,5 @@ from loki.transformations.block_index_transformations import * # noqa
 from loki.transformations.split_read_write import * # noqa
 from loki.transformations.loop_blocking import * # noqa
 from loki.transformations.routine_signatures import * # noqa
+from loki.transformations.parallel import * # noqa
+from loki.transformations.dependency import * # noqa

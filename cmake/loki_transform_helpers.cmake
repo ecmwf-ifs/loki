@@ -74,56 +74,6 @@ endmacro()
 
 ##############################################################################
 
-#
-# Utility macro to translate options in loki_transform to command line
-# arguments for loki-transform.py
-#
-macro( _loki_transform_parse_options )
-
-    if( _PAR_CPP )
-        list( APPEND _ARGS --cpp )
-    endif()
-
-    if( _PAR_DATA_OFFLOAD )
-        list( APPEND _ARGS --data-offload )
-    endif()
-
-    if( _PAR_REMOVE_OPENMP )
-        list( APPEND _ARGS --remove-openmp )
-    endif()
-
-    if( _PAR_ASSUME_DEVICEPTR )
-        list( APPEND _ARGS --assume-deviceptr )
-    endif()
-
-    if( _PAR_GLOBAL_VAR_OFFLOAD )
-        list( APPEND _ARGS --global-var-offload )
-    endif()
-
-    if( _PAR_TRIM_VECTOR_SECTIONS )
-        list( APPEND _ARGS --trim-vector-sections )
-    endif()
-
-    if( _PAR_REMOVE_DERIVED_ARGS )
-        list( APPEND _ARGS --remove-derived-args )
-    endif()
-
-    if( _PAR_INLINE_MEMBERS )
-        list( APPEND _ARGS --inline-members )
-    endif()
-
-    if( _PAR_RESOLVE_SEQUENCE_ASSOCIATION )
-        list( APPEND _ARGS --resolve-sequence-association )
-    endif()
-
-    if( _PAR_DERIVE_ARGUMENT_ARRAY_SHAPE )
-        list( APPEND _ARGS --derive-argument-array-shape )
-    endif()
-
-endmacro()
-
-##############################################################################
-
 macro( _loki_transform_env_setup )
 
     # The full path of the loki-transform.py executable
@@ -132,7 +82,7 @@ macro( _loki_transform_env_setup )
     set( _LOKI_TRANSFORM_ENV )
     set( _LOKI_TRANSFORM_PATH )
 
-    if( TARGET clawfc AND ${_PAR_FRONTEND} STREQUAL "omni" )
+    if( TARGET clawfc AND "${_PAR_FRONTEND}" STREQUAL "omni" )
         # Ugly hack but I don't have a better solution: We need to add F_FRONT
         # (which is installed in the same directory as clawfc) to the PATH, if
         # OMNI is used as a frontend. Hence we have to update the environment in the below
@@ -142,7 +92,7 @@ macro( _loki_transform_env_setup )
         list( APPEND _LOKI_TRANSFORM_PATH ${_CLAWFC_LOCATION} )
     endif()
 
-    if( _PAR_OUTPATH AND (${_PAR_FRONTEND} STREQUAL "omni" OR ${_PAR_FRONTEND} STREQUAL "ofp") )
+    if( _PAR_OUTPATH AND ("${_PAR_FRONTEND}" STREQUAL "omni" OR "${_PAR_FRONTEND}" STREQUAL "ofp") )
         # With pre-processing, we may end up having a race condition on the preprocessed
         # source files in parallel builds. Ensuring we use the outpath of the call to Loki
         # should ensure in most cases that parallel builds write to different directories

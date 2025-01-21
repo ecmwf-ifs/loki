@@ -7,7 +7,6 @@
 
 import importlib
 import itertools
-from shutil import rmtree
 from pathlib import Path
 import numpy as np
 import pytest

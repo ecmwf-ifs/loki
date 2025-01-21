@@ -951,3 +951,85 @@ end module inline_declarations
     assert all(
         a.shape == ('bnds%end',) for a in outer.symbols if isinstance(a, sym.Array)
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'No header information in test')]
+))
+def test_inline_marked_subroutines_imports(frontend, tmp_path):
+    """Test propagation of necessary imports to the parent function"""
+    fcode = """
+subroutine inline_routine_imports(n, a, b)
+  use rick_mod, only: rick
+  use dave_mod, only: dave
+implicit none
+
+  integer, intent(in) :: n
+  real(kind=8), intent(inout) :: a(n), b(n)
+  integer :: i
+
+  !$loki inline
+  call rick(a)
+
+  call rick(b)
+
+  !$loki inline
+  call dave(a)
+end subroutine inline_routine_imports
+"""
+
+    fcode_rick = """
+module rick_mod
+  use type_mod, only: a_type
+  implicit none
+contains
+  subroutine rick(a)
+    use type_mod, only: a_type
+
+    real(kind=8), intent(inout) :: a(:)
+    type(a_type) :: my_obj
+
+    my_obj%a = a(1)
+    a(:) = my_obj%a
+  end subroutine rick
+end module rick_mod
+"""
+
+    fcode_dave = """
+module dave_mod
+  implicit none
+contains
+  subroutine dave(a)
+    use type_mod, only: a_type, a_kind
+
+    real(kind=8), intent(inout) :: a(:)
+    type(a_type) :: my_obj
+    real(kind=a_kind) :: my_number
+
+    my_obj%a = a(1)
+    my_number = real(a(1), kind=a_kind)
+    a(1) = my_obj%a + my_number
+  end subroutine dave
+end module dave_mod
+"""
+    rick_mod = Module.from_source(fcode_rick, frontend=frontend, xmods=[tmp_path])
+    dave_mod = Module.from_source(fcode_dave, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(
+        fcode, definitions=[rick_mod, dave_mod], frontend=frontend, xmods=[tmp_path]
+    )
+
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    assert len(imports) == 2
+    assert imports[0].module == 'rick_mod'
+    assert imports[0].symbols == ('rick',)
+    assert imports[1].module == 'dave_mod'
+    assert imports[1].symbols == ('dave',)
+
+    inline_marked_subroutines(routine=routine, adjust_imports=True)
+
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    assert len(imports) == 2
+    assert imports[0].module == 'type_mod'
+    assert imports[0].symbols == ('a_type', 'a_kind')
+    assert imports[1].module == 'rick_mod'
+    assert imports[1].symbols == ('rick',)

@@ -113,6 +113,7 @@ def convert_to_lower_case(routine):
         (stmt.variable, stmt.variable.clone(name=stmt.variable.name.lower()))
         for stmt in FindNodes(StatementFunction).visit(routine.spec)
     )
+    mapper = recursive_expression_map_update(mapper, case_sensitive=True)
     routine.spec = SubstituteExpressions(mapper).visit(routine.spec)
     routine.body = SubstituteExpressions(mapper).visit(routine.body)
 

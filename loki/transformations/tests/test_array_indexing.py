@@ -22,7 +22,9 @@ from loki.transformations.array_indexing import (
     LowerConstantArrayIndices, remove_explicit_array_dimensions,
     add_explicit_array_dimensions
 )
-from loki.transformations.transpile import FortranCTransformation
+from loki.transformations.transpile import (
+    FortranCTransformation, FortranISOCWrapperTransformation
+)
 
 
 @pytest.fixture(scope='function', name='builder')
@@ -546,8 +548,13 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     f2c_routine = Subroutine.from_source(fcode, frontend=frontend)
     f2c = FortranCTransformation()
     f2c.apply(source=f2c_routine, path=tmp_path)
+    f2cwrap = FortranISOCWrapperTransformation()
+    f2cwrap.apply(source=f2c_routine, path=tmp_path)
     libname = f'fc_{f2c_routine.name}_{start_index}_{frontend}'
-    c_kernel = jit_compile_lib([f2c.wrapperpath, f2c.c_path], path=tmp_path, name=libname, builder=builder)
+    c_kernel = jit_compile_lib(
+        [tmp_path/f'{f2c_routine.name}_fc.F90', tmp_path/f'{f2c_routine.name}_c.c'],
+        path=tmp_path, name=libname, builder=builder
+    )
     fc_function = c_kernel.transf_flatten_arr_fc_mod.transf_flatten_arr_fc
     f2c_x1, f2c_x2, f2c_x3, f2c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
     fc_function(f2c_x1, f2c_x2, f2c_x3, f2c_x4, l1, l2, l3, l4)
@@ -1064,16 +1071,17 @@ end subroutine transform_resolve_vector_notation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_resolve_vector_notation_common_loops(tmp_path, frontend):
+@pytest.mark.parametrize('kidia_loop', (True, False))
+def test_transform_resolve_vector_notation_common_loops(tmp_path, frontend, kidia_loop):
     """
     Apply and test resolve vector notation utility with already
     available/appropriate loops.
     """
-    fcode = """
-subroutine transform_resolve_vector_notation_common_loops(scalar, vector, matrix, n, m, l)
+    fcode = f"""
+subroutine transform_resolve_vector_notation_common_loops(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
   implicit none
-  integer, intent(in) :: n, m, l
-  integer, intent(inout) :: scalar, vector(n), matrix(l, n)
+  integer, intent(in) :: n, m, l, kidia, kfdia
+  integer, intent(inout) :: scalar, vector(n), vector_2(n), matrix(l, n)
   integer :: tmp_scalar, tmp_vector(n, m), tmp_matrix(l, m, n), tmp_dummy(n, 0:4)
   integer :: jl, jk, jm
 
@@ -1083,7 +1091,7 @@ subroutine transform_resolve_vector_notation_common_loops(scalar, vector, matrix
   tmp_matrix(:, :, :) = 0
   matrix(:, :) = 0
 
-  do jl=1,n
+  do jl={'kidia,kfdia' if kidia_loop else '1,n'}
     do jm=1,m
       tmp_vector(jl, jm) = scalar + jl
     end do
@@ -1110,6 +1118,9 @@ subroutine transform_resolve_vector_notation_common_loops(scalar, vector, matrix
     end do
   end do
 
+  vector_2(:) = 1
+  vector_2(kidia:kfdia) = 2
+
 end subroutine transform_resolve_vector_notation_common_loops
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -1120,21 +1131,22 @@ end subroutine transform_resolve_vector_notation_common_loops
     n = 3
     m = 2
     l = 3
+    kidia = 1
+    kfdia = n
     scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    vector_2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
-    function(scalar, vector, matrix, n, m, l)
+    function(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
 
     assert all(scalar == 3)
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
     resolve_vector_notation(routine)
-
     loops = FindNodes(Loop).visit(routine.body)
     arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
-
-    assert len(loops) == 19
+    assert len(loops) == 21
     assert loops[0].variable == 'i_tmp_dummy_1' and loops[0].bounds.children == (0, 4, None)
     assert loops[1].variable == 'jl' and loops[1].bounds.children == (1, 'n', 1)
     assert loops[2].variable == 'jl' and loops[2].bounds.children == (1, 'n', 1)
@@ -1145,7 +1157,11 @@ end subroutine transform_resolve_vector_notation_common_loops
     assert loops[7].variable == 'jk' and loops[7].bounds.children == (1, 'l', 1)
     assert loops[8].variable == 'jl' and loops[8].bounds.children == (1, 'n', 1)
     assert loops[9].variable == 'jk' and loops[9].bounds.children == (1, 'l', 1)
-    assert loops[10].variable == 'jl' and loops[10].bounds.children == (1, 'n', None)
+    assert loops[10].variable == 'jl'
+    if kidia_loop:
+        assert loops[10].bounds.children == ('kidia', 'kfdia', None)
+    else:
+        assert loops[10].bounds.children == (1, 'n', None)
     assert loops[11].variable == 'jm' and loops[11].bounds.children == (1, 'm', None)
     assert loops[12].variable == 'jm' and loops[12].bounds.children == (1, 'm', None)
     assert loops[13].variable == 'jl' and loops[13].bounds.children == (1, 'n', None)
@@ -1154,13 +1170,26 @@ end subroutine transform_resolve_vector_notation_common_loops
     assert loops[16].variable == 'jl' and loops[16].bounds.children == (1, 'n', 1)
     assert loops[17].variable == 'jm' and loops[17].bounds.children == (1, 'm', None)
     assert loops[18].variable == 'jl' and loops[18].bounds.children == (1, 'n', None)
+    assert loops[19].variable == 'jl' and loops[19].bounds.children == (1, 'n', 1)
+    if kidia_loop:
+        assert loops[20].variable == 'jl'
+        assert loops[20].bounds.children == ('kidia', 'kfdia', None)
+    else:
+        assert loops[20].variable == 'i_vector_2_0'
+        assert loops[20].bounds.children == ('kidia', 'kfdia', None)
 
-    assert len(arrays) == 15
+    assert len(arrays) == 17
     assert arrays[0].name.lower() == 'tmp_dummy' and arrays[0].dimensions == ('jl', 'i_tmp_dummy_1')
     assert arrays[1].name.lower() == 'tmp_vector' and arrays[1].dimensions == ('jl', 1)
     assert arrays[2].name.lower() == 'tmp_dummy' and arrays[2].dimensions == ('jl', 1)
     assert arrays[3].name.lower() == 'tmp_vector' and arrays[3].dimensions == ('jl', 'jm')
     assert arrays[4].name.lower() == 'tmp_matrix' and arrays[4].dimensions == ('jk', 'jm', 'jl')
+    assert arrays[15].name.lower() == 'vector_2' and arrays[15].dimensions == ('jl',)
+    assert arrays[16].name.lower() == 'vector_2'
+    if kidia_loop:
+        assert arrays[16].dimensions == ('jl',)
+    else:
+        assert arrays[16].dimensions == ('i_vector_2_0',)
 
     # Test promoted routine
     resolved_filepath = tmp_path/(f'{routine.name}_resolved_{frontend}.f90')
@@ -1169,15 +1198,17 @@ end subroutine transform_resolve_vector_notation_common_loops
     n = 3
     m = 2
     l = 3
+    kidia = 1
+    kfdia = n
     scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
+    vector_2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
-    resolved_function(scalar, vector, matrix, n, m, l)
+    resolved_function(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
 
     assert all(scalar == 3)
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('calls_only', (False, True))

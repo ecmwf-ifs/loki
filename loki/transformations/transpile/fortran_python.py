@@ -19,7 +19,7 @@ from loki.sourcefile import Sourcefile
 from loki.transformations.array_indexing import (
     shift_to_zero_indexing, invert_array_indices
 )
-from loki.transformations.sanitise import resolve_associates
+from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics
 )
@@ -70,7 +70,7 @@ class FortranPythonTransformation(Transformation):
         convert_to_lower_case(routine)
 
         # Resolve implicit struct mappings through "associates"
-        resolve_associates(routine)
+        do_resolve_associates(routine)
 
         # Do some vector and indexing transformations
         if self.with_dace or self.invert_indices:

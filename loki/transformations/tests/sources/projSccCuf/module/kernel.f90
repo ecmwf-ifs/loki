@@ -10,7 +10,7 @@ MODULE KERNEL_MOD
         INTEGER :: jl, jk
         REAL :: c
 
-        c = 5.345
+        c = SOME_FUNC(A=5.345)
         DO jk = 2, nz
           DO jl = start, iend
             call ELEMENTAL_DEVICE(z(jl, jk))
@@ -53,5 +53,12 @@ MODULE KERNEL_MOD
             END DO
         END DO
     END SUBROUTINE DEVICE
+
+    FUNCTION SOME_FUNC(A)
+        REAL, INTENT(IN) :: A
+        REAL :: SOME_FUNC
+        !$loki routine seq
+        SOME_FUNC = A
+    END FUNCTION SOME_FUNC
 
 END MODULE KERNEL_MOD
