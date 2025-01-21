@@ -13,7 +13,7 @@ from loki import (
 from loki.build import jit_compile
 from loki.frontend import available_frontends
 
-from loki.transformations.constant_propagation import ConstantPropagator
+from loki.transformations.constant_propagation import ConstantPropagationTransformer
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -49,7 +49,7 @@ end subroutine const_prop_literals
     function()
 
     # Apply transformation
-    routine.body = ConstantPropagator().visit(routine.body)
+    routine.body = ConstantPropagationTransformer().visit(routine.body)
 
     assignments = [str(a) for a in FindNodes(Assignment).visit(routine.body)]
     assert 'Assignment:: a = 1' in assignments
@@ -108,7 +108,7 @@ end subroutine const_prop_ops_int
     assert len(FindNodes(Assignment).visit(routine.body)) == 11
 
     # Apply transformation
-    routine.body = ConstantPropagator().visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer().visit(routine.body, declarations=routine.declarations)
     print(routine.to_fortran())
     assert len(FindNodes(Assignment).visit(routine.body)) == 11
 
@@ -196,7 +196,7 @@ end subroutine const_prop_ops_float
     assert len(FindNodes(Assignment).visit(routine.body)) == 11
 
     # Apply transformation
-    routine.body = ConstantPropagator().visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer().visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 11
 
@@ -276,7 +276,7 @@ end subroutine const_prop_ops_string
     assert len(FindNodes(Assignment).visit(routine.body)) == 7
 
     # Apply transformation
-    routine.body = ConstantPropagator().visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer().visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 7
 
@@ -346,7 +346,7 @@ end subroutine const_prop_ops_bool
     assert len(FindNodes(Assignment).visit(routine.body)) == 5
 
     # Apply transformation
-    routine.body = ConstantPropagator().visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer().visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 5
 
@@ -403,7 +403,7 @@ end subroutine test_transform_region_const_prop_for_loop_basic
     assert c == a_val * b_val
 
     # Apply transformation
-    routine.body = ConstantPropagator(unroll_loops=True).visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer(unroll_loops=True).visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == a_val + 1
     assert len(FindNodes(Loop).visit(routine.body)) == 0
@@ -454,7 +454,7 @@ end subroutine test_transform_region_const_prop_for_loop_basic_no_unroll
     assert c == a_val * b_val
 
     # Apply transformation
-    routine.body = ConstantPropagator(unroll_loops=False).visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer(unroll_loops=False).visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 2
     assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -503,10 +503,10 @@ end subroutine test_transform_region_const_prop_for_loop_consts_no_unroll
     # Test the reference solution
     c = function()
 
-    assert c == a_val * b_val
+    assert c == a_val * b_val * 2
 
     # Apply transformation
-    routine.body = ConstantPropagator(unroll_loops=False).visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer(unroll_loops=False).visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert len(FindNodes(Loop).visit(routine.body)) == 1
@@ -532,7 +532,7 @@ def test_transform_region_const_prop_for_loop_nested(tmp_path, frontend):
 subroutine test_transform_region_const_prop_for_loop_nested(c)
   integer :: a = {a_val}
   integer :: b = {b_val}
-  integer :: i
+  integer :: i, j
   integer, intent(out) :: c
 
   c = 0
@@ -557,18 +557,20 @@ end subroutine test_transform_region_const_prop_for_loop_nested
     # Test the reference solution
     c = function()
 
-    assert c == a_val * b_val
+    assert c == b_val*(a_val*(a_val+1))/2 + a_val*(b_val*(b_val+1))/2
 
     # Apply transformation
-    routine.body = ConstantPropagator(unroll_loops=True).visit(routine.body, declarations=routine.declarations)
+    routine.body = ConstantPropagationTransformer(unroll_loops=True).visit(routine.body, declarations=routine.declarations)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == a_val * b_val + 1
     assert len(FindNodes(Loop).visit(routine.body)) == 0
 
     assignments = [str(a) for a in FindNodes(Assignment).visit(routine.body)]
+    tmp = 0
     for i in range(1, a_val+1):
         for j in range(1, b_val+1):
-            assert f'Assignment:: c = {i + j}' in assignments
+            tmp = tmp + i + j
+            assert f'Assignment:: c = {tmp}' in assignments
 
     # Test transformation
 

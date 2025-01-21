@@ -16,6 +16,7 @@ from loki.transformations.array_indexing import * # noqa
 from loki.transformations.build_system import * # noqa
 from loki.transformations.argument_shape import * # noqa
 from loki.transformations.data_offload import * # noqa
+from loki.transformations.constant_propagation import * # noqa
 from loki.transformations.drhook import * # noqa
 from loki.transformations.extract import * # noqa
 from loki.transformations.hoist_variables import * # noqa

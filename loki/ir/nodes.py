@@ -189,6 +189,12 @@ class Node:
         return ir_graph(self, show_comments, show_expressions,linewidth, symgen)
 
     @property
+    def constants_map(self):
+        if self.__dict__['_constants_map'] is None:
+            raise RuntimeError('Need to run constant propagation analysis on the IR first.')
+        return self.__dict__['_constants_map']
+
+    @property
     def live_symbols(self):
         """
         Yield the list of live symbols at this node, i.e., variables that
