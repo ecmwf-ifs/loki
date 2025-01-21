@@ -305,7 +305,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         # Create a copy of the tree and apply promotion in-place
         routine.body = Transformer().visit(routine.body)
 
-        with DataFlowAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis().dataflow_analysis_attached(routine):
             for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(routine.body):
                 # All the variables marked for promotion that appear in this IR node
                 var_list = [v for v in var_list if v.name.lower() in variable_names]

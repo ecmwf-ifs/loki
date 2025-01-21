@@ -190,7 +190,7 @@ def outline_pragma_regions(routine):
     parent_vmap = routine.variable_map
     mapper = {}
     with pragma_regions_attached(routine):
-        with DataFlowAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis().dataflow_analysis_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
                 if not is_loki_pragma(region.pragma, starts_with='outline'):
                     continue

@@ -675,7 +675,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         ]
 
         # Filter out unused vars
-        with DataFlowAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis().dataflow_analysis_attached(routine):
             temporary_arrays = [
                 var for var in temporary_arrays
                 if var.name.lower() in routine.body.defines_symbols

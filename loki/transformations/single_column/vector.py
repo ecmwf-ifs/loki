@@ -162,7 +162,7 @@ class SCCDevectorTransformation(Transformation):
         """
 
         trimmed_sections = ()
-        with DataFlowAnalysis.dataflow_analysis_attached(routine):
+        with DataFlowAnalysis().dataflow_analysis_attached(routine):
             for sec in sections:
                 vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
                 start = sec.index(vec_nodes[0])
