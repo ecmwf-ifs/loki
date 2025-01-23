@@ -11,10 +11,12 @@ import operator
 import functools
 from copy import deepcopy
 
-from loki import Transformer, Array, DataFlowAnalysis, DeferredTypeSymbol, RangeIndex, \
-    IntLiteral, get_pyrange, LoopRange, as_tuple, Assignment, FindNodes, LokiIdentityMapper, FindVariables, Loop
+from loki import Transformer, Array, DeferredTypeSymbol, RangeIndex, \
+    IntLiteral, get_pyrange, LoopRange, as_tuple, Assignment, FindNodes, LokiIdentityMapper, FindVariables, Loop, \
+    is_constant
 from loki.expression.symbols import _Literal, FloatLiteral, LogicLiteral, Product, StringLiteral
-from loki.analyse.AbstractDFA import AbstractDataflowAnalysis
+from loki.analyse.data_flow_analysis import DataFlowAnalysis
+from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
 from loki.transformations.transform_loop import LoopUnrollTransformer
 
 __all__ = [

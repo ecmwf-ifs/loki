@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.analyse.ConstantPropagationAnalysis import ConstantPropagationAnalysis
+from loki.analyse.constant_propagation_analysis import ConstantPropagationAnalysis
 from loki import Transformer, Subroutine
 
 __all__ = ['ConstantPropagationTransformer']
