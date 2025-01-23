@@ -274,13 +274,14 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                 temp_loop = o.clone()
                 temp_loop._update(bounds=new_bounds)
                 unrolled = LoopUnrollTransformer(warn_iterations_length=False).visit(temp_loop)
-                if self.parent._apply_transform:
-                    o = self.visit(unrolled, constants_map=constants_map, **kwargs)
-                # TODO: _update each node in the new body with the const map
-                return o
+                # If we cannot unroll, then we need to fall back to the no unroll analysis
+                if not isinstance(unrolled, Loop):
+                    if self.parent._apply_transform:
+                        o = self.visit(unrolled, constants_map=constants_map, **kwargs)
+                        # TODO: _update each node in the new body with the const map
+                    return o
 
-            # TODO: could also be mutating subroutine
-            # TODO: this actually doesn't work because a loop might not be executed
+            # TODO: could also be mutating subroutine, not just an assign
             lhs_vars = {o.variable}
             lhs_vars.update([l.variable for l in FindNodes(Loop).visit(o.body)])
 
@@ -291,7 +292,10 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
             # Then figure out which lhs are generated from only invariants
             for a in assignments:
-                if len(set(FindVariables().visit(a.rhs)).intersection(lhs_vars)) == 0:
+                # if rhs of a has no lhs vars from loop body (i.e. consists solely of loop invariant var),
+                # and all bounds are const (i.e. we can guarantee we'll take the loop at least once)
+                if (len(set(FindVariables().visit(a.rhs)).intersection(lhs_vars)) == 0 and
+                        is_constant(new_bounds.start) and is_constant(new_bounds.stop) and (is_constant(new_bounds.step) or new_bounds.step is None)):
                     # Pass to visit_assignment
                     self.visit_Assignment(a, constants_map=constants_map, **kwargs)
                 else:
@@ -300,7 +304,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                     else:
                         constants_map.pop((a.lhs.basename, ()), None)
 
-            new_body = self.visit(o.body, constants_map=constants_map, **kwargs)
+            new_body = self.visit(o.body, constants_map=deepcopy(constants_map), **kwargs)
             if self.parent._apply_transform:
                 o._update(body=new_body)
 
