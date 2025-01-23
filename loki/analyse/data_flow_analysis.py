@@ -7,7 +7,7 @@
 
 from loki import flatten, as_tuple, Transformer, Subroutine, CaseInsensitiveDict, FindInlineCalls, FindVariables, \
     BasicType, Array, FindTypedSymbols, ProcedureSymbol, Visitor
-from loki.analyse.AbstractDFA import AbstractDataflowAnalysis
+from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
 
 __all__ = [
     'DataFlowAnalysis', 'read_after_write_vars',
