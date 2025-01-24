@@ -150,6 +150,12 @@ class ParallelRoutineDispatchTransformation(Transformation):
     
 
     def process_parallel_regions(self, routine, map_routine, calls):
+        """
+        Loop through the acdc parallel regions of the routine.
+        Dataflow analysis is used.
+
+        Fill the list of call statement that aren't in acdc regions.
+        """
         map_region = {}
         in_pragma_calls = []
         with pragma_regions_attached(routine):
