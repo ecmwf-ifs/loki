@@ -28,6 +28,9 @@ class DataOffloadTransformation(Transformation):
 
     Parameters
     ----------
+    directive : str, optional
+        Pragma/Directive language to be used (OpenACC via 'openacc'
+        or OpenMP offload via 'omp-gpu')
     remove_openmp : bool
         Remove any existing OpenMP pragmas inside the marked region.
     present_on_device : bool
@@ -37,9 +40,11 @@ class DataOffloadTransformation(Transformation):
         is being managed outside of structured OpenACC data regions.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, directive='openacc', **kwargs):
         # We need to record if we actually added any, so
         # that down-stream processing can use that info
+        self.directive = directive
+        assert self.directive in ['openacc', 'omp-gpu']
         self.has_data_regions = False
         self.remove_openmp = kwargs.get('remove_openmp', False)
         self.assume_deviceptr = kwargs.get('assume_deviceptr', False)
@@ -148,28 +153,40 @@ class DataOffloadTransformation(Transformation):
                 outargs = tuple(dict.fromkeys(outargs))
                 inoutargs = tuple(dict.fromkeys(inoutargs))
 
-                # Now generate the pre- and post pragmas (OpenACC)
-                if self.present_on_device:
-                    if self.assume_deviceptr:
-                        offload_args = inargs + outargs + inoutargs
-                        if offload_args:
-                            deviceptr = f' deviceptr({", ".join(offload_args)})'
+                # Now generate the pre- and post pragmas (OpenACC or OpenMP)
+                pragma = None
+                pragma_post = None
+                if self.directive == 'openacc':
+                    if self.present_on_device:
+                        if self.assume_deviceptr:
+                            offload_args = inargs + outargs + inoutargs
+                            if offload_args:
+                                deviceptr = f' deviceptr({", ".join(offload_args)})'
+                            else:
+                                deviceptr = ''
+                            pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
                         else:
-                            deviceptr = ''
-                        pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
+                            offload_args = inargs + outargs + inoutargs
+                            if offload_args:
+                                present = f' present({", ".join(offload_args)})'
+                            else:
+                                present = ''
+                            pragma = Pragma(keyword='acc', content=f'data{present}')
                     else:
-                        offload_args = inargs + outargs + inoutargs
-                        if offload_args:
-                            present = f' present({", ".join(offload_args)})'
-                        else:
-                            present = ''
-                        pragma = Pragma(keyword='acc', content=f'data{present}')
-                else:
-                    copyin = f'copyin({", ".join(inargs)})' if inargs else ''
-                    copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''
-                    copyout = f'copyout({", ".join(outargs)})' if outargs else ''
-                    pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
-                pragma_post = Pragma(keyword='acc', content='end data')
+                        copyin = f'copyin({", ".join(inargs)})' if inargs else ''
+                        copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''
+                        copyout = f'copyout({", ".join(outargs)})' if outargs else ''
+                        pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
+                    pragma_post = Pragma(keyword='acc', content='end data')
+                elif self.directive == 'omp-gpu':
+                    if self.present_on_device:
+                        ... # TODO: OpenMP offload if self.present_on_device
+                    else:
+                        copyin = f'map(to: {", ".join(inargs)})' if inargs else ''
+                        copy = f'map(tofrom:{", ".join(inoutargs)})' if inoutargs else ''
+                        copyout = f'map(from: {", ".join(outargs)})' if outargs else ''
+                        pragma = Pragma(keyword='omp', content=f'target data {copyin} {copy} {copyout}')
+                    pragma_post = Pragma(keyword='omp', content='end target data')
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post
 

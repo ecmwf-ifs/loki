@@ -10,7 +10,8 @@ from pathlib import Path
 from loki.backend import fgen
 from loki.batch import Transformation
 from loki.ir import (
-    CallStatement, Import, Interface, FindNodes, FindInlineCalls, Transformer
+    CallStatement, Import, Interface, FindNodes, FindInlineCalls, Transformer,
+    Pragma, get_pragma_parameters
 )
 from loki.logging import warning
 from loki.module import Module
@@ -131,6 +132,8 @@ class DependencyTransformation(Transformation):
                     ),
                 )
 
+        self.rename_omp_target_declare_pragmas(module)
+
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
         if self.replace_ignore_items and (item := kwargs.get('item')):
             targets += tuple(str(i).lower() for i in item.ignore)
@@ -187,6 +190,17 @@ class DependencyTransformation(Transformation):
         if role == 'kernel' and not routine.parent and self.include_path:
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
+
+
+    def rename_omp_target_declare_pragmas(self, module):
+        """
+        Update :any:`Pragma` `!$omp declare target data <routine name>` accordingly.
+        """
+        for pragma in FindNodes(Pragma).visit(module.spec):
+            pragma_parameters = get_pragma_parameters(pragma, starts_with='declare', only_loki_pragmas=False)
+            if 'target' in pragma_parameters:
+                pragma._update(content=f"declare target({pragma_parameters['target']}{self.suffix.lower()})")
+
 
     def remove_inactive_ir_nodes(self, body, transformed_scope_name, **kwargs):
         """

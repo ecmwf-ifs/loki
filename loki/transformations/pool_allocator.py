@@ -451,6 +451,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 body_prepend += [pragma_data_start]
                 pragma_data_end = Pragma(keyword='acc', content='end data')
                 body_append += [pragma_data_end]
+            elif self.directive == 'omp-gpu':
+                pragma_data_start = Pragma(
+                    keyword='omp',
+                    content=f'target enter data map(alloc: {stack_storage.name})' # pylint: disable=no-member
+                )
+                body_prepend += [pragma_data_start]
+                pragma_data_end = Pragma(keyword='omp', content=f'target exit data map(delete: {stack_storage.name})') # pylint: disable=no-member
+                body_append += [pragma_data_end]
             body_append += [stack_dealloc]
 
         # Inject new variables and body nodes

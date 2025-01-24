@@ -30,10 +30,14 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
     block_dim : :any:`Dimension`
         :any:`Dimension` object to define the blocking dimension
         to use for hoisted array arguments on the driver side.
+    directive : str, optional
+        Pragma/directive to be used for offloading, either OpenACC via
+        `openacc` or OpenMP offload via `omp-gpu`
     """
 
-    def __init__(self, block_dim=None, **kwargs):
+    def __init__(self, block_dim=None, directive='openacc', **kwargs):
         self.block_dim = block_dim
+        self.directive = directive
         super().__init__(**kwargs)
 
     def driver_variable_declaration(self, routine, variables):
@@ -65,13 +69,19 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
 
         # Add explicit device-side allocations/deallocations for hoisted temporaries
         vnames = ', '.join(v.name for v in variables)
+        pragma = None
+        pragma_post = None
         if vnames:
-            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
-
+            if self.directive == 'openacc':
+                pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+                pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+            if self.directive == 'omp-gpu':
+                pragma = ir.Pragma(keyword='omp', content=f'omp target enter data map(alloc: {vnames})')
+                pragma_post = ir.Pragma(keyword='omp', content=f'omp target exit data map(delete: {vnames})')
             # Add comments around standalone pragmas to avoid false attachment
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+            if pragma_post is not None:
+                routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
     def driver_call_argument_remapping(self, routine, call, variables):
         """
