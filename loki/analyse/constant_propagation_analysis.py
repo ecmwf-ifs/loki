@@ -159,22 +159,43 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
         def _pop_array_accesses(self, o, **kwargs):
             # Clear out the unknown dimensions
             constants_map = kwargs.get('constants_map', dict())
+            new_shape = ConstantPropagationAnalysis.ConstPropMapper()(o.lhs.shape, constants_map=constants_map)
 
-            # If the shape is unknown, then for now, just pop everything
-            if o.lhs.shape is None:
-                keys = constants_map.keys()
-                for key in keys:
-                    if key[0] == o.lhs.name:
-                        constants_map.pop(key)
-                return
-            literal_mask = [isinstance(d, _Literal) for d in o.lhs.dimensions]
-            masked_accesses = [o.lhs.dimensions[i] if m else RangeIndex((None, None, None)) for i, m in
-                               enumerate(literal_mask)]
-            possible_accesses = ConstantPropagationAnalysis._array_indices_to_accesses(masked_accesses,
-                                                                ConstantPropagationAnalysis.ConstPropMapper(False)(o.lhs.shape,
-                                                                                                       **kwargs))
+            # Create masks for literals and dimensions we can compute form the shape
+            literal_mask = [is_constant(d) for d in o.lhs.dimensions]
+            computable_dimension_mask = [is_constant(ns) for ns in new_shape]
+
+            # Build list of indices to pass to _array_indices_to_accesses
+            masked_indices = []
+            # Build mask of indices that are neither literal nor computable,
+            # and so can be ignored when partially matching
+            ignore_mask = []
+            partial = False
+            for i, (lm, cdm) in enumerate(zip(literal_mask, computable_dimension_mask)):
+                if lm:
+                    masked_indices.append(o.lhs.dimensions[i])
+                    ignore_mask.append(False)
+                elif cdm:
+                    masked_indices.append(RangeIndex((None, None, None)))
+                    ignore_mask.append(False)
+                else:
+                    # We now need to take the scenic route of finding partial matches
+                    partial = True
+                    masked_indices.append(-1)
+                    ignore_mask.append(True)
+
+            # Expand the indices into accesses
+            possible_accesses = ConstantPropagationAnalysis._array_indices_to_accesses(masked_indices, new_shape)
+            keys = constants_map.keys()
+
             for access in possible_accesses:
-                constants_map.pop((o.lhs.basename, access), None)
+                if partial:
+                    # Find partial matches and pop any candidates
+                    for key in keys:
+                        if key[0] == o.lhs.name and all(k == a or ignore for k,a,ignore in [zip(key[1], access, ignore_mask)]):
+                            constants_map.pop(key)
+                else:
+                    constants_map.pop((o.lhs.basename, access), None)
 
         def __init__(self, parent, **kwargs):
             self.parent = parent
