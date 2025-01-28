@@ -11,9 +11,9 @@ from collections import  defaultdict
 from loki.batch import Transformation
 from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
-    Quotient, IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
+    IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
     Product, InlineCall, Comparison, RangeIndex, Cast,
-    ProcedureSymbol, LogicalNot, simplify, is_dimension_constant,
+    ProcedureSymbol, simplify, is_dimension_constant,
     DetachScopesMapper
 )
 from loki.ir import (
@@ -191,6 +191,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
     process_ignored_items = True
 
+    # TODO: remove horizontal (check)?
     def __init__(
             self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
@@ -222,7 +223,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         ignore = item.ignore if item else ()
         targets = as_tuple(kwargs.get('targets', None))
 
-        self.stack_type_kind = 'JPRB'
+        self.stack_type_kind = 'REAL64'
         if item:
             if (real_kind := item.config.get('real_kind', None)):
                 self.stack_type_kind = real_kind
@@ -232,6 +233,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # add iso_c_binding import if necessary
         self.import_c_sizeof(routine)
+        # add iso_fortran_env import if necessary
+        self.import_real64(routine)
 
         successors = kwargs.get('successors', ())
 
@@ -260,6 +263,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if not 'C_SIZEOF' in routine.imported_symbols:
             imp = Import(
                 module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)),
+                nature='intrinsic'
+            )
+            routine.spec.prepend(imp)
+
+    @staticmethod
+    def import_real64(routine):
+        """
+        Import the real64 symbol if necesssary.
+        """
+
+        # add qualified iso_fortran_env import
+        if not 'REAL64' in routine.imported_symbols:
+            imp = Import(
+                module='ISO_FORTRAN_ENV', symbols=as_tuple(ProcedureSymbol('REAL64', scope=routine)),
                 nature='intrinsic'
             )
             routine.spec.prepend(imp)
@@ -400,23 +417,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
-            if self.cray_ptr_loc_rhs:
-                stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
-            else:
-                stack_size_assign = Assignment(lhs=stack_size_var, rhs=Quotient(stack_size, stack_type_bytes))
+            stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
             body_prepend += [stack_size_assign]
-
-            # Stack-size no longer guaranteed to be a multiple of 8-bytes, so we have to check here
-            padding = Assignment(lhs=stack_size_var, rhs=Sum((stack_size_var, Literal(1))))
-            stack_size_check = Conditional(
-                condition=LogicalNot(Comparison(
-                    InlineCall(Variable(name='MOD'), parameters=(stack_size, stack_type_bytes)),
-                    '==', Literal(0))
-                ), inline=True, body=(padding,), else_body=None
-            )
-            if not self.cray_ptr_loc_rhs:
-                body_prepend += [stack_size_check]
-
             variables_append += [stack_size_var]
 
         if self.stack_storage_name in variable_map:
@@ -623,21 +625,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             dim = Product((dim, _dim))
         arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
+        arr_size = Product((dim, arr_type_bytes))
 
-        # If the array size is not a multiple of NPROMA, then we pad the allocation to avoid
-        # potential alignment issues on device
-        if not self.horizontal or not any(s in dim for s in self.horizontal.sizes):
-            arr_type_bytes = InlineCall(function=Variable(name='MAX'),
-                        parameters=(arr_type_bytes, Literal(8)), kw_parameters=())
-        if self.cray_ptr_loc_rhs:
-            arr_size = dim
-        else:
-            arr_size = Product((dim, arr_type_bytes))
+        # if not self.horizontal or not any(s in dim for s in self.horizontal.sizes):
+        ishift_func = InlineCall(function=Variable(name='ISHFT'))
+        arr_size = ishift_func.clone(parameters=(Sum((arr_size, 7)), -3))
 
         # Increment stack size
         stack_size = simplify(Sum((stack_size, arr_size)))
 
-        ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, arr_size)))
+        if self.cray_ptr_loc_rhs:
+            ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, arr_size)))
+        else:
+            ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, ishift_func.clone(parameters=(arr_size, 3)))))
         if self.check_bounds:
             stack_size_check = Conditional(
                 condition=Comparison(stack_ptr, '>', stack_end), inline=True,

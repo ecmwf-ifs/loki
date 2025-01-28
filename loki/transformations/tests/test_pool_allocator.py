@@ -7,6 +7,7 @@
 
 import pytest
 
+from loki.expression.parser import parse_expr
 from loki import Dimension
 from loki.batch import Scheduler, SchedulerConfig
 from loki.expression import InlineCall, simplify
@@ -35,28 +36,14 @@ def check_c_sizeof_import(routine):
     assert any(import_.module.lower() == 'iso_c_binding' for import_ in routine.imports)
     assert 'c_sizeof' in routine.imported_symbols
 
-def remove_redundant_substrings(text, kind_real=None):
-    text = text.replace(f'/max(c_sizeof(real(1,kind={kind_real})),8)', '')
-    text = text.replace(f'*max(c_sizeof(real(1,kind={kind_real})),8)', '')
-    text = text.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)*', '')
-    text = text.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)', '')
-    text = text.replace(f'/c_sizeof(real(1,kind={kind_real}))', '')
-    text = text.replace(f'*c_sizeof(real(1,kind={kind_real}))', '')
-    text = text.replace(f'c_sizeof(real(1,kind={kind_real}))*', '')
-    text = text.replace(f'c_sizeof(real(1,kind={kind_real}))', '')
-    text = text.replace('/max(c_sizeof(real(1,kind=jprb)),8)', '')
-    text = text.replace('*max(c_sizeof(real(1,kind=jprb)),8)', '')
-    text = text.replace('max(c_sizeof(real(1,kind=jprb)),8)*', '')
-    text = text.replace('max(c_sizeof(real(1,kind=jprb)),8)', '')
-    text = text.replace('/c_sizeof(real(1,kind=jprb))', '')
-    text = text.replace('*c_sizeof(real(1,kind=jprb))', '')
-    text = text.replace('c_sizeof(real(1,kind=jprb))*', '')
-    text = text.replace('c_sizeof(real(1,kind=jprb))', '')
-    return text
+def check_real64_import(routine):
+    assert any(import_.module.lower() == 'iso_fortran_env' for import_ in routine.imports)
+    assert 'real64' in routine.imported_symbols
+
 
 def check_stack_created_in_driver(
         driver, stack_size, first_kernel_call, num_block_loops,
-        generate_driver_stack=True, kind_real='jprb', check_bounds=True, simplify_stmt=True,
+        generate_driver_stack=True, kind_real='real64', check_bounds=True,
         cray_ptr_loc_rhs=False
 ):
     # Are stack size, storage and stack derived type declared?
@@ -70,18 +57,13 @@ def check_stack_created_in_driver(
     deallocations = FindNodes(Deallocation).visit(driver.body)
     assert len(deallocations) == 1 and 'zstack' in deallocations[0].variables
 
-    # Check the stack size
+    # # Check the stack size
     assignments = FindNodes(Assignment).visit(driver.body)
     for assignment in assignments:
         if assignment.lhs == 'istsz':
-            if simplify_stmt:
-                assert str(simplify(assignment.rhs)).lower().replace(' ', '') \
-                           == str(stack_size).lower().replace(' ', '')
-            else:
-                assert str(assignment.rhs).lower().replace(' ', '') == str(stack_size).lower().replace(' ', '')
-            break
+            assert simplify(assignment.rhs) == simplify(stack_size)
 
-    # Check for stack assignment inside loop
+    # # Check for stack assignment inside loop
     loops = FindNodes(Loop).visit(driver.body)
     assert len(loops) == num_block_loops
     assignments = FindNodes(Assignment).visit(loops[0].body)
@@ -98,7 +80,8 @@ def check_stack_created_in_driver(
                         assignments[1].rhs == 'ylstack_l + istsz')
             else:
                 assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs == f'ylstack_l + istsz * c_sizeof(real(1, kind={kind_real}))')
+                        assignments[1].rhs in (f'ylstack_l + istsz * c_sizeof(real(1, kind={kind_real}))',
+                            'ylstack_l + istsz * c_sizeof(real(1, kind=real64))'))
         else:
             if cray_ptr_loc_rhs:
                 assert assignments[1].lhs == 'ylstack_u' and (
@@ -117,72 +100,65 @@ def check_stack_created_in_driver(
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
 
 
-@pytest.mark.parametrize('generate_driver_stack', [False, True])
+@pytest.mark.parametrize('generate_driver_stack', [True, False])
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('check_bounds', [False, True])
+@pytest.mark.parametrize('check_bounds', [True, False])
 @pytest.mark.parametrize('nclv_param', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, block_dim, check_bounds,
                                     nclv_param, cray_ptr_loc_rhs, horizontal):
     fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
+    fcode_iso_env = "use iso_fortran_env, only: real64"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
+    # set kind comaprison string
+    nclv_var = '2' if frontend == OMNI else 'nclv'
     if frontend == OMNI:
-        if cray_ptr_loc_rhs:
-            fcode_stack_decl = f"""
-            integer :: istsz
-            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-            integer(kind=8) :: ylstack_l
-            integer(kind=8) :: ylstack_u
-
-            {'istsz = 3*nlon+nlon*nz' if nclv_param else 'istsz = 3*nlon+nlon*nz+2'}
-            ALLOCATE(ZSTACK(ISTSZ, nb))
-            """
-        else:
-            fcode_stack_decl = f"""
-            integer :: istsz
-            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-            integer(kind=8) :: ylstack_l
-            integer(kind=8) :: ylstack_u
-
-            {'istsz = 3*nlon+nlon*nz' if nclv_param else 'istsz = 3*nlon+nlon*nz+2*max(c_sizeof(real(1,kind=jprb)), 8)/c_sizeof(real(1,kind=jprb))'}
-            ALLOCATE(ZSTACK(ISTSZ, nb))
-            """
+        kind_real = 'selected_real_kind(13, 300)'
+        kind_stack = 'selected_real_kind(13, 300)'
     else:
-        if cray_ptr_loc_rhs:
-            fcode_stack_decl = f"""
-            integer :: istsz
-            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-            integer(kind=8) :: ylstack_l
-            {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
+        kind_real = 'jprb'
+        kind_stack = 'real64'
+    if nclv_param:
+        nclv_var = '2' if frontend == OMNI else 'nclv'
+        stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon*{nclv_var}, -3)'
+        )
+    else:
+        stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon, -3) &\n'
+            f' & + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3) &\n'
+            f' & + ishft(7 + c_sizeof(real(1, kind={kind_real}))*2, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon*2, -3)'
+        )
 
-            {'istsz = nlon+nlon*nz+nclv*nlon' if nclv_param else 'istsz = 3*nlon+nlon*nz+2'}
-            ALLOCATE(ZSTACK(ISTSZ, nb))
-            """
-        else:
-            fcode_stack_decl = f"""
-            integer :: istsz
-            REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
-            integer(kind=8) :: ylstack_l
-            {'integer(kind=8) :: ylstack_u' if check_bounds else ''}
+    fcode_stack_decl = f"""
+        integer :: istsz
+        REAL(KIND=REAL64), ALLOCATABLE :: ZSTACK(:, :)
+        integer(kind=8) :: ylstack_l
+        integer(kind=8) :: ylstack_u
 
-            {'istsz = nlon+nlon*nz+nclv*nlon' if nclv_param else 'istsz = 3*nlon+nlon*nz+2*max(c_sizeof(real(1,kind=jprb)), 8)/c_sizeof(real(1,kind=jprb))'}
-            ALLOCATE(ZSTACK(ISTSZ, nb))
-            """
+        istsz = {stack_size_str}
+
+        ALLOCATE(ZSTACK(ISTSZ, nb))
+    """
     if cray_ptr_loc_rhs:
         fcode_stack_assign = """
             ylstack_l = 1
             ylstack_u = ylstack_l + istsz
         """
     else:
-        fcode_stack_assign = """
+        fcode_stack_assign = f"""
             ylstack_l = loc(zstack(1, b))
-            ylstack_u = ylstack_l + c_sizeof(real(1, kind=jprb)) * istsz
+            ylstack_u = ylstack_l + c_sizeof(real(1, kind={kind_stack})) * istsz
         """
     fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     {fcode_iso_c_binding if not generate_driver_stack else ''}
+    {fcode_iso_env if not generate_driver_stack else ''}
     use kernel_mod, only: kernel
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
@@ -203,7 +179,7 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(start, end, klon, klev, {'nclv, ' if not nclv_param else ''} field1, field2)
-        use, intrinsic :: iso_c_binding, only : c_size_t
+        ! use, intrinsic :: iso_c_binding, only : c_size_t
         implicit none
         integer, parameter :: jprb = selected_real_kind(13,300)
         {fcode_nclv_param if nclv_param else 'integer, intent(in) :: nclv'}
@@ -236,6 +212,7 @@ contains
     end subroutine kernel
 end module kernel_mod
     """.strip()
+
 
     (tmp_path/'driver.F90').write_text(fcode_driver)
     (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
@@ -275,93 +252,10 @@ end module kernel_mod
 
     assert transformation._key in kernel_item.trafo_data
 
-    # set kind comaprison string
-    if frontend == OMNI:
-        kind_real = 'selected_real_kind(13, 300)'
-    else:
-        kind_real = 'jprb'
-
-    if nclv_param:
-        if frontend == OMNI:
-            trafo_data_compare = (
-                f'3 * c_sizeof(real(1, kind={kind_real})) * klon + '
-                f'c_sizeof(real(1, kind={kind_real})) * klev * klon'
-            )
-
-            if generate_driver_stack:
-                stack_size = (
-                    f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / '
-                    'c_sizeof(real(1, kind=jprb)) '
-                    f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / '
-                    'c_sizeof(real(1, kind=jprb))'
-                )
-            else:
-                stack_size = '3 * nlon + nlon * nz'
-        else:
-            trafo_data_compare = (
-                f'c_sizeof(real(1, kind={kind_real})) * klon + '
-                f'c_sizeof(real(1, kind={kind_real})) * klev * klon '
-                f'+ c_sizeof(real(1, kind={kind_real})) * klon * nclv'
-            )
-
-            if generate_driver_stack:
-                stack_size = (
-                    f'c_sizeof(real(1, kind={kind_real})) * nlon / c_sizeof(real(1, kind=jprb))'
-                    f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / '
-                    'c_sizeof(real(1, kind=jprb))'
-                    f'+ c_sizeof(real(1, kind={kind_real})) * nclv * nlon / '
-                    'c_sizeof(real(1, kind=jprb))'
-                )
-            else:
-                stack_size = 'nlon + nlon * nz + nclv * nlon'
-
-    else:
-        trafo_data_compare = (
-            f'c_sizeof(real(1, kind={kind_real})) * klon + '
-            f'c_sizeof(real(1, kind={kind_real})) * klev * klon '
-            f'+ max(c_sizeof(real(1, kind={kind_real})), 8) * nclv '
-            f'+ c_sizeof(real(1, kind={kind_real})) * klon * nclv'
-        )
-
-        if generate_driver_stack:
-            stack_size = (
-                f'3 * c_sizeof(real(1, kind={kind_real})) * nlon / '
-                f'c_sizeof(real(1, kind=jprb))'
-                f'+ c_sizeof(real(1, kind={kind_real})) * nlon * nz / '
-                f'c_sizeof(real(1, kind=jprb))'
-                f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / '
-                'c_sizeof(real(1, kind=jprb))'
-            )
-        else:
-            stack_size = (
-                '3 * nlon + nlon * nz '
-                f'+ 2 * max(c_sizeof(real(1, kind={kind_real})), 8) / '
-                f'c_sizeof(real(1, kind={kind_real}))'
-            )
-
-    trafo_data_compare = trafo_data_compare.replace(' ', '')
-    stack_size = stack_size.replace(' ', '')
-    if cray_ptr_loc_rhs:
-        kind_real = kind_real.replace(' ', '')
-        trafo_data_compare = trafo_data_compare.replace(f'max(c_sizeof(real(1,kind={kind_real})),8)*', '')
-        trafo_data_compare = trafo_data_compare.replace(f'c_sizeof(real(1,kind={kind_real}))*', '')
-        stack_size = remove_redundant_substrings(stack_size, kind_real)
-        if stack_size[-2:] == "+2":
-            # This is a little hacky but unless we start to properly assemble the size expression
-            # symbolically, this is the easiest to fix the expression ordering
-            stack_size = f"2+{stack_size[:-2]}"
-    assert kernel_item.trafo_data[transformation._key]['stack_size'] == trafo_data_compare
-    assert all(v.scope is None for v in
-                               FindVariables().visit(kernel_item.trafo_data[transformation._key]['stack_size']))
-
-    #
-    # A few checks on the driver
-    #
+    # a few driver checks
     driver = scheduler['#driver'].ir
-    # Has c_sizeof procedure been imported?
     check_c_sizeof_import(driver)
-
-    # Has the stack been added to the call statement?
+    check_real64_import(driver)
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1
     if nclv_param:
@@ -383,28 +277,35 @@ end module kernel_mod
     assert calls[0].arguments == expected_args
     assert calls[0].kwarguments == expected_kwargs
 
-    if generate_driver_stack:
-        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds,
-                cray_ptr_loc_rhs=cray_ptr_loc_rhs)
+    if nclv_param:
+        nclv_var = '2' if frontend == OMNI else 'nclv'
+        stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon*{nclv_var}, -3)'
+        )
     else:
-        check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, kind_real=kind_real,
-                check_bounds=check_bounds, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
-    #
-    # A few checks on the kernel
-    #
+        stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*2, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon*2, -3)'
+        )
+
+    stack_size = parse_expr(stack_size_str)
+    check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds,
+            cray_ptr_loc_rhs=cray_ptr_loc_rhs, kind_real=kind_stack)
+
+    # a few kernel checks
     kernel = kernel_item.ir
-
-    # Has c_sizeof procedure been imported?
     check_c_sizeof_import(kernel)
-
-    # Has the stack been added to the arguments?
-    # assert 'ydstack' in kernel.arguments
+    check_real64_import(kernel)
+    # # Has the stack been added to the arguments?
     assert 'ydstack_l' in kernel.arguments
     if check_bounds:
         assert 'ydstack_u' in kernel.arguments
 
     # Is it being assigned to a local variable?
-    # assert 'ylstack' in kernel.variables
     assert 'ylstack_l' in kernel.variables
     if check_bounds:
         assert 'ylstack_u' in kernel.variables
@@ -419,15 +320,12 @@ end module kernel_mod
         if assign.lhs == 'ylstack_l' and assign.rhs == 'ydstack_l':
             # Local copy of stack status
             assign_idx['stack_assign'] = idx
-        elif str(assign.lhs).lower().startswith('ip_tmp') and assign.rhs == 'ylstack_l':
+        elif str(assign.lhs).lower().startswith('ip_tmp'):
             # Assign Cray pointer for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
             for tmp_index in tmp_indices:
                 if f'ip_tmp{tmp_index}' == assign.lhs:
                     assign_idx[f'tmp{tmp_index}_ptr_assign'] = idx
-        elif assign.lhs == 'ylstack_l' and 'ylstack_l' in assign.rhs and 'c_sizeof' in assign.rhs:
-            _size = str(assign.rhs).lower().replace(f'*max(c_sizeof(real(1, kind={kind_real})), 8)', '')
-            _size = _size.replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
-            _size = _size.replace('ylstack_l + ', '')
+        elif assign.lhs == 'ylstack_l' and 'ylstack_l' in assign.rhs: #  and 'c_sizeof' in assign.rhs:
 
             # Stack increment for tmp1, tmp2, tmp5 (and tmp3, tmp4 if no alloc_dims provided)
             for tmp_index in tmp_indices:
@@ -435,15 +333,18 @@ end module kernel_mod
                 dim = f"{kernel.variable_map[f'tmp{tmp_index}'].shape[0]}"
                 for v in kernel.variable_map[f'tmp{tmp_index}'].shape[1:]:
                     dim += f'*{v}'
-
-                if dim == _size:
+                if cray_ptr_loc_rhs:
+                    exp_rhs_str = f'ylstack_l + ishft({dim}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3)'
+                else:
+                    exp_rhs_str = f'ylstack_l + ishft(ishft({dim}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3), 3)'
+                expected_rhs = parse_expr(exp_rhs_str)
+                if expected_rhs == assign.rhs:
                     assign_idx[f'tmp{tmp_index}_stack_incr'] = idx
 
     expected_assign_in_order = ['stack_assign']
-    if not cray_ptr_loc_rhs:
-        for tmp_index in tmp_indices:
-            expected_assign_in_order += [f'tmp{tmp_index}_ptr_assign', f'tmp{tmp_index}_stack_incr']
-        assert set(expected_assign_in_order) == set(assign_idx.keys())
+    for tmp_index in tmp_indices:
+        expected_assign_in_order += [f'tmp{tmp_index}_ptr_assign', f'tmp{tmp_index}_stack_incr']
+    assert set(expected_assign_in_order) == set(assign_idx.keys())
 
     for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
         assert assign_idx[assign2] > assign_idx[assign1]
@@ -622,20 +523,21 @@ end module kernel_mod
         kind_int = 'jpim'
         kind_log = 'jplm'
 
-    tsize_real = f'c_sizeof(real(1, kind={kind_real}))'
-    tsize_int = f'c_sizeof(int(1, kind={kind_int}))'
-    tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
-
     assert transformation._key in kernel_item.trafo_data
-    if cray_ptr_loc_rhs:
-        exp_stack_size = '3*klon + klev*klon + klev'
-    else:
-        exp_stack_size = f'{tsize_real}*klon + {tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
+    exp_stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*klon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
+            f' + ishft(7 + 2*c_sizeof(int(1, kind={kind_int}))*klon, -3)'
+            f' + ishft(7 + c_sizeof(logical(true, kind={kind_log}))*klev, -3)'
+    )
+    exp_stack_size = parse_expr(exp_stack_size_str )
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
-    if cray_ptr_loc_rhs:
-        exp_stack_size = '3*klev*klon + klon'
-    else:
-        exp_stack_size = f'3*{tsize_real}*klev*klon + {tsize_real}*klon'
+    exp_stack_size_str = (
+            f'ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*klon'
+            f' + c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
+    )
+    exp_stack_size = parse_expr(exp_stack_size_str)
     assert kernel2_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     assert all(
         v.scope is None
@@ -675,12 +577,15 @@ end module kernel_mod
     assert calls[1].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:,:,b)')
     assert calls[1].kwarguments == expected_kwarguments
 
-    stack_size = f'max({tsize_real}*nlon + {tsize_real}*nlon*nz + '
-    stack_size += f'2*{tsize_int}*nlon + {tsize_log}*nz,'
-    stack_size += f'3*{tsize_real}*nlon*nz + {tsize_real}*nlon)/' \
-                  'c_sizeof(real(1, kind=jprb))'
-    if cray_ptr_loc_rhs:
-        stack_size = 'max(3*nlon + nlon*nz + nz, 3*nlon*nz + nlon)'
+    stack_size_str = (
+            f'max(ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+            f' + ishft(7 + 2*c_sizeof(int(1, kind={kind_int}))*nlon, -3)'
+            f' + ishft(7 + c_sizeof(logical(true, kind={kind_log}))*nz, -3),'
+            f' ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3))'
+    )
+    stack_size = parse_expr(stack_size_str)
 
     check_stack_created_in_driver(driver, stack_size, calls[0], 2, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
 
@@ -724,17 +629,15 @@ end module kernel_mod
         dim1 = f"{kernel.variable_map['tmp1'].shape[0]}"
         for v in kernel.variable_map['tmp1'].shape[1:]:
             dim1 += f'*{v}'
-        dim2 = f"{kernel.variable_map['tmp2'].shape[0]}"
-        for v in kernel.variable_map['tmp2'].shape[1:]:
-            dim2 += f'*{v}'
+
+        if cray_ptr_loc_rhs:
+            exp_rhs_1 =  parse_expr(f'ylstack_l + ishft({dim1}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3)')
+        else:
+            exp_rhs_1 = parse_expr(f'ylstack_l + ishft(ishft({dim1}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3), 3)')
 
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace(f'*c_sizeof(real(1, kind={kind_real}))', '')
-            _size = _size.replace(f'*c_sizeof(int(1, kind={kind_int}))', '')
-            _size = _size.replace(f'*max(c_sizeof(logical(.true., kind={kind_log})), 8)', '')
-            _size = _size.replace('ylstack_l + ', '')
 
             if ass.lhs == 'ylstack_l' and ass.rhs == 'ydstack_l':
                 # Local copy of stack status
@@ -742,16 +645,16 @@ end module kernel_mod
             elif ass.lhs == 'ylstack_u' and ass.rhs == 'ydstack_u':
                 # Local copy of stack status
                 assign_idx['stack_assign_end'] = idx
-            elif ass.lhs == 'ip_tmp1' and ass.rhs == 'ylstack_l':
+            elif ass.lhs == 'ip_tmp1':
                 # ass Cray pointer for tmp1
                 assign_idx['tmp1_ptr_assign'] = idx
-            elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack_l':
+            elif ass.lhs == 'ip_tmp2':
                 # ass Cray pointer for tmp2
                 assign_idx['tmp2_ptr_assign'] = idx
-            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and ass.rhs == exp_rhs_1:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
@@ -759,11 +662,10 @@ end module kernel_mod
             'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
             'tmp2_stack_incr'
         ]
-        if not cray_ptr_loc_rhs:
-            assert set(expected_assign_in_order) == set(assign_idx.keys())
+        assert set(expected_assign_in_order) == set(assign_idx.keys())
 
-            for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
-                assert assign_idx[assign2] > assign_idx[assign1]
+        for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
+            assert assign_idx[assign2] > assign_idx[assign1]
 
         # Check for pointer declarations in generated code
         fcode = kernel.to_fortran()
@@ -918,20 +820,21 @@ end module kernel_mod
         kind_int = 'jpim'
         kind_log = 'jplm'
 
-    tsize_real = f'max(c_sizeof(real(1, kind={kind_real})), 8)'
-    tsize_int = f'max(c_sizeof(int(1, kind={kind_int})), 8)'
-    tsize_log = f'max(c_sizeof(logical(true, kind={kind_log})), 8)'
-
     assert transformation._key in kernel_item.trafo_data
-    if cray_ptr_loc_rhs:
-        exp_stack_size = '3*klon + 4*klev*klon + klev'
-    else:
-        exp_stack_size = f'{tsize_real}*klon + 4*{tsize_real}*klev*klon + 2*{tsize_int}*klon + {tsize_log}*klev'
+    exp_stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*klon, -3)'
+            f' + 2*ishft(7 + c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
+            f' + ishft(7 + 2*c_sizeof(int(1, kind={kind_int}))*klon, -3)'
+            f' + ishft(7 + c_sizeof(logical(true, kind={kind_log}))*klev, -3)'
+            f' + ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
+    )
+    exp_stack_size = parse_expr(exp_stack_size_str)
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
-    if cray_ptr_loc_rhs:
-        exp_stack_size = '3*columns*levels'
-    else:
-        exp_stack_size = f'3*{tsize_real}*columns*levels'
+    exp_stack_size_str = (
+            f'ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*columns*levels, -3)'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*columns*levels, -3)'
+    )
+    exp_stack_size = parse_expr(exp_stack_size_str)
     assert kernel2_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     assert all(
         v.scope is None
@@ -962,14 +865,16 @@ end module kernel_mod
     assert calls[0].arguments == ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
     assert calls[0].kwarguments == expected_kwarguments
 
-    stack_size = f'{tsize_real}*nlon/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += f'4*{tsize_real}*nlon*nz/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += f'2*{tsize_int}*nlon/c_sizeof(real(1, kind=jwrb)) +'
-    stack_size += f'{tsize_log}*nz/c_sizeof(real(1, kind=jwrb))'
-    if cray_ptr_loc_rhs:
-        stack_size = '3*nlon + 4*nlon*nz + nz'
+    stack_size_str = (
+            f'ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon, -3)'
+            f' + 2*ishft(7 + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+            f' + ishft(7 + 2*c_sizeof(int(1, kind={kind_int}))*nlon, -3)'
+            f' + ishft(7 + c_sizeof(logical(true, kind={kind_log}))*nz, -3)'
+            f' + ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
+    )
+    stack_size = parse_expr(stack_size_str)
     check_stack_created_in_driver(
-        driver, stack_size, calls[0], 1, kind_real='jwrb', simplify_stmt=True,
+        driver, stack_size, calls[0], 1, kind_real='jwrb',
         cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
 
@@ -1030,13 +935,18 @@ end module kernel_mod
         for v in kernel.variable_map['tmp2'].shape[1:]:
             dim2 += f'*{v}'
 
+        if cray_ptr_loc_rhs:
+            exp_rhs_1 = parse_expr(f'ylstack_l + ishft({dim1}*c_sizeof(real(1, kind={kind_real})) + 7, -3)')
+        else:
+            exp_rhs_1 = parse_expr(f'ylstack_l + ishft(ishft({dim1}*c_sizeof(real(1, kind={kind_real})) + 7, -3), 3)')
+        if cray_ptr_loc_rhs:
+            exp_rhs_2 = parse_expr(f'ylstack_l + ishft({dim2}*c_sizeof(real(1, kind={kind_real})) + 7, -3)')
+        else:
+            exp_rhs_2 = parse_expr(f'ylstack_l + ishft(ishft({dim2}*c_sizeof(real(1, kind={kind_real})) + 7, -3), 3)')
+
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
         for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
-            _size = str(ass.rhs).lower().replace(f'*max(c_sizeof(real(1, kind={kind_real})), 8)', '')
-            _size = _size.replace(f'*max(c_sizeof(int(1, kind={kind_int})), 8)', '')
-            _size = _size.replace(f'*max(c_sizeof(logical(.true., kind={kind_log})), 8)', '')
-            _size = _size.replace('ylstack_l + ', '')
 
             if ass.lhs == 'ylstack_l' and ass.rhs == 'ydstack_l':
                 # Local copy of stack status
@@ -1044,16 +954,16 @@ end module kernel_mod
             if ass.lhs == 'ylstack_u' and ass.rhs == 'ydstack_u':
                 # Local copy of stack status
                 assign_idx['stack_assign_end'] = idx
-            elif ass.lhs == 'ip_tmp1' and ass.rhs == 'ylstack_l':
+            elif ass.lhs == 'ip_tmp1': #  and ass.rhs == 'ylstack_l':
                 # ass Cray pointer for tmp1
                 assign_idx['tmp1_ptr_assign'] = idx
-            elif ass.lhs == 'ip_tmp2' and ass.rhs == 'ylstack_l':
+            elif ass.lhs == 'ip_tmp2': #  and ass.rhs == 'ylstack_l':
                 # ass Cray pointer for tmp2
                 assign_idx['tmp2_ptr_assign'] = idx
-            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs and dim1 == _size:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and simplify(ass.rhs) == simplify(exp_rhs_1):
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and 'c_sizeof' in ass.rhs and dim2 == _size:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and simplify(ass.rhs) == simplify(exp_rhs_2):
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
@@ -1061,11 +971,10 @@ end module kernel_mod
             'stack_assign', 'stack_assign_end', 'tmp1_ptr_assign', 'tmp1_stack_incr', 'tmp2_ptr_assign',
             'tmp2_stack_incr'
         ]
-        if not cray_ptr_loc_rhs:
-            assert set(expected_assign_in_order) == set(assign_idx.keys())
+        assert set(expected_assign_in_order) == set(assign_idx.keys())
 
-            for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
-                assert assign_idx[assign2] > assign_idx[assign1]
+        for assign1, assign2 in zip(expected_assign_in_order, expected_assign_in_order[1:]):
+            assert assign_idx[assign2] > assign_idx[assign1]
 
         # Check for pointer declarations in generated code
         fcode = kernel.to_fortran()
@@ -1172,6 +1081,8 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
 
     # Now repeat the checks for the inline call
     calls = [i for i in FindInlineCalls().visit(kernel.body) if not i.name.lower() in ('max', 'c_sizeof', 'real')]
+    # filter out ishft inline calls being part of the stack size calculation
+    calls = [call for call in calls if str(call.name).lower() != 'ishft']
     if cray_ptr_loc_rhs:
         assert len(calls) == 2
         if calls[0].name == 'inline_kernel':
@@ -1344,6 +1255,16 @@ end module kernel_mod
     assert calls[1].kwarguments == (
         ('field2', 'field2(:, :, b)'), ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
     ) + additional_kwargs
+    assert calls[2].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:, :, b)')
+    assert calls[2].kwarguments == (
+            ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
+    ) + additional_kwargs
+    assert calls[3].arguments == ('1', 'nlon', 'nlon', 'nz')
+    assert calls[3].kwarguments == (
+        ('field2', 'field2(:, :, b)'), ('opt_arg', 'opt'),
+        ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
+    ) + additional_kwargs
+    assert calls[4].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:, :, b)', 'opt')
     assert calls[2].arguments == ('1', 'nlon', 'nlon', 'nz', 'field2(:, :, b)')
     assert calls[2].kwarguments == (
             ('YDSTACK_L', 'YLSTACK_L'), ('YDSTACK_U', 'YLSTACK_U')
