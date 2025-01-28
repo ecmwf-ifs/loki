@@ -10,7 +10,10 @@ import pytest
 from loki.expression.parser import parse_expr
 from loki import Dimension
 from loki.batch import Scheduler, SchedulerConfig
-from loki.expression import InlineCall, simplify
+from loki.expression import (
+        InlineCall, RangeIndex, simplify, Sum,
+        Product
+)
 from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import (
     FindNodes, CallStatement, Assignment, Allocation, Deallocation,
@@ -451,7 +454,7 @@ contains
         integer, parameter :: jprb = selected_real_kind(13,300)
         integer, intent(in) :: start, end, klon, klev
         real(kind=jprb), intent(inout) :: field2(klon,klev)
-        real(kind=jprb) :: tmp1(2*klon, klev), tmp2(klon, 0:klev)
+        real(kind=jprb) :: tmp1(2*klon, klev), tmp2(0:klon, 0:klev)
         integer :: jk, jl
 
         do jk=1,klev
@@ -516,9 +519,12 @@ end module kernel_mod
     assert kernel_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     exp_stack_size_str = (
             f'ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
-            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*klon'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))'
+            f' + c_sizeof(real(1, kind={kind_real}))*klon'
+            f' + c_sizeof(real(1, kind={kind_real}))*klev'
             f' + c_sizeof(real(1, kind={kind_real}))*klev*klon, -3)'
     )
+
     exp_stack_size = parse_expr(exp_stack_size_str)
     assert kernel2_item.trafo_data[transformation._key]['stack_size'] == exp_stack_size
     assert all(
@@ -565,7 +571,10 @@ end module kernel_mod
             f' + ishft(7 + 2*c_sizeof(int(1, kind={kind_int}))*nlon, -3)'
             f' + ishft(7 + c_sizeof(logical(true, kind={kind_log}))*nz, -3),'
             f' ishft(7 + 2*c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3)'
-            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))*nlon + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3))'
+            f' + ishft(7 + c_sizeof(real(1, kind={kind_real}))'
+            f' + c_sizeof(real(1, kind={kind_real}))*nlon'
+            f' + c_sizeof(real(1, kind={kind_real}))*nz'
+            f' + c_sizeof(real(1, kind={kind_real}))*nz*nlon, -3))'        
     )
     stack_size = parse_expr(stack_size_str)
 
@@ -611,11 +620,22 @@ end module kernel_mod
         dim1 = f"{kernel.variable_map['tmp1'].shape[0]}"
         for v in kernel.variable_map['tmp1'].shape[1:]:
             dim1 += f'*{v}'
+        # tmp2 has the shape "0:klon, 0:klev"
+        dim2 = kernel.variable_map['tmp2'].shape[0]
+        if isinstance(dim2, RangeIndex):
+            dim2 = Sum((dim2.upper, Product((-1, dim2.lower)), 1))
+        for v in kernel.variable_map['tmp2'].shape[1:]:
+            _dim = v
+            if isinstance(_dim, RangeIndex):
+                _dim = Sum((_dim.upper, Product((-1, _dim.lower)), 1))
+            dim2 = Product((dim2, _dim))
 
         if cray_ptr_loc_rhs:
             exp_rhs_1 =  parse_expr(f'ylstack_l + ishft({dim1}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3)')
+            exp_rhs_2 =  parse_expr(f'ylstack_l + ishft({dim2}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3)')
         else:
             exp_rhs_1 = parse_expr(f'ylstack_l + ishft(ishft({dim1}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3), 3)')
+            exp_rhs_2 = parse_expr(f'ylstack_l + ishft(ishft({dim2}*C_SIZEOF(REAL(1, kind={kind_real})) + 7, -3), 3)')
 
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
@@ -636,7 +656,7 @@ end module kernel_mod
             elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and ass.rhs == exp_rhs_1:
                 # Stack increment for tmp1
                 assign_idx['tmp1_stack_incr'] = idx
-            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs:
+            elif ass.lhs == 'ylstack_l' and 'ylstack_l' in ass.rhs and ass.rhs == exp_rhs_2:
                 # Stack increment for tmp2
                 assign_idx['tmp2_stack_incr'] = idx
 
