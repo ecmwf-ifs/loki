@@ -92,6 +92,10 @@ class InlineTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
+        if (item := kwargs.get('item', None)):
+            if item.config.get('skip_inline', False):
+                return
+
         # Resolve sequence association in calls that are about to be inlined.
         # This step runs only if all of the following hold:
         # 1) it is requested by the user
