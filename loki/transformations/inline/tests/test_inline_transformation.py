@@ -325,11 +325,12 @@ subroutine test_inline_outer(a, b)
   implicit none
 
   real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=8) :: c(8)
 
   !$loki inline
   call test_inline_another_inner()
   !$loki inline
-  call test_inline_inner(a, b)
+  call test_inline_inner(a, b, c(1:4), c(5:8))
 end subroutine test_inline_outer
     """
 
@@ -338,11 +339,12 @@ module test_inline_mod
   implicit none
   contains
 
-subroutine test_inline_inner(a, b)
+subroutine test_inline_inner(a, b, c, d)
   use BNDS_module, only: n, m
   use another_module, only: x
 
   real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=8), intent(out) :: c(4), d(4)
   real(kind=8) :: tmp(m)
   integer :: i
 
@@ -350,6 +352,11 @@ subroutine test_inline_inner(a, b)
   do i=1, n
     a(i) = b(i) + sum(tmp)
   end do
+  do i=1,4
+    c(i) = 0.
+  enddo
+  c(:) = 1.
+  d(1:4) = 0.
 end subroutine test_inline_inner
 end module test_inline_mod
     """
@@ -381,11 +388,17 @@ end module test_inline_another_mod
 
     # Check that the inlining has happened
     assign = FindNodes(ir.Assignment).visit(outer.body)
-    assert len(assign) == 2
+    assert len(assign) == 5
     assert assign[0].lhs == 'tmp(1:m)'
     assert assign[0].rhs == 'x'
     assert assign[1].lhs == 'a(i)'
     assert assign[1].rhs == 'b(i) + sum(tmp)'
+    assert assign[2].lhs == 'c(i)'
+    assert assign[2].rhs == '0.'
+    assert assign[3].lhs == 'c(1:4)'
+    assert assign[3].rhs == '1.'
+    assert assign[4].lhs == 'c(5:8)'
+    assert assign[4].rhs == '0.'
 
     # Now check that the right modules have been moved,
     # and the import of the call has been removed
