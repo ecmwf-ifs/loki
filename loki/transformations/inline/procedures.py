@@ -12,7 +12,7 @@ from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions,
     pragmas_attached, is_loki_pragma, Interface, Pragma
 )
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, simplify
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import error
@@ -85,12 +85,29 @@ def map_call_to_procedure_body(call, caller, callee=None):
         For example, mapping the passed array ``m(:,j)`` to the local
         expression ``a(i)`` yields ``m(i,j)``.
         """
+
+        def _offset_lbound(lbound, v):
+            return simplify(sym.Sum((sym.Sum((lbound, -1)), v)))
+
         new_dimensions = list(val.dimensions)
 
         indices = [index for index, dim in enumerate(val.dimensions) if isinstance(dim, sym.Range)]
 
         for index, dim in enumerate(var.dimensions):
-            new_dimensions[indices[index]] = dim
+            # if the argument contains an array range, we must map the bounds accordingly
+            if isinstance(val.dimensions[index], sym.Range) and (lower := val.dimensions[index].lower):
+                if isinstance(dim, sym.Range):
+                    _lower = dim.lower or sym.IntLiteral(1)
+                    _upper = dim.upper or val.dimensions[index].upper
+
+                    _lower = _offset_lbound(lower, _lower)
+                    _upper = _offset_lbound(lower, _upper)
+
+                    new_dimensions[indices[index]] = sym.Range((_lower, _upper))
+                else:
+                    new_dimensions[indices[index]] = _offset_lbound(lower, dim)
+            else:
+                new_dimensions[indices[index]] = dim
 
         return val.clone(dimensions=tuple(new_dimensions))
 
