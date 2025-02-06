@@ -567,13 +567,15 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 stat = analysis[var]
                 parent = kwargs['parent']
                 mode = kwargs['mode']
+                typedef_config = kwargs['typedef_configs'].get(parent.type.dtype.typedef.name.lower(), None) \
+                                 if parent else None
                 field = False
+                if typedef_config:
+                    field = var in typedef_config.get('field_ptrs', [])
 
                 if re.search('^field_[0-9][a-z][a-z]_array', parent.type.dtype.typedef.name.lower()):
                     typedef_config = {'field_prefix': 'F_'}
                     field = True
-                else:
-                    typedef_config = kwargs['typedef_configs'][parent.type.dtype.typedef.name.lower()] if parent else None
 
                 # check for FIELD_API pointer
                 if re.search('_field$', var, re.IGNORECASE) or field:
