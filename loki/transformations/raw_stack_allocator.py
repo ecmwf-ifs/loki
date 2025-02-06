@@ -261,13 +261,8 @@ class TemporariesRawStackTransformation(Transformation):
             if pragma_string:
                 pragma_string = pragma_string[:-2].lower()
 
-                if self.directive == 'openacc':
-                    pragma_data_start = Pragma(keyword='acc', content=f'data create({pragma_string})')
-                    pragma_data_end = Pragma(keyword='acc', content='end data')
-
-                elif self.directive == 'openmp':
-                    pragma_data_start = Pragma(keyword='omp', content=f'target allocate({pragma_string})')
-                    pragma_data_end = Pragma(keyword='omp', content='end target')
+                pragma_data_start = Pragma(keyword='loki', content=f'scoped-data create({pragma_string})')
+                pragma_data_end = Pragma(keyword='loki', content='end scoped-data create({pragma_string})')
 
         #Add to routine
         routine.variables = routine.variables + as_tuple(stack_vars)

@@ -16,6 +16,7 @@ from loki.ir import FindNodes, CallStatement, Assignment, Pragma
 from loki.sourcefile import Sourcefile
 from loki.types import BasicType
 
+from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
 
 
@@ -27,7 +28,7 @@ def fixture_block_dim():
 def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
 
-@pytest.mark.parametrize('directive', ['openacc', 'openmp'])
+@pytest.mark.parametrize('directive', ['openacc', 'omp-gpu'])
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive, tmp_path):
 
@@ -242,7 +243,8 @@ end module kernel3_mod
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'ignore': ['parkind1'],
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -265,6 +267,8 @@ end module kernel3_mod
 
     transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal, directive=directive)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation(directive=directive)
+    scheduler.process(transformation=pragma_model_trafo)
 
     driver_item  = scheduler['driver_mod#driver']
     kernel1_item = scheduler['kernel1_mod#kernel1']
@@ -509,7 +513,7 @@ end module kernel3_mod
         assert assignments[9].lhs == 'p_jprb_stack(1:nlon, jd_zde3 + 1:jd_zde3 + klev)'
         assert assignments[9].rhs == 'pzz'
 
-    if directive in ['openacc', 'openmp']:
+    if directive in ['openacc', 'omp-gpu']:
         pragmas = FindNodes(Pragma).visit(driver.body)
 
         if directive == 'openacc':
@@ -524,6 +528,14 @@ end module kernel3_mod
                 assert pragmas[0].content.lower() == 'target allocate(z_selected_real_kind_13_300_stack, ll_stack)'
             else:
                 assert pragmas[0].content.lower() == 'target allocate(z_jprb_stack, '\
+                                                     'z_selected_real_kind_13_300_stack, ll_stack)'
+
+        if directive == 'omp-gpu':
+            if frontend == OMNI:
+                assert pragmas[0].content.lower() == \
+                        'target data map(alloc: z_selected_real_kind_13_300_stack, ll_stack)'
+            else:
+                assert pragmas[0].content.lower() == 'target data map(alloc: z_jprb_stack, '\
                                                      'z_selected_real_kind_13_300_stack, ll_stack)'
 
     if directive == 'openacc':
