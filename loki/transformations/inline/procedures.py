@@ -95,12 +95,24 @@ def map_call_to_procedure_body(call, caller, callee=None):
 
         indices = [index for index, dim in enumerate(val.dimensions) if isinstance(dim, sym.Range)]
 
-        for index, dim in enumerate(var.dimensions):
+        lbounds_diff = [sym.IntLiteral(0) for _ in var.shape]
+        var_ubounds = [getattr(dim, 'upper', dim) for dim in var.shape]
+        if var.shape and val.shape:
+            decl_lbounds = [(getattr(val.shape[i], 'lower', sym.IntLiteral(1)),
+                             getattr(dim, 'lower', sym.IntLiteral(1))) for i, dim in enumerate(var.shape)]
+
+            for i, (lb_val, lb_var) in enumerate(decl_lbounds):
+                # we can't simply check if lb_val here as that would return a false negative if lb_val == 0
+                if lb_val is not None and lb_var is not None:
+                    lbounds_diff[i] = simplify(sym.Sum((lb_val, sym.Product((lb_var, sym.IntLiteral(-1))))))
+
+        for (index, dim), lbdiff in zip(enumerate(var.dimensions), lbounds_diff):
             # if the argument contains an array range, we must map the bounds accordingly
             if isinstance(val.dimensions[index], sym.Range) and (lower := val.dimensions[index].lower):
+                lower = simplify(sym.Sum((lower, lbdiff)))
                 if isinstance(dim, sym.Range):
-                    _lower = dim.lower or sym.IntLiteral(1)
-                    _upper = dim.upper or val.dimensions[index].upper
+                    _lower = dim.lower or decl_lbounds[index][1]
+                    _upper = dim.upper or var_ubounds[index]
 
                     _lower = _offset_lbound(lower, _lower)
                     _upper = _offset_lbound(lower, _upper)
@@ -109,7 +121,7 @@ def map_call_to_procedure_body(call, caller, callee=None):
                 else:
                     new_dimensions[indices[index]] = _offset_lbound(lower, dim)
             else:
-                new_dimensions[indices[index]] = dim
+                new_dimensions[indices[index]] = simplify(sym.Sum((dim, lbdiff)))
 
         return val.clone(dimensions=tuple(new_dimensions))
 
