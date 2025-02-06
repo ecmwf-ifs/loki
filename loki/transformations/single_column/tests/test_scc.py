@@ -19,13 +19,13 @@ from loki.ir import (
 
 from loki.transformations import (
     DataOffloadTransformation, SanitiseTransformation,
-    InlineTransformation, get_loop_bounds
+    InlineTransformation, get_loop_bounds, PragmaModelTransformation
 )
 from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation,
     SCCAnnotateTransformation, SCCVectorPipeline,
-    SCCVVectorPipeline, SCCSVectorPipeline
+    SCCVVectorPipeline, SCCSVectorPipeline, SCCSeqRevectorTransformation
 )
 
 
@@ -308,6 +308,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
+    scc_transform += (PragmaModelTransformation(directive='openacc'),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
         transform.apply(kernel, role='kernel')
@@ -343,6 +344,162 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
                 'parallel loop gang private(other_var, more_var) vector_length(nlon)',
                 'parallel loop gang private(more_var, other_var) vector_length(nlon)'
             )
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('directive', [None, 'openacc', 'omp-gpu'])
+def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
+    """
+    Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nproma, nlev, nz, q, nb)
+    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN)   :: nproma, nlev  ! Aliases of horizontal and vertical sizes
+    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    REAL :: other_var(nlon), more_var(nlon)
+    INTEGER :: b, start, end
+
+    start = 1
+    end = nlon
+    
+    do b=1, nb
+      call compute_column(start, end, nlon, nproma, nz, q(:,:,b), other_var, more_var)
+    end do
+  
+  END SUBROUTINE column_driver
+"""
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nproma, nlev, nz, q, other_var, more_var)
+    INTEGER, INTENT(IN) :: start, end   ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz     ! Size of the horizontal and vertical
+    INTEGER, INTENT(IN) :: nproma, nlev ! Aliases of horizontal and vertical sizes
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, INTENT(IN) :: other_var(nlon), more_var(nlon)
+    REAL :: t(nlon,nz)
+    REAL :: a(nlon)
+    REAL :: d(nproma)
+    REAL :: e(nlev)
+    REAL :: b(nlon,psize)
+    INTEGER, PARAMETER :: psize = 3
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t(jl, jk) = c * jk
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      a(jl) = Q(JL, 1)
+      b(jl, 1) = Q(JL, 2)
+      b(jl, 2) = Q(JL, 3)
+      b(jl, 3) = a(jl) * (b(jl, 1) + b(jl, 2))
+
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver.enrich(kernel)  # Attach kernel source to driver call
+
+    # Test OpenACC annotations on non-hoisted version
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    scc_transform += (SCCSeqRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(directive=directive, block_dim=blocking),)
+    scc_transform += (PragmaModelTransformation(directive=directive),)
+    for transform in scc_transform:
+        transform.apply(driver, role='driver', targets=['compute_column'])
+        transform.apply(kernel, role='kernel')
+
+    if directive is None:
+        # Ensure routine is anntoated at vector level
+        pragmas = FindNodes(Pragma).visit(kernel.ir)
+        assert len(pragmas) == 2
+        assert pragmas[0].keyword == 'loki'
+        assert pragmas[0].content == 'routine seq'
+
+        # Ensure vector and seq loops are annotated, including privatized variable `b`
+        with pragmas_attached(kernel, Loop):
+            kernel_loops = FindNodes(Loop).visit(kernel.ir)
+            assert len(kernel_loops) == 1
+            assert kernel_loops[0].pragma[0].keyword == 'loki'
+            assert kernel_loops[0].pragma[0].content == 'loop seq'
+
+        # Ensure a single outer parallel loop in driver
+        with pragmas_attached(driver, Loop):
+            driver_loops = FindNodes(Loop).visit(driver.body)
+            assert len(driver_loops) == 2
+            assert driver_loops[0].pragma[0].keyword.lower() == 'loki'
+            assert driver_loops[0].pragma[0].content == (
+                'loop driver vector_length(nlon)'
+            )
+            assert driver_loops[1].pragma[0].keyword.lower() == 'loki'
+            assert driver_loops[1].pragma[0].content == 'loop vector'
+    if directive == 'openacc':
+        # Ensure routine is anntoated at vector level
+        pragmas = FindNodes(Pragma).visit(kernel.ir)
+        assert len(pragmas) == 4
+        assert pragmas[0].keyword == 'acc'
+        assert pragmas[0].content == 'routine seq'
+        assert pragmas[1].keyword == 'acc'
+        assert pragmas[1].content == 'data present(q, other_var, more_var)'
+        assert pragmas[-1].keyword == 'acc'
+        assert pragmas[-1].content == 'end data'
+
+        # Ensure vector and seq loops are annotated, including privatized variable `b`
+        with pragmas_attached(kernel, Loop):
+            kernel_loops = FindNodes(Loop).visit(kernel.ir)
+            assert len(kernel_loops) == 1
+            assert kernel_loops[0].pragma[0].keyword == 'acc'
+            assert kernel_loops[0].pragma[0].content == 'loop seq'
+
+        # Ensure a single outer parallel loop in driver
+        with pragmas_attached(driver, Loop):
+            driver_loops = FindNodes(Loop).visit(driver.body)
+            assert len(driver_loops) == 2
+            assert driver_loops[0].pragma[0].keyword.lower() == 'acc'
+            assert driver_loops[0].pragma[0].content in (
+                'parallel loop gang private(other_var, more_var) vector_length(nlon)',
+                'parallel loop gang private(more_var, other_var) vector_length(nlon)'
+            )
+            assert driver_loops[1].pragma[0].keyword.lower() == 'acc'
+            assert driver_loops[1].pragma[0].content == 'loop vector'
+    if directive == 'omp-gpu':
+        # Ensure routine is anntoated at vector level
+        pragmas = FindNodes(Pragma).visit(kernel.ir)
+        assert len(pragmas) == 4
+        assert pragmas[0].keyword == 'omp'
+        assert pragmas[0].content == 'declare target'
+        assert pragmas[1].keyword == 'loki'
+        assert pragmas[1].content == 'device-present vars(q, other_var, more_var)'
+        assert pragmas[-1].keyword == 'loki'
+        assert pragmas[-1].content == 'end device-present vars(q, other_var, more_var)'
+
+        # Ensure vector and seq loops are annotated, including privatized variable `b`
+        with pragmas_attached(kernel, Loop):
+            kernel_loops = FindNodes(Loop).visit(kernel.ir)
+            assert len(kernel_loops) == 1
+            assert kernel_loops[0].pragma[0].keyword == 'loki'
+            assert kernel_loops[0].pragma[0].content == 'loop seq'
+
+        # Ensure a single outer parallel loop in driver
+        with pragmas_attached(driver, Loop):
+            driver_loops = FindNodes(Loop).visit(driver.body)
+            assert len(driver_loops) == 2
+            assert driver_loops[0].pragma[0].keyword.lower() == 'omp'
+            assert driver_loops[0].pragma[0].content == (
+                'target teams distribute thread_limit(nlon)'
+            )
+            assert driver_loops[1].pragma[0].keyword.lower() == 'omp'
+            assert driver_loops[1].pragma[0].content == 'parallel do'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -741,6 +898,8 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
 
     data_offload = DataOffloadTransformation(remove_openmp=True)
     data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+    pragma_model = PragmaModelTransformation(directive='openacc')
+    pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     scc_pipeline = SCCVectorPipeline(
         horizontal=horizontal, block_dim=blocking, directive='openacc'
@@ -795,6 +954,8 @@ def test_scc_annotate_routine_seq_pragma(frontend, blocking):
 
     transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+    pragma_model = PragmaModelTransformation(directive='openacc')
+    pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     # Ensure the routine pragma is in the first pragma in the spec
     pragmas = FindNodes(Pragma).visit(routine.spec)
@@ -832,6 +993,8 @@ def test_scc_annotate_empty_data_clause(frontend, blocking):
 
     transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
+    pragma_model = PragmaModelTransformation(directive='openacc')
+    pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     # Ensure the routine pragma is in the first pragma in the spec
     pragmas = FindNodes(Pragma).visit(routine.ir)

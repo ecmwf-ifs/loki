@@ -436,14 +436,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
 
             body_prepend += [stack_alloc]
-            if self.directive == 'openacc':
-                pragma_data_start = Pragma(
-                    keyword='acc',
-                    content=f'data create({stack_storage.name})' # pylint: disable=no-member
-                )
-                body_prepend += [pragma_data_start]
-                pragma_data_end = Pragma(keyword='acc', content='end data')
-                body_append += [pragma_data_end]
+            pragma_data_start = Pragma(
+                keyword='loki',
+                content=f'scoped-data create({stack_storage.name})' # pylint: disable=no-member
+            )
+            body_prepend += [pragma_data_start]
+            pragma_data_end = Pragma(keyword='loki', content=f'end scoped-data create({stack_storage.name})') # pylint: disable=no-member
+            body_append += [pragma_data_end]
             body_append += [stack_dealloc]
 
         # Inject new variables and body nodes
@@ -757,6 +756,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
 
+        # TODO: generalise using generic Loki pragmas?
         pragma_map = {}
         if self.directive == 'openacc':
             # Find OpenACC loop statements
