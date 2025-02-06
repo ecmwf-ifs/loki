@@ -41,7 +41,7 @@ class SCCBaseTransformation(Transformation):
     def __init__(self, horizontal, directive=None):
         self.horizontal = horizontal
 
-        assert directive in [None, 'openacc']
+        assert directive in [None, 'openacc', 'omp-gpu']
         self.directive = directive
 
     # TODO: correct "definition" of a pure/elemental routine (take e.g. loki serial into account ...)

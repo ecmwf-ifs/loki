@@ -17,16 +17,17 @@ from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
 from loki.transformations.single_column.vector import (
-    SCCDevectorTransformation, SCCDemoteTransformation, SCCRevectorTransformation,
+    SCCDevectorTransformation, SCCDemoteTransformation,
     SCCVecRevectorTransformation, SCCSeqRevectorTransformation
 )
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
+from loki.transformations.pragma_model import PragmaModelTransformation
 
 __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
     'SCCHoistPipeline', 'SCCVHoistPipeline', 'SCCSHoistPipeline',
     'SCCStackPipeline', 'SCCVStackPipeline', 'SCCSStackPipeline',
-    'SCCRawStackPipeline',
+    'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
 ]
 
 SCCVVectorPipeline = partial(
@@ -36,7 +37,8 @@ SCCVVectorPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
-        SCCAnnotateTransformation
+        SCCAnnotateTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -97,7 +99,8 @@ SCCSVectorPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
-        SCCAnnotateTransformation
+        SCCAnnotateTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -157,7 +160,8 @@ SCCVHoistPipeline = partial(
         SCCVecRevectorTransformation,
         HoistTemporaryArraysAnalysis,
         SCCHoistTemporaryArraysTransformation,
-        SCCAnnotateTransformation
+        SCCAnnotateTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -206,7 +210,8 @@ SCCSHoistPipeline = partial(
         SCCSeqRevectorTransformation,
         HoistTemporaryArraysAnalysis,
         SCCHoistTemporaryArraysTransformation,
-        SCCAnnotateTransformation
+        SCCAnnotateTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -257,7 +262,8 @@ SCCVStackPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
-        TemporariesPoolAllocatorTransformation
+        TemporariesPoolAllocatorTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -305,7 +311,8 @@ SCCSStackPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
-        TemporariesPoolAllocatorTransformation
+        TemporariesPoolAllocatorTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -342,18 +349,72 @@ check_bounds : bool, optional
     stack size is not exceeded (default: `True`)
 """
 
-SCCRawStackPipeline = partial(
+SCCVRawStackPipeline = partial(
     Pipeline, classes=(
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
-        SCCRevectorTransformation,
+        SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
-        TemporariesRawStackTransformation
+        TemporariesRawStackTransformation,
+        PragmaModelTransformation
     )
 )
 """
-SCC-style transformation that additionally pre-allocates a "stack"
+SCC-style transformation with "vector-parallel" kernels
+that additionally pre-allocates a "stack"
+pool allocator and replaces local temporaries with indexed sub-arrays
+of this preallocated array.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`TemporariesRawStackTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that is
+pre-allocated in the driver routine and passed down via arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+driver_horizontal : str, optional
+    Override string if a separate variable name should be used for the
+    horizontal when allocating the stack in the driver.
+"""
+
+# alias for backwards compability
+SCCRawStackPipeline = SCCVRawStackPipeline
+
+SCCSRawStackPipeline = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        SCCAnnotateTransformation,
+        TemporariesRawStackTransformation,
+        PragmaModelTransformation
+    )
+)
+"""
+SCC-style transformation with sequential kernels
+that additionally pre-allocates a "stack"
 pool allocator and replaces local temporaries with indexed sub-arrays
 of this preallocated array.
 

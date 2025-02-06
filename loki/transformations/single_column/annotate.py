@@ -74,14 +74,14 @@ class SCCAnnotateTransformation(Transformation):
                 for pragma in as_tuple(loop.pragma):
                     if is_loki_pragma(pragma, starts_with='loop vector reduction'):
                         # Turn reduction pragmas into `!$acc` equivalent
-                        pragma._update(keyword='acc')
+                        pragma._update(keyword='loki')
                         continue
 
                     if is_loki_pragma(pragma, starts_with='loop vector'):
                         # Turn general vector pragmas into `!$acc` and add private clause
                         private_arrs = ', '.join(v.name for v in private_arrays)
                         private_clause = '' if not private_arrays else f' private({private_arrs})'
-                        pragma._update(keyword='acc', content=f'loop vector{private_clause}')
+                        pragma._update(keyword='loki', content=f'loop vector{private_clause}')
 
     def annotate_sequential_loops(self, routine):
         """
@@ -99,7 +99,7 @@ class SCCAnnotateTransformation(Transformation):
                     continue
 
                 # Replace internal `!$loki loop seq`` pragam with `!$acc` equivalent
-                loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
+                loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
 
                 # Warn if we detect vector insisde sequential loop nesting
                 nested_loops = FindNodes(ir.Loop).visit(loop.body)
@@ -124,11 +124,11 @@ class SCCAnnotateTransformation(Transformation):
             if is_loki_pragma(pragma, starts_with='routine'):
                 # We have to re-insert the pragma here, in case it was
                 # falsely attributed to the body!
-                routine.spec.append(pragma.clone(keyword='acc'))
                 pragma_map[pragma] = None
-        pragma_transformer = Transformer(pragma_map)
-        routine.spec = pragma_transformer.visit(routine.spec)
-        routine.body = pragma_transformer.visit(routine.body)
+                pragma_transformer = Transformer(pragma_map)
+                routine.spec = pragma_transformer.visit(routine.spec)
+                routine.body = pragma_transformer.visit(routine.body)
+                routine.spec.append(pragma.clone(keyword='loki'))
 
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
@@ -136,9 +136,12 @@ class SCCAnnotateTransformation(Transformation):
         argnames = [str(a.name) for a in args]
 
         if argnames:
-            routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
             # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-            routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
+            content = f'device-present vars({", ".join(argnames)})'
+            routine.body.prepend(ir.Pragma(keyword='loki', content=content))
+            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+            content = f'end device-present vars({", ".join(argnames)})'
+            routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='loki', content=content)))
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -166,7 +169,7 @@ class SCCAnnotateTransformation(Transformation):
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
 
-        if not self.directive == 'openacc':
+        if not self.directive in ['openacc', 'omp-gpu']:
             return
 
         if role == 'kernel':
@@ -219,9 +222,14 @@ class SCCAnnotateTransformation(Transformation):
         acc_vars = defaultdict(list)
 
         for region in FindNodes(ir.PragmaRegion).visit(routine.body):
-            if region.pragma.keyword.lower() == 'acc':
-                if (parameters := get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)):
-
+            pragma_keyword = region.pragma.keyword.lower()
+            if pragma_keyword in ['loki', 'acc']:
+                if pragma_keyword == 'acc':
+                    parameters = get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)
+                else:
+                    parameters = get_pragma_parameters(region.pragma, starts_with='scoped-data',
+                            only_loki_pragmas=False)
+                if parameters is not None:
                     driver_loops = find_driver_loops(section=region.body, targets=targets)
                     if not driver_loops:
                         continue
@@ -229,7 +237,6 @@ class SCCAnnotateTransformation(Transformation):
                     # When a key is given multiple times, get_pragma_parameters returns a list
                     # We merge them here into single entries to make our life easier below
                     parameters = {key: ', '.join(as_tuple(value)) for key, value in parameters.items()}
-
                     if (default := parameters.get('default', None)):
                         if not 'none' in [p.strip().lower() for p in default.split(',')]:
                             for loop in driver_loops:
@@ -263,8 +270,8 @@ class SCCAnnotateTransformation(Transformation):
 
         if column_locals:
             vnames = ', '.join(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+            pragma = ir.Pragma(keyword='loki', content=f'unscoped-data create({vnames})')
+            pragma_post = ir.Pragma(keyword='loki', content=f'unscoped-enddata delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
@@ -282,32 +289,32 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         # Mark driver loop as "gang parallel".
-        if self.directive == 'openacc':
-            arrays = FindVariables(unique=True).visit(loop)
-            arrays = [v for v in arrays if isinstance(v, sym.Array)]
-            arrays = [v for v in arrays if not v.type.intent]
-            arrays = [v for v in arrays if not v.type.pointer]
+        arrays = FindVariables(unique=True).visit(loop)
+        arrays = [v for v in arrays if isinstance(v, sym.Array)]
+        arrays = [v for v in arrays if not v.type.intent]
+        arrays = [v for v in arrays if not v.type.pointer]
 
-            # Filter out arrays that are explicitly allocated with block dimension
-            sizes = self.block_dim.size_expressions
-            arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
-            private_arrays = ', '.join(set(v.name for v in arrays if not v.name_parts[0].lower() in acc_vars))
-            private_clause = '' if not private_arrays else f' private({private_arrays})'
+        # Filter out arrays that are explicitly allocated with block dimension
+        sizes = self.block_dim.size_expressions
+        arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
+        private_arrays = ', '.join(set(v.name for v in arrays if not v.name_parts[0].lower() in acc_vars))
+        private_clause = '' if not private_arrays else f' private({private_arrays})'
 
-            for pragma in as_tuple(loop.pragma):
-                if is_loki_pragma(pragma, starts_with='loop driver'):
-                    # Replace `!$loki loop driver` pragma with OpenACC equivalent
-                    params = get_pragma_parameters(loop.pragma, starts_with='loop driver')
-                    vlength = params.get('vector_length')
-                    vlength_clause = f' vector_length({vlength})' if vlength else ''
+        for pragma in as_tuple(loop.pragma):
+            if is_loki_pragma(pragma, starts_with='loop driver'):
+                # Replace `!$loki loop driver` pragma with OpenACC equivalent
+                params = get_pragma_parameters(loop.pragma, starts_with='loop driver')
+                vlength = params.get('vector_length')
 
-                    content = f'parallel loop gang{private_clause}{vlength_clause}'
-                    pragma_new = ir.Pragma(keyword='acc', content=content)
-                    pragma_post = ir.Pragma(keyword='acc', content='end parallel loop')
+                vlength_clause = f' vlength({vlength})' if vlength else ''
 
-                    # Replace existing loki pragma and add post-pragma
-                    loop_pragmas = tuple(p for p in as_tuple(loop.pragma) if p is not pragma)
-                    loop._update(
-                        pragma=loop_pragmas + (pragma_new,),
-                        pragma_post=(pragma_post,) + as_tuple(loop.pragma_post)
-                    )
+                content = f'loop gang{private_clause}{vlength_clause}'
+                pragma_new = ir.Pragma(keyword='loki', content=content)
+                pragma_post = ir.Pragma(keyword='loki', content='end loop gang')
+
+                # Replace existing loki pragma and add post-pragma
+                loop_pragmas = tuple(p for p in as_tuple(loop.pragma) if p is not pragma)
+                loop._update(
+                    pragma=loop_pragmas + (pragma_new,),
+                    pragma_post=(pragma_post,) + as_tuple(loop.pragma_post)
+                )

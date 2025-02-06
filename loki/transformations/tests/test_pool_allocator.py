@@ -21,6 +21,7 @@ from loki.ir import (
     Intrinsic
 )
 
+from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 
 
@@ -234,6 +235,8 @@ end module kernel_mod
         cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
     kernel_item = scheduler['kernel_mod#kernel']
 
     assert transformation._key in kernel_item.trafo_data
@@ -602,6 +605,9 @@ end module kernel_mod
         block_dim=block_dim, horizontal=horizontal, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
+
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
@@ -687,6 +693,7 @@ end module kernel_mod
 
     check_stack_created_in_driver(driver, stack_size, calls[0], 2, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
 
+    print(driver.to_fortran())
     # Has the data sharing been updated?
     if directive in ['openmp', 'openacc']:
         keyword = {'openmp': 'omp', 'openacc': 'acc'}[directive]
@@ -918,6 +925,9 @@ end module kernel_mod
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim,
                                                             directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
+
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
@@ -1170,6 +1180,9 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
                                                             cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
+
     item = scheduler['kernel_mod#kernel']
     kernel = item.ir
 
@@ -1344,6 +1357,8 @@ end module kernel_mod
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim_alt, horizontal=horizontal,
                                                             cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
 
     kernel = scheduler['kernel_mod#kernel'].ir
     kernel2 = scheduler['kernel_mod#kernel2'].ir

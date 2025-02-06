@@ -22,7 +22,8 @@ __all__ = [
     'is_loki_pragma', 'get_pragma_parameters', 'process_dimension_pragmas',
     'attach_pragmas', 'detach_pragmas',
     'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
-    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher'
+    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher',
+    'get_pragma_start_and_parameters'
 ]
 
 
@@ -123,6 +124,42 @@ class PragmaParameters:
         parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
         return parameters
 
+def get_pragma_start_and_parameters(pragma):
+    """
+    Parse a pragma in the form
+
+    ``!$loki [end] command [param] [param_with_val(val)]``
+
+    and return ``command, {param: None, param_with_val: val}``
+
+    Parameters
+    ----------
+    pragma : :any:`Pragma`
+        the pragma to parse and return parameters
+
+    Returns
+    -------
+    tuple(str, dict) :
+        ...
+    """
+    pragma_parameters = PragmaParameters()
+    parameters = defaultdict(list)
+    if pragma.keyword.lower() != 'loki':
+        return None, None
+    content = pragma.content or ''
+    # Remove any line-continuation markers
+    content = content.replace('&', '')
+    starts_with = content.split(' ')[0]
+    if starts_with == 'end':
+        starts_with = f"{starts_with}-{content.split(' ')[1]}"
+    if not starts_with:
+        return None, None
+    content = content[len(starts_with):]
+    parameter = pragma_parameters.find(content)
+    for key in parameter:
+        parameters[key].append(parameter[key])
+    parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
+    return starts_with, parameters
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
@@ -167,7 +204,6 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             parameters[key].append(parameter[key])
     parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
     return parameters
-
 
 def process_dimension_pragmas(ir, scope=None):
     """
