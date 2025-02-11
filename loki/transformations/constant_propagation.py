@@ -19,10 +19,14 @@ class ConstantPropagationTransformer(Transformer):
 
     def visit(self, expr, *args, **kwargs):
         const_prop = ConstantPropagationAnalysis(self.fold_floats, self.unroll_loops, True)
+        constants_map = kwargs.get('constants_map', dict())
         try:
-            constants_map = const_prop.generate_declarations_map(expr)
+            declarations_map = const_prop.generate_declarations_map(expr)
+            # If a user specifies their own map, they probably want it to override these
+            declarations_map.update(constants_map)
+            constants_map = declarations_map
         except AttributeError:
-            constants_map = dict()
+            pass
 
         is_routine = isinstance(expr, Subroutine)
         target = expr.body if is_routine else expr
