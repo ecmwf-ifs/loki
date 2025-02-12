@@ -66,12 +66,11 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             left = right = None
             lr_fields = not (left_attr is None and right_attr is None)
             if lr_fields:
-                left = self.rec(getattr(expr, left_attr), *args, **kwargs)
-                right = self.rec(getattr(expr, right_attr), *args, **kwargs)
-                # Just to make easier use of code below
-                children = [left, right]
+                children = [getattr(expr, left_attr), getattr(expr, right_attr)]
             else:
-                children = self.rec(expr.children, *args, **kwargs)
+                children = expr.children
+
+            children = self.rec(children, *args, **kwargs)
 
             literals, non_literals = ConstantPropagationAnalysis._separate_literals(children)
             if len(non_literals) == 0:
@@ -79,12 +78,12 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                     # Strange rounding possibility
                     if self.fold_floats:
                         if lr_fields:
-                            return FloatLiteral(str(float_op(float(left.value), float(right.value))))
+                            return FloatLiteral(str(float_op(float(children[0].value), float(children[1].value))))
                         else:
                             return FloatLiteral(str(float_op([float(c.value) for c in children])))
                 else:
                     if lr_fields:
-                        return IntLiteral(int_op(left.value, right.value))
+                        return IntLiteral(int_op(children[0].value, children[1].value))
                     else:
                         return IntLiteral(int_op([c.value for c in children]))
 
