@@ -99,7 +99,15 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             return self.binary_bool_op_helper(expr, lambda x, y: x or y, False, *args, **kwargs)
 
         def binary_bool_op_helper(self, expr, bool_op, initial, *args, **kwargs):
+            # This short-circuiting check is done twice as we might get lucky and not have to rec()
+            if LogicLiteral(not initial) in expr.children:
+                return LogicLiteral(not initial)
+
             children = tuple([self.rec(c, *args, **kwargs) for c in expr.children])
+
+            # Second short-circuiting check
+            if LogicLiteral(not initial) in children:
+                return LogicLiteral(not initial)
 
             literals, non_literals = ConstantPropagationAnalysis._separate_literals(children)
             if len(non_literals) == 0:
