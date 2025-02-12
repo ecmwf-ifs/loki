@@ -573,7 +573,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 if typedef_config:
                     field = var in typedef_config.get('field_ptrs', [])
 
-                if re.search('^field_[0-9][a-z][a-z]_array', parent.type.dtype.typedef.name.lower()):
+                if parent and re.search('^field_[0-9][a-z][a-z]_array', parent.type.dtype.typedef.name.lower()):
                     typedef_config = {'field_prefix': 'F_'}
                     field = True
 
