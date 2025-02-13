@@ -608,12 +608,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             ptr_assignment = Assignment(lhs=ptr_var, rhs=stack_ptr)
 
         # Build expression for array size in bytes
-        dim = arr.dimensions[0]
-        for d in arr.dimensions[1:]:
-            _dim = d
-            if isinstance(_dim, RangeIndex):
-                _dim = Sum((_dim.upper, Product((-1, _dim.lower)), 1))
-            dim = Product((dim, _dim))
+        dims = ()
+        for d in arr.dimensions:
+            if isinstance(d, RangeIndex):
+                dims += (Sum((d.upper, Product((-1, d.lower)), 1)),)
+            else:
+                dims += (d,)
+        dim = Product(dims)
         arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
         arr_size = Product((dim, arr_type_bytes))
