@@ -51,9 +51,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     * Inject Cray pointer assignments and stack pointer increments for all temporaries
     * Pass the local copy/copies of the stack integer(s) as argument to any nested kernel calls
 
-    By default, all local array arguments are allocated by the pool allocator, but this can be restricted
-    to include only those that have at least one dimension matching one of those provided in :data:`allocation_dims`.
-
     In a **driver** routine, the transformation will:
 
     * Determine the required scratch space from ``trafo_data``
@@ -71,15 +68,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         SUBROUTINE DRIVER (...)
           ...
           INTEGER(KIND=8) :: ISTSZ
-          REAL, ALLOCATABLE :: ZSTACK(:, :)
+          REAL(KIND=REAL64), ALLOCATABLE :: ZSTACK(:, :)
           INTEGER(KIND=8) :: YLSTACK_L
           INTEGER(KIND=8) :: YLSTACK_U
-          ISTSZ = (C_SIZEOF(REAL(1, kind=jprb))*<array dim1>*<array dim2> + ...) / &
-           & C_SIZEOF(REAL(1, kind=JPRB))
+          ISTSZ = ISHFT(7 + C_SIZEOF(REAL(1, kind=jprb))**<array dim1>*<array dim2>, -3) + ...
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
             YLSTACK_L = LOC(ZSTACK(1, b))
-            YLSTACK_U = YLSTACK_L + ISTSZ*C_SIZEOF(REAL(1, kind=JPRB))
+            YLSTACK_U = YLSTACK_L + ISTSZ*C_SIZEOF(REAL(1, kind=REAL64))
             CALL KERNEL(..., YDSTACK_L=YLSTACK_L, YDSTACK_U=YLSTACK_U)
           END DO
           DEALLOCATE (ZSTACK)
@@ -97,10 +93,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           YLSTACK_L = YDSTACK_L
           YLSTACK_U = YDSTACK_U
           IP_tmp1 = YLSTACK_L
-          YLSTACK_L = YLSTACK_L + <array dim1>*<array dim2>*MAX(C_SIZEOF(REAL(1, kind=jprb)), 8)
+          YLSTACK_L = YLSTACK_L + ISHFT(ISHFT(<array dim1>*<array dim2>*C_SIZEOF(REAL(1, kind=JPRB)) + 7, -3), 3)
           IF (YLSTACK_L > YLSTACK_U) STOP
           IP_tmp2 = YLSTACK_L
-          YLSTACK_L = YLSTACK_L + ...*C_SIZEOF(REAL(1, kind=jprb))
+          YLSTACK_L = YLSTACK_L + ISHFT(ISHFT(...*C_SIZEOF(REAL(1, kind=JPRB)) + 7, -3), 3)
           IF (YLSTACK_L > YLSTACK_U) STOP
         END SUBROUTINE KERNEL
 
@@ -111,10 +107,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         SUBROUTINE driver (NLON, NZ, NB, field1, field2)
           ...
           INTEGER(KIND=8) :: ISTSZ
-          REAL(KIND=JPRB), ALLOCATABLE :: ZSTACK(:, :)
+          REAL(KIND=REAL64), ALLOCATABLE :: ZSTACK(:, :)
           INTEGER(KIND=8) :: YLSTACK_L
           INTEGER(KIND=8) :: YLSTACK_U
-          ISTSZ = <array dim1>*<array dim2>
+          ISTSZ = ISTSZ = ISHFT(7 + C_SIZEOF(REAL(1, kind=jprb))**<array dim1>*<array dim2>, -3) + ...
           ALLOCATE (ZSTACK(ISTSZ, nb))
           DO b=1,nb
             YLSTACK_L = 1
@@ -130,17 +126,17 @@ class TemporariesPoolAllocatorTransformation(Transformation):
           INTEGER(KIND=8) :: YLSTACK_U
           INTEGER(KIND=8), INTENT(INOUT) :: YDSTACK_L
           INTEGER(KIND=8), INTENT(INOUT) :: YDSTACK_U
-          REAL(KIND=JPRB), CONTIGUOUS, INTENT(INOUT) :: ZSTACK(:)
+          REAL(KIND=REAL64), CONTIGUOUS, INTENT(INOUT) :: ZSTACK(:)
           POINTER(IP_tmp1, tmp1)
           POINTER(IP_tmp2, tmp2)
           ...
           YLSTACK_L = YDSTACK_L
           YLSTACK_U = YDSTACK_U
           IP_tmp1 = LOC(ZSTACK(YLSTACK_L))
-          YLSTACK_L = YLSTACK_L + <array dim1>*<array dim2>
+          YLSTACK_L = YLSTACK_L + ISHFT(<array dim1>*<array dim2>*C_SIZEOF(REAL(1, kind=JPRB)) + 7, -3)
           IF (YLSTACK_L > YLSTACK_U) STOP
           IP_tmp2 = LOC(ZSTACK(YLSTACK_L))
-          YLSTACK_L = YLSTACK_L + ...
+          YLSTACK_L = YLSTACK_L + ISHFT(...*C_SIZEOF(REAL(1, kind=JPRB)) + 7, -3)
           IF (YLSTACK_L > YLSTACK_U) STOP
         END SUBROUTINE KERNEL
 
@@ -191,7 +187,6 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
     process_ignored_items = True
 
-    # TODO: remove horizontal (check)?
     def __init__(
             self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
@@ -223,11 +218,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         ignore = item.ignore if item else ()
         targets = as_tuple(kwargs.get('targets', None))
 
-        self.stack_type_kind = 'REAL64'
         if item:
-            if (real_kind := item.config.get('real_kind', None)):
-                self.stack_type_kind = real_kind
-
             # Initialize set to store kind imports
             item.trafo_data[self._key] = {'kind_imports': {}}
 
@@ -411,7 +402,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_size_var = Variable(name=self.stack_size_name, type=stack_size_var_type)
 
             # Retrieve kind parameter of stack storage
-            _kind = routine.symbol_map.get(f'{self.stack_type_kind}', None) or Variable(name=self.stack_type_kind)
+            _kind = routine.symbol_map.get('REAL64', None) or Variable(name='REAL64')
 
             # Convert stack_size from bytes to integer
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
@@ -429,7 +420,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # allocation/deallocation statements
             stack_type = SymbolAttributes(
                 dtype=BasicType.REAL,
-                kind=Variable(name=self.stack_type_kind, scope=routine),
+                kind=Variable(name='REAL64', scope=routine),
                 shape=(RangeIndex((None, None)), RangeIndex((None, None))),
                 allocatable=True,
             )
@@ -627,7 +618,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
         arr_size = Product((dim, arr_type_bytes))
 
-        # if not self.horizontal or not any(s in dim for s in self.horizontal.sizes):
+        # Allocation is expressed in terms of REAL64, i.e., 8 byte values
+        # We obtain the allocation size by dividing the required size by 8 and rounding up,
+        # i.e., (size + 7) // 8, with the division implemented as bit shifts
         ishift_func = InlineCall(function=Variable(name='ISHFT'))
         arr_size = ishift_func.clone(parameters=(Sum((arr_size, 7)), -3))
 
@@ -703,7 +696,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if self.cray_ptr_loc_rhs:
             stack_type = SymbolAttributes(
                     dtype=BasicType.REAL,
-                    kind=Variable(name=self.stack_type_kind, scope=routine),
+                    kind=Variable(name='REAL64', scope=routine),
                     shape=(RangeIndex((None, None)),), intent='inout', contiguous=True,
             )
             stack_storage = Variable(
@@ -841,9 +834,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 )
 
             # Retrieve kind parameter of stack storage
-            _kind = (routine.imported_symbol_map.get(f'{self.stack_type_kind}', None) or
-                     routine.variable_map.get(f'{self.stack_type_kind}', None) or
-                     Variable(name=self.stack_type_kind))
+            _kind = routine.imported_symbol_map.get('REAL64')
 
             # Stack increment
             if self.cray_ptr_loc_rhs:

@@ -43,8 +43,7 @@ def check_real64_import(routine):
 
 def check_stack_created_in_driver(
         driver, stack_size, first_kernel_call, num_block_loops,
-        generate_driver_stack=True, kind_real='real64', check_bounds=True,
-        cray_ptr_loc_rhs=False
+        check_bounds=True, cray_ptr_loc_rhs=False
 ):
     # Are stack size, storage and stack derived type declared?
     assert 'istsz' in driver.variables
@@ -74,28 +73,12 @@ def check_stack_created_in_driver(
         assert isinstance(assignments[0].rhs, InlineCall) and assignments[0].rhs.function == 'loc'
         assert 'zstack(1, b)' in assignments[0].rhs.parameters
     if check_bounds:
-        if generate_driver_stack:
-            if cray_ptr_loc_rhs:
-                assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs == 'ylstack_l + istsz')
-            else:
-                assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs in (f'ylstack_l + istsz * c_sizeof(real(1, kind={kind_real}))',
-                            'ylstack_l + istsz * c_sizeof(real(1, kind=real64))'))
+        if cray_ptr_loc_rhs:
+            assert assignments[1].lhs == 'ylstack_u' and (
+                    assignments[1].rhs == 'ylstack_l + istsz')
         else:
-            if cray_ptr_loc_rhs:
-                assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs == 'ylstack_l + istsz')
-            else:
-                assert assignments[1].lhs == 'ylstack_u' and (
-                        assignments[1].rhs == f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz')
-
-            if cray_ptr_loc_rhs:
-                expected_rhs = 'ylstack_l + istsz'
-            else:
-                expected_rhs = f'ylstack_l + c_sizeof(real(1, kind={kind_real}))*istsz'
-            assert assignments[1].lhs == 'ylstack_u' and assignments[1].rhs == expected_rhs
-
+            assert assignments[1].lhs == 'ylstack_u' and (
+                    assignments[1].rhs == 'ylstack_l + istsz * c_sizeof(real(1, kind=real64))')
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
 
@@ -114,10 +97,9 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
     nclv_var = '2' if frontend == OMNI else 'nclv'
     if frontend == OMNI:
         kind_real = 'selected_real_kind(13, 300)'
-        kind_stack = 'selected_real_kind(13, 300)'
     else:
         kind_real = 'jprb'
-        kind_stack = 'real64'
+    kind_stack = 'real64'
     if nclv_param:
         nclv_var = '2' if frontend == OMNI else 'nclv'
         stack_size_str = (
@@ -151,7 +133,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
     else:
         fcode_stack_assign = f"""
             ylstack_l = loc(zstack(1, b))
-            ylstack_u = ylstack_l + c_sizeof(real(1, kind={kind_stack})) * istsz
+            ylstack_u = ylstack_l + istsz * c_sizeof(real(1, kind={kind_stack}))
         """
     fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
 
@@ -293,8 +275,8 @@ end module kernel_mod
         )
 
     stack_size = parse_expr(stack_size_str)
-    check_stack_created_in_driver(driver, stack_size, calls[0], 1, generate_driver_stack, check_bounds=check_bounds,
-            cray_ptr_loc_rhs=cray_ptr_loc_rhs, kind_real=kind_stack)
+    check_stack_created_in_driver(driver, stack_size, calls[0], 1, check_bounds=check_bounds,
+            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
 
     # a few kernel checks
     kernel = kernel_item.ir
@@ -795,6 +777,8 @@ end module kernel_mod
             'enable_imports': True,
         },
         'routines': {
+            # real_kind = jwrb has no (and should have no) effect anymore as
+            #  'real64' as kind of the stack is baked into the recipe
             'driver': {'role': 'driver', 'real_kind': 'jwrb'}
         }
     }
@@ -874,13 +858,13 @@ end module kernel_mod
     )
     stack_size = parse_expr(stack_size_str)
     check_stack_created_in_driver(
-        driver, stack_size, calls[0], 1, kind_real='jwrb',
+        driver, stack_size, calls[0], 1,
         cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
 
     # check if stack allocatable in the driver has the correct kind parameter
     if not frontend == OMNI:
-        assert driver.symbol_map['zstack'].type.kind == 'jwrb'
+        assert driver.symbol_map['zstack'].type.kind == 'real64'
 
     # Has the data sharing been updated?
     if directive in ['openmp', 'openacc']:
