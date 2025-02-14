@@ -438,7 +438,7 @@ def test_argument_size_assumed_size(transform):
     """
 
     fcode_driver = """
-  SUBROUTINE trafo_driver(nlon, nlev, a, b, c, d)
+  SUBROUTINE trafo_driver(nlon, nlev, a, b, c, d, e)
     ! Driver routine with explicit array shapes
     INTEGER, INTENT(IN)   :: nlon, nlev  ! Dimension sizes
     INTEGER, PARAMETER    :: n = 5
@@ -446,19 +446,21 @@ def test_argument_size_assumed_size(transform):
     REAL, INTENT(INOUT)   :: b(nlon,nlev,n)
     REAL, INTENT(INOUT)   :: c(nlon,nlev,n)
     REAL, INTENT(INOUT)   :: d(nlon,nlev)
+    REAL, INTENT(INOUT)   :: e(2,4,nlon,nlev)
 
-    call trafo_kernel(nlon, a, b, c, d(:,1:2))
+    call trafo_kernel(nlon, a, b, c, d(:,1:2), e)
   END SUBROUTINE trafo_driver
     """
 
     fcode_kernel = """
-  SUBROUTINE trafo_kernel(nlon, a, b, c, d)
+  SUBROUTINE trafo_kernel(nlon, a, b, c, d, e)
     ! Kernel routine with implicit shape array arguments
     INTEGER, INTENT(IN)   :: nlon
     REAL, INTENT(INOUT)   :: a(*)
     REAL, INTENT(INOUT)   :: b(nlon,*)
     REAL, INTENT(INOUT)   :: c(nlon,0:*)
     REAL, INTENT(INOUT)   :: d(*)
+    REAL, INTENT(INOUT)   :: e(2,4,3:*)
 
   END SUBROUTINE trafo_kernel
     """
@@ -470,12 +472,13 @@ def test_argument_size_assumed_size(transform):
     # Ensure initial call uses assumed size declarations
     calls = FindNodes(CallStatement).visit(driver.body)
     assert len(calls) == 1 and calls[0].routine
-    assert len(calls[0].routine.arguments) == 5
+    assert len(calls[0].routine.arguments) == 6
     assert calls[0].routine.arguments[0] == 'nlon'
     assert calls[0].routine.arguments[1].shape == ('*', )
     assert calls[0].routine.arguments[2].shape == ('nlon', '*')
     assert calls[0].routine.arguments[3].shape == ('nlon', '0:*')
     assert calls[0].routine.arguments[4].shape == ('*',)
+    assert calls[0].routine.arguments[5].shape == (2, 4, '3:*',)
 
     arg_shape_trafo = ArgumentArrayShapeAnalysis()
     arg_shape_trafo.apply(driver, role='driver')
@@ -490,6 +493,12 @@ def test_argument_size_assumed_size(transform):
 
     assert kernel.arguments[4].shape == ('2*nlon',)
 
+    assert kernel.arguments[5].shape[0] == 2
+    assert kernel.arguments[5].shape[1] == 4
+    assert isinstance(kernel.arguments[5].shape[2], sym.RangeIndex)
+    assert kernel.arguments[5].shape[2].lower == 3
+    assert kernel.arguments[5].shape[2].upper == '2 + nlev*nlon'
+
     if transform:
         arg_shape_trafo = ExplicitArgumentArrayShapeTransformation()
         arg_shape_trafo.apply(kernel)
@@ -498,7 +507,7 @@ def test_argument_size_assumed_size(transform):
         # check that the driver side call was updated
         calls = FindNodes(CallStatement).visit(driver.body)
         assert len(calls) == 1
-        assert len(calls[0].arguments) + len(calls[0].kwarguments) == 7
+        assert len(calls[0].arguments) + len(calls[0].kwarguments) == 8
         assert calls[0].kwarguments[0][1] in ['n', 'nlev']
         assert calls[0].kwarguments[1][1] in ['n', 'nlev']
         assert calls[0].kwarguments[0][1] != calls[0].kwarguments[1][1]
@@ -506,13 +515,13 @@ def test_argument_size_assumed_size(transform):
         # check that the kernel argument declarations were updated
         arguments = kernel.arguments
 
-        assert len(arguments) == 7
-        assert arguments[5] in ['n', 'nlev']
+        assert len(arguments) == 8
         assert arguments[6] in ['n', 'nlev']
-        assert arguments[5] != arguments[6]
+        assert arguments[7] in ['n', 'nlev']
+        assert arguments[6] != arguments[7]
 
-        assert arguments[5].type.dtype == BasicType.INTEGER
         assert arguments[6].type.dtype == BasicType.INTEGER
+        assert arguments[7].type.dtype == BasicType.INTEGER
 
         # check array argument declarations were updated correctly
         assert arguments[1].dimensions == ('nlon',)
@@ -524,3 +533,9 @@ def test_argument_size_assumed_size(transform):
         assert arguments[3].dimensions[1].upper == '-1 + n*nlev'
 
         assert arguments[4].dimensions == ('2*nlon',)
+
+        assert arguments[5].dimensions[0] == 2
+        assert arguments[5].dimensions[1] == 4
+        assert isinstance(arguments[5].dimensions[2], sym.RangeIndex)
+        assert arguments[5].dimensions[2].lower == 3
+        assert arguments[5].dimensions[2].upper == '2 + nlev*nlon'

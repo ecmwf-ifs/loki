@@ -20,16 +20,13 @@ reverse traversal order to apply the necessary changes to argument
 declarations and call signatures.
 """
 
-import re
-
 from loki.batch import Transformation
-from loki.expression import Array
+from loki.expression import Array, symbols as sym, simplify
 from loki.ir import (
     FindNodes, CallStatement, Transformer, FindVariables, SubstituteExpressions
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
-from loki.expression import symbols as sym, simplify
 
 
 __all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation']
@@ -82,9 +79,8 @@ class ArgumentArrayShapeAnalysis(Transformation):
                                          if d == ':']
                             vmap[arg] = arg.clone(type=arg.type.clone(shape=new_shape))
 
-                    elif re.search(r'\*$', str(arg.shape[-1])):
-                        # determine extent of explicit shape part of assumed size declaration
-                        expl_shape_len = [loc for loc, dim in enumerate(arg.shape) if '*' in dim][0]
+                    elif str(arg.shape[-1])[-1] == '*':
+                        expl_shape_len = len(arg.shape) - 1
 
                         dims = val.shape
                         if val.dimensions:
@@ -151,7 +147,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
 
         def assumed(dims):
-            return all(d == ':' for d in dims) or re.search(r'\*$', str(dims[-1]))
+            return all(d == ':' for d in dims) or str(dims[-1])[-1] == '*'
 
         # First, replace assumed array shapes with concrete shapes for
         # all arguments if the shape is known.
