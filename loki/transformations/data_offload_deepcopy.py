@@ -338,6 +338,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 driver_loops = find_driver_loops(region.body, targets)
                 assert len(driver_loops) == 1
 
+                symbol_map = routine.symbol_map
+
                 for loop in driver_loops:
 
                     _analysis = analysis[loop]
@@ -348,7 +350,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     _analysis = self._update_with_manual_overrides('readwrite', parameters, _analysis)
 
                     kwargs = self._init_kwargs(mode, _analysis, typedef_configs, parameters)
-                    _copy, _host, _wipe = self.generate_deepcopy(routine, routine.symbol_map, **kwargs)
+                    _copy, _host, _wipe = self.generate_deepcopy(routine, symbol_map, **kwargs)
 
                     copy += _copy
                     host += _host
@@ -362,7 +364,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                             pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
                             loop._update(pragma=as_tuple(pragma))
 
-                    present_vars = [v.upper() for v in _analysis if not v in kwargs['private']]
+                    present_vars = [v.upper() for v in _analysis if not v in kwargs['private'] and not
+                            (isinstance(symbol_map[v], sym.Scalar) and isinstance(symbol_map[v].type.dtype, BasicType))]
 
                     # add create directives for unused arguments
                     arguments = [arg for call in FindNodes(ir.CallStatement).visit(loop.body) for arg in call.arguments]
