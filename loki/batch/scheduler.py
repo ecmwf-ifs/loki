@@ -545,6 +545,8 @@ class Scheduler:
             if transformation.renames_items or transformation.creates_items:
                 kwargs['item_factory'] = self.item_factory
                 kwargs['scheduler_config'] = self.config
+                kwargs['graph'] = graph
+                kwargs['item_filter'] = item_filter
 
             for _item in traversal:
                 if isinstance(_item, ExternalItem):

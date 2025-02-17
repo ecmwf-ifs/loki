@@ -11,7 +11,6 @@ from loki.tools.util import as_tuple, CaseInsensitiveDict
 
 __all__ = ['DuplicateKernel', 'RemoveKernel']
 
-
 class DuplicateKernel(Transformation):
     """
     Duplicate subroutines which includes the creation of new :any:`Item`s
@@ -35,12 +34,14 @@ class DuplicateKernel(Transformation):
     reverse_traversal = True
 
     def __init__(self, duplicate_kernels=None, duplicate_suffix='duplicated',
-                 duplicate_module_suffix=None):
+                 duplicate_module_suffix=None, duplicate_subgraph=False):
         self.suffix = duplicate_suffix
         self.module_suffix = duplicate_module_suffix or duplicate_suffix
         self.duplicate_kernels = tuple(kernel.lower() for kernel in as_tuple(duplicate_kernels))
+        self.duplicate_subgraph = duplicate_subgraph
 
-    def _create_duplicate_items(self, successors, item_factory, config):
+    def _create_duplicate_items(self, successors, item_factory, config, graph=None, item_filter=None, orig_item=None,
+                                no_check=False, rename_calls=False):
         """
         Create new/duplicated items.
 
@@ -61,7 +62,7 @@ class DuplicateKernel(Transformation):
 
         new_items = ()
         for item in successors:
-            if item.local_name in self.duplicate_kernels:
+            if item.local_name in self.duplicate_kernels or no_check:
                 # Determine new item name
                 scope_name = item.scope_name
                 local_name = f'{item.local_name}{self.suffix}'
@@ -90,6 +91,44 @@ class DuplicateKernel(Transformation):
                 if new_item is None:
                     new_item = item_factory.get_or_create_item_from_item(new_item_name, item, config=config)
                 new_items += as_tuple(new_item)
+
+                if self.duplicate_subgraph:
+                    _new_item = as_tuple(new_item)[0]
+                    # add node(s) and edge(s)
+                    graph.add_nodes(new_items)
+                    graph.add_edges((orig_item, _item) for _item in new_items)
+                    # get the original successors
+                    _successors = as_tuple(graph.successors(item, item_filter=item_filter))
+                    if _successors:
+                        # create new/duplicated successors
+                        new_dependencies = self._create_duplicate_items(_successors, item_factory, config, graph, item_filter, _new_item, no_check=True, rename_calls=rename_calls)
+                        new_dependencies_dic = CaseInsensitiveDict((new_item.local_name, new_item) for new_item in new_dependencies)
+                        # rename calls and imports
+                        if rename_calls:
+                            call_map = {}
+                            for call in FindNodes(ir.CallStatement).visit(_new_item.ir.body):
+                                call_name = str(call.name).lower()
+                                new_call_name = f'{call_name}{self.suffix}'.lower()
+                                call_new_item = new_dependencies_dic[new_call_name]
+                                proc_symbol = call_new_item.ir.procedure_symbol.rescope(scope=_new_item.ir)
+                                call_map[call] = call.clone(name=proc_symbol)
+                            # TODO: imports at module level ...
+                            imp_map = {}
+                            for imp in FindNodes(ir.Import).visit(_new_item.ir.spec):
+                                imp_map[imp] = imp.clone(module=f'{imp.module.lower()}{self.module_suffix}',
+                                                         symbols=as_tuple([symbol.clone(name=f'{symbol.name}{self.suffix}') for symbol in imp.symbols]))
+                            if call_map:
+                                _new_item.ir.body = Transformer(call_map).visit(_new_item.ir.body)
+                            if imp_map:
+                                _new_item.ir.spec = Transformer(imp_map).visit(_new_item.ir.spec)
+                        # add dependencies to new/duplicated successors and remove the "old" ones
+                        _new_item.plan_data.setdefault('additional_dependencies', ())
+                        _new_item.plan_data.setdefault('removed_dependencies', ())
+                        _new_item.plan_data['additional_dependencies'] += as_tuple(new_dependencies)
+                        _new_item.plan_data['removed_dependencies'] += as_tuple(_successors)
+                        graph._add_children(_new_item, item_factory, config, dependencies=new_dependencies)
+            
+        # graph.export_to_file('graph_test')
         return tuple(new_items)
 
     def transform_subroutine(self, routine, **kwargs):
@@ -97,7 +136,9 @@ class DuplicateKernel(Transformation):
         new_dependencies = self._create_duplicate_items(
             successors=as_tuple(kwargs.get('successors')),
             item_factory=kwargs.get('item_factory'),
-            config=kwargs.get('scheduler_config')
+            config=kwargs.get('scheduler_config'),
+            graph=kwargs.get('graph'), item_filter=kwargs.get('item_filter'),
+            orig_item=kwargs.get('item'), rename_calls=True
         )
         new_dependencies = CaseInsensitiveDict((new_item.local_name, new_item) for new_item in new_dependencies)
 
@@ -128,9 +169,10 @@ class DuplicateKernel(Transformation):
         item.plan_data['additional_dependencies'] += self._create_duplicate_items(
             successors=as_tuple(kwargs.get('successors')),
             item_factory=kwargs.get('item_factory'),
-            config=kwargs.get('scheduler_config')
+            config=kwargs.get('scheduler_config'),
+            graph=kwargs.get('graph'), item_filter=kwargs.get('item_filter'),
+            orig_item=item
         )
-
 
 class RemoveKernel(Transformation):
     """
