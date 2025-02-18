@@ -324,7 +324,7 @@ subroutine test_inline_outer(a, b, f)
   use test_inline_another_mod, only: test_inline_another_inner
   implicit none
 
-  real(kind=8), intent(inout) :: a(n), b(n), f(n)
+  real(kind=8), intent(inout) :: a(n), b(n), f(0:n-1)
   real(kind=8) :: c(12)
 
   !$loki inline
@@ -343,7 +343,7 @@ subroutine test_inline_inner(a, b, c, d, e, f)
   use BNDS_module, only: n, m
   use another_module, only: x
 
-  real(kind=8), intent(inout) :: a(n), b(n), f(0:n-1)
+  real(kind=8), intent(inout) :: a(n), b(n), f(2:n+1)
   real(kind=8), intent(out) :: c(4), d(4), e(0:3)
   real(kind=8) :: tmp(m)
   integer :: i
@@ -361,7 +361,7 @@ subroutine test_inline_inner(a, b, c, d, e, f)
   d(1:4) = 1.
   e(0:3) = 1.
   e(:) = 2.
-  do i=0, n-1
+  do i=2, n+1
     f(i) = 2.
   end do
 end subroutine test_inline_inner
@@ -414,7 +414,7 @@ end module test_inline_another_mod
     assert assign[7].rhs == '1.'
     assert assign[8].lhs == 'c(9:12)'
     assert assign[8].rhs == '2.'
-    assert assign[9].lhs == 'f(1 + i)'
+    assert assign[9].lhs == 'f(-2 + i)'
     assert assign[9].rhs == '2.'
 
     # Now check that the right modules have been moved,
