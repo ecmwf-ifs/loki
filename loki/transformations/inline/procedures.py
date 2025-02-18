@@ -86,8 +86,10 @@ def map_call_to_procedure_body(call, caller, callee=None):
         expression ``a(i)`` yields ``m(i,j)``.
         """
 
-        def _offset_lbound(lbound, v):
-            return simplify(sym.Sum((sym.Sum((lbound, -1)), v)))
+        def _offset_lbound(local_lbound, decl_lbound, v):
+            _sum = sym.Product((-1, decl_lbound))
+            _sum = sym.Sum((_sum, local_lbound, v))
+            return simplify(_sum)
 
         new_dimensions = list(val.dimensions)
 
@@ -108,16 +110,17 @@ def map_call_to_procedure_body(call, caller, callee=None):
             # if the argument contains an array range, we must map the bounds accordingly
             if isinstance(val.dimensions[index], sym.Range) and (lower := val.dimensions[index].lower):
                 lower = simplify(sym.Sum((lower, lbdiff)))
+                decl_lbound = decl_lbounds[index][0]
                 if isinstance(dim, sym.Range):
                     _lower = dim.lower or decl_lbounds[index][1]
                     _upper = dim.upper or var_ubounds[index]
 
-                    _lower = _offset_lbound(lower, _lower)
-                    _upper = _offset_lbound(lower, _upper)
+                    _lower = _offset_lbound(lower, decl_lbound, _lower)
+                    _upper = _offset_lbound(lower, decl_lbound, _upper)
 
                     new_dimensions[indices[index]] = sym.Range((_lower, _upper))
                 else:
-                    new_dimensions[indices[index]] = _offset_lbound(lower, dim)
+                    new_dimensions[indices[index]] = _offset_lbound(lower, decl_lbound, dim)
             else:
                 new_dimensions[indices[index]] = simplify(sym.Sum((dim, lbdiff)))
 
