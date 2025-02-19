@@ -9,7 +9,6 @@ import re
 from collections import  defaultdict
 
 from loki.batch import Transformation
-from loki.analyse import dataflow_analysis_attached
 from loki.expression import (
     IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
     Product, InlineCall, Comparison, RangeIndex, Cast,
@@ -669,11 +668,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         ]
 
         # Filter out unused vars
-        with dataflow_analysis_attached(routine):
-            temporary_arrays = [
+        #  this used to rely on dataflow_analysis only putting temporaries that are defined/written to
+        #  however, there exist some cases where temporaries are only read and it is not the
+        #  responsibility of this transformation to decide whether that is reasonable.
+        #  The following just removes unused temporaries so that they are not put on the stack.
+        used_vars = {v.name.lower() for v in FindVariables().visit(routine.body)}
+        temporary_arrays = [
                 var for var in temporary_arrays
-                if var.name.lower() in routine.body.defines_symbols
-            ]
+                if var.name.lower() in used_vars
+        ]
 
         # Filter out variables whose size is known at compile-time
         temporary_arrays = [
