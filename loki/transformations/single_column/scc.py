@@ -54,7 +54,7 @@ where possible.
 The outer "driver" loop over blocks is used as the secondary dimension
 of parallelism, where the outher data indexing dimension
 (``block_dim``) is resolved in the first call to a "kernel"
-routine. This is equivalent to a so-called "gang-vector" parallisation
+routine. This is equivalent to a so-called "gang-vector" parallelisation
 scheme.
 
 This :any:`Pipeline` applies the following :any:`Transformation`
@@ -64,7 +64,7 @@ classes in sequence:
 2. :any:`SCCDevectorTransformation` - Remove horizontal vector loops.
 3. :any:`SCCDemoteTransformation` - Demote local temporary array
    variables where appropriate.
-4. :any:`SCCVecRevectorTransformation` - Re-insert the vecotr loops outermost,
+4. :any:`SCCVecRevectorTransformation` - Re-insert the vector loops outermost,
    according to identified vector sections.
 5. :any:`SCCAnnotateTransformation` - Annotate loops according to
    programming model (``directive``).
@@ -115,7 +115,7 @@ where possible.
 The outer "driver" loop over blocks is used as the secondary dimension
 of parallelism, where the outher data indexing dimension
 (``block_dim``) is resolved in the first call to a "kernel"
-routine. This is equivalent to a so-called "gang-vector" parallisation
+routine. This is equivalent to a so-called "gang-vector" parallelisation
 scheme.
 
 This :any:`Pipeline` applies the following :any:`Transformation`
@@ -125,7 +125,7 @@ classes in sequence:
 2. :any:`SCCDevectorTransformation` - Remove horizontal vector loops.
 3. :any:`SCCDemoteTransformation` - Demote local temporary array
    variables where appropriate.
-4. :any:`SCCSeqRevectorTransformation` - Re-insert the vecotr loops outermost,
+4. :any:`SCCSeqRevectorTransformation` - Re-insert the vector loops outermost,
    according to identified vector sections.
 5. :any:`SCCAnnotateTransformation` - Annotate loops according to
    programming model (``directive``).

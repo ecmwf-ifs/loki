@@ -547,11 +547,11 @@ class SCCSeqRevectorTransformation(Transformation):
                     if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
 
                         loops = FindNodes(ir.Loop).visit(region)
-                        assert len(loops) == 1
-                        pragma = ir.Pragma(keyword='loki', content=f'loop vector {reduction_clause[0]}')
-                        # Update loop and region in place to remove marker pragmas
-                        loops[0]._update(pragma=(pragma,))
-                        region._update(pragma=None, pragma_post=None)
+                        if loops:
+                            pragma = ir.Pragma(keyword='loki', content=f'loop vector {reduction_clause[0]}')
+                            # Update loop and region in place to remove marker pragmas
+                            loops[0]._update(pragma=(pragma,))
+                            region._update(pragma=None, pragma_post=None)
 
 
     def mark_seq_loops(self, section):
@@ -626,10 +626,10 @@ class SCCSeqRevectorTransformation(Transformation):
             Tuple of target routine names for determining "driver" loops
         """
         role = kwargs['role']
-        targets = kwargs.get('targets', ())
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         # ignore = kwargs.get('ignore', ())
         item = kwargs.get('item', None)
-        ignore = item.ignore if item else ()
+        ignore = item.ignore if item else () + tuple(str(t).lower() for t in as_tuple(kwargs.get('ignore', None)))
 
         if role == 'kernel':
             # Skip if kernel is marked as `!$loki routine seq`
@@ -649,7 +649,7 @@ class SCCSeqRevectorTransformation(Transformation):
             # add horizontal.index as argument for calls/routines being in targets
             call_map = {}
             for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if call.name in targets or call.routine.name.lower() in ignore:
+                if str(call.name).lower() in targets or call.routine.name.lower() in ignore:
                     if check_routine_sequential(call.routine):
                         continue
                     if self.horizontal.index not in call.arg_map:
@@ -696,7 +696,7 @@ class SCCSeqRevectorTransformation(Transformation):
                     # Wrap calls being in targets in a horizontal loop and add horizontal.index as argument
                     call_map = {}
                     for call in FindNodes(ir.CallStatement).visit(loop.body):
-                        if call.name in targets:
+                        if str(call.name).lower() in targets:
                             if self.horizontal.index not in call.arg_map:
                                 new_kwarg = (self.horizontal.index,
                                         get_integer_variable(routine, self.horizontal.index))
