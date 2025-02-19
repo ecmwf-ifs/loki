@@ -304,9 +304,9 @@ def wrap_vector_section(section, routine, bounds, index, insert_pragma=True):
     return (ir.Comment(''), vector_loop, ir.Comment(''))
 
 
-class SCCVecRevectorTransformation(Transformation):
+class BaseRevectorTransformation(Transformation):
     """
-    A transformation to wrap thread-parallel IR sections within a horizontal loop.
+    A base/parent class for transformation to wrap thread-parallel IR sections within a horizontal loop.
     This transformation relies on markers placed by :any:`SCCDevectorTransformation`.
 
     Parameters
@@ -365,7 +365,6 @@ class SCCVecRevectorTransformation(Transformation):
                         loops[0]._update(pragma=(pragma,))
                         region._update(pragma=None, pragma_post=None)
 
-
     def mark_seq_loops(self, section):
         """
         Mark interior sequential loops in a thread-parallel section
@@ -411,6 +410,19 @@ class SCCVecRevectorTransformation(Transformation):
             p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
         )
         loop._update(pragma=loop_pragmas + (pragma,))
+
+
+class SCCVecRevectorTransformation(BaseRevectorTransformation):
+    """
+    A transformation to wrap thread-parallel IR sections within a horizontal loop.
+    This transformation relies on markers placed by :any:`SCCDevectorTransformation`.
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the horizontal data dimension and iteration space.
+    """
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -471,7 +483,7 @@ class SCCVecRevectorTransformation(Transformation):
 # alias for backwards compability
 SCCRevectorTransformation = SCCVecRevectorTransformation
 
-class SCCSeqRevectorTransformation(Transformation):
+class SCCSeqRevectorTransformation(BaseRevectorTransformation):
     """
     A transformation to wrap thread-parallel IR sections within a horizontal loop
     in a way that the horizontal loop is hoisted/moved to the driver level while
@@ -485,9 +497,6 @@ class SCCSeqRevectorTransformation(Transformation):
     """
 
     process_ignored_items = True
-
-    def __init__(self, horizontal):
-        self.horizontal = horizontal
 
     def remove_vector_sections(self, section):
         """
@@ -504,27 +513,6 @@ class SCCSeqRevectorTransformation(Transformation):
         # Wrap all thread-parallel sections into horizontal thread loops
         mapper = {
             s: s.body
-            for s in FindNodes(ir.Section).visit(section)
-            if s.label == 'vector_section'
-        }
-        return Transformer(mapper).visit(section)
-
-    def revector_section(self, routine, section):
-        """
-        Wrap all thread-parallel :any:`Section` objects within a given
-        code section in a horizontal loop and mark interior loops as
-        ``!$loki loop seq``.
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        section : tuple of :any:`Node`
-            Code section in which to replace vector-parallel
-            :any:`Section` objects.
-        """
-        # Wrap all thread-parallel sections into horizontal thread loops
-        mapper = {
-            s: wrap_vector_section_from_dimension(s.body, routine, self.horizontal)
             for s in FindNodes(ir.Section).visit(section)
             if s.label == 'vector_section'
         }
@@ -552,50 +540,6 @@ class SCCSeqRevectorTransformation(Transformation):
                             # Update loop and region in place to remove marker pragmas
                             loops[0]._update(pragma=(pragma,))
                             region._update(pragma=None, pragma_post=None)
-
-
-    def mark_seq_loops(self, section):
-        """
-        Mark interior sequential loops in a thread-parallel section
-        with ``!$loki loop seq`` for later annotation.
-        This utility requires loop-pragmas to be attached via
-        :any:`pragmas_attached`. It also updates loops in-place.
-        Parameters
-        ----------
-        section : tuple of :any:`Node`
-            Code section in which to mark "seq loops".
-        """
-        for loop in FindNodes(ir.Loop).visit(section):
-
-            # Skip loops explicitly marked with `!$loki/claw nodep`
-            if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
-                continue
-
-            # Mark loop as sequential with `!$loki loop seq`
-            if loop.variable != self.horizontal.index:
-                loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
-
-    def mark_driver_loop(self, routine, loop):
-        """
-        Add ``!$loki loop driver`` pragmas to outer block loops and
-        add ``vector-length(size)`` clause for later annotations.
-        This method assumes that pragmas have been attached via
-        :any:`pragmas_attached`.
-        """
-        # Find a horizontal size variable to mark vector_length
-        symbol_map = routine.symbol_map
-        sizes = tuple(
-            symbol_map.get(size) for size in self.horizontal.size_expressions
-            if size in symbol_map
-        )
-        vector_length = f' vector_length({sizes[0]})' if sizes else ''
-
-        # Replace existing `!$loki loop driver markers, but leave all others
-        pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
-        loop_pragmas = tuple(
-            p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
-        )
-        loop._update(pragma=loop_pragmas + (pragma,))
 
     @staticmethod
     def _get_loop_bound(bound, call_arg_map):
@@ -718,7 +662,7 @@ class SCCSeqRevectorTransformation(Transformation):
                     loop._update(body=self.revector_section(routine, loop.body))
 
                     # Check for explicitly labelled vector-reduction regions
-                    self.mark_vector_reductions(routine, loop.body)
+                    super().mark_vector_reductions(routine, loop.body)
 
                     # Mark sequential loops inside vector sections
                     self.mark_seq_loops(loop.body)
