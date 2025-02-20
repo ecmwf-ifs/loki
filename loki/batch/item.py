@@ -709,6 +709,8 @@ class ProcedureItem(Item):
         calls to functions) nodes that constitute dependencies of this item.
         """
         calls = tuple({call.name.name: call for call in FindNodes(CallStatement).visit(self.ir.ir)}.values())
+        if internal_procedures := [routine.name.lower() for routine in self.ir.routines]:
+            calls = tuple(call for call in calls if call.name.name.lower() not in internal_procedures)
         inline_calls = tuple({
             call.function.name: call.function
             for call in FindInlineCalls().visit(self.ir.ir)
