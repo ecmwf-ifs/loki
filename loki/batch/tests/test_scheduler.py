@@ -1589,6 +1589,7 @@ contains
         integer :: val
         call my_member
         write(*,*) val
+        call kernel
     contains
         subroutine my_member
             call my_routine(val)
@@ -1597,7 +1598,21 @@ contains
 end module member_mod
     """.strip()
 
+    fcode_kernel = """
+subroutine kernel
+    implicit none
+    integer :: val
+    call my_member
+    write(*,*) val
+contains
+    subroutine my_member
+        val = 1
+    end subroutine my_member
+end subroutine kernel
+    """.strip()
+
     (tmp_path/'member_mod.F90').write_text(fcode_mod)
+    (tmp_path/'kernel.F90').write_text(fcode_kernel)
 
     scheduler = Scheduler(
         paths=[tmp_path], config=config, seed_routines=['member_mod#driver'],
@@ -1626,20 +1641,31 @@ end module member_mod
     scheduler.process(transformation=transformation)
 
     if use_file_graph:
-        expected = [f'{tmp_path/"member_mod.F90"!s}'.lower() + '::member_mod.F90']
+        expected = [
+            f'{tmp_path/"member_mod.F90"!s}'.lower() + '::member_mod.F90',
+            f'{tmp_path/"kernel.F90"!s}'.lower() + '::kernel.F90'
+        ]
     else:
+        # The commented lines are the dependencies that would be incurred if
+        # we were to chase dependencies into internal member procedures and are
+        # retained here as an FYI. From a technical point of view, the internal
+        # procedures are fully contained (no pun intended) in the parent item,
+        # therefore declaring them as a dependency would not make any sense.
+        # These are therefore filtered from the list of calls in the ProcedureItem's
+        # _dependencies method.
         expected = [
             'member_mod#driver::driver',
-            'member_mod#driver#my_member::my_member',
-            'member_mod#my_routine::my_routine',
+            # 'member_mod#driver#my_member::my_member',
+            # 'member_mod#my_routine::my_routine',
+            '#kernel::kernel',
+            # '#kernel#my_member::my_member'
         ]
 
-    if not use_file_graph:
-        # Because the scheduler cannot represent contained member routines currently, it does
-        # not find the call dependencies via the member routine and therefore doesn't process
-        # these subroutines with the transformation
-        if len(scheduler.items) == 1 and transformation.record == flatten(expected[:1]):
-            pytest.xfail(reason='Scheduler unable to represent contained member routines as graph items')
+        assert [dep.name for dep in scheduler['member_mod#driver'].dependencies] == ['kernel']
+        assert not scheduler['#kernel'].dependencies
+
+    if reverse:
+        expected = expected[::-1]
 
     assert transformation.record == flatten(expected)
 
