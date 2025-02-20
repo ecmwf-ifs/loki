@@ -137,15 +137,17 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         exclude_vars = item.config.get('exclude_offload_vars', [])
 
         for loop in find_driver_loops(routine.body, targets):
+
             calls = FindNodes(ir.CallStatement).visit(loop.body)
             call_routines = [call.routine for call in calls]
             _successors = [s for s in successors if s.ir in call_routines or not isinstance(s, ProcedureItem)]
 
             #gather analysis from children
-            self._gather_from_children(routine, item, _successors)
+            analysis = {}
+            self._gather_from_children(loop, item, analysis, _successors)
 
             layered_dict = {}
-            for k, v in item.trafo_data[self._key]['analysis'].items():
+            for k, v in analysis.items():
                 _temp_dict = self._resolve_nesting(k, v)
                 layered_dict = self._nested_merge(layered_dict, _temp_dict)
             item.trafo_data[self._key]['analysis'][loop] = layered_dict
@@ -218,7 +220,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             with open(f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
                 yaml.dump(layered_dict, file)
 
-    def _gather_from_children(self, routine, item, successors):
+    def _gather_from_children(self, routine, item, analysis, successors):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             child = [child for child in successors if child.ir == call.routine]
             if child:
@@ -233,14 +235,14 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                                    for k, v in child.trafo_data[self._key]['analysis'].items()}
 
                 for k, v in _child_analysis.items():
-                    _v = item.trafo_data[self._key]['analysis'].get(k, v)
+                    _v = analysis.get(k, v)
                     if _v != v:
                         if _v == 'write':
                             continue
                         elif _v == 'read' and 'write' in v:
-                            item.trafo_data[self._key]['analysis'].update({k: 'readwrite'})
+                            analysis.update({k: 'readwrite'})
                     else:
-                        item.trafo_data[self._key]['analysis'].update({k: _v})
+                        analysis.update({k: _v})
 
         self._gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
 
