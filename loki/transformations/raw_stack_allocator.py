@@ -113,7 +113,8 @@ class TemporariesRawStackTransformation(Transformation):
             # Initialize set to store kind imports
             item.trafo_data[self._key] = {'kind_imports': {}}
 
-        successors = kwargs.get('successors', ())
+        subsgraph = kwargs.get('subsgraph', None)
+        successors = as_tuple(subsgraph.successors(item)) if subsgraph is not None else ()
 
         self.role = role
 

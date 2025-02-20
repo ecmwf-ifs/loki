@@ -6,12 +6,11 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
-from itertools import zip_longest
 import pytest
 
 from loki import (
-    Sourcefile, Scheduler, ProcedureItem, as_tuple,
-    ProcedureDeclaration, BasicType, CaseInsensitiveDict,
+    Sourcefile, Scheduler, ProcedureItem,
+    ProcedureDeclaration, BasicType, CaseInsensitiveDict, SGraph
 )
 from loki.expression import Scalar, Array
 from loki.frontend import available_frontends, OMNI
@@ -162,10 +161,12 @@ end module transform_derived_type_arguments_mod
         ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
     ]
 
+    graph_dic = {call_tree[0]: [call_tree[1]]}
+    graph = SGraph.from_dict(graph_dic)
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation(all_derived_types=all_derived_types)
-    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.scope_ir, role=item.role, item=item, successors=as_tuple(successor))
+    for item in reversed(call_tree):
+        transformation.apply(item.scope_ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
 
     # all derived types, disregarding whether the derived type has pointer/allocatable/derived type members or not
     if all_derived_types:
@@ -317,10 +318,12 @@ end module transform_derived_type_arguments_mod
         ProcedureItem(name='transform_derived_type_arguments_mod#kernel', source=source, config={'role': 'kernel'}),
     ]
 
+    graph_dic = {call_tree[0]: [call_tree[1]]}
+    graph = SGraph.from_dict(graph_dic)
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
-    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.ir, role=item.role, item=item, successors=as_tuple(successor))
+    for item in reversed(call_tree):
+        transformation.apply(item.ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
 
     # Make sure derived type arguments are flattened
     call_args = (
@@ -385,9 +388,12 @@ end subroutine driver
     kernel = ProcedureItem('my_mod#kernel', config={'role': 'kernel'}, source=source_my_mod)
     driver = ProcedureItem('#driver', config={'role': 'driver'}, source=source_driver)
 
+    graph_dic = {driver: [kernel]}
+    graph = SGraph.from_dict(graph_dic)
+
     transformation = DerivedTypeArgumentsTransformation()
     transformation.apply(kernel.ir, item=kernel, role=kernel.role)
-    transformation.apply(driver.ir, item=driver, role=driver.role, successors=[kernel])
+    transformation.apply(driver.ir, item=driver, role=driver.role, subsgraph=graph.subsgraph(driver))
 
     assert kernel.trafo_data[transformation._key] == {
         'orig_argnames': ('r', 's'),
@@ -479,10 +485,13 @@ end module transform_derived_type_arguments_multilevel
         ),
     ]
 
+    graph_dic = {call_tree[0]: [call_tree[1]], call_tree[1]: [call_tree[2]]}
+    graph = SGraph.from_dict(graph_dic)
+
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
-    for item, successor in reversed(list(zip_longest(call_tree, call_tree[1:]))):
-        transformation.apply(item.ir, role=item.role, item=item, successors=as_tuple(successor))
+    for item in reversed(call_tree):
+        transformation.apply(item.ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
 
     for item in call_tree:
         if item.role == 'driver':
@@ -708,12 +717,15 @@ end subroutine caller
 
     assert len(items['layer'].ir.imports) == 2
 
+    graph_dic = {}
+    graph_dic = {items[name]: [items[child] for child in successors] for name, successors in call_tree}
+    graph = SGraph.from_dict(graph_dic)
+
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
-    for name, successors in reversed(call_tree):
+    for name, _ in reversed(call_tree):
         item = items[name]
-        children = [items[c] for c in successors]
-        transformation.apply(item.ir, role=item.role, item=item, successors=as_tuple(children))
+        transformation.apply(item.ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
 
     key = DerivedTypeArgumentsTransformation._key
 
@@ -891,12 +903,15 @@ end subroutine driver
     assert proc_decls[1].symbols[0] == 'kernel_b_c'
     assert proc_decls[2].symbols[0] == 'reduce'
 
+    graph_dic = {driver: [reduce]}
+    graph = SGraph.from_dict(graph_dic)
+
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation(key='some_key')
     source['kernel_a'].apply(transformation, role='kernel', item=kernel_a)
     source['kernel'].apply(transformation, role='kernel', item=kernel)
     source['reduce'].apply(transformation, role='kernel', item=reduce)
-    source_driver['driver'].apply(transformation, role='driver', item=driver, successors=[reduce])
+    source_driver['driver'].apply(transformation, role='driver', item=driver, subsgraph=graph)
 
     # Check analysis outcome
     assert 'some_key' in kernel_a.trafo_data
@@ -970,9 +985,12 @@ end subroutine some_routine
     callee = ProcedureItem(name='some_mod#some_routine', source=source1)
     caller = ProcedureItem(name='#some_routine', source=source2)
 
+    graph_dic = {caller: [callee]}
+    graph = SGraph.from_dict(graph_dic)
+
     transformation = DerivedTypeArgumentsTransformation()
-    source1['some_routine'].apply(transformation, item=callee, role='kernel', successors=())
-    source2['some_routine'].apply(transformation, item=caller, role='kernel', successors=(callee,))
+    source1['some_routine'].apply(transformation, item=callee, role='kernel')
+    source2['some_routine'].apply(transformation, item=caller, role='kernel', subsgraph=graph)
 
     assert caller.trafo_data[transformation._key]['expansion_map'] == {
         't': ('t%a',),
@@ -1027,9 +1045,12 @@ end module some_mod
     callee = ProcedureItem(name='some_mod#callee', source=source)
     caller = ProcedureItem(name='some_mod#caller', source=source)
 
+    graph_dic = {caller: [callee]}
+    graph = SGraph.from_dict(graph_dic)
+
     transformation = DerivedTypeArgumentsTransformation()
-    source['callee'].apply(transformation, item=callee, role='kernel', successors=())
-    source['caller'].apply(transformation, item=caller, role='driver', successors=(callee,))
+    source['callee'].apply(transformation, item=callee, role='kernel')
+    source['caller'].apply(transformation, item=caller, role='driver', subsgraph=graph)
 
     assert not caller.trafo_data[transformation._key]
     assert callee.trafo_data[transformation._key]['expansion_map'] == {
@@ -1117,10 +1138,13 @@ end module some_mod
     caller = ProcedureItem(name='some_mod#caller', source=source)
     plus = ProcedureItem(name='some_mod#plus', source=source)
 
+    graph_dic = {caller: [callee, plus]}
+    graph = SGraph.from_dict(graph_dic)
+
     transformation = DerivedTypeArgumentsTransformation()
-    source['callee'].apply(transformation, item=callee, role='kernel', successors=())
-    source['plus'].apply(transformation, item=plus, role='kernel', successors=())
-    source['caller'].apply(transformation, item=caller, role='driver', successors=(callee, plus))
+    source['callee'].apply(transformation, item=callee, role='kernel')
+    source['plus'].apply(transformation, item=plus, role='kernel')
+    source['caller'].apply(transformation, item=caller, role='driver', subsgraph=graph)
 
     assert not caller.trafo_data[transformation._key]
     assert callee.trafo_data[transformation._key]['expansion_map'] == {
@@ -1228,10 +1252,13 @@ end subroutine caller
     other_sub = ProcedureItem(name='other_mod#sub', source=source_other)
     caller = ProcedureItem(name='#caller', source=source_caller)
 
+    graph_dic = {caller: [some_sub, other_sub]}
+    graph = SGraph.from_dict(graph_dic)
+
     transformation = DerivedTypeArgumentsTransformation()
-    source_some['sub'].apply(transformation, item=some_sub, role='kernel', successors=())
-    source_other['sub'].apply(transformation, item=other_sub, role='kernel', successors=())
-    source_caller['caller'].apply(transformation, item=caller, role='driver', successors=(some_sub, other_sub))
+    source_some['sub'].apply(transformation, item=some_sub, role='kernel')
+    source_other['sub'].apply(transformation, item=other_sub, role='kernel')
+    source_caller['caller'].apply(transformation, item=caller, role='driver', subsgraph=graph)
 
     assert some_sub.ir.arguments == ('t_some(:)',)
     assert other_sub.ir.arguments == ('t_other(:)',)
