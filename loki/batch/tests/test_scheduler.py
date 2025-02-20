@@ -297,10 +297,13 @@ def test_scheduler_graph_simple(
                            |
                            | --> another_l1 -> another_l2
     """
+
+    # Combine directory globbing and explicit file paths for lookup
     projA = testdir/'sources/projA'
+    paths = [projA/'module', projA/'source/another_l1.F90', projA/'source/another_l2.F90']
 
     scheduler = Scheduler(
-        paths=projA, includes=projA/'include', config=config,
+        paths=paths, includes=projA/'include', config=config,
         seed_routines=seed, frontend=frontend, xmods=[tmp_path]
     )
 

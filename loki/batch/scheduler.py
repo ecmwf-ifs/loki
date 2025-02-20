@@ -216,7 +216,10 @@ class Scheduler:
         }
 
         # Create a list of initial files to scan with the fast REGEX frontend
-        path_list = [path.glob(f'**/*{ext}') for path in self.paths for ext in self.source_suffixes]
+        path_list = [
+            path.glob(f'**/*{ext}') if path.is_dir() else path
+            for path in self.paths for ext in self.source_suffixes
+        ]
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
         # Instantiate FileItem instances for all files in the search path
