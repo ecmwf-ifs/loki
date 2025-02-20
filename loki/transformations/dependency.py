@@ -94,8 +94,11 @@ class DuplicateKernel(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         # Create new dependency items
+        item = kwargs.get('item')
+        subsgraph = kwargs.get('subsgraph', None)
+        successors = subsgraph.successors(item) if subsgraph is not None else ()
         new_dependencies = self._create_duplicate_items(
-            successors=as_tuple(kwargs.get('successors')),
+            successors=successors,
             item_factory=kwargs.get('item_factory'),
             config=kwargs.get('scheduler_config')
         )
@@ -124,9 +127,11 @@ class DuplicateKernel(Transformation):
 
     def plan_subroutine(self, routine, **kwargs):
         item = kwargs.get('item')
+        subsgraph = kwargs.get('subsgraph', None)
+        successors = subsgraph.successors(item) if subsgraph is not None else ()
         item.plan_data.setdefault('additional_dependencies', ())
         item.plan_data['additional_dependencies'] += self._create_duplicate_items(
-            successors=as_tuple(kwargs.get('successors')),
+            successors=successors,
             item_factory=kwargs.get('item_factory'),
             config=kwargs.get('scheduler_config')
         )
@@ -160,8 +165,9 @@ class RemoveKernel(Transformation):
 
     def plan_subroutine(self, routine, **kwargs):
         item = kwargs.get('item')
+        subsgraph = kwargs.get('subsgraph', None)
+        successors = subsgraph.successors(item) if subsgraph is not None else ()
 
-        successors = as_tuple(kwargs.get('successors'))
         item.plan_data.setdefault('removed_dependencies', ())
         item.plan_data['removed_dependencies'] += tuple(
             child for child in successors if child.local_name in self.remove_kernels

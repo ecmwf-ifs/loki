@@ -555,7 +555,7 @@ class Scheduler:
 
                 transformation.apply(
                     _item.scope_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
-                    successors=graph.successors(_item, item_filter=item_filter),
+                    subsgraph=graph.subsgraph(_item, item_filter=item_filter),
                     role=_item.role, mode=_item.mode, targets=_item.targets,
                     **kwargs
                 )

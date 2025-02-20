@@ -7,9 +7,9 @@
 
 import pytest
 
-from loki import Sourcefile, Dimension, fgen
+from loki import Sourcefile, Dimension, fgen, SGraph
 from loki.batch import (
-    Scheduler, SchedulerConfig, ProcedureItem, ModuleItem
+    Scheduler, SchedulerConfig, ProcedureItem
 )
 from loki.frontend import available_frontends
 from loki.ir import (
@@ -105,11 +105,14 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
         horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
 
+    graph_dic = {driver_item: [kernel_item]}
+    graph = SGraph.from_dict(graph_dic)
     # Apply pipeline in reverse order to ensure analysis runs before hoisting
     scc_hoist.apply(kernel, role='kernel', item=kernel_item)
     scc_hoist.apply(
         driver, role='driver', item=driver_item,
-        successors=(kernel_item,), targets=['compute_column']
+        subsgraph=graph,
+        targets=['compute_column']
     )
 
     # Ensure we two loops left in kernel
@@ -449,17 +452,19 @@ end module my_scaling_value_mod
 
     driver_item = ProcedureItem(name='#column_driver', source=driver_source)
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
-    module_item = ModuleItem(name='my_scaling_value_mod', source=module_source)
 
     scc_hoist = SCCHoistPipeline(
         horizontal=horizontal, block_dim=blocking,
         directive='openacc', dim_vars=vertical.sizes
     )
 
+    graph_dic = {driver_item: [kernel_item]}
+    graph = SGraph.from_dict(graph_dic)
     # Apply in reverse order to ensure hoisting analysis gets run on kernel first
-    scc_hoist.apply(kernel, role='kernel', item=kernel_item, successors=(module_item,))
+    scc_hoist.apply(kernel, role='kernel', item=kernel_item)
     scc_hoist.apply(
-        driver, role='driver', item=driver_item, successors=(kernel_item,), targets=['compute_column']
+        driver, role='driver', item=driver_item, targets=['compute_column'],
+        subsgraph=graph
     )
 
     # Check that blocking size has not been redefined
@@ -580,15 +585,17 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
         dim_vars=vertical.sizes, as_kwarguments=as_kwarguments, directive='openacc'
     )
 
+    graph_dic = {driver_item: [outer_kernel_item], outer_kernel_item: [inner_kernel_item]}
+    graph = SGraph.from_dict(graph_dic)
     # Apply in reverse order to ensure hoisting analysis gets run on kernel first
     scc_hoist.apply(inner_kernel, role='kernel', item=inner_kernel_item)
     scc_hoist.apply(
         outer_kernel, role='kernel', item=outer_kernel_item,
-        targets=['compute_q'], successors=(inner_kernel_item,)
+        targets=['compute_q'], subsgraph=graph.subsgraph(outer_kernel_item)
     )
     scc_hoist.apply(
         driver, role='driver', item=driver_item,
-        targets=['compute_column'], successors=(outer_kernel_item,)
+        targets=['compute_column'], subsgraph=graph
     )
 
     # Ensure calls have correct arguments
@@ -761,15 +768,18 @@ def test_scc_hoist_nested_inline_openacc(frontend, horizontal, vertical, blockin
 
     InlineTransformation(allowed_aliases=horizontal.index).apply(outer_kernel)
 
+    graph_dic = {driver_item: [outer_kernel_item], outer_kernel_item: [inner_kernel_item]}
+    graph = SGraph.from_dict(graph_dic)
+
     # Apply in reverse order to ensure hoisting analysis gets run on kernel first
     scc_hoist.apply(inner_kernel, role='kernel', item=inner_kernel_item)
     scc_hoist.apply(
         outer_kernel, role='kernel', item=outer_kernel_item,
-        targets=['compute_q'], successors=()
+        targets=['compute_q']
     )
     scc_hoist.apply(
         driver, role='driver', item=driver_item,
-        targets=['compute_column'], successors=(outer_kernel_item,)
+        targets=['compute_column'], subsgraph=graph
     )
 
     # Ensure calls have correct arguments

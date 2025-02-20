@@ -139,7 +139,9 @@ class FortranCTransformation(Transformation):
         item = kwargs.get('item', None)
         depths = kwargs.get('depths', None)
         targets = kwargs.get('targets', None)
-        successors = kwargs.get('successors', ())
+        subsgraph = kwargs.get('subsgraph', None)
+        successors = as_tuple(subsgraph.successors(item)) if subsgraph is not None else ()
+
         depth = 0
         if depths is None:
             if role == 'driver':
