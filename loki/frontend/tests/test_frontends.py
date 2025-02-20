@@ -18,7 +18,7 @@ from loki import (
 )
 from loki.build import jit_compile, clean_test
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OMNI, FP
+from loki.frontend import available_frontends, OMNI, FP, HAVE_FP
 from loki.ir import nodes as ir, FindNodes, FindVariables
 
 
@@ -782,7 +782,7 @@ module mod_variable_dimensions
   !$loki dimension(x+y,2*x)
   real(kind=jprb), allocatable :: v5(:,:)
   !$loki dimension(x/2, x**2, (x+y)/x)
-  real(kind=jprb), dimension(:, :, :), pointer :: v6 
+  real(kind=jprb), dimension(:, :, :), pointer :: v6
 end module mod_variable_dimensions
     """
 
@@ -1015,3 +1015,38 @@ end subroutine test_derived_type_parse
     assert isinstance(assigns[1].lhs, sym.Array)
     assert assigns[1].lhs.type.dtype == BasicType.REAL
     assert assigns[1].lhs.type.shape == (':',)
+
+
+@pytest.mark.skipif(not HAVE_FP, reason="Assumed size declarations only supported for FP")
+def test_assumed_size_declarations():
+    """
+    Test if assumed size declarations are correctly parsed.
+    """
+
+    fcode = """
+subroutine kernel(a, b, c)
+  implicit none
+  real, intent(in) :: a(*)
+  real, intent(in) :: b(8,*)
+  real, intent(in) :: c(8,0:*)
+
+end subroutine kernel
+"""
+
+    kernel = Subroutine.from_source(fcode, frontend=FP)
+
+    variable_map = kernel.variable_map
+    a = variable_map['a']
+    b = variable_map['b']
+    c = variable_map['c']
+
+    assert len(a.shape) == 1
+
+    assert len(b.shape) == 2
+    assert b.shape[0] == 8
+
+    assert len(c.shape) == 2
+    assert c.shape[0] == 8
+    assert c.shape[1].lower == 0
+
+    assert all('*' in str(shape) for shape in [a.shape, b.shape, c.shape])

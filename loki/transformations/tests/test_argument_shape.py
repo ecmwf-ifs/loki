@@ -9,11 +9,13 @@ from pathlib import Path
 import pytest
 
 from loki import  Subroutine, Scheduler, Sourcefile, flatten
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, HAVE_FP, FP
 from loki.ir import CallStatement, FindNodes
 from loki.transformations import (
     ArgumentArrayShapeAnalysis, ExplicitArgumentArrayShapeTransformation
 )
+from loki.expression import symbols as sym
+from loki.types import BasicType
 
 
 @pytest.fixture(scope='module', name='here')
@@ -424,3 +426,116 @@ def test_argument_shape_transformation_import(frontend, here, tmp_path):
         assert (v, v) in FindNodes(CallStatement).visit(driver.body)[1].kwarguments
     for v in ('nlon', 'nlev', 'n'):
         assert (v, v) in FindNodes(CallStatement).visit(kernel_a.body)[0].kwarguments
+
+
+@pytest.mark.skipif(not HAVE_FP, reason="Assumed size declarations only supported for FP")
+@pytest.mark.parametrize('transform', [True, False])
+def test_argument_size_assumed_size(transform):
+    """
+    Test to ensure that assumed size arguments are correctly sized
+    from the calling context, so that the driver-level sizes are propagated
+    into the kernel routines.
+    """
+
+    fcode_driver = """
+  SUBROUTINE trafo_driver(nlon, nlev, a, b, c, d, e)
+    ! Driver routine with explicit array shapes
+    INTEGER, INTENT(IN)   :: nlon, nlev  ! Dimension sizes
+    INTEGER, PARAMETER    :: n = 5
+    REAL, INTENT(INOUT)   :: a(nlon)
+    REAL, INTENT(INOUT)   :: b(nlon,nlev,n)
+    REAL, INTENT(INOUT)   :: c(nlon,nlev,n)
+    REAL, INTENT(INOUT)   :: d(nlon,nlev)
+    REAL, INTENT(INOUT)   :: e(2,4,nlon,nlev)
+
+    call trafo_kernel(nlon, a, b, c, d(:,1:2), e)
+  END SUBROUTINE trafo_driver
+    """
+
+    fcode_kernel = """
+  SUBROUTINE trafo_kernel(nlon, a, b, c, d, e)
+    ! Kernel routine with implicit shape array arguments
+    INTEGER, INTENT(IN)   :: nlon
+    REAL, INTENT(INOUT)   :: a(*)
+    REAL, INTENT(INOUT)   :: b(nlon,*)
+    REAL, INTENT(INOUT)   :: c(nlon,0:*)
+    REAL, INTENT(INOUT)   :: d(*)
+    REAL, INTENT(INOUT)   :: e(2,4,3:*)
+
+  END SUBROUTINE trafo_kernel
+    """
+
+    kernel = Subroutine.from_source(fcode_kernel, frontend=FP)
+    driver = Subroutine.from_source(fcode_driver, frontend=FP)
+    driver.enrich(kernel)  # Attach kernel source to driver call
+
+    # Ensure initial call uses assumed size declarations
+    calls = FindNodes(CallStatement).visit(driver.body)
+    assert len(calls) == 1 and calls[0].routine
+    assert len(calls[0].routine.arguments) == 6
+    assert calls[0].routine.arguments[0] == 'nlon'
+    assert calls[0].routine.arguments[1].shape == ('*', )
+    assert calls[0].routine.arguments[2].shape == ('nlon', '*')
+    assert calls[0].routine.arguments[3].shape == ('nlon', '0:*')
+    assert calls[0].routine.arguments[4].shape == ('*',)
+    assert calls[0].routine.arguments[5].shape == (2, 4, '3:*',)
+
+    arg_shape_trafo = ArgumentArrayShapeAnalysis()
+    arg_shape_trafo.apply(driver, role='driver')
+
+    assert kernel.arguments[1].shape == ('nlon',)
+    assert kernel.arguments[2].shape == ('nlon', 'nlev * n')
+
+    assert kernel.arguments[3].shape[0] == 'nlon'
+    assert isinstance(kernel.arguments[3].shape[1], sym.RangeIndex)
+    assert kernel.arguments[3].shape[1].lower == 0
+    assert kernel.arguments[3].shape[1].upper == '-1 + n*nlev'
+
+    assert kernel.arguments[4].shape == ('2*nlon',)
+
+    assert kernel.arguments[5].shape[0] == 2
+    assert kernel.arguments[5].shape[1] == 4
+    assert isinstance(kernel.arguments[5].shape[2], sym.RangeIndex)
+    assert kernel.arguments[5].shape[2].lower == 3
+    assert kernel.arguments[5].shape[2].upper == '2 + nlev*nlon'
+
+    if transform:
+        arg_shape_trafo = ExplicitArgumentArrayShapeTransformation()
+        arg_shape_trafo.apply(kernel)
+        arg_shape_trafo.apply(driver)
+
+        # check that the driver side call was updated
+        calls = FindNodes(CallStatement).visit(driver.body)
+        assert len(calls) == 1
+        assert len(calls[0].arguments) + len(calls[0].kwarguments) == 8
+        assert calls[0].kwarguments[0][1] in ['n', 'nlev']
+        assert calls[0].kwarguments[1][1] in ['n', 'nlev']
+        assert calls[0].kwarguments[0][1] != calls[0].kwarguments[1][1]
+
+        # check that the kernel argument declarations were updated
+        arguments = kernel.arguments
+
+        assert len(arguments) == 8
+        assert arguments[6] in ['n', 'nlev']
+        assert arguments[7] in ['n', 'nlev']
+        assert arguments[6] != arguments[7]
+
+        assert arguments[6].type.dtype == BasicType.INTEGER
+        assert arguments[7].type.dtype == BasicType.INTEGER
+
+        # check array argument declarations were updated correctly
+        assert arguments[1].dimensions == ('nlon',)
+        assert arguments[2].dimensions == ('nlon', 'nlev * n')
+
+        assert arguments[3].dimensions[0] == 'nlon'
+        assert isinstance(arguments[3].dimensions[1], sym.RangeIndex)
+        assert arguments[3].dimensions[1].lower == 0
+        assert arguments[3].dimensions[1].upper == '-1 + n*nlev'
+
+        assert arguments[4].dimensions == ('2*nlon',)
+
+        assert arguments[5].dimensions[0] == 2
+        assert arguments[5].dimensions[1] == 4
+        assert isinstance(arguments[5].dimensions[2], sym.RangeIndex)
+        assert arguments[5].dimensions[2].lower == 3
+        assert arguments[5].dimensions[2].upper == '2 + nlev*nlon'

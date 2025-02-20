@@ -20,9 +20,8 @@ reverse traversal order to apply the necessary changes to argument
 declarations and call signatures.
 """
 
-
 from loki.batch import Transformation
-from loki.expression import Array
+from loki.expression import Array, symbols as sym, simplify
 from loki.ir import (
     FindNodes, CallStatement, Transformer, FindVariables, SubstituteExpressions
 )
@@ -80,6 +79,34 @@ class ArgumentArrayShapeAnalysis(Transformation):
                                          if d == ':']
                             vmap[arg] = arg.clone(type=arg.type.clone(shape=new_shape))
 
+                    elif str(arg.shape[-1])[-1] == '*':
+                        expl_shape_len = len(arg.shape) - 1
+
+                        dims = val.shape
+                        if val.dimensions:
+                            dims = [d for d in val.dimensions if not isinstance(d, sym.Scalar)]
+                            # sanitise unbounded ranges in argument
+                            dims = [sym.RangeIndex((d.lower or getattr(val.shape, 'lower', sym.IntLiteral(1)),
+                                                    d.upper or getattr(val.shape, 'upper', val.shape[i])))
+                                                    for i, d in enumerate(dims)]
+
+                        # determine argument dimension sizes
+                        sizes = [simplify(sym.Sum((getattr(d, 'upper', d),
+                                          sym.Product((sym.IntLiteral(-1), getattr(d, 'lower', sym.IntLiteral(1)))),
+                                          sym.IntLiteral(1)))) for d in dims]
+
+                        # determine explicit size corresponding to assumed size
+                        expl_size = simplify(sym.Product(tuple(s for s in sizes[expl_shape_len:])))
+
+                        new_shape = list(arg.shape)
+                        if isinstance(arg.shape[expl_shape_len], sym.RangeIndex):
+                            lower = arg.shape[expl_shape_len].lower
+                            upper = simplify(sym.Sum((expl_size, sym.IntLiteral(-1), lower)))
+                            new_shape[expl_shape_len] = sym.RangeIndex((lower, upper))
+                        else:
+                            new_shape[expl_shape_len] = expl_size
+                        vmap[arg] = arg.clone(type=arg.type.clone(shape=as_tuple(new_shape)))
+
             # Propagate the updated variables to variable definitions in routine
             routine.variables = [vmap.get(v, v) for v in routine.variables]
 
@@ -119,13 +146,15 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):  # pylint: disable=arguments-differ
 
+        def assumed(dims):
+            return all(d == ':' for d in dims) or str(dims[-1])[-1] == '*'
+
         # First, replace assumed array shapes with concrete shapes for
         # all arguments if the shape is known.
         arg_map = {}
         for arg in routine.arguments:
             if isinstance(arg, Array):
-                assumed = tuple(':' for _ in arg.shape)
-                if arg.shape != assumed and arg.dimensions == assumed:
+                if not assumed(arg.shape) and assumed(arg.dimensions):
                     arg_map[arg] = arg.clone(dimensions=tuple(arg.shape))
         routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
 
