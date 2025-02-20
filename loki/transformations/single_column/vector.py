@@ -412,6 +412,9 @@ class SCCRevectorTransformation(Transformation):
                 else:
                     loop_pragmas += [p,]
         else:
+            if any(pragma.keyword.lower() == 'omp' for pragma in loop.pragma):
+                return            
+
             loop_pragmas = [
                 p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
             ]
