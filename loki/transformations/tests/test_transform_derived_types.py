@@ -166,7 +166,7 @@ end module transform_derived_type_arguments_mod
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation(all_derived_types=all_derived_types)
     for item in reversed(call_tree):
-        transformation.apply(item.scope_ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
+        transformation.apply(item.scope_ir, role=item.role, item=item, sub_sgraph=graph.get_sub_sgraph(item))
 
     # all derived types, disregarding whether the derived type has pointer/allocatable/derived type members or not
     if all_derived_types:
@@ -323,7 +323,7 @@ end module transform_derived_type_arguments_mod
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for item in reversed(call_tree):
-        transformation.apply(item.ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
+        transformation.apply(item.ir, role=item.role, item=item, sub_sgraph=graph.get_sub_sgraph(item))
 
     # Make sure derived type arguments are flattened
     call_args = (
@@ -393,7 +393,7 @@ end subroutine driver
 
     transformation = DerivedTypeArgumentsTransformation()
     transformation.apply(kernel.ir, item=kernel, role=kernel.role)
-    transformation.apply(driver.ir, item=driver, role=driver.role, subsgraph=graph.subsgraph(driver))
+    transformation.apply(driver.ir, item=driver, role=driver.role, sub_sgraph=graph.get_sub_sgraph(driver))
 
     assert kernel.trafo_data[transformation._key] == {
         'orig_argnames': ('r', 's'),
@@ -491,7 +491,7 @@ end module transform_derived_type_arguments_multilevel
     # Apply transformation
     transformation = DerivedTypeArgumentsTransformation()
     for item in reversed(call_tree):
-        transformation.apply(item.ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
+        transformation.apply(item.ir, role=item.role, item=item, sub_sgraph=graph.get_sub_sgraph(item))
 
     for item in call_tree:
         if item.role == 'driver':
@@ -725,7 +725,7 @@ end subroutine caller
     transformation = DerivedTypeArgumentsTransformation()
     for name, _ in reversed(call_tree):
         item = items[name]
-        transformation.apply(item.ir, role=item.role, item=item, subsgraph=graph.subsgraph(item))
+        transformation.apply(item.ir, role=item.role, item=item, sub_sgraph=graph.get_sub_sgraph(item))
 
     key = DerivedTypeArgumentsTransformation._key
 
@@ -911,7 +911,7 @@ end subroutine driver
     source['kernel_a'].apply(transformation, role='kernel', item=kernel_a)
     source['kernel'].apply(transformation, role='kernel', item=kernel)
     source['reduce'].apply(transformation, role='kernel', item=reduce)
-    source_driver['driver'].apply(transformation, role='driver', item=driver, subsgraph=graph)
+    source_driver['driver'].apply(transformation, role='driver', item=driver, sub_sgraph=graph)
 
     # Check analysis outcome
     assert 'some_key' in kernel_a.trafo_data
@@ -990,7 +990,7 @@ end subroutine some_routine
 
     transformation = DerivedTypeArgumentsTransformation()
     source1['some_routine'].apply(transformation, item=callee, role='kernel')
-    source2['some_routine'].apply(transformation, item=caller, role='kernel', subsgraph=graph)
+    source2['some_routine'].apply(transformation, item=caller, role='kernel', sub_sgraph=graph)
 
     assert caller.trafo_data[transformation._key]['expansion_map'] == {
         't': ('t%a',),
@@ -1050,7 +1050,7 @@ end module some_mod
 
     transformation = DerivedTypeArgumentsTransformation()
     source['callee'].apply(transformation, item=callee, role='kernel')
-    source['caller'].apply(transformation, item=caller, role='driver', subsgraph=graph)
+    source['caller'].apply(transformation, item=caller, role='driver', sub_sgraph=graph)
 
     assert not caller.trafo_data[transformation._key]
     assert callee.trafo_data[transformation._key]['expansion_map'] == {
@@ -1144,7 +1144,7 @@ end module some_mod
     transformation = DerivedTypeArgumentsTransformation()
     source['callee'].apply(transformation, item=callee, role='kernel')
     source['plus'].apply(transformation, item=plus, role='kernel')
-    source['caller'].apply(transformation, item=caller, role='driver', subsgraph=graph)
+    source['caller'].apply(transformation, item=caller, role='driver', sub_sgraph=graph)
 
     assert not caller.trafo_data[transformation._key]
     assert callee.trafo_data[transformation._key]['expansion_map'] == {
@@ -1258,7 +1258,7 @@ end subroutine caller
     transformation = DerivedTypeArgumentsTransformation()
     source_some['sub'].apply(transformation, item=some_sub, role='kernel')
     source_other['sub'].apply(transformation, item=other_sub, role='kernel')
-    source_caller['caller'].apply(transformation, item=caller, role='driver', subsgraph=graph)
+    source_caller['caller'].apply(transformation, item=caller, role='driver', sub_sgraph=graph)
 
     assert some_sub.ir.arguments == ('t_some(:)',)
     assert other_sub.ir.arguments == ('t_other(:)',)

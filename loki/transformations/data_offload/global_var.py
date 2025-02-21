@@ -100,13 +100,13 @@ class GlobalVariableAnalysis(Transformation):
     def transform_subroutine(self, routine, **kwargs):
         if 'item' not in kwargs:
             raise RuntimeError('Cannot apply GlobalVariableAnalysis without item to store analysis data')
-        if 'subsgraph' not in kwargs:
+        if 'sub_sgraph' not in kwargs:
             raise RuntimeError(('Cannot apply GlobalVariableAnalysis without information'
                 ' about successors to store offload analysis data'))
 
         item = kwargs['item']
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = subsgraph.successors(item) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
 
         # Gather all symbols imported in this routine or parent scopes
         import_map = CaseInsensitiveDict()
@@ -300,8 +300,8 @@ class GlobalVarOffloadTransformation(Transformation):
         """
         role = kwargs.get('role')
         item = kwargs['item']
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = subsgraph.successors(item) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
 
         if role == 'driver':
             self.process_driver(routine, successors)
@@ -555,8 +555,8 @@ class GlobalVarHoistTransformation(Transformation):
         """
         role = kwargs.get('role')
         item = kwargs.get('item', None)
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = subsgraph.successors(item) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
 
         if role == 'driver':
             self.process_driver(routine, successors)
