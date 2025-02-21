@@ -332,7 +332,8 @@ class SGraph:
             dependencies will also be included until they eventually resolve to a
             :any:`ProcedureItem`.
         """
-        if ProcedureItem in as_tuple(item_filter):
+        item_filter = as_tuple(item_filter)
+        if ProcedureItem in item_filter:
             # ProcedureBindingItem and InterfaceItem are intermediate nodes that take
             # essentially the role of an edge to ProcedureItems. Therefore
             # we need to make sure these are included if ProcedureItems are included
