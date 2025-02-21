@@ -332,7 +332,7 @@ class SGraph:
             dependencies will also be included until they eventually resolve to a
             :any:`ProcedureItem`.
         """
-        if ProcedureItem in item_filter:
+        if ProcedureItem in as_tuple(item_filter):
             # ProcedureBindingItem and InterfaceItem are intermediate nodes that take
             # essentially the role of an edge to ProcedureItems. Therefore
             # we need to make sure these are included if ProcedureItems are included
@@ -340,7 +340,7 @@ class SGraph:
                 item_filter = item_filter + (ProcedureBindingItem,)
             if InterfaceItem not in item_filter:
                 item_filter = item_filter + (InterfaceItem,)
-        return item_filter
+        return item_filter or None
 
     def successors(self, item, item_filter=None):
         """
@@ -364,7 +364,8 @@ class SGraph:
             dependencies will also be included until they eventually resolve to a
             :any:`ProcedureItem`.
         """
-        item_filter = self._get_item_filter(as_tuple(item_filter)) or None
+        # item_filter = self._get_item_filter(as_tuple(item_filter)) or None
+        item_filter = self._get_item_filter(item_filter)
 
         successors = ()
         for child in self._graph.successors(item):
@@ -375,7 +376,7 @@ class SGraph:
                     successors += (child,)
         return successors
 
-    def subsgraph(self, item, item_filter=None):
+    def get_sub_sgraph(self, item, item_filter=None):
         """
         Return the subgraph of ``self._graph`` from source ``item`` as a new instance of
         :any:`SGraph`.
@@ -392,14 +393,15 @@ class SGraph:
             dependencies will also be included until they eventually resolve to a
             :any:`ProcedureItem`.
         """
-        item_filter = self._get_item_filter(as_tuple(item_filter)) or None
+        # item_filter = self._get_item_filter(as_tuple(item_filter)) or None
+        item_filter = self._get_item_filter(item_filter)
         # find descendants and add item itself
         nodes = as_tuple(nx.descendants(self._graph, item)) + (item,)
         if item_filter is not None:
             nodes = as_tuple([node for node in nodes if isinstance(node, item_filter)])
         # generate (a copy of) the nx.DiGraph subgraph
         subgraph = self._graph.subgraph(nodes).copy()
-        # return this subgraph as instance of SGraph -> subsgraph
+        # return this subgraph as instance of SGraph -> sub_sgraph
         return type(self)(subgraph)
 
     @property

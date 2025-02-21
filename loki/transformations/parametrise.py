@@ -176,8 +176,8 @@ class ParametriseTransformation(Transformation):
 
         item = kwargs.get('item', None)
         role = kwargs.get('role', None)
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = as_tuple(subsgraph.successors(item)) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         successor_map = CaseInsensitiveDict(
             (successor.local_name, successor)

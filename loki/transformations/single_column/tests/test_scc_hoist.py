@@ -109,7 +109,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
     scc_hoist.apply(kernel, role='kernel', item=kernel_item)
     scc_hoist.apply(
         driver, role='driver', item=driver_item,
-        subsgraph=graph,
+        sub_sgraph=graph,
         targets=['compute_column']
     )
 
@@ -444,7 +444,7 @@ end module my_scaling_value_mod
     scc_hoist.apply(kernel, role='kernel', item=kernel_item)
     scc_hoist.apply(
         driver, role='driver', item=driver_item, targets=['compute_column'],
-        subsgraph=graph
+        sub_sgraph=graph
     )
 
     # Check that blocking size has not been redefined
@@ -571,11 +571,11 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
     scc_hoist.apply(inner_kernel, role='kernel', item=inner_kernel_item)
     scc_hoist.apply(
         outer_kernel, role='kernel', item=outer_kernel_item,
-        targets=['compute_q'], subsgraph=graph.subsgraph(outer_kernel_item)
+        targets=['compute_q'], sub_sgraph=graph.get_sub_sgraph(outer_kernel_item)
     )
     scc_hoist.apply(
         driver, role='driver', item=driver_item,
-        targets=['compute_column'], subsgraph=graph
+        targets=['compute_column'], sub_sgraph=graph
     )
 
     # Ensure calls have correct arguments
@@ -759,7 +759,7 @@ def test_scc_hoist_nested_inline_openacc(frontend, horizontal, vertical, blockin
     )
     scc_hoist.apply(
         driver, role='driver', item=driver_item,
-        targets=['compute_column'], subsgraph=graph
+        targets=['compute_column'], sub_sgraph=graph
     )
 
     # Ensure calls have correct arguments

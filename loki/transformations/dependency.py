@@ -95,8 +95,8 @@ class DuplicateKernel(Transformation):
     def transform_subroutine(self, routine, **kwargs):
         # Create new dependency items
         item = kwargs.get('item')
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = subsgraph.successors(item) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
         new_dependencies = self._create_duplicate_items(
             successors=successors,
             item_factory=kwargs.get('item_factory'),
@@ -127,8 +127,8 @@ class DuplicateKernel(Transformation):
 
     def plan_subroutine(self, routine, **kwargs):
         item = kwargs.get('item')
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = subsgraph.successors(item) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
         item.plan_data.setdefault('additional_dependencies', ())
         item.plan_data['additional_dependencies'] += self._create_duplicate_items(
             successors=successors,
@@ -165,8 +165,8 @@ class RemoveKernel(Transformation):
 
     def plan_subroutine(self, routine, **kwargs):
         item = kwargs.get('item')
-        subsgraph = kwargs.get('subsgraph', None)
-        successors = subsgraph.successors(item) if subsgraph is not None else ()
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
 
         item.plan_data.setdefault('removed_dependencies', ())
         item.plan_data['removed_dependencies'] += tuple(
