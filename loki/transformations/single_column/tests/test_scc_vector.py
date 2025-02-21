@@ -70,7 +70,8 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
 
     fcode_kernel = """
   MODULE compute_mod
-  use compute2_mod, only: compute_another_column
+  use compute_ctl_mod, only: compute_ctl
+  use compute_ctl2_mod, only: compute_ctl2
   contains
   SUBROUTINE compute_column(start, end, nlon, nz, q, t)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
@@ -93,10 +94,37 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
       Q(JL, NZ) = Q(JL, NZ) * C
     END DO
 
-    CALL COMPUTE_ANOTHER_COLUMN(start, end, nlon, nz, q, t)
+    CALL COMPUTE_CTL(start, end, nlon, nz, q, t)
+    CALL COMPUTE_CTL2(start, end, nlon, nz, q, t)
 
   END SUBROUTINE compute_column
   END MODULE compute_mod
+"""
+
+    fcode_intermediate_kernel = """
+  MODULE compute_ctl_mod
+  use compute2_mod, only: compute_another_column
+  contains
+  SUBROUTINE compute_ctl(start, end, nlon, nz, q1, t1)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t1(nlon,nz)
+    REAL, INTENT(INOUT) :: q1(nlon,nz)
+    CALL COMPUTE_ANOTHER_COLUMN(start, end, nlon, nz, q, t)
+  END SUBROUTINE compute_ctl
+  END MODULE compute_ctl_mod
+"""
+
+    fcode_intermediate2_kernel = """
+  MODULE compute_ctl2_mod
+  contains
+  SUBROUTINE compute_ctl2(start, end, nlon, nz, q1, t1)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t1(nlon,nz)
+    REAL, INTENT(INOUT) :: q1(nlon,nz)
+  END SUBROUTINE compute_ctl2
+  END MODULE compute_ctl2_mod
 """
 
     fcode_nested_kernel = """
@@ -128,9 +156,14 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
 
     # kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
     nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
-    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, definitions=nested_kernel_mod, xmods=[tmp_path])
+    intermediate_kernel_mod = Module.from_source(fcode_intermediate_kernel, frontend=frontend,
+            definitions=nested_kernel_mod,xmods=[tmp_path])
+    intermediate_kernel2_mod = Module.from_source(fcode_intermediate2_kernel, frontend=frontend)
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend,
+            definitions=[intermediate_kernel_mod, intermediate_kernel2_mod], xmods=[tmp_path])
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod, xmods=[tmp_path])
-    kernel = kernel_mod.subroutines[0] # ['#kernel']
+    kernel = kernel_mod.subroutines[0]
+    intermediate_kernel = intermediate_kernel_mod.subroutines[0]
     nested_kernel = nested_kernel_mod.subroutines[0]
 
     # Ensure we have three loops in the kernel prior to transformation
@@ -141,24 +174,28 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
     scc_transform += (revector_trafo(horizontal=horizontal),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=('compute_column',))
+        transform.apply(kernel, role='kernel', targets=('compute_Ctl',), ignore=('compute_Ctl2',))
         if ignore_nested_kernel:
-            transform.apply(kernel, role='kernel', ignore=('compute_Another_column',))
+            transform.apply(intermediate_kernel, role='kernel', ignore=('compute_Another_column',))
         else:
-            transform.apply(kernel, role='kernel', targets=('compute_Another_column',))
+            transform.apply(intermediate_kernel, role='kernel', targets=('compute_Another_column',))
         if not ignore_nested_kernel:
             transform.apply(nested_kernel, role='kernel')
-
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
     with pragmas_attached(kernel, node_type=ir.Loop):
         kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
+        calls = FindNodes(ir.CallStatement).visit(kernel.body)
         if revector_trafo == SCCSeqRevectorTransformation:
             assert len(kernel_loops) == 1
             assert kernel_loops[0].variable == 'jk'
             assert kernel_loops[0].bounds == '2:nz'
             assert kernel_loops[0].pragma
             assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop seq')
+            for call in calls:
+                assert 'jl' in call.arg_map
+                assert call.routine.variable_map['jl'].type.intent.lower() == 'in'
         else:
             assert len(kernel_loops) == 2
             assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
@@ -172,6 +209,8 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
             assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
             assert kernel_loops[1].pragma
             assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
+            for call in calls:
+                assert 'jl' not in call.arg_map
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(ir.Assignment).visit(kernel.body)
