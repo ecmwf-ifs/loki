@@ -37,7 +37,7 @@ class SCCAnnotateTransformation(Transformation):
         to use for hoisted column arrays if hoisting is enabled.
     directive : string or None
         Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
+        ``'openacc'``, ``'omp-gpu'``or ``None``.
     """
 
     def __init__(self, directive, block_dim):
@@ -69,19 +69,40 @@ class SCCAnnotateTransformation(Transformation):
                 f'{[a.name for a in private_arrays]}'
             )
 
-        with pragmas_attached(routine, ir.Loop):
-            for loop in FindNodes(ir.Loop).visit(routine.body):
-                for pragma in as_tuple(loop.pragma):
-                    if is_loki_pragma(pragma, starts_with='loop vector reduction'):
-                        # Turn reduction pragmas into `!$acc` equivalent
-                        pragma._update(keyword='acc')
-                        continue
+        if self.directive == 'openacc':
+            with pragmas_attached(routine, ir.Loop):
+                for loop in FindNodes(ir.Loop).visit(routine.body):
+                    for pragma in as_tuple(loop.pragma):
+                        if is_loki_pragma(pragma, starts_with='loop vector reduction'):
+                            # Turn reduction pragmas into `!$acc` equivalent
+                            pragma._update(keyword='acc')
+                            continue
 
-                    if is_loki_pragma(pragma, starts_with='loop vector'):
-                        # Turn general vector pragmas into `!$acc` and add private clause
-                        private_arrs = ', '.join(v.name for v in private_arrays)
-                        private_clause = '' if not private_arrays else f' private({private_arrs})'
-                        pragma._update(keyword='acc', content=f'loop vector{private_clause}')
+                        if is_loki_pragma(pragma, starts_with='loop vector'):
+                            # Turn general vector pragmas into `!$acc` and add private clause
+                            private_arrs = ', '.join(v.name for v in private_arrays)
+                            private_clause = '' if not private_arrays else f' private({private_arrs})'
+                            pragma._update(keyword='acc', content=f'loop vector{private_clause}')
+
+        if self.directive == 'omp-gpu':
+            with pragmas_attached(routine, ir.Loop):
+                for loop in FindNodes(ir.Loop).visit(routine.body):
+                    for pragma in as_tuple(loop.pragma):
+                        #TODO: how to handle vector reductions?
+
+                        if is_loki_pragma(pragma, starts_with='loop vector'):
+                            # TODO: need for privatizing variables/arrays?
+                            pragma_new = ir.Pragma(keyword='omp', content='parallel do')
+                            pragma_post = ir.Pragma(keyword='omp', content='end parallel do')
+                            # pragma_new = ir.Pragma(keyword='omp', content='loop bind(parallel)')
+                            # pragma_post = ir.Pragma(keyword='omp', content='end loop')
+
+                            # Replace existing loki pragma and add post-pragma
+                            loop_pragmas = tuple(p for p in as_tuple(loop.pragma) if p is not pragma)
+                            loop._update(
+                                pragma=loop_pragmas + (pragma_new,),
+                                pragma_post=(pragma_post,) + as_tuple(loop.pragma_post)
+                            )
 
     def annotate_sequential_loops(self, routine):
         """
@@ -93,19 +114,20 @@ class SCCAnnotateTransformation(Transformation):
         routine : :any:`Subroutine`
             The subroutine in which to annotate sequential loops
         """
-        with pragmas_attached(routine, ir.Loop):
-            for loop in FindNodes(ir.Loop).visit(routine.body):
-                if not is_loki_pragma(loop.pragma, starts_with='loop seq'):
-                    continue
+        if self.directive == 'openacc':
+            with pragmas_attached(routine, ir.Loop):
+                for loop in FindNodes(ir.Loop).visit(routine.body):
+                    if not is_loki_pragma(loop.pragma, starts_with='loop seq'):
+                        continue
 
-                # Replace internal `!$loki loop seq`` pragam with `!$acc` equivalent
-                loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
+                    # Replace internal `!$loki loop seq`` pragam with `!$acc` equivalent
+                    loop._update(pragma=(ir.Pragma(keyword='acc', content='loop seq'),))
 
-                # Warn if we detect vector insisde sequential loop nesting
-                nested_loops = FindNodes(ir.Loop).visit(loop.body)
-                loop_pragmas = flatten(as_tuple(l.pragma) for l in as_tuple(nested_loops))
-                if any('loop vector' in pragma.content for pragma in loop_pragmas):
-                    info(f'[Loki-SCC::Annotate] Detected vector loop in sequential loop in {routine.name}')
+                    # Warn if we detect vector insisde sequential loop nesting
+                    nested_loops = FindNodes(ir.Loop).visit(loop.body)
+                    loop_pragmas = flatten(as_tuple(l.pragma) for l in as_tuple(nested_loops))
+                    if any('loop vector' in pragma.content for pragma in loop_pragmas):
+                        info(f'[Loki-SCC::Annotate] Detected vector loop in sequential loop in {routine.name}')
 
     def annotate_kernel_routine(self, routine):
         """
@@ -118,27 +140,38 @@ class SCCAnnotateTransformation(Transformation):
             The subroutine to which annotations will be added
         """
 
-        # Update `!$loki routine seq/vector` pragmas with `!$acc`
-        pragma_map = {}
-        for pragma in FindNodes(ir.Pragma).visit(routine.ir):
-            if is_loki_pragma(pragma, starts_with='routine'):
-                # We have to re-insert the pragma here, in case it was
-                # falsely attributed to the body!
-                routine.spec.append(pragma.clone(keyword='acc'))
-                pragma_map[pragma] = None
-        pragma_transformer = Transformer(pragma_map)
-        routine.spec = pragma_transformer.visit(routine.spec)
-        routine.body = pragma_transformer.visit(routine.body)
+        if self.directive == 'openacc':
+            # Update `!$loki routine seq/vector` pragmas with `!$acc`
+            pragma_map = {}
+            for pragma in FindNodes(ir.Pragma).visit(routine.ir):
+                if is_loki_pragma(pragma, starts_with='routine'):
+                    # We have to re-insert the pragma here, in case it was
+                    # falsely attributed to the body!
+                    routine.spec.append(pragma.clone(keyword='acc'))
+                    pragma_map[pragma] = None
+            pragma_transformer = Transformer(pragma_map)
+            routine.spec = pragma_transformer.visit(routine.spec)
+            routine.body = pragma_transformer.visit(routine.body)
 
-        # Get the names of all array and derived type arguments
-        args = [a for a in routine.arguments if isinstance(a, sym.Array)]
-        args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
-        argnames = [str(a.name) for a in args]
+            # Get the names of all array and derived type arguments
+            args = [a for a in routine.arguments if isinstance(a, sym.Array)]
+            args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
+            argnames = [str(a.name) for a in args]
 
-        if argnames:
-            routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
-            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-            routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
+            if argnames:
+                routine.body.prepend(ir.Pragma(keyword='acc', content=f'data present({", ".join(argnames)})'))
+                # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+                routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='acc', content='end data')))
+
+        if self.directive == 'omp-gpu':
+            # IF and only IF we would need to do it in the parent module for some compiler(s)
+            #  problem would be that not all the relevant routines do have a module they live in ...
+            # try:
+            #     scope = item.scope_ir
+            #     scope.parent.spec.append(ir.Pragma(keyword='omp', content=f'declare target({routine.name.lower()})'))
+            # except:
+            #     pass
+            routine.spec.append(ir.Pragma(keyword='omp', content='declare target'))
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -166,14 +199,18 @@ class SCCAnnotateTransformation(Transformation):
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
 
-        if not self.directive == 'openacc':
+        if not self.directive in ['openacc', 'omp-gpu']:
             return
 
         if role == 'kernel':
             # Bail if this routine has been processed before
             for p in FindNodes(ir.Pragma).visit(routine.ir):
                 # Check if `!$acc routine` has already been added
-                if p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
+                if self.directive == 'openacc'\
+                        and p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
+                    return
+                if self.directive == 'omp-gpu' and\
+                        p.keyword.lower() == 'omp' and 'declare target' in p.content.lower():
                     return
 
             # Mark all parallel vector loops as `!$acc loop vector`
@@ -249,7 +286,7 @@ class SCCAnnotateTransformation(Transformation):
         return acc_vars
 
     @classmethod
-    def device_alloc_column_locals(cls, routine, column_locals):
+    def device_alloc_column_locals(cls, routine, column_locals, directive='openacc'):
         """
         Add explicit OpenACC statements for creating device variables for hoisted column locals.
 
@@ -263,11 +300,19 @@ class SCCAnnotateTransformation(Transformation):
 
         if column_locals:
             vnames = ', '.join(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-            pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
-            # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
-            routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+            if directive == 'openacc':
+                pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
+                pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
+                # Add comments around standalone pragmas to avoid false attachment
+                routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+                routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
+            if directive == 'omp-gpu':
+                pragma = ir.Pragma(keyword='omp', content=f'omp target enter data map(alloc: {vnames})')
+                routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+                pragma_post = ir.Pragma(keyword='omp', content=f'target exit data map(delete: {vnames})')
+                # Add comments around standalone pragmas to avoid false attachment
+                routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+                routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
     def annotate_driver_loop(self, loop, acc_vars):
         """
@@ -304,6 +349,29 @@ class SCCAnnotateTransformation(Transformation):
                     content = f'parallel loop gang{private_clause}{vlength_clause}'
                     pragma_new = ir.Pragma(keyword='acc', content=content)
                     pragma_post = ir.Pragma(keyword='acc', content='end parallel loop')
+
+                    # Replace existing loki pragma and add post-pragma
+                    loop_pragmas = tuple(p for p in as_tuple(loop.pragma) if p is not pragma)
+                    loop._update(
+                        pragma=loop_pragmas + (pragma_new,),
+                        pragma_post=(pragma_post,) + as_tuple(loop.pragma_post)
+                    )
+
+        if self.directive == 'omp-gpu':
+            # TODO: no need to privatize arrays?
+            for pragma in as_tuple(loop.pragma):
+                if is_loki_pragma(pragma, starts_with='loop driver'):
+                    # Replace `!$loki loop driver` pragma with OpenMP offload equivalent
+                    params = get_pragma_parameters(loop.pragma, starts_with='loop driver')
+                    vlength = params.get('vector_length')
+                    vlength_clause = f' thread_limit({vlength})' if vlength else ''
+
+                    content = f'target teams distribute{vlength_clause}'
+                    pragma_new = ir.Pragma(keyword='omp', content=content)
+                    pragma_post = ir.Pragma(keyword='omp', content='end target teams distribute')
+                    # content = f'target teams loop bind(teams){vlength_clause}'
+                    # pragma_new = ir.Pragma(keyword='omp', content=content)
+                    # pragma_post = ir.Pragma(keyword='omp', content='end target teams loop')
 
                     # Replace existing loki pragma and add post-pragma
                     loop_pragmas = tuple(p for p in as_tuple(loop.pragma) if p is not pragma)
