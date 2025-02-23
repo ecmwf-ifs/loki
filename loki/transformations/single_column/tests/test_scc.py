@@ -24,7 +24,8 @@ from loki.transformations import (
 from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation,
-    SCCAnnotateTransformation, SCCVectorPipeline
+    SCCAnnotateTransformation, SCCVectorPipeline,
+    SCCVVectorPipeline, SCCSVectorPipeline
 )
 
 
@@ -840,7 +841,8 @@ def test_scc_annotate_empty_data_clause(frontend, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_vector_reduction(frontend, horizontal, blocking):
+@pytest.mark.parametrize('pipeline', [SCCVVectorPipeline, SCCSVectorPipeline])
+def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
     """
     Test for the insertion of OpenACC vector reduction directives.
     """
@@ -862,7 +864,7 @@ def test_scc_vector_reduction(frontend, horizontal, blocking):
     end subroutine some_kernel
     """
 
-    scc_pipeline = SCCVectorPipeline(
+    scc_pipeline = pipeline(
         horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
 
@@ -877,14 +879,24 @@ def test_scc_vector_reduction(frontend, horizontal, blocking):
     scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.body)
-    assert len(pragmas) == 3
-    assert all(p.keyword == 'acc' for p in pragmas)
+    if pipeline == SCCVVectorPipeline:
+        assert len(pragmas) == 3
+        assert all(p.keyword == 'acc' for p in pragmas)
 
-    # Check OpenACC directives have been inserted
-    with pragmas_attached(routine, Loop):
-        loops = FindNodes(Loop).visit(routine.body)
-        assert len(loops) == 1
-        assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+        # Check OpenACC directives have been inserted
+        with pragmas_attached(routine, Loop):
+            loops = FindNodes(Loop).visit(routine.body)
+            assert len(loops) == 1
+            assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+
+    if pipeline == SCCSVectorPipeline:
+        assert len(pragmas) == 4
+        assert pragmas[0].keyword == 'acc'
+        assert pragmas[1].keyword == 'loki'
+        assert 'vector-reduction' in pragmas[1].content
+        assert pragmas[2].keyword == 'loki'
+        assert 'vector-reduction' in pragmas[2].content
+        assert pragmas[3].keyword == 'acc'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -7,13 +7,15 @@
 
 import pytest
 
-from loki import Subroutine, Sourcefile, Dimension, fgen
+from loki import Subroutine, Sourcefile, Dimension, fgen, Module
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, pragmas_attached, is_loki_pragma
 )
 from loki.transformations.single_column import (
-    SCCDevectorTransformation, SCCRevectorTransformation, SCCVectorPipeline
+    SCCDevectorTransformation, SCCRevectorTransformation, SCCVectorPipeline,
+    SCCVecRevectorTransformation, SCCSeqRevectorTransformation,
+    SCCVVectorPipeline, SCCSVectorPipeline
 )
 
 
@@ -42,7 +44,9 @@ def fixture_blocking():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_revector_transformation(frontend, horizontal):
+@pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
+@pytest.mark.parametrize('ignore_nested_kernel', [False, True])
+def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignore_nested_kernel, tmp_path):
     """
     Test removal of vector loops in kernel and re-insertion of a single
     hoisted horizontal loop in the kernel.
@@ -50,6 +54,7 @@ def test_scc_revector_transformation(frontend, horizontal):
 
     fcode_driver = """
   SUBROUTINE column_driver(nlon, nz, q, t, nb)
+    use compute_mod, only: compute_column
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
@@ -64,6 +69,10 @@ def test_scc_revector_transformation(frontend, horizontal):
 """
 
     fcode_kernel = """
+  MODULE compute_mod
+  use compute_ctl_mod, only: compute_ctl
+  use compute_ctl2_mod, only: compute_ctl2
+  contains
   SUBROUTINE compute_column(start, end, nlon, nz, q, t)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
@@ -79,42 +88,129 @@ def test_scc_revector_transformation(frontend, horizontal):
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
-
+    
     ! The scaling is purposefully upper-cased
     DO JL = START, END
       Q(JL, NZ) = Q(JL, NZ) * C
     END DO
+
+    CALL COMPUTE_CTL(start, end, nlon, nz, q, t)
+    CALL COMPUTE_CTL2(start, end, nlon, nz, q, t)
+
   END SUBROUTINE compute_column
+  END MODULE compute_mod
 """
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+
+    fcode_intermediate_kernel = """
+  MODULE compute_ctl_mod
+  use compute2_mod, only: compute_another_column
+  contains
+  SUBROUTINE compute_ctl(start, end, nlon, nz, q1, t1)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t1(nlon,nz)
+    REAL, INTENT(INOUT) :: q1(nlon,nz)
+    CALL COMPUTE_ANOTHER_COLUMN(start, end, nlon, nz, q, t)
+  END SUBROUTINE compute_ctl
+  END MODULE compute_ctl_mod
+"""
+
+    fcode_intermediate2_kernel = """
+  MODULE compute_ctl2_mod
+  contains
+  SUBROUTINE compute_ctl2(start, end, nlon, nz, q1, t1)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t1(nlon,nz)
+    REAL, INTENT(INOUT) :: q1(nlon,nz)
+  END SUBROUTINE compute_ctl2
+  END MODULE compute_ctl2_mod
+"""
+
+    fcode_nested_kernel = """
+  MODULE compute2_mod
+  contains
+  SUBROUTINE compute_another_column(start, end, nlon, nz, q1, t1)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t1(nlon,nz)
+    REAL, INTENT(INOUT) :: q1(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = start, end
+        t1(jl, jk) = c * jk
+        q1(jl, jk) = q1(jl, jk-1) + t1(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = START, END
+      Q1(JL, NZ) = Q1(JL, NZ) * C
+    END DO
+  END SUBROUTINE compute_another_column
+  END MODULE compute2_mod
+"""
+
+    # kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
+    intermediate_kernel_mod = Module.from_source(fcode_intermediate_kernel, frontend=frontend,
+            definitions=nested_kernel_mod,xmods=[tmp_path])
+    intermediate_kernel2_mod = Module.from_source(fcode_intermediate2_kernel, frontend=frontend)
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend,
+            definitions=[intermediate_kernel_mod, intermediate_kernel2_mod], xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod, xmods=[tmp_path])
+    kernel = kernel_mod.subroutines[0]
+    intermediate_kernel = intermediate_kernel_mod.subroutines[0]
+    nested_kernel = nested_kernel_mod.subroutines[0]
 
     # Ensure we have three loops in the kernel prior to transformation
     kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
     assert len(kernel_loops) == 3
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (revector_trafo(horizontal=horizontal),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=('compute_column',))
-        transform.apply(kernel, role='kernel')
+        transform.apply(kernel, role='kernel', targets=('compute_Ctl',), ignore=('compute_Ctl2',))
+        if ignore_nested_kernel:
+            transform.apply(intermediate_kernel, role='kernel', ignore=('compute_Another_column',))
+        else:
+            transform.apply(intermediate_kernel, role='kernel', targets=('compute_Another_column',))
+        if not ignore_nested_kernel:
+            transform.apply(nested_kernel, role='kernel')
 
     # Ensure we have two nested loops in the kernel
     # (the hoisted horizontal and the native vertical)
     with pragmas_attached(kernel, node_type=ir.Loop):
         kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
-        assert len(kernel_loops) == 2
-        assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
-        assert kernel_loops[0].variable == 'jl'
-        assert kernel_loops[0].bounds == 'start:end'
-        assert kernel_loops[1].variable == 'jk'
-        assert kernel_loops[1].bounds == '2:nz'
+        calls = FindNodes(ir.CallStatement).visit(kernel.body)
+        if revector_trafo == SCCSeqRevectorTransformation:
+            assert len(kernel_loops) == 1
+            assert kernel_loops[0].variable == 'jk'
+            assert kernel_loops[0].bounds == '2:nz'
+            assert kernel_loops[0].pragma
+            assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop seq')
+            for call in calls:
+                assert 'jl' in call.arg_map
+                assert call.routine.variable_map['jl'].type.intent.lower() == 'in'
+        else:
+            assert len(kernel_loops) == 2
+            assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
+            assert kernel_loops[0].variable == 'jl'
+            assert kernel_loops[0].bounds == 'start:end'
+            assert kernel_loops[1].variable == 'jk'
+            assert kernel_loops[1].bounds == '2:nz'
 
-        # Check internal loop pragma annotations
-        assert kernel_loops[0].pragma
-        assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
-        assert kernel_loops[1].pragma
-        assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
+            # Check internal loop pragma annotations
+            assert kernel_loops[0].pragma
+            assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
+            assert kernel_loops[1].pragma
+            assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
+            for call in calls:
+                assert 'jl' not in call.arg_map
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(ir.Assignment).visit(kernel.body)
@@ -129,7 +225,14 @@ def test_scc_revector_transformation(frontend, horizontal):
     # Ensure driver remains unaffected and is marked
     with pragmas_attached(driver, node_type=ir.Loop):
         driver_loops = FindNodes(ir.Loop).visit(driver.body)
-        assert len(driver_loops) == 1
+        if revector_trafo == SCCSeqRevectorTransformation:
+            assert len(driver_loops) == 2
+            assert driver_loops[1].variable == 'jl'
+            assert driver_loops[1].bounds == 'start:end'
+            assert driver_loops[1].pragma and len(driver_loops[1].pragma) == 1
+            assert is_loki_pragma(driver_loops[1].pragma, starts_with='loop vector')
+        else:
+            assert len(driver_loops) == 1
         assert driver_loops[0].variable == 'b'
         assert driver_loops[0].bounds == '1:nb'
         assert driver_loops[0].pragma and len(driver_loops[0].pragma) == 1
@@ -138,11 +241,22 @@ def test_scc_revector_transformation(frontend, horizontal):
 
     kernel_calls = FindNodes(ir.CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
-    assert kernel_calls[0].name == 'compute_column'
+    if revector_trafo == SCCSeqRevectorTransformation:
+        assert 'jl' in kernel_calls[0].arg_map
+        assert 'jl' in kernel_calls[0].routine.arguments
+    else:
+        assert 'jl' not in kernel_calls[0].arg_map
 
+    assert kernel_calls[0].name == 'compute_column'
+    if revector_trafo == SCCSeqRevectorTransformation:
+        # make sure call to nested kernel gets horizontal.index as argument
+        #  no matter whether it is a target or within ignore
+        nested_kernel_call = FindNodes(ir.CallStatement).visit(kernel.body)[0]
+        assert 'jl' in nested_kernel_call.arg_map
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_aliases, tmp_path):
+@pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
+def test_scc_revector_transformation_aliased_bounds(frontend, horizontal_bounds_aliases, revector_trafo, tmp_path):
     """
     Test removal of vector loops in kernel and re-insertion of a single
     hoisted horizontal loop in the kernel with aliased loop bounds.
@@ -161,6 +275,7 @@ end module bnds_type_mod
     fcode_driver = """
 SUBROUTINE column_driver(nlon, nz, q, t, nb)
     USE bnds_type_mod, only : bnds_type
+    USE compute_mod, only : compute_column
     INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
     REAL, INTENT(INOUT)   :: t(nlon,nz,nb)
     REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
@@ -199,19 +314,47 @@ SUBROUTINE compute_column(bnds, nlon, nz, q, t)
     END DO
 END SUBROUTINE compute_column
     """.strip()
+    fcode_kernel = """
+MODULE compute_mod
+contains
+SUBROUTINE compute_column(bnds, nlon, nz, q, t)
+    USE bnds_type_mod, only : bnds_type
+    TYPE(bnds_type), INTENT(IN) :: bnds
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jl, jk
+    REAL :: c
 
-    bnds_type_mod = Sourcefile.from_source(fcode_bnds_type_mod, frontend=frontend, xmods=[tmp_path])
-    kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path],
-                                    definitions=bnds_type_mod.definitions).subroutines[0]
-    driver = Sourcefile.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
-                                    definitions=bnds_type_mod.definitions).subroutines[0]
+    c = 5.345
+    DO jk = 2, nz
+      DO jl = bnds%start, bnds%end
+        t(jl, jk) = c * jk
+        q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
+      END DO
+    END DO
+
+    ! The scaling is purposefully upper-cased
+    DO JL = BNDS%START, BNDS%END
+      Q(JL, NZ) = Q(JL, NZ) * C
+    END DO
+END SUBROUTINE compute_column
+END MODULE compute_mod
+    """.strip()
+
+    bnds_type_mod = Module.from_source(fcode_bnds_type_mod, frontend=frontend, xmods=[tmp_path])
+    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path],
+                                    definitions=bnds_type_mod.definitions)
+    kernel = kernel_mod.subroutines[0]
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path],
+                                    definitions=(bnds_type_mod, kernel_mod))
 
     # Ensure we have three loops in the kernel prior to transformation
     kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
     assert len(kernel_loops) == 3
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal_bounds_aliases),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal_bounds_aliases),)
+    scc_transform += (revector_trafo(horizontal=horizontal_bounds_aliases),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=('compute_column',))
         transform.apply(kernel, role='kernel')
@@ -220,18 +363,25 @@ END SUBROUTINE compute_column
     # (the hoisted horizontal and the native vertical)
     with pragmas_attached(kernel, node_type=ir.Loop):
         kernel_loops = FindNodes(ir.Loop).visit(kernel.body)
-        assert len(kernel_loops) == 2
-        assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
-        assert kernel_loops[0].variable == 'jl'
-        assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
-        assert kernel_loops[1].variable == 'jk'
-        assert kernel_loops[1].bounds == '2:nz'
+        if revector_trafo == SCCSeqRevectorTransformation:
+            assert len(kernel_loops) == 1
+            assert kernel_loops[0].variable == 'jk'
+            assert kernel_loops[0].bounds == '2:nz'
+            assert kernel_loops[0].pragma
+            assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop seq')
+        else:
+            assert len(kernel_loops) == 2
+            assert kernel_loops[1] in FindNodes(ir.Loop).visit(kernel_loops[0].body)
+            assert kernel_loops[0].variable == 'jl'
+            assert kernel_loops[0].bounds == 'bnds%start:bnds%end'
+            assert kernel_loops[1].variable == 'jk'
+            assert kernel_loops[1].bounds == '2:nz'
 
-        # Check internal loop pragma annotations
-        assert kernel_loops[0].pragma
-        assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
-        assert kernel_loops[1].pragma
-        assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
+            # Check internal loop pragma annotations
+            assert kernel_loops[0].pragma
+            assert is_loki_pragma(kernel_loops[0].pragma, starts_with='loop vector')
+            assert kernel_loops[1].pragma
+            assert is_loki_pragma(kernel_loops[1].pragma, starts_with='loop seq')
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(ir.Assignment).visit(kernel.body)
@@ -246,7 +396,14 @@ END SUBROUTINE compute_column
     # Ensure driver remains unaffected and is marked
     with pragmas_attached(driver, node_type=ir.Loop):
         driver_loops = FindNodes(ir.Loop).visit(driver.body)
-        assert len(driver_loops) == 1
+        if revector_trafo == SCCSeqRevectorTransformation:
+            assert len(driver_loops) == 2
+            assert driver_loops[1].variable == 'jl'
+            assert driver_loops[1].bounds == 'bnds%start:bnds%end'
+            assert driver_loops[1].pragma and len(driver_loops[1].pragma) == 1
+            assert is_loki_pragma(driver_loops[1].pragma, starts_with='loop vector')
+        else:
+            assert len(driver_loops) == 1
         assert driver_loops[0].variable == 'b'
         assert driver_loops[0].bounds == '1:nb'
         assert driver_loops[0].pragma and len(driver_loops[0].pragma) == 1
@@ -255,6 +412,12 @@ END SUBROUTINE compute_column
 
     kernel_calls = FindNodes(ir.CallStatement).visit(driver_loops[0])
     assert len(kernel_calls) == 1
+    if revector_trafo == SCCSeqRevectorTransformation:
+        assert 'jl' in kernel_calls[0].arg_map
+        assert 'jl' in kernel_calls[0].routine.arguments
+    else:
+        assert 'jl' not in kernel_calls[0].arg_map
+
     assert kernel_calls[0].name == 'compute_column'
 
 
@@ -338,7 +501,8 @@ def test_scc_devector_transformation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_vector_inlined_call(frontend, horizontal):
+@pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
+def test_scc_vector_inlined_call(frontend, horizontal, revector_trafo):
     """
     Test that calls targeted for inlining inside a vector region are not treated as separators
     """
@@ -376,27 +540,38 @@ def test_scc_vector_inlined_call(frontend, horizontal):
     routine.enrich((inlined_routine,))
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (revector_trafo(horizontal=horizontal),)
     for transform in scc_transform:
         transform.apply(routine, role='kernel', targets=['some_kernel', 'some_inlined_kernel'])
 
     # Check only `!$loki loop vector` pragma has been inserted
-    pragmas = FindNodes(ir.Pragma).visit(routine.body)
-    assert len(pragmas) == 1
-    assert is_loki_pragma(pragmas[0], starts_with='loop vector')
+    if revector_trafo == SCCVecRevectorTransformation:
+        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+        assert len(pragmas) == 2
+        assert is_loki_pragma(pragmas[0], starts_with='routine vector')
+        assert is_loki_pragma(pragmas[1], starts_with='loop vector')
 
-    # Check that 'some_inlined_kernel' remains within vector-parallel region
-    loops = FindNodes(ir.Loop).visit(routine.body)
-    assert len(loops) == 1
-    calls = FindNodes(ir.CallStatement).visit(loops[0].body)
-    assert len(calls) == 1
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    assert len(calls) == 2
+        # Check that 'some_inlined_kernel' remains within vector-parallel region
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        assert len(loops) == 1
+        calls = FindNodes(ir.CallStatement).visit(loops[0].body)
+        assert len(calls) == 1
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        assert len(calls) == 2
+    else:
+        assert horizontal.index in routine.arguments
+        assert routine.variable_map[horizontal.index].type.intent == 'in'
+        pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+        assert len(pragmas) == 1
+        assert is_loki_pragma(pragmas[0], starts_with='routine seq')
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        assert len(calls) == 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('trim_vector_sections', [False, True])
-def test_scc_vector_section_trim_simple(frontend, horizontal, trim_vector_sections):
+@pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
+def test_scc_vector_section_trim_simple(frontend, horizontal, trim_vector_sections, revector_trafo):
     """
     Test the trimming of vector-sections to exclude scalar assignments.
     """
@@ -422,36 +597,40 @@ def test_scc_vector_section_trim_simple(frontend, horizontal, trim_vector_sectio
     routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (revector_trafo(horizontal=horizontal),)
 
     for transform in scc_transform:
         transform.apply(routine, role='kernel', targets=['some_kernel',])
 
     assign = FindNodes(ir.Assignment).visit(routine.body)[0]
-    loop = FindNodes(ir.Loop).visit(routine.body)[0]
-    comment = [
-        c for c in FindNodes(ir.Comment).visit(routine.body)
-        if c.text == '! random comment'
-    ][0]
-
-    # check we found the right assignment
-    assert assign.lhs.name.lower() == 'flag0'
-
-    # check we found the right comment
-    assert comment.text == '! random comment'
-
-    if trim_vector_sections:
-        assert assign not in loop.body
-        assert assign in routine.body.body
-
-        assert comment not in loop.body
-        assert comment in routine.body.body
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    if revector_trafo == SCCSeqRevectorTransformation:
+        assert len(loops) == 0
     else:
-        assert assign in loop.body
-        assert assign not in routine.body.body
+        loop = loops[0]
+        comment = [
+            c for c in FindNodes(ir.Comment).visit(routine.body)
+            if c.text == '! random comment'
+        ][0]
 
-        assert comment in loop.body
-        assert comment not in routine.body.body
+        # check we found the right assignment
+        assert assign.lhs.name.lower() == 'flag0'
+
+        # check we found the right comment
+        assert comment.text == '! random comment'
+
+        if trim_vector_sections:
+            assert assign not in loop.body
+            assert assign in routine.body.body
+
+            assert comment not in loop.body
+            assert comment in routine.body.body
+        else:
+            assert assign in loop.body
+            assert assign not in routine.body.body
+
+            assert comment in loop.body
+            assert comment not in routine.body.body
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -567,7 +746,9 @@ def test_scc_vector_section_trim_complex(
     skip={OMNI: 'OMNI automatically expands ELSEIF into a nested ELSE=>IF.'}
 ))
 @pytest.mark.parametrize('trim_vector_sections', [False, True])
-def test_scc_devector_section_special_case(frontend, horizontal, vertical, blocking, trim_vector_sections):
+@pytest.mark.parametrize('vector_pipeline', [SCCVVectorPipeline, SCCSVectorPipeline])
+def test_scc_devector_section_special_case(frontend, horizontal, vertical, blocking, trim_vector_sections,
+        vector_pipeline):
     """
     Test to highlight the limitations of vector-section trimming.
     """
@@ -606,7 +787,7 @@ def test_scc_devector_section_special_case(frontend, horizontal, vertical, block
     routine = Subroutine.from_source(fcode_kernel, frontend=frontend)
 
     # check whether pipeline can be applied and works as expected
-    scc_pipeline = SCCVectorPipeline(
+    scc_pipeline = vector_pipeline(
         horizontal=horizontal, vertical=vertical, block_dim=blocking,
         directive='openacc', trim_vector_sections=trim_vector_sections
     )
@@ -618,14 +799,22 @@ def test_scc_devector_section_special_case(frontend, horizontal, vertical, block
         assert len(conditional.body) == 1
         assert isinstance(conditional.else_body[0], ir.Conditional)
         assert len(conditional.else_body) == 1
-        assert isinstance(conditional.else_body[0].body[0], ir.Comment)
-        assert isinstance(conditional.else_body[0].body[1], ir.Loop)
-        assert conditional.else_body[0].body[1].pragma[0].content.lower() == 'loop vector'
+        if vector_pipeline == SCCVVectorPipeline:
+            assert isinstance(conditional.else_body[0].body[0], ir.Comment)
+            assert isinstance(conditional.else_body[0].body[1], ir.Loop)
+            assert conditional.else_body[0].body[1].pragma[0].content.lower() == 'loop vector'
 
-        # Check that all else-bodies have been wrapped
-        else_bodies = conditional.else_bodies
-        assert len(else_bodies) == 3
-        for body in else_bodies:
-            assert isinstance(body[0], ir.Comment)
-            assert isinstance(body[1], ir.Loop)
-            assert body[1].pragma[0].content.lower() == 'loop vector'
+            # Check that all else-bodies have been wrapped
+            else_bodies = conditional.else_bodies
+            assert len(else_bodies) == 3
+            for body in else_bodies:
+                assert isinstance(body[0], ir.Comment)
+                assert isinstance(body[1], ir.Loop)
+                assert body[1].pragma[0].content.lower() == 'loop vector'
+        else:
+            assert isinstance(conditional.else_body[0].body[0], ir.Assignment)
+            # Check that all else-bodies have been wrapped
+            else_bodies = conditional.else_bodies
+            assert len(else_bodies) == 3
+            for body in else_bodies:
+                assert isinstance(body[0], ir.Assignment)

@@ -24,6 +24,7 @@ from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
     SCCDemoteTransformation, SCCRevectorTransformation,
     SCCAnnotateTransformation, SCCHoistPipeline,
+    SCCVHoistPipeline, SCCSHoistPipeline
 )
 
 
@@ -45,7 +46,8 @@ def fixture_blocking():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
+@pytest.mark.parametrize('hoist_pipeline', [SCCVHoistPipeline, SCCSHoistPipeline])
+def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeline):
     """
     Test hoisting of column temporaries to "driver" level.
     """
@@ -99,7 +101,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
     driver_item = ProcedureItem(name='#column_driver', source=driver_source)
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
 
-    scc_hoist = SCCHoistPipeline(
+    scc_hoist = hoist_pipeline(
         horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
 
@@ -112,11 +114,16 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
 
     # Ensure we two loops left in kernel
     kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[0].variable == 'jl'
-    assert kernel_loops[0].bounds == 'start:end'
-    assert kernel_loops[1].variable == 'jk'
-    assert kernel_loops[1].bounds == '2:nz'
+    if hoist_pipeline == SCCSHoistPipeline:
+        assert len(kernel_loops) == 1
+        assert kernel_loops[0].variable == 'jk'
+        assert kernel_loops[0].bounds == '2:nz'
+    else:
+        assert len(kernel_loops) == 2
+        assert kernel_loops[0].variable == 'jl'
+        assert kernel_loops[0].bounds == 'start:end'
+        assert kernel_loops[1].variable == 'jk'
+        assert kernel_loops[1].bounds == '2:nz'
 
     # Ensure all expressions and array indices are unchanged
     assigns = FindNodes(Assignment).visit(kernel.body)
@@ -126,7 +133,20 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking):
 
     # Ensure we have only one driver block loop
     driver_loops = FindNodes(Loop).visit(driver.body)
-    assert len(driver_loops) == 1
+    if hoist_pipeline == SCCSHoistPipeline:
+        assert len(driver_loops) == 3
+        assert driver_loops[1].variable == 'jl'
+        assert driver_loops[1].bounds == 'start:end'
+        calls = FindNodes(CallStatement).visit(driver_loops[1])
+        assert len(calls) == 1
+        assert calls[0].name == 'compute_column'
+        assert driver_loops[2].variable == 'jl'
+        assert driver_loops[2].bounds == 'start:end'
+        calls = FindNodes(CallStatement).visit(driver_loops[2])
+        assert len(calls) == 1
+        assert calls[0].name == 'compute_column'
+    else:
+        assert len(driver_loops) == 1
     assert driver_loops[0].variable == 'b'
     assert driver_loops[0].bounds == '1:nb'
 

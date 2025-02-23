@@ -2941,7 +2941,7 @@ def test_pipeline_config_compose(config):
     assert type(pipeline.transformations[2]).__name__ == 'SCCBaseTransformation'
     assert type(pipeline.transformations[3]).__name__ == 'SCCDevectorTransformation'
     assert type(pipeline.transformations[4]).__name__ == 'SCCDemoteTransformation'
-    assert type(pipeline.transformations[5]).__name__ == 'SCCRevectorTransformation'
+    assert type(pipeline.transformations[5]).__name__ == 'SCCVecRevectorTransformation'
     assert type(pipeline.transformations[6]).__name__ == 'SCCAnnotateTransformation'
     assert type(pipeline.transformations[7]).__name__ == 'ModuleWrapTransformation'
 
