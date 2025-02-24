@@ -227,7 +227,7 @@ class SCCAnnotateTransformation(Transformation):
                 if pragma_keyword == 'acc':
                     parameters = get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)
                 else:
-                    parameters = get_pragma_parameters(region.pragma, starts_with='scoped-data',
+                    parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
                             only_loki_pragmas=False)
                 if parameters is not None:
                     driver_loops = find_driver_loops(section=region.body, targets=targets)
@@ -270,8 +270,8 @@ class SCCAnnotateTransformation(Transformation):
 
         if column_locals:
             vnames = ', '.join(v.name for v in column_locals)
-            pragma = ir.Pragma(keyword='loki', content=f'unscoped-data create({vnames})')
-            pragma_post = ir.Pragma(keyword='loki', content=f'unscoped-enddata delete({vnames})')
+            pragma = ir.Pragma(keyword='loki', content=f'unstructured-data create({vnames})')
+            pragma_post = ir.Pragma(keyword='loki', content=f'unstructured-enddata delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
