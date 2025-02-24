@@ -318,18 +318,19 @@ end module another_module
     """
 
     fcode_outer = """
-subroutine test_inline_outer(a, b)
+subroutine test_inline_outer(a, b, f)
   use bnds_module, only: n
   use test_inline_mod, only: test_inline_inner
   use test_inline_another_mod, only: test_inline_another_inner
   implicit none
 
-  real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=8), intent(inout) :: a(n), b(n), f(0:n-1)
+  real(kind=8) :: c(12)
 
   !$loki inline
   call test_inline_another_inner()
   !$loki inline
-  call test_inline_inner(a, b)
+  call test_inline_inner(a, b, c(1:4), c(5:8), c(9:12), f)
 end subroutine test_inline_outer
     """
 
@@ -338,17 +339,30 @@ module test_inline_mod
   implicit none
   contains
 
-subroutine test_inline_inner(a, b)
+subroutine test_inline_inner(a, b, c, d, e, f)
   use BNDS_module, only: n, m
   use another_module, only: x
 
-  real(kind=8), intent(inout) :: a(n), b(n)
+  real(kind=8), intent(inout) :: a(n), b(n), f(2:n+1)
+  real(kind=8), intent(out) :: c(4), d(4), e(0:3)
   real(kind=8) :: tmp(m)
   integer :: i
 
   tmp(1:m) = x
   do i=1, n
     a(i) = b(i) + sum(tmp)
+  end do
+  do i=1,4
+    c(i) = 0.
+    d(i) = 0.
+    e(i-1) = 0.
+  enddo
+  c(:) = 1.
+  d(1:4) = 1.
+  e(0:3) = 1.
+  e(:) = 2.
+  do i=2, n+1
+    f(i) = 2.
   end do
 end subroutine test_inline_inner
 end module test_inline_mod
@@ -381,11 +395,27 @@ end module test_inline_another_mod
 
     # Check that the inlining has happened
     assign = FindNodes(ir.Assignment).visit(outer.body)
-    assert len(assign) == 2
+    assert len(assign) == 10
     assert assign[0].lhs == 'tmp(1:m)'
     assert assign[0].rhs == 'x'
     assert assign[1].lhs == 'a(i)'
     assert assign[1].rhs == 'b(i) + sum(tmp)'
+    assert assign[2].lhs == 'c(i)'
+    assert assign[2].rhs == '0.'
+    assert assign[3].lhs == 'c(4 + i)'
+    assert assign[3].rhs == '0.'
+    assert assign[4].lhs == 'c(8 + i)'
+    assert assign[4].rhs == '0.'
+    assert assign[5].lhs == 'c(1:4)'
+    assert assign[5].rhs == '1.'
+    assert assign[6].lhs == 'c(5:8)'
+    assert assign[6].rhs == '1.'
+    assert assign[7].lhs == 'c(9:12)'
+    assert assign[7].rhs == '1.'
+    assert assign[8].lhs == 'c(9:12)'
+    assert assign[8].rhs == '2.'
+    assert assign[9].lhs == 'f(-2 + i)'
+    assert assign[9].rhs == '2.'
 
     # Now check that the right modules have been moved,
     # and the import of the call has been removed

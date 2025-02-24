@@ -12,7 +12,7 @@ from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions,
     pragmas_attached, is_loki_pragma, Interface, Pragma, AttachScopes
 )
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, simplify
 from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import error
@@ -87,12 +87,44 @@ def map_call_to_procedure_body(call, caller, callee=None):
         For example, mapping the passed array ``m(:,j)`` to the local
         expression ``a(i)`` yields ``m(i,j)``.
         """
+
+        def _offset_lbound(local_lbound, decl_lbound, v):
+            _sum = sym.Product((-1, decl_lbound))
+            _sum = sym.Sum((_sum, local_lbound, v))
+            return simplify(_sum)
+
         new_dimensions = list(val.dimensions)
 
         indices = [index for index, dim in enumerate(val.dimensions) if isinstance(dim, sym.Range)]
 
-        for index, dim in enumerate(var.dimensions):
-            new_dimensions[indices[index]] = dim
+        lbounds_diff = [sym.IntLiteral(0) for _ in var.shape]
+        var_ubounds = [getattr(dim, 'upper', dim) for dim in var.shape]
+        if var.shape and val.shape:
+            decl_lbounds = [(getattr(val.shape[i], 'lower', sym.IntLiteral(1)),
+                             getattr(dim, 'lower', sym.IntLiteral(1))) for i, dim in enumerate(var.shape)]
+
+            for i, (lb_val, lb_var) in enumerate(decl_lbounds):
+                # we can't simply check if lb_val here as that would return a false negative if lb_val == 0
+                if lb_val is not None and lb_var is not None:
+                    lbounds_diff[i] = simplify(sym.Sum((lb_val, sym.Product((lb_var, sym.IntLiteral(-1))))))
+
+        for (index, dim), lbdiff in zip(enumerate(var.dimensions), lbounds_diff):
+            # if the argument contains an array range, we must map the bounds accordingly
+            if isinstance(val.dimensions[index], sym.Range) and (lower := val.dimensions[index].lower):
+                lower = simplify(sym.Sum((lower, lbdiff)))
+                decl_lbound = decl_lbounds[index][0]
+                if isinstance(dim, sym.Range):
+                    _lower = dim.lower or decl_lbounds[index][1]
+                    _upper = dim.upper or var_ubounds[index]
+
+                    _lower = _offset_lbound(lower, decl_lbound, _lower)
+                    _upper = _offset_lbound(lower, decl_lbound, _upper)
+
+                    new_dimensions[indices[index]] = sym.Range((_lower, _upper))
+                else:
+                    new_dimensions[indices[index]] = _offset_lbound(lower, decl_lbound, dim)
+            else:
+                new_dimensions[indices[index]] = simplify(sym.Sum((dim, lbdiff)))
 
         return val.clone(dimensions=tuple(new_dimensions))
 
