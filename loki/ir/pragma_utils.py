@@ -23,7 +23,7 @@ __all__ = [
     'attach_pragmas', 'detach_pragmas',
     'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
     'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher',
-    'get_pragma_start_and_parameters'
+    'get_pragma_command_and_parameters'
 ]
 
 
@@ -124,7 +124,7 @@ class PragmaParameters:
         parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
         return parameters
 
-def get_pragma_start_and_parameters(pragma):
+def get_pragma_command_and_parameters(pragma, only_loki_pragmas=True):
     """
     Parse a pragma in the form
 
@@ -140,26 +140,20 @@ def get_pragma_start_and_parameters(pragma):
     Returns
     -------
     tuple(str, dict) :
-        ...
+        tuple being (command, parameters as dictionary)
     """
-    pragma_parameters = PragmaParameters()
-    parameters = defaultdict(list)
-    if pragma.keyword.lower() != 'loki':
+    pragma_parameters = list(get_pragma_parameters(pragma, only_loki_pragmas=only_loki_pragmas).items())
+    if not pragma_parameters:
         return None, None
-    content = pragma.content or ''
-    # Remove any line-continuation markers
-    content = content.replace('&', '')
-    starts_with = content.split(' ')[0]
-    if starts_with == 'end':
-        starts_with = f"{starts_with}-{content.split(' ')[1]}"
-    if not starts_with:
-        return None, None
-    content = content[len(starts_with):]
-    parameter = pragma_parameters.find(content)
-    for key in parameter:
-        parameters[key].append(parameter[key])
-    parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
-    return starts_with, parameters
+    if pragma_parameters[0][0] == 'end':
+        if len(pragma_parameters) < 2 or pragma_parameters[1][1] is not None:
+            debug('get_pragma_command_and_parameters: Failed to match end-command in pragma {pragma}')
+            return None, None
+        pragma_parameters = [
+            (f'{pragma_parameters[0][0]}-{pragma_parameters[1][0]}', None),
+            *pragma_parameters[2:]
+        ]
+    return pragma_parameters[0][0], dict(pragma_parameters[1:])
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """

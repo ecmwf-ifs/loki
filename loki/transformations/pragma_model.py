@@ -9,7 +9,7 @@ import inspect
 
 from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.ir import (
-    FindNodes, Pragma, Transformer, get_pragma_start_and_parameters
+    FindNodes, Pragma, Transformer, get_pragma_command_and_parameters
 )
 
 __all__ = ['PragmaModelTransformation']
@@ -64,7 +64,7 @@ class GenericPragmaMapper:
         return None
 
     def pmap(self, pragma, **kwargs): # pylint: disable=unused-argument
-        starts_with, parameters = get_pragma_start_and_parameters(pragma)
+        starts_with, parameters = get_pragma_command_and_parameters(pragma)
         meth = self.lookup_method(starts_with.lower().replace('-', '_'))
         print(f"map to meth: {meth} | starts_with: {starts_with}")
         if meth is not None:
