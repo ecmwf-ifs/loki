@@ -13,7 +13,7 @@ authors = [
   {name = "ECMWF", email = "user_support_section@ecmwf.int"},
 ]
 description = "Experimental Fortran IR to facilitate source-to-source transformations"
-requires-python = ">=3.8,<3.12"
+requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
 dynamic = ["version", "readme"]
 dependencies = [

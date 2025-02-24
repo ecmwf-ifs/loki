@@ -25,6 +25,8 @@ jobs:
           - linux python-3.9
           - linux python-3.10
           - linux python-3.11
+          - linux python-3.12
+          - linux python-3.13
           - macos python-3.11
 
         include:
@@ -40,6 +42,12 @@ jobs:
           - name: linux python-3.11
             os: ubuntu-24.04
             python-version: '3.11'
+          - name: linux python-3.12
+            os: ubuntu-24.04
+            python-version: '3.12'
+          - name: linux python-3.13
+            os: ubuntu-24.04
+            python-version: '3.13'
           - name: macos python-3.11
             os: macos-14
             python-version: '3.11'
