@@ -438,10 +438,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             body_prepend += [stack_alloc]
             pragma_data_start = Pragma(
                 keyword='loki',
-                content=f'scoped-data create({stack_storage.name})' # pylint: disable=no-member
+                content=f'structured-data create({stack_storage.name})' # pylint: disable=no-member
             )
             body_prepend += [pragma_data_start]
-            pragma_data_end = Pragma(keyword='loki', content=f'end scoped-data create({stack_storage.name})') # pylint: disable=no-member
+            pragma_data_end = Pragma(keyword='loki', content=f'end structured-data create({stack_storage.name})') # pylint: disable=no-member
             body_append += [pragma_data_end]
             body_append += [stack_dealloc]
 

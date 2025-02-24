@@ -170,8 +170,8 @@ class DataOffloadTransformation(Transformation):
                     copyin = f'in({", ".join(inargs)})' if inargs else ''
                     copy = f'inout({", ".join(inoutargs)})' if inoutargs else ''
                     copyout = f'out({", ".join(outargs)})' if outargs else ''
-                    pragma = Pragma(keyword='loki', content=f'scoped-data {copyin} {copy} {copyout}')
-                    pragma_post = Pragma(keyword='loki', content='end scoped-data {copyin} {copy} {copyout}')
+                    pragma = Pragma(keyword='loki', content=f'structured-data {copyin} {copy} {copyout}')
+                    pragma_post = Pragma(keyword='loki', content='end structured-data {copyin} {copy} {copyout}')
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post
 

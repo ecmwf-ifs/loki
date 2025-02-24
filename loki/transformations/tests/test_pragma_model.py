@@ -43,10 +43,10 @@ subroutine some_func(ret)
 
   !$loki create device(tmp1, tmp2)
   !$loki update device(tmp1) host(tmp2)
-  !$loki unscoped-data in(tmp1, tmp2) create(tmp3, tmp4)
-  !$loki end unscoped-data out(tmp2, tmp3, tmp4) delete(tmp1)
-  !$loki scoped-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
-  !$loki end scoped-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
+  !$loki unstructured-data in(tmp1, tmp2) create(tmp3, tmp4)
+  !$loki end unstructured-data out(tmp2, tmp3, tmp4) delete(tmp1)
+  !$loki structured-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
+  !$loki end structured-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
   !$loki loop gang private(tmp1) vlength(128)
   !$loki end loop gang
   !$loki loop vector private(tmp2)
@@ -124,10 +124,10 @@ end subroutine some_func
     if directive is None:
         args = (('loki', 'create device(tmp1, tmp2)'),
                 ('loki', ('update', 'device(tmp1)', 'host(tmp2)'), False),
-                ('loki', ('unscoped-data', 'in(tmp1, tmp2)', 'create(tmp3, tmp4)'), False),
-                ('loki', ('end unscoped-data', 'out(tmp2, tmp3, tmp4)', 'delete(tmp1)'), False),
-                ('loki', ('scoped-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
-                ('loki', ('end scoped-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
+                ('loki', ('unstructured-data', 'in(tmp1, tmp2)', 'create(tmp3, tmp4)'), False),
+                ('loki', ('end unstructured-data', 'out(tmp2, tmp3, tmp4)', 'delete(tmp1)'), False),
+                ('loki', ('structured-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
+                ('loki', ('end structured-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
                 ('loki', ('loop gang', 'private(tmp1)', 'vlength(128)'), False),
                 ('loki', 'end loop gang'),
                 ('loki', ('loop vector', 'private(tmp2)'), False),

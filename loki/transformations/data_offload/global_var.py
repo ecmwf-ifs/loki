@@ -387,7 +387,7 @@ class GlobalVarOffloadTransformation(Transformation):
                 )
             if copyin_variables:
                 update_device += (
-                    Pragma(keyword='loki', content=f'unscoped-data in({", ".join(v.name for v in copyin_variables)})'),
+                    Pragma(keyword='loki', content=f'unstructured-data in({", ".join(v.name for v in copyin_variables)})'),
                 )
 
         # All variables that are written in a kernel need a device-to-host transfer
@@ -405,12 +405,12 @@ class GlobalVarOffloadTransformation(Transformation):
             if copyout_variables:
                 update_host += (
                     Pragma(keyword='loki',
-                        content=f'end unscoped-data out({", ".join(v.name for v in copyout_variables)})'),
+                        content=f'end unstructured-data out({", ".join(v.name for v in copyout_variables)})'),
                 )
             if create_variables:
                 update_device += (
                     Pragma(keyword='loki',
-                        content=f'unscoped-data create({", ".join(v.name for v in create_variables)})'),
+                        content=f'unstructured-data create({", ".join(v.name for v in create_variables)})'),
                 )
 
         # Replace Loki pragmas with acc data/update pragmas
