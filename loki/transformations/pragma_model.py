@@ -92,7 +92,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'update{content}')
         return self.default_retval()
 
-    def pmap_unscoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         content = ''
         if param_in := parameters.get('in'):
             content += f' copyin({param_in})'
@@ -102,7 +102,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'enter data{content}')
         return self.default_retval()
 
-    def pmap_end_unscoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         content = ''
         if params_out := parameters.get('out'):
             content += f' copyout({params_out})'
@@ -112,7 +112,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'exit data{content}')
         return self.default_retval()
 
-    def pmap_scoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         content = ''
         if params_in := parameters.get('in'):
             content += f' copyin({params_in})'
@@ -128,7 +128,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'data{content}')
         return self.default_retval()
 
-    def pmap_end_scoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         return Pragma(keyword='acc', content='end data')
 
     def pmap_routine(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
@@ -198,7 +198,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target update{content}')
         return self.default_retval()
 
-    def pmap_unscoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         content = ''
         if param_in := parameters.get('in'):
             content += f' map(to: {param_in})'
@@ -208,7 +208,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target enter data{content}')
         return self.default_retval()
 
-    def pmap_end_unscoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         content = ''
         if params_out := parameters.get('out'):
             content += f' map(from: {params_out})'
@@ -218,7 +218,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target exit data{content}')
         return self.default_retval()
 
-    def pmap_scoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         content = ''
         if params_in := parameters.get('in'):
             content += f' map(to: {params_in})'
@@ -232,7 +232,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target data{content}')
         return self.default_retval()
 
-    def pmap_end_scoped_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
         return Pragma(keyword='omp', content='end target data')
 
     def pmap_routine(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
