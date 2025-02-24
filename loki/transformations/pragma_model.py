@@ -284,14 +284,12 @@ class PragmaModelTransformation(Transformation):
         self.keep_loki_pragmas = keep_loki_pragmas
         if not process_module_items:
             self.item_filter = ProcedureItem
-        pmapper_map = {'openacc': OpenACCPragmaMapper(), 'omp-gpu': OpenMPOffloadPragmaMapper()}
-        if self.directive in pmapper_map:
-            self.pmapper = pmapper_map[self.directive]
-        else:
-            if self.keep_loki_pragmas:
-                self.pmapper = None
-            else:
-                self.pmapper = GenericPragmaMapper()
+        pmapper_cls_map = {
+            'openacc': OpenACCPragmaMapper,
+            'omp-gpu': OpenMPOffloadPragmaMapper,
+        }
+        pmapper_cls = pmapper_cls_map.get(self.directive, None if self.keep_loki_pragmas else GenericPragmaMapper)
+        self.pmapper = pmapper_cls() if pmapper_cls else None
 
     def _create_pragma_map(self, pragmas):
         pragma_map = {}
