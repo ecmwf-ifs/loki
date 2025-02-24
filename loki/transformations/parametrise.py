@@ -176,10 +176,12 @@ class ParametriseTransformation(Transformation):
 
         item = kwargs.get('item', None)
         role = kwargs.get('role', None)
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         successor_map = CaseInsensitiveDict(
             (successor.local_name, successor)
-            for successor in as_tuple(kwargs.get('successors'))
+            for successor in successors
         )
 
         # decide whether subroutine is an entry point or not

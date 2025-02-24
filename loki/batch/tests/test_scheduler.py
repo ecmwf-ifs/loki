@@ -2088,7 +2088,8 @@ end subroutine caller
             assert item.local_name in ('caller', 'routine', 'some_procedure', 'other')
             self.counter[item.local_name] = self.counter.get(item.local_name, 0) + 1
 
-            successors = kwargs.get('successors')
+            sub_sgraph = kwargs.get('sub_sgraph')
+            successors = as_tuple(sub_sgraph.successors(item))
             assert set(successors) == set(self.expected_successors[item.name])
 
     (tmp_path/'some_mod.F90').write_text(fcode_mod)

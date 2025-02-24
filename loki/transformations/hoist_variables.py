@@ -132,7 +132,8 @@ class HoistVariablesAnalysis(Transformation):
 
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = as_tuple(kwargs.get('successors'))
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         item.trafo_data[self._key] = {}
 
@@ -234,7 +235,9 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
-        successors = as_tuple(kwargs.get('successors'))
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
+
         successor_map = CaseInsensitiveDict(
             (successor.local_name, successor) for successor in successors
         )
