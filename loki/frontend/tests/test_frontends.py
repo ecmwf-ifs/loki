@@ -16,10 +16,12 @@ import pytest
 from loki import (
     Module, Subroutine, Sourcefile, BasicType, config, config_override
 )
-from loki.build import jit_compile, clean_test
+from loki.build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, FP, HAVE_FP
 from loki.ir import nodes as ir, FindNodes, FindVariables
+
+from conftest import XFAIL_DERIVED_TYPE_JIT_TESTS
 
 
 @pytest.fixture(name='reset_frontend_mode')
@@ -29,6 +31,10 @@ def fixture_reset_frontend_mode():
     config['frontend-strict-mode'] = original_frontend_mode
 
 
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_check_alloc_opts(tmp_path, frontend):
     """
@@ -121,9 +127,11 @@ end module alloc_mod
     assert (item2.vector == 2.).all()
     mod.free_deferred(item2)
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_associates(tmp_path, frontend):
     """Test the use of associate to access and modify other items"""
@@ -209,8 +217,6 @@ end module
     mod.associates(item)
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
 
-    clean_test(filepath)
-
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
 def test_associates_deferred(frontend):
@@ -284,7 +290,6 @@ end subroutine associates_expr
     b = np.zeros(3, dtype='i')
     function(a, b)
     assert np.all(b == [7, 10, 13])
-    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -335,7 +340,6 @@ end subroutine test_enum
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
     out = function()
     assert out == 23
-    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
