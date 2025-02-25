@@ -133,7 +133,6 @@ class Compiler:
     LDFLAGS = None
     LD_STATIC = None
     LDFLAGS_STATIC = None
-    F2PY_FCOMPILER_TYPE = None
 
     def __init__(self):
         self.cc = self.CC or 'gcc'
@@ -148,7 +147,6 @@ class Compiler:
         self.ldflags = self.LDFLAGS or ['-static']
         self.ld_static = self.LD_STATIC or 'ar'
         self.ldflags_static = self.LDFLAGS_STATIC or ['src']
-        self.f2py_fcompiler_type = self.F2PY_FCOMPILER_TYPE or 'gnu95'
 
     def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='f90'):
         """
@@ -266,7 +264,6 @@ class Compiler:
             incl_dirs += [cwd]
 
         args = [_which('f2py-f90wrap'), '-c']
-        args += [f'--fcompiler={self.f2py_fcompiler_type}']
         args += [f'--f77exec={self.fc}']
         args += [f'--f90exec={self.f90}']
         args += ['-m', f'_{modname}']
@@ -279,13 +276,20 @@ class Compiler:
         args += [str(s) for s in source]
         return args
 
+    def f2py_env(self):
+        env = os.environ.copy()
+        env['CC'] = self.cc
+        env['FC'] = self.fc
+        env['F90'] = self.f90
+        return env
+
     def f2py(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None, cwd=None):
         """
         Invoke f90wrap command to create wrappers for a given module.
         """
         args = self.f2py_args(modname=modname, source=source, libs=libs,
                               lib_dirs=lib_dirs, incl_dirs=incl_dirs, cwd=cwd)
-        execute(args, cwd=cwd)
+        execute(args, cwd=cwd, env=self.f2py_env())
 
 
 class GNUCompiler(Compiler):
