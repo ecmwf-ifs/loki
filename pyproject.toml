@@ -13,11 +13,11 @@ authors = [
   {name = "ECMWF", email = "user_support_section@ecmwf.int"},
 ]
 description = "Experimental Fortran IR to facilitate source-to-source transformations"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
 dynamic = ["version", "readme"]
 dependencies = [
-  "numpy",  # essential for tests, loop transformations and other dependencies
+  "numpy >= 2.0",  # essential for tests, loop transformations and other dependencies
   "pymbolic==2022.2",  # essential for expression tree
   "PyYAML",  # essential for loki-lint
   "pcpp",  # essential for preprocessing
@@ -45,7 +45,7 @@ tests = [
   "nbconvert",
 ]
 dace = [
-  "dace>=0.11.2",
+  "dace>=1.0; python_version < '3.13'",
 ]
 docs = [
   "sphinx",  # to build documentation
