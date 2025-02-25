@@ -10,7 +10,7 @@
 set -euo pipefail
 
 hpc2020_java_version=11.0.6
-hpc2020_python_version=3.11.8-01
+hpc2020_python_version=3.11.10-01
 hpc2020_cmake_version=3.28.3
 hpc2020_meson_version=1.2.1
 hpc2020_ninja_version=1.11.1
@@ -32,7 +32,6 @@ jdk_certificate=""
 venv_path=
 with_jdk=false
 with_omni=false
-with_ofp=false
 with_docs=false
 with_dace=true
 with_tests=true
@@ -52,12 +51,11 @@ print_usage_with_options() {
   echo "  -h / --help                  Display this help message"
   echo "  -v                           Enable verbose output"
   echo "  --hpc2020                    Load HPC2020 (Atos) specific modules and settings"
-  echo "  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads"
+  echo "  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant downloads"
   echo "  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime"
   echo "  --use-venv[=]<path>          Use existing virtual environment at <path>"
   echo "  --with[out]-jdk              Install JDK instead of using system version (default: use system version)"
   echo "  --with[out]-omni             Install OMNI Compiler (default: disabled)"
-  echo "  --with[out]-ofp              Install Open Fortran Parser (default: disabled)"
   echo "  --with[out]-dace             Install DaCe (default: enabled)"
   echo "  --with[out]-tests            Install dependencies to run tests (default: enabled)"
   echo "  --with[out]-docs             Install dependencies to generate documentation (default: disabled)"
@@ -174,7 +172,6 @@ if [ "$verbose" == true ]; then
   [[ "$venv_path" != "" ]]   && echo "    --use-venv='$venv_path'"
   [[ "$with_jdk" == true ]]  && echo "    --with-jdk"
   [[ "$with_omni" == true ]] && echo "    --with-omni"
-  [[ "$with_ofp" == false ]] && echo "    --without-ofp"
   [[ "$with_dace" == false ]] && echo "    --without-dace"
   [[ "$with_tests" == false ]] && echo "    --without-tests"
   [[ "$with_docs" == false ]] && echo "    --without-docs"
@@ -253,7 +250,6 @@ cd "$loki_path"
 
 pip_opts=()
 [[ "$with_tests" == true ]] && pip_opts+=(tests)
-[[ "$with_ofp" == true ]] && pip_opts+=(ofp)
 [[ "$with_dace" == true ]] && pip_opts+=(dace)
 [[ "$with_docs" == true ]] && pip_opts+=(docs)
 [[ "$with_examples" == true ]] && pip_opts+=(examples)
@@ -329,53 +325,6 @@ if [ "$with_omni" == true ]; then
 fi
 
 #
-# Install OFP
-#
-
-OFP_HOME=${venv_path}/src/open-fortran-parser
-
-if [ "$with_ofp" == true ]; then
-  print_step "Installing OFP"
-
-  # Reinstall OFP editable to enable below hack
-  pip install $PIPPROXYOPTIONS -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
-
-  # HACK: Force OFP version
-  echo "VERSION = '0.5.3'" > "${OFP_HOME}/open_fortran_parser/_version.py"
-
-  if [ "x$proxy_certificate" != "x" ]; then
-  # Bypass certificate verification
-  perl -e '
-
-    use FileHandle;
-    my $py = shift;
-
-    my $code = do { local $/ = undef; my $fh = "FileHandle"->new ("<$py"); <$fh> };
-
-    "FileHandle"->new (">$py")->print (<< "EOF");
-  import ssl
-
-  ssl._create_default_https_context = ssl._create_unverified_context
-
-  $code
-  EOF
-
-  ' "${OFP_HOME}/open_fortran_parser/__main__.py"
-  fi
-
-  # Install Java dependencies
-  python3 -m open_fortran_parser --deps
-
-  # Copy downloaded binaries to lib
-  cd "${OFP_HOME}"
-  mkdir -p lib
-  cp open_fortran_parser/*.jar lib
-
-  # Rebuild OFP binaries to include custom changes
-  ant
-fi
-
-#
 # Writing loki-activate script
 #
 
@@ -405,10 +354,7 @@ module load java/${hpc2020_java_version}
 module unload cmake
 module load cmake/${hpc2020_cmake_version}
 " >> "${loki_path}/loki-activate"
-fi
 
-# Setup Java for OFP
-if [ "$with_ofp" == true ]; then
   echo "
 module unload meson
 module load meson/${hpc2020_meson_version}

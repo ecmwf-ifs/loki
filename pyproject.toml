@@ -44,9 +44,6 @@ tests = [
   "f90wrap>=0.2.15",
   "nbconvert",
 ]
-ofp = [
-  "open-fortran-parser @ git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser",
-]
 dace = [
   "dace>=0.11.2",
 ]
