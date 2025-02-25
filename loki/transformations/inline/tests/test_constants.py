@@ -55,19 +55,22 @@ contains
 end module inline_const_param_mod
 """
     # Generate reference code, compile run and verify
-    param_module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    orig_tmp_path = tmp_path/'orig'
+    orig_tmp_path.mkdir()
+    param_module = Module.from_source(fcode_module, frontend=frontend, xmods=[orig_tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, xmods=[orig_tmp_path])
     refname = f'ref_{module.name}_{ frontend}'
-    reference = jit_compile_lib([module, param_module], path=tmp_path, name=refname, builder=builder)
+    reference = jit_compile_lib([module, param_module], path=orig_tmp_path, name=refname, builder=builder)
 
     v2, v3 = reference.inline_const_param_mod.inline_const_param(10)
     assert v2 == 8
     assert v3 == 2
-    (tmp_path/f'{module.name}.f90').unlink()
-    (tmp_path/f'{param_module.name}.f90').unlink()
 
     # Now transform with supplied elementals but without module
-    module = Module.from_source(fcode, definitions=param_module, frontend=frontend, xmods=[tmp_path])
+    new_tmp_path = tmp_path/'new'
+    new_tmp_path.mkdir()
+    param_module = Module.from_source(fcode_module, frontend=frontend, xmods=[new_tmp_path])
+    module = Module.from_source(fcode, definitions=param_module, frontend=frontend, xmods=[new_tmp_path])
     assert len(FindNodes(ir.Import).visit(module['inline_const_param'].spec)) == 1
     for routine in module.subroutines:
         inline_constant_parameters(routine, external_only=True)
@@ -75,13 +78,11 @@ end module inline_const_param_mod
 
     # Hack: rename module to use a different filename in the build
     module.name = f'{module.name}_'
-    obj = jit_compile_lib([module], path=tmp_path, name=f'{module.name}_{frontend}', builder=builder)
+    obj = jit_compile_lib([module], path=new_tmp_path, name=f'{module.name}_{frontend}', builder=builder)
 
     v2, v3 = obj.inline_const_param_mod_.inline_const_param(10)
     assert v2 == 8
     assert v3 == 2
-
-    (tmp_path/f'{module.name}.f90').unlink()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
