@@ -266,6 +266,7 @@ class Compiler:
         args = [_which('f2py-f90wrap'), '-c']
         args += [f'--f77exec={self.fc}']
         args += [f'--f90exec={self.f90}']
+        args += ['--backend=meson']
         args += ['-m', f'_{modname}']
         for incl_dir in incl_dirs:
             args += [f'-I{incl_dir}']
