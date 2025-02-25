@@ -163,3 +163,34 @@ def test_default_compiler():
     # Check that _default_compiler corresponds to a call with None
     compiler = get_compiler_from_env()
     assert type(compiler) == type(_default_compiler)  # pylint: disable=unidiomatic-typecheck
+
+
+def test_obj_dependencies(tmp_path):
+    fcode = """
+module import_mod
+    use module_mod
+    implicit none
+contains
+    subroutine proc1
+        use  , non_intrinsic :: iso_fortran_env, only: int8, int16
+        use  , intrinsic :: iso_c_binding
+        use other_Mod
+        use :: third_mod
+        use    fourth_mod , only:some
+        use,non_intrinsic::very_condensed
+    end subroutine proc1
+    subroutine proc2
+        use, intrinsic :: iso_fortran_env, only: int8, int16
+        use::fifth_mod
+    end subroutine proc2
+end module import_mod
+    """.strip()
+
+    filepath = tmp_path/'import_mod.f90'
+    filepath.write_text(fcode)
+
+    obj = Obj(name='import_mod', source_path=filepath)
+    assert obj.dependencies == (
+        'module_mod', 'iso_fortran_env', 'other_Mod', 'third_mod', 'fourth_mod',
+        'very_condensed', 'fifth_mod'
+    )

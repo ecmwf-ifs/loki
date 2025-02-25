@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Module, Subroutine, fexprgen, fgen
-from loki.build import jit_compile, clean_test
+from loki.build import jit_compile_lib
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -1020,12 +1020,14 @@ end module module_nature_mod
     assert 'use, intrinsic' in kinds.to_fortran().lower()
 
     # Verify JIT compile
-    ext_filepath = tmp_path/f'{ext_mod.name}.f90'
-    filepath = tmp_path/f'{mod.name}_{frontend}.f90'
-    jit_ext = jit_compile(ext_mod, filepath=ext_filepath, objname=ext_mod.name)
-    jit_mod = jit_compile(mod, filepath=filepath, objname=mod.name)
-    my_kinds_func = jit_mod.inquire_my_kinds
-    kinds_func = jit_mod.inquire_kinds
+    file_paths = []
+    for _mod in [ext_mod, mod]:
+        filepath = tmp_path/f'{_mod.name}.f90'
+        filepath.write_text(_mod.to_fortran())
+        file_paths += [filepath]
+    lib = jit_compile_lib([ext_mod, mod], path=tmp_path, name=mod.name)
+    my_kinds_func = lib.module_nature_mod.inquire_my_kinds
+    kinds_func = lib.module_nature_mod.inquire_kinds
 
     my_i8, my_i16 = my_kinds_func()
     i8, i16 = kinds_func()
@@ -1033,10 +1035,7 @@ end module module_nature_mod
     assert my_i8 == my_i16
     assert i8 < i16
     assert my_i8 == i16
-    assert my_i8 == jit_ext.int8
-
-    clean_test(filepath)
-    clean_test(ext_filepath)
+    assert my_i8 == lib.iso_fortran_env.int8
 
 
 @pytest.mark.parametrize('spec,part_lengths', [
