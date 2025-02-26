@@ -476,3 +476,216 @@ def test_dependency_duplicate_remove_plan_no_module(tmp_path, frontend, duplicat
     assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == transformed_items
     assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == transformed_items
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'{name[1:]}.idem' for name in expected_items}
+
+@pytest.fixture(name='fcode_as_module_extended')
+def fixture_fcode_as_module_extended(tmp_path):
+    fcode_driver = """
+subroutine driver(NLON, NB, FIELD1)
+    use kernel_mod, only: kernel
+    implicit none
+    INTEGER, INTENT(IN) :: NLON, NB
+    integer :: b
+    integer, intent(inout) :: field1(nlon, nb)
+    integer :: local_nlon
+    local_nlon = nlon
+    do b=1,nb
+        call kernel(local_nlon, field1(:,b))
+    end do
+end subroutine driver
+    """.strip()
+    fcode_kernel = """
+module kernel_mod
+    implicit none
+contains
+    subroutine kernel(klon, field1)
+        use kernel_nested_mod, only: kernel_nested_vector, kernel_nested_seq
+        use compute_2_mod, only: compute_2
+        implicit none
+        integer, intent(in) :: klon
+        integer, intent(inout) :: field1(klon)
+        integer :: tmp1(klon)
+        integer :: jl
+
+        call kernel_nested_vector(klon, field1)
+
+        do jl=1,klon
+            call kernel_nested_seq(field1(jl))
+            call compute_2(field1(jl))
+            tmp1(jl) = 0
+            field1(jl) = tmp1(jl)
+        end do
+
+    end subroutine kernel
+end module kernel_mod
+    """.strip()
+    fcode_kernel_nested = """
+module kernel_nested_mod
+    implicit none
+contains
+    subroutine kernel_nested_vector(klon, field1)
+        implicit none
+        integer, intent(in) :: klon
+        integer, intent(inout) :: field1(klon)
+        integer :: tmp1(klon)
+        integer :: jl
+
+        do jl=1,klon
+            tmp1(jl) = 0
+            field1(jl) = tmp1(jl)
+        end do
+
+    end subroutine kernel_nested_vector
+    subroutine kernel_nested_seq(val)
+        use compute_1_mod, only: compute_1
+        implicit none
+        integer, intent(inout) :: val
+
+        val = 0
+        call compute_1(val)
+
+    end subroutine kernel_nested_seq
+end module kernel_nested_mod
+    """.strip()
+    fcode_compute_1 = """
+module compute_1_mod
+    implicit none
+contains
+    subroutine compute_1(val)
+        implicit none
+        integer, intent(inout) :: val
+
+        val = 0
+
+    end subroutine compute_1
+end module compute_1_mod
+    """.strip()
+    fcode_compute_2 = """
+module compute_2_mod
+    implicit none
+contains
+    subroutine compute_2(val)
+        implicit none
+        integer, intent(inout) :: val
+
+        val = 0
+
+    end subroutine compute_2
+end module compute_2_mod
+    """.strip()
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'kernel_nested_mod.F90').write_text(fcode_kernel_nested)
+    (tmp_path/'compute_1_mod.F90').write_text(fcode_compute_1)
+    (tmp_path/'compute_2_mod.F90').write_text(fcode_compute_2)
+
+
+@pytest.mark.usefixtures('fcode_as_module_extended')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('suffix,module_suffix', (
+    ('_duplicated', None), ('_dupl1', '_dupl2'), ('_d_test_1', '_d_test_2')
+))
+@pytest.mark.parametrize('full_parse', (True, False))
+@pytest.mark.parametrize('duplicate_subgraph', (True, False))
+def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix, config,
+                                       full_parse, duplicate_subgraph):
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path], full_parse=full_parse
+    )
+
+    pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
+                        duplicate_kernels=('kernel',), duplicate_suffix=suffix,
+                        duplicate_module_suffix=module_suffix,
+                        duplicate_subgraph=duplicate_subgraph)
+
+    module_suffix = module_suffix or suffix
+
+    plan_file = tmp_path/'plan.cmake'
+
+    # dry-run for planning
+    scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
+
+    expected_items = {'#driver', 'kernel_mod#kernel', 'kernel_nested_mod#kernel_nested_vector',
+            'kernel_nested_mod#kernel_nested_seq', 'compute_1_mod#compute_1', 'compute_2_mod#compute_2',
+    }
+    expected_items |= {f'kernel_mod{module_suffix}#kernel{suffix}'}
+    if duplicate_subgraph:
+        expected_items |= {f'kernel_nested_mod{module_suffix}#kernel_nested_vector{suffix}',
+                f'kernel_nested_mod{module_suffix}#kernel_nested_seq{suffix}',
+                f'compute_1_mod{module_suffix}#compute_1{suffix}',
+                f'compute_2_mod{module_suffix}#compute_2{suffix}'
+        }
+    # Validate Scheduler graph
+    assert {item.name for item in scheduler.items} == expected_items
+
+    # Validate the plan file content
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+    loki_plan = plan_file.read_text()
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+
+    transformed_items = {name.split('#')[0] if name.split('#')[0] else name[1:]
+                         for name in expected_items if not name.endswith(f'{suffix}')}
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == transformed_items
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == transformed_items
+    appended_items = {name.split('#')[0] if name.split('#')[0] else name[1:] for name in expected_items}
+    appended_items = {f'{name}.idem' for name in appended_items}
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == appended_items
+
+    # actual transformation(s) if fully parsed
+    if full_parse:
+        scheduler.process(pipeline)
+
+        if duplicate_subgraph:
+            dupl_kernel_imports = [(f'kernel_nested_mod{module_suffix}',
+                                    [f'kernel_nested_vector{suffix}', f'kernel_nested_seq{suffix}']),
+                                   (f'compute_2_mod{module_suffix}', [f'compute_2{suffix}'])]
+            dupl_kernel_calls = [f'kernel_nested_vector{suffix}', f'kernel_nested_seq{suffix}', f'compute_2{suffix}']
+        else:
+            dupl_kernel_imports = [('kernel_nested_mod', ['kernel_nested_vector', 'kernel_nested_seq']),
+                                   ('compute_2_mod', ['compute_2'])]
+            dupl_kernel_calls = ['kernel_nested_vector', 'kernel_nested_seq', 'compute_2']
+
+        expected_imports = {
+                '#driver': [(f'kernel_mod{module_suffix}', [f'kernel{suffix}']), ('kernel_mod', ['kernel'])],
+                'kernel_mod#kernel': [('kernel_nested_mod', ['kernel_nested_vector', 'kernel_nested_seq']),
+                                      ('compute_2_mod', ['compute_2'])],
+                'kernel_nested_mod#kernel_nested_vector': [],
+                'kernel_nested_mod#kernel_nested_seq': [('compute_1_mod', ['compute_1'])],
+                'compute_1_mod#compute_1': [],
+                'compute_2_mod#compute_2': [],
+                f'kernel_mod{module_suffix}#kernel{suffix}': dupl_kernel_imports 
+        }
+        expected_calls = {
+                '#driver': ['kernel', f'kernel{suffix}'],
+                'kernel_mod#kernel': ['kernel_nested_vector', 'kernel_nested_seq', 'compute_2'],
+                'kernel_nested_mod#kernel_nested_vector': [],
+                'kernel_nested_mod#kernel_nested_seq': ['compute_1'],
+                'compute_1_mod#compute_1': [],
+                'compute_2_mod#compute_2': [],
+                f'kernel_mod{module_suffix}#kernel{suffix}': dupl_kernel_calls
+        }
+
+        if duplicate_subgraph:
+            expected_imports |= {
+                    f'kernel_nested_mod{module_suffix}#kernel_nested_vector{suffix}': [],
+                    f'kernel_nested_mod{module_suffix}#kernel_nested_seq{suffix}': [(f'compute_1_mod{module_suffix}',
+                                                                                     [f'compute_1{suffix}'])],
+                    f'compute_1_mod{module_suffix}#compute_1{suffix}': [],
+                    f'compute_2_mod{module_suffix}#compute_2{suffix}': []
+            }
+            expected_calls |= {
+                    f'kernel_nested_mod{module_suffix}#kernel_nested_vector{suffix}': [],
+                    f'kernel_nested_mod{module_suffix}#kernel_nested_seq{suffix}':  [f'compute_1{suffix}'],
+                    f'compute_1_mod{module_suffix}#compute_1{suffix}': [],
+                    f'compute_2_mod{module_suffix}#compute_2{suffix}': []
+            }
+
+        for item_name, calls in expected_calls.items():
+            routine = scheduler[item_name].ir
+            calls = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+            imports = [(imp.module.lower(), [symb.name.lower() for symb in imp.symbols]) for imp in routine.imports]
+            assert calls == expected_calls[item_name]
+            assert imports == expected_imports[item_name]
