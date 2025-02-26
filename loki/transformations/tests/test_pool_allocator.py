@@ -17,7 +17,8 @@ from loki.expression import (
 from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import (
     FindNodes, CallStatement, Assignment, Allocation, Deallocation,
-    Loop, Pragma, get_pragma_parameters, FindVariables, FindInlineCalls
+    Loop, Pragma, get_pragma_parameters, FindVariables, FindInlineCalls,
+    Intrinsic
 )
 
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
@@ -347,6 +348,112 @@ end module kernel_mod
         assert 'if (ylstack_l > ylstack_u)' not in fcode.lower()
         assert 'stop' not in fcode.lower()
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pool_allocator_unused_temporaries(tmp_path, frontend, horizontal, block_dim):
+    fcode_driver = """
+subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
+    use kernel_mod, only: kernel
+    implicit none
+    INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+    INTEGER, INTENT(IN) :: NLON, NZ, NB
+    real(kind=jprb), intent(inout) :: field1(nlon, nb)
+    real(kind=jprb), intent(inout) :: field2(nlon, nz, nb)
+    integer :: b
+    do b=1,nb
+        call KERNEL(1, nlon, nlon, nz, field1(:,b), field2(:,:,b))
+    end do
+end subroutine driver
+    """.strip()
+    fcode_kernel = """
+module kernel_mod
+    implicit none
+contains
+    subroutine kernel(start, end, klon, klev, field1, field2)
+        implicit none
+        integer, parameter :: jprb = selected_real_kind(13,300)
+        integer, parameter :: nclv = 2
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb), intent(inout) :: field2(klon,klev)
+        real(kind=jprb) :: tmp1(klon)
+        real(kind=jprb) :: tmp2(klon, klev)
+        ! shouldn't end up on stack since not used at all
+        real(kind=jprb) :: tmp3(klon, klev)
+        ! shouldn't end up on stack since all dimension are constant
+        real(kind=jprb) :: tmp4(nclv)
+        ! shouldn't end up on stack since all dimension are constant
+        real(kind=jprb) :: tmp5(2)
+        ! should be on the stack although only read and not written to
+        real(kind=jprb) :: tmp6(klon, nclv)
+        ! should be on the stack although only used as an argument in a call
+        real(kind=jprb) :: tmp7(klon, nclv)
+        integer :: jk, jl, jm
+
+        tmp5(1) = 0.0_jprb
+        do jk=1,klev
+            tmp1(jl) = 0.0_jprb
+            do jl=start,end
+                tmp2(jl, jk) = field2(jl, jk)
+                tmp1(jl) = field2(jl, jk)
+            end do
+            field1(jl) = tmp1(jl)
+        end do
+
+        do jm=1,nclv
+           tmp4(jm) = 0._jprb
+           do jl=start,end
+             field1(jl) = tmp6(jl, jm)
+           enddo
+        enddo
+        
+        call foo(tmp7)
+
+    end subroutine kernel
+end module kernel_mod
+    """.strip()
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': False,
+            'enable_imports': True,
+        },
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
+    }
+
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
+
+    transformation = TemporariesPoolAllocatorTransformation(
+        block_dim=block_dim, horizontal=horizontal, check_bounds=False,
+        cray_ptr_loc_rhs=False
+    )
+    scheduler.process(transformation=transformation)
+    kernel_item = scheduler['kernel_mod#kernel']
+
+    assert transformation._key in kernel_item.trafo_data
+
+    # check that the correct variables end up on the stack
+    #  look for 'POINTER(IP_tmp<...>, tmp<...>)' Intrinsics
+    pointers = [intrinsic.text.split(',')[1].replace(')', '').replace(' ', '') for intrinsic
+            in FindNodes(Intrinsic).visit(kernel_item.ir.spec)
+            if 'pointer' in intrinsic.text.lower()]
+    assert 'tmp1' in pointers
+    assert 'tmp2' in pointers
+    assert 'tmp6' in pointers
+    assert 'tmp7' in pointers
+    assert 'tmp3' not in pointers
+    assert 'tmp4' not in pointers
+    assert 'tmp5' not in pointers
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
