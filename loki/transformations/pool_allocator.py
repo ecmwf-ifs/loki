@@ -226,7 +226,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # add iso_fortran_env import if necessary
         self.import_real64(routine)
 
-        successors = kwargs.get('successors', ())
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         if role == 'kernel':
             stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)

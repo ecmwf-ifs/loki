@@ -91,7 +91,9 @@ class DerivedTypeArgumentsTransformation(Transformation):
             item.trafo_data[self._key] = {}
 
         # Extract expansion maps and argument re-mapping for successors
-        successors = [child for child in kwargs.get('successors', []) if self._key in child.trafo_data]
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
+        successors = [child for child in successors if self._key in child.trafo_data]
 
         # Create a map that accounts for potential renaming of successors upon import,
         # which can lead to calls having a different name than the successor item they

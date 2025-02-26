@@ -91,7 +91,8 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         if not (item := kwargs.get('item', None)):
             raise RuntimeError('Cannot apply BlockViewToFieldViewTransformation without item to store definitions')
-        successors = kwargs.get('successors', ())
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
 
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))

@@ -33,10 +33,16 @@ class SGraph:
     Cyclic dependencies are broken for procedures that are marked as
     ``RECURSIVE``, which would otherwise constitute a dependency on itself.
     See :meth:`_break_cycles`.
+
+    Parameters
+    ----------
+    graph : :any:`networkx.DiGraph`, optional
+        Optionally, directed graph as instance of
+        :any:`networkx.DiGraph` as initial graph.
     """
 
-    def __init__(self):
-        self._graph = nx.DiGraph()
+    def __init__(self, graph=None):
+        self._graph = graph or nx.DiGraph()
 
     @classmethod
     @Timer(logger=perf, text='[Loki::Scheduler] Built SGraph from seed in {:.2f}s')
@@ -57,6 +63,20 @@ class SGraph:
         _graph._populate(seed, item_factory, config)
         _graph._break_cycles()
         return _graph
+
+    @classmethod
+    def from_dict(cls, graph_dict):
+        """
+        Create a new :any:`SGraph` using :data:`graph_dict` as starting point.
+
+        Parameters
+        ----------
+        graph_dict : dict
+            Representation of the underlying graph
+            represented as dict.
+        """
+        graph = nx.DiGraph(graph_dict)
+        return cls(graph)
 
     def as_filegraph(self, item_factory, config=None, item_filter=None, exclude_ignored=False):
         """
@@ -292,6 +312,37 @@ class SGraph:
         """
         return tuple(self._graph.edges)
 
+    @staticmethod
+    def _get_item_filter(item_filter):
+        """
+        If :any:`ProcedureItem` is part of ``item_filter``, add :any:`ProcedureBindingItem` and
+        :any:`InterfaceItem` as well, since these are intermediate nodes. Their
+        dependencies will also be included until they eventually resolve to a
+        :any:`ProcedureItem`.
+
+        This returns the updated ``item_filter``.
+
+        Parameters
+        ----------
+        item_filter : list of :any:`Item` subclasses, optional
+            Filter successor items to only include items of the provided type. By default,
+            all items are considered. Note that including :any:`ProcedureItem` in the
+            ``item_filter`` automatically adds :any:`ProcedureBindingItem` and
+            :any:`InterfaceItem` as well, since these are intermediate nodes. Their
+            dependencies will also be included until they eventually resolve to a
+            :any:`ProcedureItem`.
+        """
+        item_filter = as_tuple(item_filter)
+        if ProcedureItem in item_filter:
+            # ProcedureBindingItem and InterfaceItem are intermediate nodes that take
+            # essentially the role of an edge to ProcedureItems. Therefore
+            # we need to make sure these are included if ProcedureItems are included
+            if ProcedureBindingItem not in item_filter:
+                item_filter = item_filter + (ProcedureBindingItem,)
+            if InterfaceItem not in item_filter:
+                item_filter = item_filter + (InterfaceItem,)
+        return item_filter or None
+
     def successors(self, item, item_filter=None):
         """
         Return the list of successor nodes in the dependency tree below :any:`Item`
@@ -314,15 +365,8 @@ class SGraph:
             dependencies will also be included until they eventually resolve to a
             :any:`ProcedureItem`.
         """
-        item_filter = as_tuple(item_filter) or None
-        if item_filter and ProcedureItem in item_filter:
-            # ProcedureBindingItem and InterfaceItem are intermediate nodes that take
-            # essentially the role of an edge to ProcedureItems. Therefore
-            # we need to make sure these are included if ProcedureItems are included
-            if ProcedureBindingItem not in item_filter:
-                item_filter = item_filter + (ProcedureBindingItem,)
-            if InterfaceItem not in item_filter:
-                item_filter = item_filter + (InterfaceItem,)
+        # item_filter = self._get_item_filter(as_tuple(item_filter)) or None
+        item_filter = self._get_item_filter(item_filter)
 
         successors = ()
         for child in self._graph.successors(item):
@@ -332,6 +376,34 @@ class SGraph:
                 else:
                     successors += (child,)
         return successors
+
+    def get_sub_sgraph(self, item, item_filter=None):
+        """
+        Return the subgraph of ``self._graph`` from source ``item`` as a new instance of
+        :any:`SGraph`.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item node in the dependency graph for which to determine the successors
+        item_filter : list of :any:`Item` subclasses, optional
+            Filter successor items to only include items of the provided type. By default,
+            all items are considered. Note that including :any:`ProcedureItem` in the
+            ``item_filter`` automatically adds :any:`ProcedureBindingItem` and
+            :any:`InterfaceItem` as well, since these are intermediate nodes. Their
+            dependencies will also be included until they eventually resolve to a
+            :any:`ProcedureItem`.
+        """
+        # item_filter = self._get_item_filter(as_tuple(item_filter)) or None
+        item_filter = self._get_item_filter(item_filter)
+        # find descendants and add item itself
+        nodes = as_tuple(nx.descendants(self._graph, item)) + (item,)
+        if item_filter is not None:
+            nodes = as_tuple([node for node in nodes if isinstance(node, item_filter)])
+        # generate (a copy of) the nx.DiGraph subgraph
+        subgraph = self._graph.subgraph(nodes).copy()
+        # return this subgraph as instance of SGraph -> sub_sgraph
+        return type(self)(subgraph)
 
     @property
     def depths(self):
