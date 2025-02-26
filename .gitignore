@@ -12,6 +12,8 @@ lint_rules/lint_rules.egg-info/*
 .cache/*
 .pytest_cache/*
 .dacecache/*
+/build
+/lint_rules/build
 
 # Installation artifacts
 loki_env/*

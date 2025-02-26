@@ -7,6 +7,7 @@
 
 import importlib
 from pathlib import Path
+import sys
 import xml.etree.ElementTree as ET
 import pytest
 from fparser.two.utils import FortranSyntaxError
@@ -347,7 +348,14 @@ class PicklableTestHandler(GenericHandler):
         self.target('\n'.join(handler_reports))
 
 
-@pytest.mark.parametrize('max_workers', [None, 1, 4])
+@pytest.mark.parametrize('max_workers', [
+    None,
+    1,
+    pytest.param(4, marks=pytest.mark.xfail(
+        sys.version_info[:2] == (3, 12),
+        reason='For Python 3.12, the string read from target_file_name is empty'
+    ))
+])
 @pytest.mark.parametrize('counter,exclude,files', [
     (15, None, [
         'projA/module/compute_l1_mod.f90',

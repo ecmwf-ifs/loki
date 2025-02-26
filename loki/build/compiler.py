@@ -88,16 +88,15 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
                f'{filepath.stem}.cpython*.so', f'{filepath.stem}.py']
     clean(filename, pattern=pattern)
 
-    # First, compile the module and object files
+    # Select a default compiler if none specified
     if not compiler:
         compiler = _default_compiler
-    compiler.compile(filepath.absolute(), cwd=cwd)
 
     # Generate the Python interfaces
     compiler.f90wrap(modname=filepath.stem, source=[filepath.absolute()], kind_map=f90wrap_kind_map, cwd=cwd)
 
     # Compile the dynamic library
-    f2py_source = [f'{filepath.stem}.o']
+    f2py_source = [str(filepath.absolute())]
     for sourcefile in [f'f90wrap_{filepath.stem}.f90', 'f90wrap_toplevel.f90']:
         if (filepath.parent/sourcefile).exists():
             f2py_source += [sourcefile]
@@ -134,7 +133,6 @@ class Compiler:
     LDFLAGS = None
     LD_STATIC = None
     LDFLAGS_STATIC = None
-    F2PY_FCOMPILER_TYPE = None
 
     def __init__(self):
         self.cc = self.CC or 'gcc'
@@ -149,7 +147,6 @@ class Compiler:
         self.ldflags = self.LDFLAGS or ['-static']
         self.ld_static = self.LD_STATIC or 'ar'
         self.ldflags_static = self.LDFLAGS_STATIC or ['src']
-        self.f2py_fcompiler_type = self.F2PY_FCOMPILER_TYPE or 'gnu95'
 
     def compile_args(self, source, target=None, include_dirs=None, mod_dir=None, mode='f90'):
         """
@@ -250,7 +247,7 @@ class Compiler:
         args = self.f90wrap_args(modname=modname, source=source, kind_map=kind_map)
         execute(args, cwd=cwd)
 
-    def f2py_args(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None):
+    def f2py_args(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None, cwd=None):
         """
         Generate arguments for the ``f2py-f90wrap`` utility invocation line.
         """
@@ -258,10 +255,18 @@ class Compiler:
         lib_dirs = lib_dirs or []
         incl_dirs = incl_dirs or []
 
+        # Due to f90wrap's recent switch to Meson as a build backend, the current working
+        # directory is no longer automatically "included" because of the out-of-tree build
+        # this implies. To make sure .mod files are still found as before, we need to add
+        # the curent working directory to the include paths as a workaround, see
+        # https://github.com/jameskermode/f90wrap/issues/226 for more details.
+        if cwd and cwd not in incl_dirs:
+            incl_dirs += [cwd]
+
         args = [_which('f2py-f90wrap'), '-c']
-        args += [f'--fcompiler={self.f2py_fcompiler_type}']
         args += [f'--f77exec={self.fc}']
         args += [f'--f90exec={self.f90}']
+        args += ['--backend=meson']
         args += ['-m', f'_{modname}']
         for incl_dir in incl_dirs:
             args += [f'-I{incl_dir}']
@@ -272,13 +277,20 @@ class Compiler:
         args += [str(s) for s in source]
         return args
 
+    def f2py_env(self):
+        env = os.environ.copy()
+        env['CC'] = self.cc
+        env['FC'] = self.fc
+        env['F90'] = self.f90
+        return env
+
     def f2py(self, modname, source, libs=None, lib_dirs=None, incl_dirs=None, cwd=None):
         """
         Invoke f90wrap command to create wrappers for a given module.
         """
         args = self.f2py_args(modname=modname, source=source, libs=libs,
-                              lib_dirs=lib_dirs, incl_dirs=incl_dirs)
-        execute(args, cwd=cwd)
+                              lib_dirs=lib_dirs, incl_dirs=incl_dirs, cwd=cwd)
+        execute(args, cwd=cwd, env=self.f2py_env())
 
 
 class GNUCompiler(Compiler):

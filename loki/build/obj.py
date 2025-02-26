@@ -18,7 +18,18 @@ from loki.build.header import Header
 __all__ = ['Obj']
 
 
-_re_use = re.compile(r'^\s*use\s+(?P<use>\w+)', re.IGNORECASE | re.MULTILINE)
+_re_use = re.compile(
+    r'\s*use\b(?:\s*,\s*non_intrinsic)?\s*(?:::\s*)?(?P<use>\w+)',
+    re.IGNORECASE | re.MULTILINE
+)
+"""
+Pattern to match Fortran USE statements
+
+This will intentionally not match module imports that have the module-nature
+specified as ``INTRINSIC`` but it does match imports with optional colons or
+explicit ``NON_INTRINSIC`` module-nature given.
+"""
+
 _re_include = re.compile(r'\#include\s+["\']([\w\.]+)[\"\']', re.IGNORECASE)
 # Please note that the below regexes are fairly expensive due to .* with re.DOTALL
 _re_module = re.compile(r'module\s+(\w+).*?end module', re.IGNORECASE | re.DOTALL)
@@ -116,7 +127,7 @@ class Obj:
 
         # Add transitive module dependencies through header imports
         transitive = flatten(h.uses for h in headers if h.source_path is not None)
-        return as_tuple(set(self.uses + transitive))
+        return as_tuple(dict.fromkeys(self.uses + transitive))
 
     @property
     def definitions(self):

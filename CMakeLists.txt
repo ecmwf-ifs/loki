@@ -100,7 +100,7 @@ if( NOT HAVE_NO_INSTALL )
     # Setup Python virtual environment
     include( python_venv )
     set( loki_VENV_PATH ${CMAKE_CURRENT_BINARY_DIR}/loki_env )
-    set( PYTHON_VERSION 3.8...<3.12 )
+    set( PYTHON_VERSION 3.8 )
     setup_python_venv( ${loki_VENV_PATH} ${PYTHON_VERSION} )
     install( DIRECTORY ${loki_VENV_PATH} DESTINATION . USE_SOURCE_PERMISSIONS )
 

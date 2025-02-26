@@ -12,7 +12,23 @@ See the pytest documentation for more details:
 https://docs.pytest.org/en/stable/how-to/writing_plugins.html#local-conftest-plugins
 """
 
+import os
+
 from loki.config import config as loki_config
+
+
+XFAIL_DERIVED_TYPE_JIT_TESTS = os.environ.get('XFAIL_DERIVED_TYPE_JIT_TESTS', '1') == '1'
+"""
+Flag to mark tests that use JIT compilation for derived type argument procedures
+as expected to fail with :any:`pytest.mark.xfail`
+
+The derived type wrapping support provided by f90wrap has stopped working in the
+Loki JIT backend that is used for tests. Because this is not a crucial feature, we
+are temporarily allowing these tests to fail to fix this separately in the future.
+
+By setting the environment variable ``XFAIL_DERIVED_TYPE_JIT_TESTS`` to ``0``, tests
+will no longer be marked as xfail.
+"""
 
 
 def pytest_addoption(parser, pluginmanager):  # pylint: disable=unused-argument

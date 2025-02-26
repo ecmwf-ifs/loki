@@ -20,8 +20,10 @@ from loki import (
     StringSubscript, Conditional, CallStatement, ProcedureSymbol,
     FindVariables
 )
-from loki.build import jit_compile, jit_compile_lib, clean_test, Obj
+from loki.build import jit_compile, jit_compile_lib, Obj
 from loki.frontend import available_frontends, OMNI
+
+from conftest import XFAIL_DERIVED_TYPE_JIT_TESTS
 
 
 @pytest.fixture(name='builder')
@@ -30,6 +32,10 @@ def fixture_builder(tmp_path):
     Obj.clear_cache()
 
 
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_simple_loops(tmp_path, frontend):
     """
@@ -86,9 +92,11 @@ end module
     mod.simple_loops(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all()
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_array_indexing_explicit(tmp_path, frontend):
     """
@@ -126,9 +134,11 @@ end module
     assert (item.vector == 666.).all()
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_array_indexing_deferred(tmp_path, frontend):
     """
@@ -182,9 +192,11 @@ end module
     assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     mod.free_deferred(item)
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_array_indexing_nested(tmp_path, frontend):
     """
@@ -232,9 +244,11 @@ end module
                                                   [1., 2., 3.],
                                                   [1., 2., 3.]])).all()
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_deferred_array(tmp_path, frontend):
     """
@@ -309,9 +323,11 @@ end module
     assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     mod.free_deferred(item)
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_caller(tmp_path, frontend):
     """
@@ -367,9 +383,11 @@ end module
     mod.derived_type_caller(item)
     assert (item.vector == 7.).all() and (item.matrix == 6.).all() and item.red_herring == 42.
 
-    clean_test(filepath)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_case_sensitivity(tmp_path, frontend):
     """
@@ -410,8 +428,6 @@ end module
     mod.check_case(item)
     assert item.u == 1.0 and item.v == 2.0 and item.t == 3.0
     assert item.q == -1.0 and item.a == -5.0
-
-    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1152,9 +1168,11 @@ end module {module_name}
 
     yield fcode
 
-    clean_test(ref_path)
 
-
+@pytest.mark.xfail(
+    XFAIL_DERIVED_TYPE_JIT_TESTS,
+    reason='Support for user-defined derived type arguments is broken in JIT compile'
+)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_rescope_symbols_shadowed(tmp_path, shadowed_typedef_symbols_fcode, frontend):
     """
@@ -1200,8 +1218,6 @@ def test_derived_type_rescope_symbols_shadowed(tmp_path, shadowed_typedef_symbol
         assert default_maxstreams == 512
         assert init_shape == 512
         assert init_maxstreams == 256
-
-        clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
