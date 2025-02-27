@@ -441,7 +441,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 content=f'structured-data create({stack_storage.name})' # pylint: disable=no-member
             )
             body_prepend += [pragma_data_start]
-            pragma_data_end = Pragma(keyword='loki', content=f'end structured-data create({stack_storage.name})') # pylint: disable=no-member
+            pragma_data_end = Pragma(keyword='loki', content='end structured-data')
             body_append += [pragma_data_end]
             body_append += [stack_dealloc]
 
