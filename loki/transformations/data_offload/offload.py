@@ -157,7 +157,7 @@ class DataOffloadTransformation(Transformation):
                         else:
                             deviceptr = ''
                         pragma = Pragma(keyword='loki', content=f'device-ptr{deviceptr}')
-                        pragma_post = Pragma(keyword='loki', content=f'end device-ptr{deviceptr}')
+                        pragma_post = Pragma(keyword='loki', content='end device-ptr')
                     else:
                         offload_args = inargs + outargs + inoutargs
                         if offload_args:
@@ -165,13 +165,13 @@ class DataOffloadTransformation(Transformation):
                         else:
                             present = ''
                         pragma = Pragma(keyword='loki', content=f'device-present{present}')
-                        pragma_post = Pragma(keyword='loki', content='end device-present {present}')
+                        pragma_post = Pragma(keyword='loki', content='end device-present')
                 else:
                     copyin = f'in({", ".join(inargs)})' if inargs else ''
                     copy = f'inout({", ".join(inoutargs)})' if inoutargs else ''
                     copyout = f'out({", ".join(outargs)})' if outargs else ''
                     pragma = Pragma(keyword='loki', content=f'structured-data {copyin} {copy} {copyout}')
-                    pragma_post = Pragma(keyword='loki', content='end structured-data {copyin} {copy} {copyout}')
+                    pragma_post = Pragma(keyword='loki', content='end structured-data')
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post
 

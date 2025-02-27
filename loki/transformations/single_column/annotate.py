@@ -140,7 +140,7 @@ class SCCAnnotateTransformation(Transformation):
             content = f'device-present vars({", ".join(argnames)})'
             routine.body.prepend(ir.Pragma(keyword='loki', content=content))
             # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-            content = f'end device-present vars({", ".join(argnames)})'
+            content = 'end device-present'
             routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='loki', content=content)))
 
     def transform_subroutine(self, routine, **kwargs):
@@ -271,7 +271,7 @@ class SCCAnnotateTransformation(Transformation):
         if column_locals:
             vnames = ', '.join(v.name for v in column_locals)
             pragma = ir.Pragma(keyword='loki', content=f'unstructured-data create({vnames})')
-            pragma_post = ir.Pragma(keyword='loki', content=f'unstructured-enddata delete({vnames})')
+            pragma_post = ir.Pragma(keyword='loki', content=f'end unstructured-data delete({vnames})')
             # Add comments around standalone pragmas to avoid false attachment
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
