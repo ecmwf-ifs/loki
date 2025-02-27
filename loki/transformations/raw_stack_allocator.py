@@ -262,7 +262,7 @@ class TemporariesRawStackTransformation(Transformation):
                 pragma_string = pragma_string[:-2].lower()
 
                 pragma_data_start = Pragma(keyword='loki', content=f'structured-data create({pragma_string})')
-                pragma_data_end = Pragma(keyword='loki', content='end structured-data create({pragma_string})')
+                pragma_data_end = Pragma(keyword='loki', content='end structured-data')
 
         #Add to routine
         routine.variables = routine.variables + as_tuple(stack_vars)

@@ -776,14 +776,13 @@ class SccLowLevelDataOffload(Transformation):
             copy_end_pragmas = []
             if outargs:
                 copy_pragmas += [ir.Pragma(keyword='loki', content=f'structured-data out({", ".join(outargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='loki', content=f'end structured-data out({", ".join(outargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='loki', content='end structured-data')]
             if inoutargs:
                 copy_pragmas += [ir.Pragma(keyword='loki', content=f'structured-data inout({", ".join(inoutargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='loki',
-                    content=f'end structured-data inout({", ".join(inoutargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='loki', content='end structured-data')]
             if inargs:
                 copy_pragmas += [ir.Pragma(keyword='loki', content=f'structured-data in({", ".join(inargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='loki', content=f'end structured-data in({", ".join(inargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='loki', content='end structured-data')]
 
             if copy_pragmas:
                 pragma_map = {}

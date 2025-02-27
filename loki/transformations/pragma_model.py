@@ -65,8 +65,9 @@ class GenericPragmaMapper:
 
     def pmap(self, pragma, **kwargs): # pylint: disable=unused-argument
         starts_with, parameters = get_pragma_command_and_parameters(pragma)
+        print(f"starts_with: {starts_with} | pragma.content: {pragma.content}")
         meth = self.lookup_method(starts_with.lower().replace('-', '_'))
-        print(f"map to meth: {meth} | starts_with: {starts_with}")
+        # print(f"map to meth: {meth} | starts_with: {starts_with}")
         if meth is not None:
             return meth(pragma, parameters, **kwargs)
         return self.default_retval() # pragma # or return None
@@ -294,6 +295,7 @@ class PragmaModelTransformation(Transformation):
     def _create_pragma_map(self, pragmas):
         pragma_map = {}
         for pragma in pragmas:
+            print(f"looking at pragma: '{pragma.keyword} {pragma.content}'")
             new_pragma = self.pmapper.pmap(pragma)
             # either keep loki pragmas that do not have a mapping
             if self.keep_loki_pragmas:

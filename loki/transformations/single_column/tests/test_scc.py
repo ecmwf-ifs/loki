@@ -481,7 +481,7 @@ def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
         assert pragmas[1].keyword == 'loki'
         assert pragmas[1].content == 'device-present vars(q, other_var, more_var)'
         assert pragmas[-1].keyword == 'loki'
-        assert pragmas[-1].content == 'end device-present vars(q, other_var, more_var)'
+        assert pragmas[-1].content == 'end device-present'
 
         # Ensure vector and seq loops are annotated, including privatized variable `b`
         with pragmas_attached(kernel, Loop):

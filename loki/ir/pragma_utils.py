@@ -146,7 +146,7 @@ def get_pragma_command_and_parameters(pragma, only_loki_pragmas=True):
     if not pragma_parameters:
         return None, None
     if pragma_parameters[0][0] == 'end':
-        if len(pragma_parameters) < 2 or pragma_parameters[1][1] is not None:
+        if len(pragma_parameters) < 2: #  or pragma_parameters[1][1] is not None:
             debug('get_pragma_command_and_parameters: Failed to match end-command in pragma {pragma}')
             return None, None
         pragma_parameters = [
