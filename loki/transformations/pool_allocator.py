@@ -756,37 +756,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
 
-        # TODO: generalise using generic Loki pragmas?
         pragma_map = {}
-        if self.directive == 'openacc':
-            # Find OpenACC loop statements
-            acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
-            for pragma in acc_pragmas:
-                if pragma.content.lower().startswith('parallel') and 'gang' in pragma.content.lower():
-                    parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
-                    if 'private' in [p.lower() for p in parameters]:
-                        var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                        content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str} ',
-                                pragma.content.lower())
-                    else:
-                        var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
-                        content = pragma.content + f' private({stack_var.name}{var_end_str})'
-                    pragma_map[pragma] = pragma.clone(content=content)
-
-        elif self.directive == 'openmp':
-            # Find OpenMP parallel statements
-            omp_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
-            for pragma in omp_pragmas:
-                if pragma.content.lower().startswith('parallel'):
-                    parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
-                    if 'private' in [p.lower() for p in parameters]:
-                        var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                        content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str}',
-                                pragma.content.lower())
-                    else:
-                        var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
-                        content = pragma.content + f' private({stack_var.name}{var_end_str})'
-                    pragma_map[pragma] = pragma.clone(content=content)
+        pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'loki']
+        for pragma in pragmas:
+            if pragma.content.lower().startswith('loop gang'):
+                parameters = get_pragma_parameters(pragma, starts_with='loop gang', only_loki_pragmas=False)
+                if 'private' in [p.lower() for p in parameters]:
+                    var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
+                    content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str} ',
+                            pragma.content.lower())
+                else:
+                    var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
+                    content = pragma.content + f' private({stack_var.name}{var_end_str})'
+                pragma_map[pragma] = pragma.clone(content=content)
 
         if pragma_map:
             routine.body = Transformer(pragma_map).visit(routine.body)

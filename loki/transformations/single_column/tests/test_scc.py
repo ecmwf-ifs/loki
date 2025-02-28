@@ -307,7 +307,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(block_dim=blocking),)
     scc_transform += (PragmaModelTransformation(directive='openacc'),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
@@ -413,7 +413,7 @@ def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
     scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
     scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
     scc_transform += (SCCSeqRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(directive=directive, block_dim=blocking),)
+    scc_transform += (SCCAnnotateTransformation(block_dim=blocking),)
     scc_transform += (PragmaModelTransformation(directive=directive),)
     for transform in scc_transform:
         transform.apply(driver, role='driver', targets=['compute_column'])
@@ -422,7 +422,9 @@ def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
     if directive is None:
         # Ensure routine is anntoated at vector level
         pragmas = FindNodes(Pragma).visit(kernel.ir)
-        assert len(pragmas) == 2
+        for pragma in pragmas:
+            print(f"pragma: {pragma.keyword} - {pragma.content}")
+        assert len(pragmas) == 4
         assert pragmas[0].keyword == 'loki'
         assert pragmas[0].content == 'routine seq'
 
@@ -438,8 +440,9 @@ def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
             driver_loops = FindNodes(Loop).visit(driver.body)
             assert len(driver_loops) == 2
             assert driver_loops[0].pragma[0].keyword.lower() == 'loki'
-            assert driver_loops[0].pragma[0].content == (
-                'loop driver vector_length(nlon)'
+            assert driver_loops[0].pragma[0].content in (
+                'loop gang private(other_var, more_var) vlength(nlon)',
+                'loop gang private(more_var, other_var) vlength(nlon)'
             )
             assert driver_loops[1].pragma[0].keyword.lower() == 'loki'
             assert driver_loops[1].pragma[0].content == 'loop vector'
@@ -578,7 +581,7 @@ def test_scc_nested(frontend, horizontal, blocking):
     scc_pipeline.apply(inner_kernel, role='kernel')
 
     # Apply annotate twice to test bailing out mechanism
-    scc_annotate = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
+    scc_annotate = SCCAnnotateTransformation(block_dim=blocking)
     scc_annotate.apply(driver, role='driver', targets=['compute_column'])
     scc_annotate.apply(outer_kernel, role='kernel', targets=['compute_q'])
     scc_annotate.apply(inner_kernel, role='kernel')
@@ -952,7 +955,7 @@ def test_scc_annotate_routine_seq_pragma(frontend, blocking):
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
 
-    transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
+    transformation = SCCAnnotateTransformation(block_dim=blocking)
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
     pragma_model = PragmaModelTransformation(directive='openacc')
     pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
@@ -991,7 +994,7 @@ def test_scc_annotate_empty_data_clause(frontend, blocking):
     assert pragmas[0].keyword == 'loki'
     assert pragmas[0].content == 'routine seq'
 
-    transformation = SCCAnnotateTransformation(directive='openacc', block_dim=blocking)
+    transformation = SCCAnnotateTransformation(block_dim=blocking)
     transformation.transform_subroutine(routine, role='kernel', targets=['some_kernel',])
     pragma_model = PragmaModelTransformation(directive='openacc')
     pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])

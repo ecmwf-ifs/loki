@@ -33,16 +33,10 @@ class SCCBaseTransformation(Transformation):
     horizontal : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
-    directive : string or None
-        Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, horizontal, directive=None):
+    def __init__(self, horizontal):
         self.horizontal = horizontal
-
-        assert directive in [None, 'openacc', 'omp-gpu']
-        self.directive = directive
 
     # TODO: correct "definition" of a pure/elemental routine (take e.g. loki serial into account ...)
     @staticmethod

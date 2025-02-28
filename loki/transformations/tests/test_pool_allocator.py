@@ -464,24 +464,11 @@ end module kernel_mod
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_sequence(tmp_path, frontend, block_dim, directive,
                                                     stack_insert_pragma, cray_ptr_loc_rhs, horizontal):
-    if directive == 'openmp':
-        driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
-        driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
-        driver_loop_pragma2 = '!$omp parallel do firstprivate(a)'
-        driver_end_loop_pragma2 = '!$omp end parallel do'
-        kernel_pragma = ''
-    elif directive == 'openacc':
-        driver_loop_pragma1 = '!$acc parallel loop gang private(b) firstprivate(a)'
-        driver_end_loop_pragma1 = '!$acc end parallel loop'
-        driver_loop_pragma2 = '!$acc parallel loop gang firstprivate(a)'
-        driver_end_loop_pragma2 = '!$acc end parallel loop'
-        kernel_pragma = '!$acc routine vector'
-    else:
-        driver_loop_pragma1 = ''
-        driver_end_loop_pragma1 = ''
-        driver_loop_pragma2 = ''
-        driver_end_loop_pragma2 = ''
-        kernel_pragma = ''
+    driver_loop_pragma1 = '!$loki loop gang default(shared) private(b) firstprivate(a)'
+    driver_end_loop_pragma1 = '!$loki end loop gang'
+    driver_loop_pragma2 = '!$loki loop gang firstprivate(a)'
+    driver_end_loop_pragma2 = '!$loki end loop gang'
+    kernel_pragma = '!$loki routine vector'
 
     if stack_insert_pragma:
         stack_size_location_pragma = '!$loki stack-insert'
@@ -605,7 +592,7 @@ end module kernel_mod
         block_dim=block_dim, horizontal=horizontal, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
-    pragma_model_trafo = PragmaModelTransformation()
+    pragma_model_trafo = PragmaModelTransformation(directive=directive)
     scheduler.process(transformation=pragma_model_trafo)
 
     kernel_item = scheduler['kernel_mod#kernel']
@@ -693,7 +680,6 @@ end module kernel_mod
 
     check_stack_created_in_driver(driver, stack_size, calls[0], 2, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
 
-    print(driver.to_fortran())
     # Has the data sharing been updated?
     if directive in ['openmp', 'openacc']:
         keyword = {'openmp': 'omp', 'openacc': 'acc'}[directive]
@@ -801,18 +787,9 @@ end module kernel_mod
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
-    if directive == 'openmp':
-        driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
-        driver_end_pragma = '!$omp end parallel do'
-        kernel_pragma = ''
-    elif directive == 'openacc':
-        driver_pragma = '!$acc parallel loop gang'
-        driver_end_pragma = '!$acc end parallel loop'
-        kernel_pragma = '!$acc routine vector'
-    else:
-        driver_pragma = ''
-        driver_end_pragma = ''
-        kernel_pragma = ''
+    driver_pragma = f'!$loki loop gang{" private(b)" if directive == "openmp" else ""}'
+    driver_end_pragma = '!$loki end loop gang'
+    kernel_pragma = '!$loki routine vector'
 
     fcode_parkind_mod = """
 module parkind1
@@ -925,7 +902,7 @@ end module kernel_mod
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim,
                                                             directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
-    pragma_model_trafo = PragmaModelTransformation()
+    pragma_model_trafo = PragmaModelTransformation(directive=directive)
     scheduler.process(transformation=pragma_model_trafo)
 
     kernel_item = scheduler['kernel_mod#kernel']
