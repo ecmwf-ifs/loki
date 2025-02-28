@@ -622,8 +622,7 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
                 # Mark sequential loops inside vector sections
                 self.mark_seq_loops(routine.body)
 
-            # Mark subroutine as vector parallel for later annotation
-            # routine.spec.append(ir.Pragma(keyword='loki', content='routine vector'))
+            # Mark subroutine as seq for later annotation
             routine.spec.append(ir.Pragma(keyword='loki', content='routine seq'))
 
         if role == 'driver':

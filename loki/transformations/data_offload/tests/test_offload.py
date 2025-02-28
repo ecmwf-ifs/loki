@@ -15,7 +15,7 @@ from loki.ir import (
     pragma_regions_attached, get_pragma_parameters
 )
 
-from loki.transformations import DataOffloadTransformation
+from loki.transformations import DataOffloadTransformation, PragmaModelTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -65,16 +65,18 @@ def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, present
         caplog.clear()
         with caplog.at_level(log_levels['ERROR']):
             with pytest.raises(RuntimeError):
-                data_offload_trafo = DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
-                                                               present_on_device=present_on_device)
+                DataOffloadTransformation(assume_deviceptr=assume_deviceptr, present_on_device=present_on_device)
                 assert len(caplog.records) == 1
                 assert ("[Loki] Data offload: Can't assume device pointer arrays without arrays being marked" +
                     "present on device.") in caplog.records[0].message
             return
 
-    data_offload_trafo = DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
-                                                   present_on_device=present_on_device)
-    driver.apply(data_offload_trafo, role='driver', targets=['kernel_routine'])
+    trafos = ()
+    trafos += (DataOffloadTransformation(assume_deviceptr=assume_deviceptr,
+                                                   present_on_device=present_on_device),)
+    trafos += (PragmaModelTransformation(directive='openacc'),)
+    for trafo in trafos:
+        driver.apply(trafo, role='driver', targets=['kernel_routine'])
 
     pragmas = FindNodes(Pragma).visit(driver.body)
     assert len(pragmas) == 2
@@ -151,8 +153,11 @@ def test_data_offload_region_complex_remove_openmp(frontend):
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich(kernel)
 
-    offload_transform = DataOffloadTransformation(remove_openmp=True)
-    driver.apply(offload_transform, role='driver', targets=['kernel_routine'])
+    trafos = ()
+    trafos += (DataOffloadTransformation(remove_openmp=True),)
+    trafos += (PragmaModelTransformation(directive='openacc'),)
+    for trafo in trafos:
+        driver.apply(trafo, role='driver', targets=['kernel_routine'])
 
     assert len(FindNodes(Pragma).visit(driver.body)) == 2
     assert all(p.keyword == 'acc' for p in FindNodes(Pragma).visit(driver.body))
@@ -222,7 +227,11 @@ def test_data_offload_region_multiple(frontend):
     kernel = Sourcefile.from_source(fcode_kernel, frontend=frontend)['kernel_routine']
     driver.enrich(kernel)
 
-    driver.apply(DataOffloadTransformation(), role='driver', targets=['kernel_routine'])
+    trafos = ()
+    trafos += (DataOffloadTransformation(),)
+    trafos += (PragmaModelTransformation(directive='openacc'),)
+    for trafo in trafos:
+        driver.apply(trafo, role='driver', targets=['kernel_routine'])
 
     assert len(FindNodes(Pragma).visit(driver.body)) == 2
     assert all(p.keyword == 'acc' for p in FindNodes(Pragma).visit(driver.body))
