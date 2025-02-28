@@ -329,29 +329,29 @@ class TemporariesRawStackTransformation(Transformation):
                 pragma_string += f'{stack_var.name}, '
 
         #If self.directive,s openacc, add present clauses
-        if self.directive:
-            if pragma_string:
-                pragma_string = pragma_string[:-2].lower()
+        # if self.directive:
+        if pragma_string:
+            pragma_string = pragma_string[:-2].lower()
 
-                if self.directive == 'openacc':
-                    present_pragma = None
-                    acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'acc']
-                    for pragma in acc_pragmas:
-                        if pragma.content.lower().startswith('data present'):
-                            present_pragma = pragma
-                            break
-                    if present_pragma:
-                        pragma_map = {present_pragma: None}
-                        routine.body = Transformer(pragma_map).visit(routine.body)
-                        content = re.sub(r'\bpresent\(', f'present({pragma_string}, ', present_pragma.content.lower())
-                        present_pragma = present_pragma.clone(content = content)
-                        pragma_data_end = None
-                    else:
-                        present_pragma = Pragma(keyword='acc', content=f'data present({pragma_string})')
-                        pragma_data_end = Pragma(keyword='acc', content='end data')
+            # if self.directive == 'openacc':
+            present_pragma = None
+            acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'loki'] # acc
+            for pragma in acc_pragmas:
+                if pragma.content.lower().startswith('device-present'):
+                    present_pragma = pragma
+                    break
+            if present_pragma:
+                pragma_map = {present_pragma: None}
+                routine.body = Transformer(pragma_map).visit(routine.body)
+                content = re.sub(r'\bvars\(', f'vars({pragma_string}, ', present_pragma.content.lower())
+                present_pragma = present_pragma.clone(content = content)
+                pragma_data_end = None
+            else:
+                present_pragma = Pragma(keyword='loki', content=f'device-present vars({pragma_string})')
+                pragma_data_end = Pragma(keyword='loki', content='end device-present')
 
-                    routine.body.prepend(present_pragma)
-                    routine.body.append(pragma_data_end)
+            routine.body.prepend(present_pragma)
+            routine.body.append(pragma_data_end)
 
 
         # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported

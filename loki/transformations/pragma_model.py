@@ -32,7 +32,7 @@ class GenericPragmaMapper:
     The handler is responsible for returning either None or the updated
     pragma.
     """
-
+    # pylint: disable=unused-argument
     def __init__(self):
         handlers = {}
         prefix = "pmap_"
@@ -63,7 +63,7 @@ class GenericPragmaMapper:
         """
         return None
 
-    def pmap(self, pragma, **kwargs): # pylint: disable=unused-argument
+    def pmap(self, pragma, **kwargs):
         starts_with, parameters = get_pragma_command_and_parameters(pragma)
         print(f"starts_with: {starts_with} | pragma.content: {pragma.content}")
         meth = self.lookup_method(starts_with.lower().replace('-', '_'))
@@ -77,13 +77,13 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
     """
     Loki generic pragmas to OpenACC mapper.
     """
-
-    def pmap_create(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    # pylint: disable=unused-argument
+    def pmap_create(self, pragma, parameters, **kwargs):
         if param_device := parameters.get('device'):
             return Pragma(keyword='acc', content=f'declare create({param_device})')
         return self.default_retval()
 
-    def pmap_update(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_update(self, pragma, parameters, **kwargs):
         content = ''
         if param_device := parameters.get('device'):
             content += f' device({param_device})'
@@ -93,7 +93,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'update{content}')
         return self.default_retval()
 
-    def pmap_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if param_in := parameters.get('in'):
             content += f' copyin({param_in})'
@@ -103,7 +103,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'enter data{content}')
         return self.default_retval()
 
-    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if params_out := parameters.get('out'):
             content += f' copyout({params_out})'
@@ -113,7 +113,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'exit data{content}')
         return self.default_retval()
 
-    def pmap_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_structured_data(self, pragma, parameters, **kwargs):
         content = ''
         if params_in := parameters.get('in'):
             content += f' copyin({params_in})'
@@ -129,67 +129,74 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'data{content}')
         return self.default_retval()
 
-    def pmap_end_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_structured_data(self, pragma, parameters, **kwargs):
         return Pragma(keyword='acc', content='end data')
 
-    def pmap_routine(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_routine(self, pragma, parameters, **kwargs):
         if 'seq' in parameters:
             return Pragma(keyword='acc', content='routine seq')
         if 'vector' in parameters:
             return Pragma(keyword='acc', content='routine vector')
         return self.default_retval()
 
-    def pmap_loop(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_loop(self, pragma, parameters, **kwargs):
         if 'seq' in parameters:
             return Pragma(keyword='acc', content='loop seq')
         if 'vector' in parameters:
             private_param = parameters.get('private')
             private = f' private({private_param})' if private_param else ''
+            fprivate_param = parameters.get('firstprivate')
+            fprivate = f' firstprivate({fprivate_param})' if fprivate_param else ''
             reduction_param = parameters.get('reduction')
             reduction = f' reduction({reduction_param})' if reduction_param else ''
-            content = f'loop vector{private}{reduction}'
+            content = f'loop vector{private}{fprivate}{reduction}'
             return Pragma(keyword='acc', content=content)
         if 'gang' in parameters:
             private_param = parameters.get('private')
             private = f' private({private_param})' if private_param else ''
+            fprivate_param = parameters.get('firstprivate')
+            fprivate = f' firstprivate({fprivate_param})' if fprivate_param else ''
             vlength_param = parameters.get('vlength')
             vlength = f' vector_length({vlength_param})' if vlength_param else ''
-            content = f'parallel loop gang{private}{vlength}'
+            content = f'parallel loop gang{private}{fprivate}{vlength}'
             return Pragma(keyword='acc', content=content)
         return self.default_retval()
 
-    def pmap_end_loop(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_loop(self, pragma, parameters, **kwargs):
         if 'gang' in parameters:
             return Pragma(keyword='acc', content='end parallel loop')
         return self.default_retval()
 
-    def pmap_device_present(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_device_present(self, pragma, parameters, **kwargs):
         if param_vars := parameters.get('vars'):
             return Pragma(keyword='acc', content=f'data present({param_vars})')
         return self.default_retval()
 
-    def pmap_end_device_present(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_device_present(self, pragma, parameters, **kwargs):
         return Pragma(keyword='acc', content='end data')
 
-    def pmap_device_ptr(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_device_ptr(self, pragma, parameters, **kwargs):
         if param_vars := parameters.get('vars'):
             return Pragma(keyword='acc', content=f'data deviceptr({param_vars})')
         return self.default_retval()
 
-    def pmap_end_device_ptr(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_device_ptr(self, pragma, parameters, **kwargs):
         return Pragma(keyword='acc', content='end data')
 
 
 class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
     """
     Loki generic pragmas to OpenMP offload/GPU mapper.
+
+    TODO: this is not yet complete!
     """
-    def pmap_create(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    # pylint: disable=unused-argument
+    def pmap_create(self, pragma, parameters, **kwargs):
         if param_device := parameters.get('device'):
             return Pragma(keyword='omp', content=f'declare target({param_device})')
         return self.default_retval()
 
-    def pmap_update(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_update(self, pragma, parameters, **kwargs):
         content = ''
         if param_device := parameters.get('device'):
             content += f' to({param_device})'
@@ -199,7 +206,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target update{content}')
         return self.default_retval()
 
-    def pmap_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if param_in := parameters.get('in'):
             content += f' map(to: {param_in})'
@@ -209,7 +216,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target enter data{content}')
         return self.default_retval()
 
-    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if params_out := parameters.get('out'):
             content += f' map(from: {params_out})'
@@ -219,7 +226,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target exit data{content}')
         return self.default_retval()
 
-    def pmap_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_structured_data(self, pragma, parameters, **kwargs):
         content = ''
         if params_in := parameters.get('in'):
             content += f' map(to: {params_in})'
@@ -233,15 +240,15 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target data{content}')
         return self.default_retval()
 
-    def pmap_end_structured_data(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_structured_data(self, pragma, parameters, **kwargs):
         return Pragma(keyword='omp', content='end target data')
 
-    def pmap_routine(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_routine(self, pragma, parameters, **kwargs):
         if 'seq' in parameters:
             return Pragma(keyword='omp', content='declare target')
         return self.default_retval()
 
-    def pmap_loop(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_loop(self, pragma, parameters, **kwargs):
         if 'vector' in parameters:
             # TODO: private and reduction clause?
             content = 'parallel do'
@@ -254,11 +261,31 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=content)
         return self.default_retval()
 
-    def pmap_end_loop(self, pragma, parameters, **kwargs): # pylint: disable=unused-argument
+    def pmap_end_loop(self, pragma, parameters, **kwargs):
         if 'vector' in parameters:
             return Pragma(keyword='omp', content='end parallel do')
         if 'gang' in parameters:
             return Pragma(keyword='omp', content='end target teams distribute')
+        return self.default_retval()
+
+
+class OpenMPPragmaMapper(GenericPragmaMapper):
+    """
+    Loki generic pragmas to OpenMP CPU mapper.
+
+    TODO: this is obviously incomplete!
+    """
+    # pylint: disable=unused-argument
+    def pmap_loop(self, pragma, parameters, **kwargs):
+        if 'gang' in parameters:
+            private_param = parameters.get('private')
+            private = f' private({private_param})' if private_param else ''
+            fprivate_param = parameters.get('firstprivate')
+            fprivate = f' firstprivate({fprivate_param})' if fprivate_param else ''
+            default_param = parameters.get('default')
+            default = f' default({default_param})' if default_param else ''
+            content = f'parallel do {default}{private}{fprivate}'
+            return Pragma(keyword='omp', content=content)
         return self.default_retval()
 
 
@@ -276,11 +303,10 @@ class PragmaModelTransformation(Transformation):
         Keep or remove generic Loki pragmas that are not
         mapped.
     """
-
     item_filter = (ProcedureItem, ModuleItem)
 
     def __init__(self, directive=None, keep_loki_pragmas=True, process_module_items=False):
-        assert directive in [None, 'openacc', 'omp-gpu']
+        assert directive in [None, 'openacc', 'omp-gpu', 'openmp']
         self.directive = directive
         self.keep_loki_pragmas = keep_loki_pragmas
         if not process_module_items:
@@ -288,6 +314,7 @@ class PragmaModelTransformation(Transformation):
         pmapper_cls_map = {
             'openacc': OpenACCPragmaMapper,
             'omp-gpu': OpenMPOffloadPragmaMapper,
+            'openmp': OpenMPPragmaMapper,
         }
         pmapper_cls = pmapper_cls_map.get(self.directive, None if self.keep_loki_pragmas else GenericPragmaMapper)
         self.pmapper = pmapper_cls() if pmapper_cls else None

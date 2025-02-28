@@ -27,7 +27,7 @@ __all__ = ['SCCAnnotateTransformation']
 
 class SCCAnnotateTransformation(Transformation):
     """
-    A set of utilities to insert offload directives. This includes both :any:`Loop` and
+    A set of utilities to insert generic Loki directives. This includes both :any:`Loop` and
     :any:`Subroutine` level annotations.
 
     Parameters
@@ -35,13 +35,9 @@ class SCCAnnotateTransformation(Transformation):
     block_dim : :any:`Dimension`
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
-    directive : string or None
-        Directives flavour to use for parallelism annotations; either
-        ``'openacc'`` or ``None``.
     """
 
-    def __init__(self, directive, block_dim):
-        self.directive = directive
+    def __init__(self, block_dim):
         self.block_dim = block_dim
 
     def annotate_vector_loops(self, routine):
@@ -72,35 +68,33 @@ class SCCAnnotateTransformation(Transformation):
         with pragmas_attached(routine, ir.Loop):
             for loop in FindNodes(ir.Loop).visit(routine.body):
                 for pragma in as_tuple(loop.pragma):
-                    if is_loki_pragma(pragma, starts_with='loop vector reduction'):
-                        # Turn reduction pragmas into `!$acc` equivalent
-                        pragma._update(keyword='loki')
+                    if not is_loki_pragma(pragma, starts_with='loop vector'):
                         continue
+                    if not private_arrays:
+                        continue
+                    if 'reduction' not in (pragma_params := get_pragma_parameters(pragma, starts_with='loop vector')):
+                        # Add private clause
+                        pragma_params['private'] = ', '.join(
+                            v.name
+                            for v in pragma_params.get('private', []) + private_arrays
+                        )
+                        pragma_content = [f'{kw}({val})' if val else kw for kw, val in pragma_params.items()]
+                        print(f"pragma_content: {pragma_content}")
+                        pragma._update(content=f'loop vector {" ".join(pragma_content)}'.strip())
 
-                    if is_loki_pragma(pragma, starts_with='loop vector'):
-                        # Turn general vector pragmas into `!$acc` and add private clause
-                        private_arrs = ', '.join(v.name for v in private_arrays)
-                        private_clause = '' if not private_arrays else f' private({private_arrs})'
-                        pragma._update(keyword='loki', content=f'loop vector{private_clause}')
-
-    def annotate_sequential_loops(self, routine):
+    def warn_vec_within_seq_loops(self, routine):
         """
-        Insert ``!$acc loop seq`` annotations for all loops previously
-        marked with ``!$loki loop seq``.
+        Check for vector inside sequential loops and print warning.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
-            The subroutine in which to annotate sequential loops
+            The subroutine in which to check for vector inside sequential loops
         """
         with pragmas_attached(routine, ir.Loop):
             for loop in FindNodes(ir.Loop).visit(routine.body):
                 if not is_loki_pragma(loop.pragma, starts_with='loop seq'):
                     continue
-
-                # Replace internal `!$loki loop seq`` pragam with `!$acc` equivalent
-                loop._update(pragma=(ir.Pragma(keyword='loki', content='loop seq'),))
-
                 # Warn if we detect vector insisde sequential loop nesting
                 nested_loops = FindNodes(ir.Loop).visit(loop.body)
                 loop_pragmas = flatten(as_tuple(l.pragma) for l in as_tuple(nested_loops))
@@ -109,8 +103,8 @@ class SCCAnnotateTransformation(Transformation):
 
     def annotate_kernel_routine(self, routine):
         """
-        Insert ``!$acc routine seq/vector`` directives and wrap
-        subroutine body in ``!$acc data present`` directives.
+        Insert ``!$loki routine seq/vector`` directives and wrap
+        subroutine body in ``!$loki device-present`` directives.
 
         Parameters
         ----------
@@ -118,17 +112,13 @@ class SCCAnnotateTransformation(Transformation):
             The subroutine to which annotations will be added
         """
 
-        # Update `!$loki routine seq/vector` pragmas with `!$acc`
-        pragma_map = {}
-        for pragma in FindNodes(ir.Pragma).visit(routine.ir):
-            if is_loki_pragma(pragma, starts_with='routine'):
-                # We have to re-insert the pragma here, in case it was
-                # falsely attributed to the body!
-                pragma_map[pragma] = None
-                pragma_transformer = Transformer(pragma_map)
-                routine.spec = pragma_transformer.visit(routine.spec)
-                routine.body = pragma_transformer.visit(routine.body)
-                routine.spec.append(pragma.clone(keyword='loki'))
+        # Move `!$loki routine seq/vector` pragmas to spec
+        routine_pragmas = [
+            pragma for pragma in FindNodes(ir.Pragma).visit(routine.body)
+            if is_loki_pragma(pragma, starts_with='routine')
+        ]
+        routine.spec.append(routine_pragmas)
+        routine.body = Transformer({pragma: None for pragma in routine_pragmas}).visit(routine.body)
 
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
@@ -145,18 +135,12 @@ class SCCAnnotateTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         """
-        Apply OpenACC annotations according to ``!$loki`` placeholder
+        Apply pragma annotations according to ``!$loki`` placeholder
         directives.
 
-        This routine effectively converts neutral ``!$loki loop`` and
-        ``!$loki routine`` annotations into the corresponding
-        ``!$acc`` equivalent directives. It also adds ``!$acc data
-        present`` clauses around kernel routine bodies and adds
+        This routine effectively adds ``!$loki device-present``
+        clauses around kernel routine bodies and adds
         ``private`` clauses to loop annotations.
-
-        If the ``directive`` provided is not ``openacc``, no change is
-        applied. In the future, we aim to support ``OpenMP``
-        equivalent directives here.
 
         Parameters
         ----------
@@ -169,13 +153,11 @@ class SCCAnnotateTransformation(Transformation):
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
 
-        if not self.directive in ['openacc', 'omp-gpu']:
-            return
-
         if role == 'kernel':
             # Bail if this routine has been processed before
             for p in FindNodes(ir.Pragma).visit(routine.ir):
-                # Check if `!$acc routine` has already been added
+                # Check if `!$acc routine` has already been added,
+                #  e.g., this transformation has already been applied
                 if p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
                     return
 
@@ -183,7 +165,7 @@ class SCCAnnotateTransformation(Transformation):
             self.annotate_vector_loops(routine)
 
             # Mark all non-parallel loops as `!$acc loop seq`
-            self.annotate_sequential_loops(routine)
+            self.warn_vec_within_seq_loops(routine)
 
             # Wrap the routine body in `!$acc data present` markers to
             # ensure all arguments are device-resident.
@@ -195,7 +177,7 @@ class SCCAnnotateTransformation(Transformation):
             self.annotate_vector_loops(routine)
 
             # Mark all non-parallel loops as `!$acc loop seq`
-            self.annotate_sequential_loops(routine)
+            self.warn_vec_within_seq_loops(routine)
 
             with pragma_regions_attached(routine):
                 with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
@@ -278,14 +260,14 @@ class SCCAnnotateTransformation(Transformation):
 
     def annotate_driver_loop(self, loop, acc_vars):
         """
-        Annotate driver block loop with ``'openacc'`` pragmas.
+        Annotate driver block loop with generic Loki pragmas.
 
         Parameters
         ----------
         loop : :any:`Loop`
-            Driver :any:`Loop` to wrap in ``'openacc'`` pragmas.
+            Driver :any:`Loop` to wrap in generic Loki pragmas.
         acc_vars : list
-            Variables already declared in ``'openacc'`` data directives.
+            Variables already declared in generic Loki data directives.
         """
 
         # Mark driver loop as "gang parallel".

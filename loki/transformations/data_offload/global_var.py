@@ -386,8 +386,9 @@ class GlobalVarOffloadTransformation(Transformation):
                     Pragma(keyword='loki', content=f'update device({", ".join(v.name for v in update_variables)})'),
                 )
             if copyin_variables:
+                content = f'unstructured-data in({", ".join(v.name for v in copyin_variables)})'
                 update_device += (
-                    Pragma(keyword='loki', content=f'unstructured-data in({", ".join(v.name for v in copyin_variables)})'),
+                    Pragma(keyword='loki', content=content),
                 )
 
         # All variables that are written in a kernel need a device-to-host transfer

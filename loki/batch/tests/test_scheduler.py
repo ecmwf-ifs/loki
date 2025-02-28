@@ -2953,7 +2953,6 @@ def test_pipeline_config_compose(config):
     assert isinstance(pipeline.transformations[2].horizontal, Dimension)
     assert pipeline.transformations[2].horizontal.size == 'KLON'
     assert pipeline.transformations[2].horizontal.index == 'JL'
-    assert pipeline.transformations[2].directive == 'openacc'
     assert pipeline.transformations[3].trim_vector_sections is True
     assert pipeline.transformations[8].replace_ignore_items is True
 

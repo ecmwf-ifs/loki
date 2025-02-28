@@ -209,7 +209,7 @@ module kernel3_mod
       real(kind=jprb) :: zde2(nlon, klev, ydphy%n_spband)
       real(kind=jprb) :: zde3(nlon, 1:klev)
 
-!$acc data present(pzz)
+!$loki device-present vars(pzz)
 
       do jb = 1, ydphy%n_spband
         zde1(:, 0, jb) = 0._jprb
@@ -227,7 +227,7 @@ module kernel3_mod
       zde3 = pzz
       zde3(1:nlon,1:klev) = pzz
 
-!$acc end data
+!$loki end device-present
 
   end subroutine kernel3
 end module kernel3_mod

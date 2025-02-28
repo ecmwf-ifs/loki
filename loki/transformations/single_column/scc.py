@@ -81,7 +81,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -143,7 +143,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -189,7 +189,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -239,7 +239,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -289,7 +289,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -338,7 +338,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -384,7 +384,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
@@ -436,7 +436,7 @@ block_dim : :any:`Dimension`
     to use for hoisted column arrays if hoisting is enabled.
 directive : string or None
     Directives flavour to use for parallelism annotations; either
-    ``'openacc'`` or ``None``.
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
 trim_vector_sections : bool
     Flag to trigger trimming of extracted vector sections to remove
     nodes that are not assignments involving vector parallel arrays.
