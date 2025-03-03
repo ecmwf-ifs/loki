@@ -8,7 +8,6 @@
 import networkx as nx
 
 from loki.batch.item import Item, ExternalItem
-from loki.tools import as_tuple
 
 
 __all__ = ['SFilter']
@@ -60,12 +59,14 @@ class SFilter:
 
     def __next__(self):
         while node := next(self._iter):
+            # Determine the node type but skip externals if applicable
             if isinstance(node, ExternalItem):
-                if self.include_external and node.origin_cls in as_tuple(self.item_filter):
-                    # We found an ExternalItem that matches the item filter
-                    break
-                continue
-            if isinstance(node, self.item_filter) and not (self.exclude_ignored and node.is_ignored):
+                if not self.include_external:
+                    continue
+                node_cls = node.origin_cls
+            else:
+                node_cls = type(node)
+            if issubclass(node_cls, self.item_filter) and not (self.exclude_ignored and node.is_ignored):
                 # We found the next item matching the filter (and which is not ignored, if applicable)
                 break
         return node
