@@ -244,7 +244,7 @@ end module kernel3_mod
             'role': 'kernel',
             'expand': True,
             'strict': True,
-            'ignore': ['parkind1'],
+            'ignore': ['parkind1', 'model_physics_mf_mod', 'yomphy'],
         },
         'routines': {
             'driver': {'role': 'driver'}

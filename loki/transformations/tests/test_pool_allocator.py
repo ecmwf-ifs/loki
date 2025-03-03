@@ -211,6 +211,7 @@ end module kernel_mod
             'expand': True,
             'strict': True,
             'enable_imports': True,
+            'ignore': ['iso_fortran_env']
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -459,16 +460,26 @@ end module kernel_mod
     assert 'tmp5' not in pointers
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
+@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc', 'openmp-manual'])
 @pytest.mark.parametrize('stack_insert_pragma', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_sequence(tmp_path, frontend, block_dim, directive,
                                                     stack_insert_pragma, cray_ptr_loc_rhs, horizontal):
-    driver_loop_pragma1 = '!$loki loop gang default(shared) private(b) firstprivate(a)'
-    driver_end_loop_pragma1 = '!$loki end loop gang'
-    driver_loop_pragma2 = '!$loki loop gang firstprivate(a)'
-    driver_end_loop_pragma2 = '!$loki end loop gang'
-    kernel_pragma = '!$loki routine vector'
+
+    if directive == 'openmp-manual':
+        driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
+        driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
+        driver_loop_pragma2 = '!$omp parallel do firstprivate(a)'
+        driver_end_loop_pragma2 = '!$omp end parallel do'
+        kernel_pragma = ''
+        # from here on continue as directive is 'openmp'
+        directive = 'openmp'
+    else:
+        driver_loop_pragma1 = '!$loki loop gang default(shared) private(b) firstprivate(a)'
+        driver_end_loop_pragma1 = '!$loki end loop gang'
+        driver_loop_pragma2 = '!$loki loop gang firstprivate(a)'
+        driver_end_loop_pragma2 = '!$loki end loop gang'
+        kernel_pragma = '!$loki routine vector'
 
     if stack_insert_pragma:
         stack_size_location_pragma = '!$loki stack-insert'

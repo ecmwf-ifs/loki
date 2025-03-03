@@ -769,6 +769,22 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
                     content = pragma.content + f' private({stack_var.name}{var_end_str})'
                 pragma_map[pragma] = pragma.clone(content=content)
+        # problem being that code, like e.g. ecwam transformed for 'idem-stack', already having
+        #  OpenMP pragmas rely on the following. Once we (decide to) implement a
+        #  'reverse PragmaModel' trafo that converts e.g., OpenMP pragmas to generic Loki pragmas
+        #  we do not longer rely on the following
+        omp_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
+        for pragma in omp_pragmas:
+            if pragma.content.lower().startswith('parallel'):
+                parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
+                if 'private' in [p.lower() for p in parameters]:
+                    var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
+                    content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str}',
+                            pragma.content.lower())
+                else:
+                    var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
+                    content = pragma.content + f' private({stack_var.name}{var_end_str})'
+                pragma_map[pragma] = pragma.clone(content=content)
 
         if pragma_map:
             routine.body = Transformer(pragma_map).visit(routine.body)
