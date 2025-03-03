@@ -62,7 +62,7 @@ from loki import (
     CaseInsensitiveDict, graphviz_present
 )
 from loki.batch import (
-    Scheduler, SchedulerConfig, Item, ProcedureItem,
+    Scheduler, SchedulerConfig, Item, ProcedureItem, ModuleItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
     ExternalItem, Transformation, Pipeline, ProcessingStrategy
 )
@@ -3055,3 +3055,76 @@ end module c_mod
         assert global_a.type.dtype is BasicType.DEFERRED
         assert global_a.type.initial is None
         assert b_dtype.typedef is BasicType.DEFERRED
+
+@pytest.mark.parametrize('frontend', available_frontends(skip={OMNI: "OMNI fails on missing module"}))
+def test_scheduler_ignore_external_item(frontend, tmp_path):
+    fcode_driver = """
+module driver_mod
+  contains
+  subroutine driver(nlon, klev, nb, ydml_phy_mf)
+    use parkind1, only: jpim, jprb
+    use kernel1_mod, only: kernel1
+    implicit none
+    type(model_physics_mf_type), intent(in) :: ydml_phy_mf
+    integer(kind=jpim), intent(in) :: nlon
+    integer(kind=jpim), intent(in) :: klev
+    integer(kind=jpim), intent(in) :: nb
+    integer(kind=jpim) :: jstart
+    integer(kind=jpim) :: jend
+    integer(kind=jpim) :: b
+    jstart = 1
+    jend = nlon
+    do b = 1, nb
+        call kernel1()
+    enddo
+  end subroutine driver
+end module driver_mod
+    """.strip()
+    fcode_kernel1 = """
+module kernel1_mod
+  contains
+  subroutine kernel1()
+    use parkind1, only: jpim, jprb
+  end subroutine kernel1
+end module kernel1_mod
+    """.strip()
+
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel1_mod.F90').write_text(fcode_kernel1)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'ignore': ['parkind1'],
+        },
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
+    }
+
+    class Trafo(Transformation):
+
+        item_filter = (ProcedureItem, ModuleItem)
+
+        def transform_module(self, module, **kwargs):
+            pass
+
+        def transform_subroutine(self, routine, **kwargs):
+            pass
+
+
+    definitions = ()
+    scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+                          definitions=definitions, xmods=[tmp_path], frontend=frontend)
+
+    expected_items = {'driver_mod#driver', 'parkind1', 'kernel1_mod#kernel1'}
+    assert expected_items == {item.name for item in scheduler.items}
+    for item in scheduler.items:
+        if item.name == 'parkind1':
+            assert item.is_ignored
+            assert isinstance(item, ExternalItem)
+    # check whether this works without any error
+    scheduler.process(transformation=Trafo())
