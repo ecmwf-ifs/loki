@@ -22,7 +22,8 @@ __all__ = [
     'is_loki_pragma', 'get_pragma_parameters', 'process_dimension_pragmas',
     'attach_pragmas', 'detach_pragmas',
     'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
-    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher'
+    'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher',
+    'get_pragma_command_and_parameters'
 ]
 
 
@@ -123,6 +124,36 @@ class PragmaParameters:
         parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
         return parameters
 
+def get_pragma_command_and_parameters(pragma, only_loki_pragmas=True):
+    """
+    Parse a pragma in the form
+
+    ``!$loki [end] command [param] [param_with_val(val)]``
+
+    and return ``command, {param: None, param_with_val: val}``
+
+    Parameters
+    ----------
+    pragma : :any:`Pragma`
+        the pragma to parse and return parameters
+
+    Returns
+    -------
+    tuple(str, dict) :
+        tuple being (command, parameters as dictionary)
+    """
+    pragma_parameters = list(get_pragma_parameters(pragma, only_loki_pragmas=only_loki_pragmas).items())
+    if not pragma_parameters:
+        return None, None
+    if pragma_parameters[0][0] == 'end':
+        if len(pragma_parameters) < 2:
+            debug('get_pragma_command_and_parameters: Failed to match end-command in pragma {pragma}')
+            return None, None
+        pragma_parameters = [
+            (f'{pragma_parameters[0][0]}-{pragma_parameters[1][0]}', None),
+            *pragma_parameters[2:]
+        ]
+    return pragma_parameters[0][0], dict(pragma_parameters[1:])
 
 def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
     """
@@ -167,7 +198,6 @@ def get_pragma_parameters(pragma, starts_with=None, only_loki_pragmas=True):
             parameters[key].append(parameter[key])
     parameters = {k: v if len(v) > 1 else v[0] for k, v in parameters.items()}
     return parameters
-
 
 def process_dimension_pragmas(ir, scope=None):
     """

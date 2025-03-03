@@ -14,7 +14,7 @@ from loki.ir import FindNodes, Pragma, CallStatement, Import
 
 from loki.transformations import (
     GlobalVariableAnalysis, GlobalVarOffloadTransformation,
-    GlobalVarHoistTransformation
+    GlobalVarHoistTransformation, PragmaModelTransformation
 )
 
 
@@ -259,6 +259,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
     )
     scheduler.process(GlobalVariableAnalysis(key=key))
     scheduler.process(GlobalVarOffloadTransformation(key=key))
+    scheduler.process(PragmaModelTransformation(directive='openacc'))
     driver = scheduler['#driver'].ir
 
     if key is None:
@@ -346,6 +347,7 @@ def test_transformation_global_var_import(here, config, frontend, tmp_path):
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
+    scheduler.process(PragmaModelTransformation(directive='openacc'))
 
     driver = scheduler['#driver'].ir
     moduleA = scheduler['modulea'].ir
@@ -412,6 +414,7 @@ def test_transformation_global_var_import_derived_type(here, config, frontend, t
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
+    scheduler.process(PragmaModelTransformation(directive='openacc'))
 
     driver = scheduler['#driver_derived_type'].ir
     module = scheduler['module_derived_type'].ir
@@ -474,6 +477,7 @@ def test_transformation_global_var_hoist(here, config, frontend, hoist_parameter
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters=hoist_parameters,
         ignore_modules=ignore_modules))
+    scheduler.process(PragmaModelTransformation())
 
     driver = scheduler['#driver'].ir
     kernel0 = scheduler['#kernel0'].ir
@@ -576,6 +580,7 @@ def test_transformation_global_var_derived_type_hoist(here, config, frontend, ho
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarHoistTransformation(hoist_parameters))
+    scheduler.process(PragmaModelTransformation())
 
     driver = scheduler['#driver_derived_type'].ir
     kernel = scheduler['#kernel_derived_type'].ir

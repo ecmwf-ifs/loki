@@ -21,6 +21,7 @@ from loki.ir import (
     Intrinsic
 )
 
+from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 
 
@@ -210,6 +211,7 @@ end module kernel_mod
             'expand': True,
             'strict': True,
             'enable_imports': True,
+            'ignore': ['iso_fortran_env']
         },
         'routines': {
             'driver': {'role': 'driver'}
@@ -234,6 +236,8 @@ end module kernel_mod
         cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
     kernel_item = scheduler['kernel_mod#kernel']
 
     assert transformation._key in kernel_item.trafo_data
@@ -456,29 +460,26 @@ end module kernel_mod
     assert 'tmp5' not in pointers
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
+@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc', 'openmp-manual'])
 @pytest.mark.parametrize('stack_insert_pragma', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_sequence(tmp_path, frontend, block_dim, directive,
                                                     stack_insert_pragma, cray_ptr_loc_rhs, horizontal):
-    if directive == 'openmp':
+
+    if directive == 'openmp-manual':
         driver_loop_pragma1 = '!$omp parallel default(shared) private(b) firstprivate(a)\n    !$omp do'
         driver_end_loop_pragma1 = '!$omp end do\n    !$omp end parallel'
         driver_loop_pragma2 = '!$omp parallel do firstprivate(a)'
         driver_end_loop_pragma2 = '!$omp end parallel do'
         kernel_pragma = ''
-    elif directive == 'openacc':
-        driver_loop_pragma1 = '!$acc parallel loop gang private(b) firstprivate(a)'
-        driver_end_loop_pragma1 = '!$acc end parallel loop'
-        driver_loop_pragma2 = '!$acc parallel loop gang firstprivate(a)'
-        driver_end_loop_pragma2 = '!$acc end parallel loop'
-        kernel_pragma = '!$acc routine vector'
+        # from here on continue as directive is 'openmp'
+        directive = 'openmp'
     else:
-        driver_loop_pragma1 = ''
-        driver_end_loop_pragma1 = ''
-        driver_loop_pragma2 = ''
-        driver_end_loop_pragma2 = ''
-        kernel_pragma = ''
+        driver_loop_pragma1 = '!$loki loop gang default(shared) private(b) firstprivate(a)'
+        driver_end_loop_pragma1 = '!$loki end loop gang'
+        driver_loop_pragma2 = '!$loki loop gang firstprivate(a)'
+        driver_end_loop_pragma2 = '!$loki end loop gang'
+        kernel_pragma = '!$loki routine vector'
 
     if stack_insert_pragma:
         stack_size_location_pragma = '!$loki stack-insert'
@@ -602,6 +603,9 @@ end module kernel_mod
         block_dim=block_dim, horizontal=horizontal, directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation(directive=directive)
+    scheduler.process(transformation=pragma_model_trafo)
+
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
@@ -794,18 +798,9 @@ end module kernel_mod
 @pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
-    if directive == 'openmp':
-        driver_pragma = '!$omp PARALLEL do PRIVATE(b)'
-        driver_end_pragma = '!$omp end parallel do'
-        kernel_pragma = ''
-    elif directive == 'openacc':
-        driver_pragma = '!$acc parallel loop gang'
-        driver_end_pragma = '!$acc end parallel loop'
-        kernel_pragma = '!$acc routine vector'
-    else:
-        driver_pragma = ''
-        driver_end_pragma = ''
-        kernel_pragma = ''
+    driver_pragma = f'!$loki loop gang{" private(b)" if directive == "openmp" else ""}'
+    driver_end_pragma = '!$loki end loop gang'
+    kernel_pragma = '!$loki routine vector'
 
     fcode_parkind_mod = """
 module parkind1
@@ -918,6 +913,9 @@ end module kernel_mod
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim,
                                                             directive=directive, cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation(directive=directive)
+    scheduler.process(transformation=pragma_model_trafo)
+
     kernel_item = scheduler['kernel_mod#kernel']
     kernel2_item = scheduler['kernel_mod#kernel2']
 
@@ -1170,6 +1168,9 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
                                                             cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
+
     item = scheduler['kernel_mod#kernel']
     kernel = item.ir
 
@@ -1344,6 +1345,8 @@ end module kernel_mod
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim_alt, horizontal=horizontal,
                                                             cray_ptr_loc_rhs=cray_ptr_loc_rhs)
     scheduler.process(transformation=transformation)
+    pragma_model_trafo = PragmaModelTransformation()
+    scheduler.process(transformation=pragma_model_trafo)
 
     kernel = scheduler['kernel_mod#kernel'].ir
     kernel2 = scheduler['kernel_mod#kernel2'].ir
