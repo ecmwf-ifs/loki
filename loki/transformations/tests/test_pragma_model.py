@@ -59,6 +59,9 @@ subroutine some_func(ret)
   !$loki end device-present vars(tmp1, tmp2)
   !$loki device-ptr vars(tmp1, tmp2)
   !$loki end device-ptr vars(tmp1, tmp2)
+  !$loki unmapped-directive whatever(tmp1) foo(tmp2)
+  ! misspelled by purpose
+  !$loki create drvice(tmp1)
 
 end subroutine some_func
     """.strip()
@@ -67,7 +70,7 @@ end subroutine some_func
     module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
 
     pragma_model_trafo = PragmaModelTransformation(directive=directive,
-            keep_loki_pragmas=keep_loki_pragmas, process_module_items=True)
+            keep_loki_pragmas=keep_loki_pragmas)
     pragma_model_trafo.transform_subroutine(routine)
     pragma_model_trafo.transform_module(module)
 
@@ -100,7 +103,9 @@ end subroutine some_func
                 ('acc', 'data present(tmp1, tmp2)'),
                 ('acc', 'end data'),
                 ('acc', 'data deviceptr(tmp1, tmp2)'),
-                ('acc', 'end data'))
+                ('acc', 'end data'),
+                ('loki', 'unmapped-directive whatever(tmp1) foo(tmp2)'),
+                ('loki', 'create drvice(tmp1)'))
     if directive == 'omp-gpu':
         args = (('omp', 'declare target(tmp1, tmp2)'),
                 ('omp', ('target update', 'to(tmp1)', 'from(tmp2)'), False),
@@ -120,7 +125,9 @@ end subroutine some_func
                 ('loki', ('device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('end device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('device-ptr', 'vars(tmp1, tmp2)'), False),
-                ('loki', ('end device-ptr', 'vars(tmp1, tmp2)'), False))
+                ('loki', ('end device-ptr', 'vars(tmp1, tmp2)'), False),
+                ('loki', 'unmapped-directive whatever(tmp1) foo(tmp2)'),
+                ('loki', 'create drvice(tmp1)'))
     if directive is None:
         args = (('loki', 'create device(tmp1, tmp2)'),
                 ('loki', ('update', 'device(tmp1)', 'host(tmp2)'), False),
@@ -139,7 +146,9 @@ end subroutine some_func
                 ('loki', ('device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('end device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('device-ptr', 'vars(tmp1, tmp2)'), False),
-                ('loki', ('end device-ptr', 'vars(tmp1, tmp2)'), False))
+                ('loki', ('end device-ptr', 'vars(tmp1, tmp2)'), False),
+                ('loki', 'unmapped-directive whatever(tmp1) foo(tmp2)'),
+                ('loki', 'create drvice(tmp1)'))
 
     if not keep_loki_pragmas:
         args = tuple(arg for arg in args if arg[0] != 'loki')
