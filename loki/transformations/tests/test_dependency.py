@@ -498,8 +498,10 @@ module kernel_mod
     implicit none
 contains
     subroutine kernel(klon, field1)
+        use iso_fortran_env, only: real64
         use kernel_nested_mod, only: kernel_nested_vector, kernel_nested_seq
-        use compute_2_mod, only: compute_2
+        use compute_2_mod, only: compute_2, compute_2_1
+        use compute_3_mod, only: compute_3
         implicit none
         integer, intent(in) :: klon
         integer, intent(inout) :: field1(klon)
@@ -511,8 +513,10 @@ contains
         do jl=1,klon
             call kernel_nested_seq(field1(jl))
             call compute_2(field1(jl))
+            call compute_2_1(field1(jl))
             tmp1(jl) = 0
             field1(jl) = tmp1(jl)
+            call compute_3(field1(jl))
         end do
 
     end subroutine kernel
@@ -570,13 +574,35 @@ contains
         val = 0
 
     end subroutine compute_2
+    subroutine compute_2_1(val)
+        implicit none
+        integer, intent(inout) :: val
+
+        val = 0
+
+    end subroutine compute_2_1
 end module compute_2_mod
     """.strip()
+    fcode_compute_3 = """
+module compute_3_mod
+    implicit none
+contains
+    subroutine compute_3(val)
+        implicit none
+        integer, intent(inout) :: val
+
+        val = 0
+
+    end subroutine compute_3
+end module compute_3_mod
+    """.strip()
+
     (tmp_path/'driver.F90').write_text(fcode_driver)
     (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
     (tmp_path/'kernel_nested_mod.F90').write_text(fcode_kernel_nested)
     (tmp_path/'compute_1_mod.F90').write_text(fcode_compute_1)
     (tmp_path/'compute_2_mod.F90').write_text(fcode_compute_2)
+    (tmp_path/'compute_3_mod.F90').write_text(fcode_compute_3)
 
 
 @pytest.mark.usefixtures('fcode_as_module_extended')
@@ -589,6 +615,7 @@ end module compute_2_mod
 def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix, config,
                                        full_parse, duplicate_subgraph):
 
+    config['routines']['kernel'] = {'role': 'kernel', 'ignore': ['compute_2_1', 'compute_3']}
     scheduler = Scheduler(
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
         frontend=frontend, xmods=[tmp_path], full_parse=full_parse
@@ -609,7 +636,9 @@ def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix
 
     expected_items = {'#driver', 'kernel_mod#kernel', 'kernel_nested_mod#kernel_nested_vector',
             'kernel_nested_mod#kernel_nested_seq', 'compute_1_mod#compute_1', 'compute_2_mod#compute_2',
+            'compute_2_mod#compute_2_1', 'compute_3_mod#compute_3'
     }
+    standard_items = {'iso_fortran_env'}
     expected_items |= {f'kernel_mod{module_suffix}#kernel{suffix}'}
     if duplicate_subgraph:
         expected_items |= {f'kernel_nested_mod{module_suffix}#kernel_nested_vector{suffix}',
@@ -618,7 +647,7 @@ def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix
                 f'compute_2_mod{module_suffix}#compute_2{suffix}'
         }
     # Validate Scheduler graph
-    assert {item.name for item in scheduler.items} == expected_items
+    assert {item.name for item in scheduler.items} == expected_items | standard_items
 
     # Validate the plan file content
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
@@ -639,19 +668,26 @@ def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix
         scheduler.process(pipeline)
 
         if duplicate_subgraph:
-            dupl_kernel_imports = [(f'kernel_nested_mod{module_suffix}',
+            dupl_kernel_imports = [('iso_fortran_env', ['real64']), (f'kernel_nested_mod{module_suffix}',
                                     [f'kernel_nested_vector{suffix}', f'kernel_nested_seq{suffix}']),
-                                   (f'compute_2_mod{module_suffix}', [f'compute_2{suffix}'])]
-            dupl_kernel_calls = [f'kernel_nested_vector{suffix}', f'kernel_nested_seq{suffix}', f'compute_2{suffix}']
+                                   (f'compute_2_mod{module_suffix}', [f'compute_2{suffix}']),
+                                   ('compute_2_mod', ['compute_2_1']),
+                                   ('compute_3_mod', ['compute_3'])]
+            dupl_kernel_calls = [f'kernel_nested_vector{suffix}', f'kernel_nested_seq{suffix}', f'compute_2{suffix}',
+                    'compute_2_1', 'compute_3']
         else:
-            dupl_kernel_imports = [('kernel_nested_mod', ['kernel_nested_vector', 'kernel_nested_seq']),
-                                   ('compute_2_mod', ['compute_2'])]
-            dupl_kernel_calls = ['kernel_nested_vector', 'kernel_nested_seq', 'compute_2']
+            dupl_kernel_imports = [('iso_fortran_env', ['real64']),
+                                   ('kernel_nested_mod', ['kernel_nested_vector', 'kernel_nested_seq']),
+                                   ('compute_2_mod', ['compute_2', 'compute_2_1']),
+                                   ('compute_3_mod', ['compute_3'])]
+            dupl_kernel_calls = ['kernel_nested_vector', 'kernel_nested_seq', 'compute_2', 'compute_2_1', 'compute_3']
 
         expected_imports = {
                 '#driver': [(f'kernel_mod{module_suffix}', [f'kernel{suffix}']), ('kernel_mod', ['kernel'])],
-                'kernel_mod#kernel': [('kernel_nested_mod', ['kernel_nested_vector', 'kernel_nested_seq']),
-                                      ('compute_2_mod', ['compute_2'])],
+                'kernel_mod#kernel': [('iso_fortran_env', ['real64']),
+                                      ('kernel_nested_mod', ['kernel_nested_vector', 'kernel_nested_seq']),
+                                      ('compute_2_mod', ['compute_2', 'compute_2_1']),
+                                      ('compute_3_mod', ['compute_3'])],
                 'kernel_nested_mod#kernel_nested_vector': [],
                 'kernel_nested_mod#kernel_nested_seq': [('compute_1_mod', ['compute_1'])],
                 'compute_1_mod#compute_1': [],
@@ -660,7 +696,8 @@ def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix
         }
         expected_calls = {
                 '#driver': ['kernel', f'kernel{suffix}'],
-                'kernel_mod#kernel': ['kernel_nested_vector', 'kernel_nested_seq', 'compute_2'],
+                'kernel_mod#kernel': ['kernel_nested_vector', 'kernel_nested_seq', 'compute_2',
+                    'compute_2_1', 'compute_3'],
                 'kernel_nested_mod#kernel_nested_vector': [],
                 'kernel_nested_mod#kernel_nested_seq': ['compute_1'],
                 'compute_1_mod#compute_1': [],

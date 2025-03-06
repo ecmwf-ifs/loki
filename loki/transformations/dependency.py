@@ -54,6 +54,14 @@ class DuplicateKernel(Transformation):
         item : :any:`Item`
             The item used to derive ``local_name``,
             ``scope_name`` and ``new_item_name``.
+        Returns
+        -------
+        scope_name : str
+            New item scope name.
+        new_item_name : str
+            New item name.
+        local_name : str
+            New item local name.
         """
         # Determine new item name
         scope_name = item.scope_name
@@ -64,7 +72,7 @@ class DuplicateKernel(Transformation):
         new_item_name = f'{scope_name or ""}#{local_name}'
         return scope_name, local_name, new_item_name
 
-    def _get_or_create_or_rename_item(self, item, item_factory, scope_name, new_item_name, local_name, config):
+    def _get_or_create_or_rename_item(self, item, item_factory, config):
         """
         Get, create or rename item including the scope item if there is a
         scope.
@@ -75,12 +83,6 @@ class DuplicateKernel(Transformation):
             Item to duplicate/to use to derive new item.
         item_factory : :any:`ItemFactory`
             The :any:`ItemFactory` to use when creating the items.
-        scope_name : str
-            New item scope name.
-        new_item_name : str
-            New item name.
-        local_name : str
-            New item local name.
         config : :any:`SchedulerConfig`
             The scheduler config to use when instantiating new items.
         Returns
@@ -88,6 +90,7 @@ class DuplicateKernel(Transformation):
         :any:`Item`
             Newly created item.
         """
+        scope_name, local_name, new_item_name = self._get_new_item_name(item)
         new_item = item_factory.item_cache.get(new_item_name)
         # Try to get an item for the scope or create that first
         if new_item is None and scope_name:
@@ -142,22 +145,38 @@ class DuplicateKernel(Transformation):
         for call in FindNodes(ir.CallStatement).visit(new_item.ir.body):
             call_name = str(call.name).lower()
             new_call_name = f'{call_name}{self.suffix}'.lower()
-            call_new_item = new_dependencies[new_call_name]
-            proc_symbol = call_new_item.ir.procedure_symbol.rescope(scope=new_item.ir)
-            call_map[call] = call.clone(name=proc_symbol)
+            if new_call_name in new_dependencies:
+                call_new_item = new_dependencies[new_call_name]
+                proc_symbol = call_new_item.ir.procedure_symbol.rescope(scope=new_item.ir)
+                call_map[call] = call.clone(name=proc_symbol)
         # TODO: imports at module level ...
         imp_map = {}
         for imp in FindNodes(ir.Import).visit(new_item.ir.spec):
-            new_symbols = [symbol.clone(name=f'{symbol.name}{self.suffix}') for symbol in imp.symbols]
-            imp_map[imp] = imp.clone(module=f'{imp.module.lower()}{self.module_suffix}',
-                                     symbols=as_tuple(new_symbols))
+            # potentially new symbols
+            symbol_map = {symbol: symbol.clone(name=f'{symbol.name}{self.suffix}') for symbol in imp.symbols}
+            new_symbols = ()
+            orig_symbols = ()
+            # distinguish imported symbols that should remain and those which should be altered
+            for orig_symbol, new_symbol in symbol_map.items():
+                if new_symbol in new_dependencies:
+                    new_symbols += (new_symbol,)
+                else:
+                    orig_symbols += (orig_symbol,)
+            new_imports = ()
+            if new_symbols:
+                new_imports += (imp.clone(module=f'{imp.module.lower()}{self.module_suffix}',
+                                         symbols=as_tuple(new_symbols)),)
+            if orig_symbols:
+                new_imports += (imp.clone(symbols=as_tuple(orig_symbols)),)
+            if new_imports:
+                imp_map[imp] = new_imports
         if call_map:
             new_item.ir.body = Transformer(call_map).visit(new_item.ir.body)
         if imp_map:
             new_item.ir.spec = Transformer(imp_map).visit(new_item.ir.spec)
 
     def _create_duplicate_items(self, successors, item_factory, config, item, sub_sgraph,
-            rename_calls=False, force_duplicate=False):
+            rename_calls=False, force_duplicate=False, ignore=None):
         """
         Create new/duplicated items.
 
@@ -187,15 +206,14 @@ class DuplicateKernel(Transformation):
         tuple
             Tuple of newly created items.
         """
-
+        ignore = as_tuple(ignore)
         new_items = ()
         for child in successors:
             if child.local_name in self.duplicate_kernels or force_duplicate:
-                # get scope, local and new item name
-                scope_name, local_name, new_item_name = self._get_new_item_name(child)
+                if child.local_name in ignore:
+                    continue
                 # get/create/rename item
-                new_item = self._get_or_create_or_rename_item(child, item_factory, scope_name,
-                        new_item_name, local_name, config)
+                new_item = self._get_or_create_or_rename_item(child, item_factory, config)
                 new_items += as_tuple(new_item)
                 # duplicate subgraph?
                 if self.duplicate_subgraph:
@@ -203,11 +221,14 @@ class DuplicateKernel(Transformation):
                     # add new_items to sgraph (copy)
                     self._modify_sgraph(sub_sgraph, item, new_items)
                     # get the successors
-                    child_successors = as_tuple(sub_sgraph.successors(child))
+                    child_ignore = ignore + as_tuple(child.ignore)
+                    child_successors = as_tuple([successor for successor in sub_sgraph.successors(child)
+                        if successor.local_name not in child_ignore])
                     if child_successors:
                         # create new/duplicated successors
                         new_dependencies = self._create_duplicate_items(child_successors, item_factory, config,
-                                sub_sgraph=sub_sgraph, item=new_item, rename_calls=rename_calls, force_duplicate=True)
+                                sub_sgraph=sub_sgraph, item=new_item, rename_calls=rename_calls, force_duplicate=True,
+                                ignore=ignore)
                         new_dependencies_dic = CaseInsensitiveDict((new_item.local_name, new_item)
                                 for new_item in new_dependencies)
                         # add dependencies to new/duplicated successors and remove the "old" ones
@@ -226,13 +247,14 @@ class DuplicateKernel(Transformation):
         item = kwargs.get('item')
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        ignore = tuple(str(t).lower() for t in as_tuple(kwargs.get('ignore', None)))
         new_dependencies = self._create_duplicate_items(
             successors=successors,
             item_factory=kwargs.get('item_factory'),
             config=kwargs.get('scheduler_config'),
             item=kwargs.get('item'),
             sub_sgraph=sub_sgraph,
-            rename_calls=True
+            rename_calls=True, ignore=ignore
         )
         new_dependencies = CaseInsensitiveDict((new_item.local_name, new_item) for new_item in new_dependencies)
 
@@ -261,13 +283,15 @@ class DuplicateKernel(Transformation):
         item = kwargs.get('item')
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        ignore = tuple(str(t).lower() for t in as_tuple(kwargs.get('ignore', None)))
         item.plan_data.setdefault('additional_dependencies', ())
         item.plan_data['additional_dependencies'] += self._create_duplicate_items(
             successors=successors,
             item_factory=kwargs.get('item_factory'),
             config=kwargs.get('scheduler_config'),
             item=item,
-            sub_sgraph=sub_sgraph
+            sub_sgraph=sub_sgraph,
+            ignore=ignore
         )
 
 
