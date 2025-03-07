@@ -13,6 +13,7 @@ from loki.subroutine import Subroutine
 from loki.expression import (
     symbols as sym, parse_expr, ceil_division, iteration_index
 )
+from loki.logging import error
 
 __all__ = ['split_loop', 'block_loop_arrays']
 
@@ -26,10 +27,16 @@ class LoopSplittingVariables:
     def __init__(self, loop_var: sym.Variable, block_size):
         self._loop_var = loop_var
         # self._splitting_vars = splitting_vars
+        if isinstance(block_size, int):
+            blk_size = sym.IntLiteral(block_size)
+        elif isinstance(block_size, sym.Scalar):
+            blk_size = block_size
+        else:
+            error("Block size must a be a an integer constant or a scalar variable")
+
         self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
                                                type=loop_var.type.clone(parameter=True,
-                                                                        initial=sym.IntLiteral(
-                                                                            block_size))),
+                                                                        initial=blk_size)),
                                 loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
                                 loop_var.clone(name=loop_var.name + "_loop_block_idx"),
                                 loop_var.clone(name=loop_var.name + "_loop_local"),
