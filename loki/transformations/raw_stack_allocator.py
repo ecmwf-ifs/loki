@@ -64,9 +64,6 @@ class TemporariesRawStackTransformation(Transformation):
     local_int_var_name_pattern : str, optional
         Python format string pattern for the name of the integer variable
         for each temporary (default: ``'JD_{name}'``)
-    directive : str, optional
-        Can be ``'openmp'`` or ``'openacc'``. If given, insert data sharing clauses for
-        the stack derived type, and insert data transfer statements (for OpenACC only).
     driver_horizontal : str, optional
         Override string if a separate variable name should be used for the horizontal
         when allocating the stack in the driver.
@@ -87,7 +84,7 @@ class TemporariesRawStackTransformation(Transformation):
 
     def __init__(
             self, block_dim, horizontal, stack_name='STACK',
-            local_int_var_name_pattern='JD_{name}', directive=None,
+            local_int_var_name_pattern='JD_{name}',
             driver_horizontal=None, **kwargs
     ):
         super().__init__(**kwargs)
@@ -95,7 +92,6 @@ class TemporariesRawStackTransformation(Transformation):
         self.horizontal = horizontal
         self.stack_name = stack_name
         self.local_int_var_name_pattern = local_int_var_name_pattern
-        self.directive = directive
         self.driver_horizontal = driver_horizontal
 
     @property
@@ -198,7 +194,7 @@ class TemporariesRawStackTransformation(Transformation):
     def create_stacks_driver(self, routine, stack_dict, successors):
         """
         Create stack variables in the driver routine,
-        add pragma directives to create the stacks on the device (if self.directive),
+        add pragma directives to create the stacks on the device,
         and add the stack_variables to kernel call arguments.
 
         Parameters
@@ -256,23 +252,18 @@ class TemporariesRawStackTransformation(Transformation):
                 assignments += [Assignment(lhs=stack_size_var, rhs=stack_dict[dtype][kind])]
                 pragma_string += f'{stack_var.name}, '
 
-        #If self.directive, create or allocate stack on device
-        if self.directive:
-            if pragma_string:
-                pragma_string = pragma_string[:-2].lower()
-
-                pragma_data_start = Pragma(keyword='loki', content=f'structured-data create({pragma_string})')
-                pragma_data_end = Pragma(keyword='loki', content='end structured-data')
-
         #Add to routine
         routine.variables = routine.variables + as_tuple(stack_vars)
         routine.body.prepend(assignments)
 
-        #Add directives to beginning and end of routine.body
-        if self.directive:
-            if pragma_data_start:
-                routine.body.prepend(pragma_data_start)
-                routine.body.append(pragma_data_end)
+        if pragma_string:
+            pragma_string = pragma_string[:-2].lower()
+
+            pragma_data_start = Pragma(keyword='loki', content=f'structured-data create({pragma_string})')
+            pragma_data_end = Pragma(keyword='loki', content='end structured-data')
+
+            routine.body.prepend(pragma_data_start)
+            routine.body.append(pragma_data_end)
 
         #Insert variables in successor calls
         self.insert_stack_in_calls(routine, stack_arg_dict, successors)
@@ -281,7 +272,7 @@ class TemporariesRawStackTransformation(Transformation):
     def create_stacks_kernel(self, routine, stack_dict, successors):
         """
         Create stack variables in kernel routine,
-        add pragma directives to create the stacks on the device (if self.directive),
+        add pragma directives to create the stacks on the device,
         and add the stack_variables to kernel call arguments.
 
         Parameters
@@ -328,12 +319,9 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
                 pragma_string += f'{stack_var.name}, '
 
-        #If self.directive,s openacc, add present clauses
-        # if self.directive:
         if pragma_string:
             pragma_string = pragma_string[:-2].lower()
 
-            # if self.directive == 'openacc':
             present_pragma = None
             acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'loki'] # acc
             for pragma in acc_pragmas:

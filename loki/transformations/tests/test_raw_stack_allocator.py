@@ -265,7 +265,7 @@ end module kernel3_mod
     scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend,
                           definitions=definitions, xmods=[tmp_path])
 
-    transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal, directive=directive)
+    transformation = TemporariesRawStackTransformation(block_dim=block_dim, horizontal=horizontal)
     scheduler.process(transformation=transformation)
     pragma_model_trafo = PragmaModelTransformation(directive=directive)
     scheduler.process(transformation=pragma_model_trafo)

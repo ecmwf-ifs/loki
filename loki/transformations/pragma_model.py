@@ -267,7 +267,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
         return self.default_retval()
 
 
-class OpenMPPragmaMapper(GenericPragmaMapper):
+class OpenMPThreadingPragmaMapper(GenericPragmaMapper):
     """
     Loki generic pragmas to OpenMP CPU mapper.
 
@@ -298,7 +298,7 @@ class PragmaModelTransformation(Transformation):
        :header-rows: 1
 
     Parameters
-    __________
+    ----------
     directive : None, str
         The directive(s) to be used, used to determine which
         child class of :any:`GenericPragmaMapper` is used.
@@ -315,7 +315,7 @@ class PragmaModelTransformation(Transformation):
         pmapper_cls_map = {
             'openacc': OpenACCPragmaMapper,
             'omp-gpu': OpenMPOffloadPragmaMapper,
-            'openmp': OpenMPPragmaMapper,
+            'openmp': OpenMPThreadingPragmaMapper,
         }
         pmapper_cls = pmapper_cls_map.get(self.directive, None if self.keep_loki_pragmas else GenericPragmaMapper)
         self.pmapper = pmapper_cls() if pmapper_cls else None

@@ -42,7 +42,7 @@ class SCCAnnotateTransformation(Transformation):
 
     def annotate_vector_loops(self, routine):
         """
-        Insert ``!$acc loop vector`` for previously marked loops,
+        Insert ``!$loki loop vector`` for previously marked loops,
         including addition of the necessary private variable declarations.
 
         Parameters
@@ -161,22 +161,22 @@ class SCCAnnotateTransformation(Transformation):
                 if p.keyword.lower() == 'acc' and 'routine' in p.content.lower():
                     return
 
-            # Mark all parallel vector loops as `!$acc loop vector`
+            # Mark all parallel vector loops as `!$loki loop vector`
             self.annotate_vector_loops(routine)
 
-            # Mark all non-parallel loops as `!$acc loop seq`
+            # Check for sequential loops within vector loops
             self.warn_vec_within_seq_loops(routine)
 
-            # Wrap the routine body in `!$acc data present` markers to
+            # Wrap the routine body in `!$loki device-present vars(...)` markers to
             # ensure all arguments are device-resident.
             self.annotate_kernel_routine(routine)
 
 
         if role == 'driver':
-            # Mark all parallel vector loops as `!$acc loop vector`
+            # Mark all parallel vector loops as `!$loki loop vector`
             self.annotate_vector_loops(routine)
 
-            # Mark all non-parallel loops as `!$acc loop seq`
+            # Check for sequential loops within vector loops
             self.warn_vec_within_seq_loops(routine)
 
             with pragma_regions_attached(routine):
@@ -190,7 +190,7 @@ class SCCAnnotateTransformation(Transformation):
 
     def find_acc_vars(self, routine, targets):
         """
-        Find variables already specified in acc data clauses.
+        Find variables already specified in loki/acc data clauses.
 
         Parameters
         ----------
