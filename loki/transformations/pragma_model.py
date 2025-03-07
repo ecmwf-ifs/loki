@@ -292,6 +292,11 @@ class PragmaModelTransformation(Transformation):
     Transformation to map Loki generic pragmas to a specific
     pragma model using a child class of :any:`GenericPragmaMapper`.
 
+    .. csv-table:: Loki generic pragmas to pragma model mapping
+       :file: ../../docs/source/loki_pragma_model.csv
+       :widths: 100, 100, 100
+       :header-rows: 1
+
     Parameters
     __________
     directive : None, str
