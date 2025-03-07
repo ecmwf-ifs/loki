@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine, fgen
-from loki.build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
+from loki.jit_build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, CallStatement, Loop, FindVariables, Assignment

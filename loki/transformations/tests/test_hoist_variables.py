@@ -15,7 +15,7 @@ import numpy as np
 from loki import (
     Scheduler, SchedulerConfig, is_iterable, FindInlineCalls
 )
-from loki.build import jit_compile_lib, Builder
+from loki.jit_build import jit_compile_lib, Builder
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 from loki.transformations.hoist_variables import (

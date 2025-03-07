@@ -15,7 +15,7 @@ they mostly check whether at the end comes out what went in at the beginning.
 import pytest
 
 from loki import Sourcefile, Subroutine, fgen
-from loki.build import clean_test
+from loki.jit_build import clean_test
 from loki.ir import nodes as ir, FindNodes
 from loki.frontend import available_frontends, OMNI
 

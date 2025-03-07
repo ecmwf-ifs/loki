@@ -16,7 +16,7 @@ from pathlib import Path
 import shutil
 from codetiming import Timer
 
-from loki.build import workqueue
+from loki.jit_build import workqueue
 from loki.batch import Scheduler, SchedulerConfig, Item, Transformation
 from loki.config import config as loki_config
 from loki.lint.reporter import (

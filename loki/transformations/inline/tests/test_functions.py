@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine
-from loki.build import jit_compile_lib, Builder, Obj
+from loki.jit_build import jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -196,7 +196,7 @@ def test_transform_inline_elemental_functions_extended_arr(multiply_extended_mod
 subroutine transform_inline_elemental_functions_extended_array(v1, v2, v3, len)
   use iso_fortran_env, only: real64
   use multiply_extended_mod, only: multiply, multiply_single_line, add
-  integer, intent(in) :: len  
+  integer, intent(in) :: len
   real(kind=real64), intent(in) :: v1(len)
   real(kind=real64), intent(inout) :: v2(len), v3(len)
   real(kind=real64), parameter :: param1 = 100.

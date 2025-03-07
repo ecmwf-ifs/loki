@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Module, Subroutine, fexprgen, fgen
-from loki.build import jit_compile_lib
+from loki.jit_build import jit_compile_lib
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
