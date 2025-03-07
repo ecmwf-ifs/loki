@@ -10,10 +10,10 @@ Utilities to facilitate Just-in-Time compilation for testing purposes.
 from pathlib import Path
 
 from loki.backend import fgen
-from loki.build.builder import Builder
-from loki.build.compiler import compile_and_load
-from loki.build.lib import Lib
-from loki.build.obj import Obj
+from loki.jit_build.builder import Builder
+from loki.jit_build.compiler import compile_and_load
+from loki.jit_build.lib import Lib
+from loki.jit_build.obj import Obj
 from loki.ir import Section
 from loki.module import Module
 from loki.sourcefile import Sourcefile

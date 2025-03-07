@@ -6,7 +6,7 @@ from loki import (
     Sourcefile, Subroutine, FindInlineCalls, fgen, IntLiteral, Module
 )
 from loki.batch import Transformation, Pipeline, ProcedureItem
-from loki.build import jit_compile, clean_test
+from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI, REGEX
 from loki.ir import nodes as ir, FindNodes
 from loki.transformations import (

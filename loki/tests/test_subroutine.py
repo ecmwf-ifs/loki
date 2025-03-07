@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 
 from loki import Sourcefile, Module, Subroutine, fgen, fexprgen
-from loki.build import jit_compile, jit_compile_lib, clean_test
+from loki.jit_build import jit_compile, jit_compile_lib, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, REGEX
 from loki.ir import (

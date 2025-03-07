@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Module, Subroutine
-from loki.build import jit_compile_lib, Builder, Obj
+from loki.jit_build import jit_compile_lib, Builder, Obj
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 

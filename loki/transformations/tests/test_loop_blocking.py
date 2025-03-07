@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine
-from loki.build import jit_compile, clean_test
+from loki.jit_build import jit_compile, clean_test
 from loki.expression import Array
 from loki.frontend import available_frontends
 from loki.ir import (

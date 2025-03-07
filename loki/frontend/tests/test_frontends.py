@@ -16,7 +16,7 @@ import pytest
 from loki import (
     Module, Subroutine, Sourcefile, BasicType, config, config_override
 )
-from loki.build import jit_compile
+from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, FP, HAVE_FP
 from loki.ir import nodes as ir, FindNodes, FindVariables

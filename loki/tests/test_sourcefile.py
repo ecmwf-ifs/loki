@@ -15,7 +15,7 @@ from loki import (
     Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
     StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
-from loki.build import jit_compile, clean_test
+from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI, FP, REGEX
 
 

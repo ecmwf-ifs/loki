@@ -10,7 +10,7 @@ import numpy as np
 
 from loki import Subroutine
 from loki.backend import fgen
-from loki.build import jit_compile, clean_test
+from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 

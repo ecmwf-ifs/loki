@@ -18,7 +18,7 @@ from loki import (
     SymbolAttributes, DerivedType, ProcedureType
 )
 from loki.backend import cgen, fgen
-from loki.build import jit_compile, clean_test
+from loki.jit_build import jit_compile, clean_test
 from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
 from loki.frontend import (
     available_frontends, OMNI, HAVE_FP, parse_fparser_expression
@@ -717,7 +717,7 @@ contains
   function my_kwargs_func(a, b, c, d)
     integer, intent(in) :: a, b, c, d
     integer :: my_kwargs_func
-    my_kwargs_func = a - b - c - d 
+    my_kwargs_func = a - b - c - d
   end function my_kwargs_func
 end subroutine my_kwargs_routine
     """

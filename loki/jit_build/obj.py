@@ -11,8 +11,8 @@ import re
 
 from loki.logging import debug
 from loki.tools import execute, as_tuple, flatten, cached_func
-from loki.build.compiler import _default_compiler
-from loki.build.header import Header
+from loki.jit_build.compiler import _default_compiler
+from loki.jit_build.header import Header
 
 
 __all__ = ['Obj']
@@ -187,7 +187,7 @@ class Obj:
         wrapper = f'f90wrap_{self.source_path.stem}.f90'
         if self.modules is None or len(self.modules) == 0:
             wrapper = 'f90wrap_toplevel.f90'
-        compiler.f2py(modname=module, source=[wrapper, f'{self.source_path.stem}.o'],
+        compiler.f2py(modname=module, source=[wrapper, self.source_path],
                       cwd=build_dir)
 
         return builder.load_module(module)

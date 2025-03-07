@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine, FindNodes, Loop
-from loki.build import jit_compile
+from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 

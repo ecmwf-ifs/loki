@@ -12,9 +12,9 @@ import networkx as nx
 
 from loki.logging import default_logger
 from loki.tools import as_tuple, delete, load_module
-from loki.build.compiler import _default_compiler
-from loki.build.obj import Obj
-from loki.build.header import Header
+from loki.jit_build.compiler import _default_compiler
+from loki.jit_build.obj import Obj
+from loki.jit_build.header import Header
 
 
 __all__ = ['Builder']
