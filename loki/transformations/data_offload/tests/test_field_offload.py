@@ -163,7 +163,9 @@ def test_field_offload(frontend, state_module, tmp_path):
         assert isinstance(devptr, sym.Array)
         assert len(devptr.shape) == 3
         assert devptr.name in (arg.name for arg in kernel_call.arguments)
-
+    from loki import fgen
+    print("\nIR:")
+    print(fgen(driver_mod))
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_field_offload_slices(frontend, parkind_mod, field_module, tmp_path):  # pylint: disable=unused-argument
