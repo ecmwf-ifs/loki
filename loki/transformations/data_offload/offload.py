@@ -153,23 +153,25 @@ class DataOffloadTransformation(Transformation):
                     if self.assume_deviceptr:
                         offload_args = inargs + outargs + inoutargs
                         if offload_args:
-                            deviceptr = f' deviceptr({", ".join(offload_args)})'
+                            deviceptr = f' vars({", ".join(offload_args)})'
                         else:
                             deviceptr = ''
-                        pragma = Pragma(keyword='acc', content=f'data{deviceptr}')
+                        pragma = Pragma(keyword='loki', content=f'device-ptr{deviceptr}')
+                        pragma_post = Pragma(keyword='loki', content='end device-ptr')
                     else:
                         offload_args = inargs + outargs + inoutargs
                         if offload_args:
-                            present = f' present({", ".join(offload_args)})'
+                            present = f' vars({", ".join(offload_args)})'
                         else:
                             present = ''
-                        pragma = Pragma(keyword='acc', content=f'data{present}')
+                        pragma = Pragma(keyword='loki', content=f'device-present{present}')
+                        pragma_post = Pragma(keyword='loki', content='end device-present')
                 else:
-                    copyin = f'copyin({", ".join(inargs)})' if inargs else ''
-                    copy = f'copy({", ".join(inoutargs)})' if inoutargs else ''
-                    copyout = f'copyout({", ".join(outargs)})' if outargs else ''
-                    pragma = Pragma(keyword='acc', content=f'data {copyin} {copy} {copyout}')
-                pragma_post = Pragma(keyword='acc', content='end data')
+                    copyin = f'in({", ".join(inargs)})' if inargs else ''
+                    copy = f'inout({", ".join(inoutargs)})' if inoutargs else ''
+                    copyout = f'out({", ".join(outargs)})' if outargs else ''
+                    pragma = Pragma(keyword='loki', content=f'structured-data {copyin} {copy} {copyout}')
+                    pragma_post = Pragma(keyword='loki', content='end structured-data')
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post
 

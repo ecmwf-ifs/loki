@@ -92,9 +92,9 @@ class HoistTemporaryArraysPragmaOffloadTransformation(HoistVariablesTransformati
         routine.variables += tuple(var.clone(scope=routine) for var in variables)
 
         vnames = ', '.join(v.name for v in variables)
-        pragma = ir.Pragma(keyword='acc', content=f'enter data create({vnames})')
-        pragma_post = ir.Pragma(keyword='acc', content=f'exit data delete({vnames})')
 
+        pragma = ir.Pragma(keyword='loki', content=f'unstructured-data create({vnames})')
+        pragma_post = ir.Pragma(keyword='loki', content=f'end unstructured-data delete({vnames})')
         # Add comments around standalone pragmas to avoid false attachment
         routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
         routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
@@ -775,14 +775,14 @@ class SccLowLevelDataOffload(Transformation):
             copy_pragmas = []
             copy_end_pragmas = []
             if outargs:
-                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyout({", ".join(outargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                copy_pragmas += [ir.Pragma(keyword='loki', content=f'structured-data out({", ".join(outargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='loki', content='end structured-data')]
             if inoutargs:
-                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copy({", ".join(inoutargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                copy_pragmas += [ir.Pragma(keyword='loki', content=f'structured-data inout({", ".join(inoutargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='loki', content='end structured-data')]
             if inargs:
-                copy_pragmas += [ir.Pragma(keyword='acc', content=f'data copyin({", ".join(inargs)})')]
-                copy_end_pragmas += [ir.Pragma(keyword='acc', content='end data')]
+                copy_pragmas += [ir.Pragma(keyword='loki', content=f'structured-data in({", ".join(inargs)})')]
+                copy_end_pragmas += [ir.Pragma(keyword='loki', content='end structured-data')]
 
             if copy_pragmas:
                 pragma_map = {}

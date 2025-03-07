@@ -16,6 +16,7 @@ from loki.ir import (
     Allocation, Deallocation, VariableDeclaration, Import, Pragma
 )
 
+from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.single_column import (
@@ -252,6 +253,7 @@ def test_scc_cuf_parametrise(here, frontend, config, horizontal, vertical, block
 
     dic2p = {'nz': 137}
     scheduler.process(transformation=ParametriseTransformation(dic2p=dic2p))
+    scheduler.process(PragmaModelTransformation(directive='openacc'))
 
     # check for correct CUF transformation
     check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
@@ -311,6 +313,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
     scheduler.process(transformation=HoistTemporaryArraysAnalysis())
     # Transformation: Synthesis
     scheduler.process(transformation=hoist_synthesis)
+    scheduler.process(PragmaModelTransformation(directive='openacc'))
     check_subroutine_driver(routine=scheduler["driver_mod#driver"].ir, blocking=blocking)
     check_subroutine_kernel(routine=scheduler["kernel_mod#kernel"].ir, horizontal=horizontal,
                             vertical=vertical, blocking=blocking)

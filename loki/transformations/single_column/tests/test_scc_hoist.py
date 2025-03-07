@@ -18,7 +18,7 @@ from loki.ir import (
 )
 
 from loki.transformations import (
-    InlineTransformation
+    InlineTransformation, PragmaModelTransformation
 )
 from loki.transformations.single_column import (
     SCCBaseTransformation, SCCDevectorTransformation,
@@ -280,11 +280,12 @@ END MODULE kernel_mod
     driver = scheduler["#driver"].ir
     kernel = scheduler["kernel_mod#kernel"].ir
 
-    transformation = (SCCBaseTransformation(horizontal=horizontal, directive='openacc'),)
+    transformation = (SCCBaseTransformation(horizontal=horizontal),)
     transformation += (SCCDevectorTransformation(horizontal=horizontal, trim_vector_sections=trim_vector_sections),)
     transformation += (SCCDemoteTransformation(horizontal=horizontal),)
     transformation += (SCCRevectorTransformation(horizontal=horizontal),)
-    transformation += (SCCAnnotateTransformation(directive='openacc', block_dim=blocking),)
+    transformation += (SCCAnnotateTransformation(block_dim=blocking),)
+    transformation += (PragmaModelTransformation(directive='openacc'),)
     for transform in transformation:
         scheduler.process(transformation=transform)
 

@@ -1,0 +1,20 @@
+Loki,OpenACC,OMP-GPU
+``create device(...)``,``declare create(...)``,
+``update device(...) host(...)``,``update device(...) self(...)``,
+``unstructured-data in(...) create(...)``,``enter data copyin(...) create(...)``,``target enter data map(to: ...) map(alloc: ...)``
+``end unstructured-data out(...) delete(...)``,``exit data copyout(...) delete(...)``,``target exit data map(from: ...) map(delete: ...) map(release: ... ???)``
+``structured-data inout(...) in(...) out(...) create(...)``,``data copy(...) copyin(...) copyout(...) create(...)``,``target data map(tofrom: ...) map(to: ...) map(from: ...)``
+``end structured-data inout(...) in(...) out(...)``,``end data``,``end target data``
+``loop gang private(...) vlength(...)``,``parallel loop gang private(...) vector_length(...)``,``target teams distribute thread_limit(...) ???``
+``end loop gang``,``end parallel loop``,``end target teams distribute``
+``loop vector private(...) reduction(...)``,``loop vector private(...) reduction(...)``,``parallel do``
+``end loop vector``,,``end parallel do``
+``loop seq``,``loop seq``,
+``end loop seq``,,
+``routine vector``,``routine vector``,
+``routine seq``,``routine seq``,``declare target``
+``data device-present vars(...)``,``data present()``,
+``device-present vars (...)``,``data present(...)``,
+``end device-present vars(...)``,``end data``,
+``device-ptr vars (...)``,``data deviceptr(...)``,
+``end device-ptr vars(...)``,``end data``,
