@@ -112,7 +112,7 @@ end subroutine transform_promote_variables
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     n = 10
-    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     function(scalar, vector, n)
     assert scalar == n*n
@@ -151,7 +151,7 @@ end subroutine transform_promote_variables
     promoted_filepath = tmp_path/(f'{routine.name}_promoted_{frontend}.f90')
     promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
 
-    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     promoted_function(scalar, vector, n)
     assert scalar == n*(n+1)//2
@@ -206,12 +206,12 @@ end subroutine transform_demote_variables
 
     n = 3
     m = 2
-    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
     function(scalar, vector, matrix, n, m)
 
-    assert all(scalar == 3)
+    assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
@@ -234,12 +234,12 @@ end subroutine transform_demote_variables
 
     n = 3
     m = 2
-    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
     demoted_function(scalar, vector, matrix, n, m)
 
-    assert all(scalar == 3)
+    assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
@@ -311,12 +311,12 @@ end subroutine transform_demote_dimension_arguments
 
     n = 3
     m = 2
-    vec1 = np.zeros(shape=(1,), order='F', dtype=np.int32) + 3
+    vec1 = np.array(3)
     vec2 = np.zeros(shape=(n,), order='F', dtype=np.int32) + 2
     matrix = np.zeros(shape=(m, ), order='F', dtype=np.int32) + 1
     demoted_function(vec1, vec2, matrix, n, m)
 
-    assert np.all(vec1 == 3) and np.sum(vec1) == 3
+    assert vec1 == 3
     assert np.all(vec2 == 2) and np.sum(vec2) == 6
     assert np.all(matrix == 16) and np.sum(matrix) == 32
 
@@ -1133,13 +1133,13 @@ end subroutine transform_resolve_vector_notation_common_loops
     l = 3
     kidia = 1
     kfdia = n
-    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     vector_2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
     function(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
 
-    assert all(scalar == 3)
+    assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
@@ -1200,13 +1200,13 @@ end subroutine transform_resolve_vector_notation_common_loops
     l = 3
     kidia = 1
     kfdia = n
-    scalar = np.zeros(shape=(1,), order='F', dtype=np.int32)
+    scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     vector_2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
     resolved_function(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
 
-    assert all(scalar == 3)
+    assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
@@ -1233,7 +1233,7 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
     fcode_kernel = """
   module kernel_explicit_dimensions_mod
   IMPLICIT NONE
-  CONTAINS 
+  CONTAINS
   SUBROUTINE kernel_routine(nlon, a, b, nlev)
     INTEGER, INTENT(IN)    :: nlon, nlev
     INTEGER, INTENT(INOUT) :: a(nlon,nlev)
