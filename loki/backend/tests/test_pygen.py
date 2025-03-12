@@ -152,9 +152,9 @@ end subroutine pygen_arguments
     array = np.zeros(shape=(n,), order='F')
     array_io = np.zeros(shape=(n,), order='F') + 3.
     # To do scalar inout we allocate data in single-element arrays
-    a_io = np.zeros(shape=(1,), order='F', dtype=np.int32) + 1
-    b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
-    c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
+    a_io = np.array(1)
+    b_io = np.array(2.)
+    c_io = np.array(3.)
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -164,7 +164,7 @@ end subroutine pygen_arguments
 
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
-    assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
+    assert a_io == 3 and np.isclose(b_io, 5.2) and np.isclose(c_io, 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Rename routine to avoid problems with module import caching
@@ -178,14 +178,14 @@ end subroutine pygen_arguments
 
     array = np.zeros(shape=(n,), order='F')
     array_io = np.zeros(shape=(n,), order='F') + 3.
-    a_io = np.zeros(shape=(1,), order='F', dtype=np.int32) + 1
-    b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
-    c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
+    a_io = np.array(1)
+    b_io = np.array(2.)
+    c_io = np.array(3.)
     a, b, c, a_io, b_io, c_io = func(n, array, array_io, a_io, b_io, c_io)
 
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
-    assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
+    assert a_io == 3. and np.isclose(b_io, 5.2) and np.isclose(c_io, 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     clean_test(filepath)

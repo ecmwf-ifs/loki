@@ -224,9 +224,9 @@ end subroutine transpile_arguments
     array = np.zeros(shape=(n,), order='F')
     array_io = np.zeros(shape=(n,), order='F') + 3.
     # To do scalar inout we allocate data in single-element arrays
-    a_io = np.zeros(shape=(1,), order='F', dtype=np.int32) + 1
-    b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
-    c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
+    a_io = np.array(1)
+    b_io = np.array(2.)
+    c_io = np.array(3.)
 
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -236,7 +236,7 @@ end subroutine transpile_arguments
 
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
-    assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
+    assert a_io == 3. and np.isclose(b_io, 5.2) and np.isclose(c_io, 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
     # Generate and test the transpiled C kernel
@@ -268,14 +268,14 @@ end subroutine transpile_arguments
 
     array = np.zeros(shape=(n,), order='F')
     array_io = np.zeros(shape=(n,), order='F') + 3.
-    a_io = np.zeros(shape=(1,), order='F', dtype=np.int32) + 1
-    b_io = np.zeros(shape=(1,), order='F', dtype=np.float32) + 2.
-    c_io = np.zeros(shape=(1,), order='F', dtype=np.float64) + 3.
+    a_io = np.array(1)
+    b_io = np.array(2.)
+    c_io = np.array(3.)
     a, b, c = fc_function(n, array, array_io, a_io, b_io, c_io)
 
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
-    assert a_io[0] == 3. and np.isclose(b_io[0], 5.2) and np.isclose(c_io[0], 7.1)
+    assert a_io == 3. and np.isclose(b_io, 5.2) and np.isclose(c_io, 7.1)
     assert a == 8 and np.isclose(b, 3.2) and np.isclose(c, 4.1)
 
 
@@ -1288,7 +1288,7 @@ end subroutine multi_cond_simple
     in_var = 0
     test_vals = [0, 1, 2, 5]
     expected_results = [100, 10, 20, 100]
-    out_var = np.int_([0])
+    out_var = np.array(0)
 
     # compile original Fortran version
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -1356,7 +1356,7 @@ end subroutine multi_cond
     # [(<input>, <expected result>), (<input 2>, <expected result 2>), ...]
     test_results = [(0, 10), (1, 10), (5, 10), (6, 15), (10, 15), (11, 15),
                     (15, 15), (8, 12), (20, 20), (21, 20), (29, 20), (50, 100)]
-    out_var = np.int_([0])
+    out_var = np.array(0)
 
     # compile original Fortran version
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -1422,8 +1422,8 @@ end subroutine transpile_special_functions
 
     def init_var(dtype, val=0):
         if dtype == 'real':
-            return np.float64([val])
-        return np.int_([val])
+            return np.array(np.float64(val))
+        return np.array(np.int_(val))
 
     # for testing purposes
     in_var = init_var(dtype)
@@ -1555,7 +1555,7 @@ end subroutine transpile_optional_args
 """.strip()
 
     def init_out_vars():
-        return np.int_([0]), np.int_([0])
+        return np.array(0), np.array(0)
 
     builder.clean()
     # for testing purposes

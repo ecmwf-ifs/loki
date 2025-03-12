@@ -1683,7 +1683,7 @@ end subroutine test_transform_loop_unroll
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == sum(x + 1 for x in range(1, 11))
 
@@ -1696,7 +1696,7 @@ end subroutine test_transform_loop_unroll
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(x + 1 for x in range(1, 11))
 
@@ -1725,7 +1725,7 @@ end subroutine test_transform_loop_unroll_step
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == sum(x + 1 for x in range(-2, 8, 2))
 
@@ -1738,7 +1738,7 @@ end subroutine test_transform_loop_unroll_step
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(x + 1 for x in range(-2, 8, 2))
 
@@ -1769,7 +1769,7 @@ end subroutine test_transform_loop_unroll_non_literal_range
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == sum(x + 1 for x in range(1, 11))
 
@@ -1782,7 +1782,7 @@ end subroutine test_transform_loop_unroll_non_literal_range
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(x + 1 for x in range(1, 11))
 
@@ -1814,7 +1814,7 @@ end subroutine test_transform_loop_unroll_nested
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
@@ -1827,7 +1827,7 @@ end subroutine test_transform_loop_unroll_nested
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
@@ -1859,7 +1859,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
@@ -1872,7 +1872,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
@@ -1909,7 +1909,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
@@ -1922,7 +1922,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
@@ -1955,7 +1955,7 @@ end subroutine test_transform_loop_unroll_nested_counters
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     tuples = [a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a]
     assert s == sum(tuples)
@@ -1970,7 +1970,7 @@ end subroutine test_transform_loop_unroll_nested_counters
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a)
 
@@ -2008,7 +2008,7 @@ end subroutine test_transform_loop_unroll_nested_neighbours
     function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    s = np.zeros(1)
+    s = np.array(0)
     function(s=s)
     assert s == 2 * sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
     # Apply transformation
@@ -2020,7 +2020,7 @@ end subroutine test_transform_loop_unroll_nested_neighbours
     unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
-    s = np.zeros(1)
+    s = np.array(0)
     unrolled_function(s=s)
     assert s == 2 * sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 6)))
 
