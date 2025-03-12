@@ -861,6 +861,8 @@ class FortranCodegen(Stringifier):
             attributes += ['PRIVATE']
         if o.public:
             attributes += ['PUBLIC']
+        if o.protected:
+            attributes += ['PROTECTED']
 
         # Binding attributes
         if o.pass_attr is True:
