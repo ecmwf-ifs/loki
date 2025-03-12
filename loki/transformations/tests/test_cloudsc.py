@@ -54,16 +54,12 @@ def fixture_bundle_create(here, local_loki_bundle):
 def test_cloudsc(here, frontend):
     build_cmd = [
         './cloudsc-bundle', 'build', '--retry-verbose', '--clean',
-        '--with-loki', '--loki-frontend=' + str(frontend), '--without-loki-install',
-        '--cloudsc-prototype1=OFF', '--cloudsc-fortran=OFF', '--cloudsc-c=OFF',
+        '--with-loki=ON', '--loki-frontend=' + str(frontend), '--without-loki-install',
+        '--with-double-precision=ON', '--with-single-precision=ON'
     ]
 
     if 'CLOUDSC_ARCH' in os.environ:
         build_cmd += [f"--arch={os.environ['CLOUDSC_ARCH']}"]
-    else:
-        # Build without OpenACC support as this makes problems
-        # with older versions of GNU
-        build_cmd += ['--cmake=ENABLE_ACC=OFF']
 
     execute(build_cmd, cwd=here, silent=False)
 
@@ -76,14 +72,15 @@ def test_cloudsc(here, frontend):
     os.symlink(here/'data', here/'build/data')
 
     # Run the produced binaries
-    binaries = [
-        ('dwarf-cloudsc-loki-idem', '2', '16000', '32'),
-        ('dwarf-cloudsc-loki-scc', '1', '16000', '32'),
-        ('dwarf-cloudsc-loki-scc-hoist', '1', '16000', '32'),
-        ('dwarf-cloudsc-loki-c', '2', '16000', '32'),
-        ('dwarf-cloudsc-loki-idem-stack', '2', '16000', '32'),
-        ('dwarf-cloudsc-loki-scc-stack', '1', '16000', '32'),
-    ]
+    binaries = [('dwarf-cloudsc-loki-c-dp', '2', '16000', '32')]
+    for prec in ('dp', 'sp'):
+        binaries += [
+            (f'dwarf-cloudsc-loki-idem-{prec}', '2', '16000', '32'),
+            (f'dwarf-cloudsc-loki-idem-stack-{prec}', '2', '16000', '32'),
+            (f'dwarf-cloudsc-loki-scc-{prec}', '1', '16000', '32'),
+            (f'dwarf-cloudsc-loki-scc-hoist-{prec}', '1', '16000', '32'),
+            (f'dwarf-cloudsc-loki-scc-stack-{prec}', '1', '16000', '32'),
+        ]
 
     failures, warnings = {}, {}
     for binary, *args in binaries:
@@ -97,7 +94,9 @@ def test_cloudsc(here, frontend):
             no_errors = results['AbsMaxErr'].astype('float') == 0
             if not no_errors.all(axis=None):
                 only_small_errors = results['MaxRelErr-%'].astype('float') < 1e-12
-                if not only_small_errors.all(axis=None):
+                # We report only validation failures for double-precision as the single-precision
+                # result validation is known to fail due to a lack of suitable reference data
+                if binary.endswith('-dp') and not only_small_errors.all(axis=None):
                     failures[binary] = results
                 else:
                     warnings[binary] = results
