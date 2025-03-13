@@ -313,26 +313,32 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             lhs_vars = {o.variable}
             lhs_vars.update([l.variable for l in FindNodes(Loop).visit(o.body)])
 
+            new_body = self.visit(o.body, constants_map=constants_map, **kwargs)
+
             # Build a set of invariants
-            assignments = FindNodes(Assignment).visit(o.body)
+            assignments = FindNodes(Assignment).visit(new_body)
             for a in assignments:
                 lhs_vars.add(a.lhs)
 
+            bounds_are_const = (is_constant(new_bounds.start) and is_constant(new_bounds.stop) and (is_constant(new_bounds.step) or new_bounds.step is None))
             # Then figure out which lhs are generated from only invariants
             for a in assignments:
-                # if rhs of a has no lhs vars from loop body (i.e. consists solely of loop invariant var),
-                # and all bounds are const (i.e. we can guarantee we'll take the loop at least once)
-                if (len(set(FindVariables().visit(a.rhs)).intersection(lhs_vars)) == 0 and
-                        is_constant(new_bounds.start) and is_constant(new_bounds.stop) and (is_constant(new_bounds.step) or new_bounds.step is None)):
+                # If all bounds are const (i.e. we can check we'll take the loop at least once),
+                # and we can guarantee we'll take the loop at least once,
+                # and rhs of a has no lhs vars from loop body (i.e. consists solely of loop invariant var)
+                if ( bounds_are_const
+                        and len(get_pyrange(LoopRange((new_bounds.start, new_bounds.stop, new_bounds.step)))) > 0
+                        and len(set(FindVariables().visit(a.rhs)).intersection(lhs_vars)) == 0):
                     # Pass to visit_assignment
                     self.visit_Assignment(a, constants_map=constants_map, **kwargs)
-                else:
+                # If not all bounds are const (i.e. we don't know if we're taking the loop or not)
+                elif not bounds_are_const:
                     if isinstance(a.lhs, Array):
                         self._pop_array_accesses(a, constants_map=constants_map, **kwargs)
                     else:
                         constants_map.pop((a.lhs.basename, ()), None)
+                # Implicitly do nothing if we know we won't ever take the loop
 
-            new_body = self.visit(o.body, constants_map=deepcopy(constants_map), **kwargs)
             if self.parent._apply_transform:
                 o._update(body=new_body)
 
