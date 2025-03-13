@@ -190,18 +190,29 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
     """
     # pylint: disable=unused-argument
     def pmap_create(self, pragma, parameters, **kwargs):
+        # if param_device := parameters.get('device'):
+        #     return Pragma(keyword='omp', content=f'declare target({param_device})')
+        # return self.default_retval()
         if param_device := parameters.get('device'):
-            return Pragma(keyword='omp', content=f'declare target({param_device})')
+            return Pragma(keyword='acc', content=f'declare create({param_device})')
         return self.default_retval()
 
     def pmap_update(self, pragma, parameters, **kwargs):
+        # content = ''
+        # if param_device := parameters.get('device'):
+        #     content += f' to({param_device})'
+        # if param_host := parameters.get('host'):
+        #     content += f' from({param_host})'
+        # if content:
+        #     return Pragma(keyword='omp', content=f'target update{content}')
+        # return self.default_retval()
         content = ''
         if param_device := parameters.get('device'):
-            content += f' to({param_device})'
+            content += f' device({param_device})'
         if param_host := parameters.get('host'):
-            content += f' from({param_host})'
+            content += f' self({param_host})'
         if content:
-            return Pragma(keyword='omp', content=f'target update{content}')
+            return Pragma(keyword='acc', content=f'update{content}')
         return self.default_retval()
 
     def pmap_unstructured_data(self, pragma, parameters, **kwargs):

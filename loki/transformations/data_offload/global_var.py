@@ -89,7 +89,7 @@ class GlobalVariableAnalysis(Transformation):
         item = kwargs['item']
 
         # Gather all module variables and filter out parameters
-        variables = {var for var in module.variables if not var.type.parameter}
+        variables = {var for var in module.variables} #  if not var.type.parameter}
 
         # Initialize and store trafo data
         item.trafo_data[self._key] = {
@@ -281,7 +281,7 @@ class GlobalVarOffloadTransformation(Transformation):
         # Build list of symbols to be offloaded (discard variables being parameter)
         offload_variables = {
             var.parents[0] if var.parent else var
-            for var in item.trafo_data[self._key].get('offload', ()) if not var.type.parameter
+            for var in item.trafo_data[self._key].get('offload', ()) #  if not var.type.parameter
         }
 
         if (invalid_vars := offload_variables - set(module.variables)):
@@ -319,8 +319,8 @@ class GlobalVarOffloadTransformation(Transformation):
             item.trafo_data[self._key]['uses_symbols'],
             item.trafo_data[self._key]['defines_symbols']
         ):
-            if var.type.parameter:
-                continue
+            # if var.type.parameter:
+            #     continue
             if successor := successors_map.get(module):
                 successor.trafo_data[self._key]['offload'].add(var)
 
@@ -343,7 +343,7 @@ class GlobalVarOffloadTransformation(Transformation):
             uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', set())
             # discard variables being parameter
             parameters = {(var, module) for var, module in uses_symbols if var.type.parameter}
-            uses_symbols ^= parameters
+            # uses_symbols ^= parameters
 
         # Filter out arrays of derived types and nested derived types
         # For these, automatic offloading is currently not supported
