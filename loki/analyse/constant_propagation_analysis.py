@@ -63,7 +63,6 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                                              left_attr='base', right_attr='exponent', *args, **kwargs)
 
         def binary_num_op_helper(self, expr, int_op, float_op, left_attr=None, right_attr=None, *args, **kwargs):
-            left = right = None
             lr_fields = not (left_attr is None and right_attr is None)
             if lr_fields:
                 children = [getattr(expr, left_attr), getattr(expr, right_attr)]
@@ -88,7 +87,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                         return IntLiteral(int_op([c.value for c in children]))
 
             if lr_fields:
-                return expr.__class__(left, right)
+                return expr.__class__(children[0], children[1])
             else:
                 return expr.__class__(children)
 
