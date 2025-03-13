@@ -14,11 +14,11 @@ execution from Python tests.
 
 from loki.logging import * # noqa
 
-from loki.build.binary import * # noqa
-from loki.build.builder import * # noqa
-from loki.build.compiler import * # noqa  # pylint: disable=redefined-builtin
-from loki.build.header import * # noqa
-from loki.build.jit import * # noqa
-from loki.build.lib import * # noqa
-from loki.build.obj import * # noqa
-from loki.build.workqueue import * # noqa
+from loki.jit_build.binary import * # noqa
+from loki.jit_build.builder import * # noqa
+from loki.jit_build.compiler import * # noqa  # pylint: disable=redefined-builtin
+from loki.jit_build.header import * # noqa
+from loki.jit_build.jit import * # noqa
+from loki.jit_build.lib import * # noqa
+from loki.jit_build.obj import * # noqa
+from loki.jit_build.workqueue import * # noqa

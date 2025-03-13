@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 
 from loki import Scheduler, fgen
-from loki.build import jit_compile
+from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes

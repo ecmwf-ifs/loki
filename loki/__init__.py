@@ -26,7 +26,7 @@ from loki.scope import *  # noqa
 from loki.tools import *  # noqa
 from loki.logging import *  # noqa
 from loki.backend import *  # noqa
-from loki.build import *  # noqa  # pylint: disable=redefined-builtin
+from loki.jit_build import *  # noqa  # pylint: disable=redefined-builtin
 from loki.batch import *  # noqa
 from loki.lint import *  # noqa
 from loki.analyse import *  # noqa

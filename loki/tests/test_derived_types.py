@@ -20,7 +20,7 @@ from loki import (
     StringSubscript, Conditional, CallStatement, ProcedureSymbol,
     FindVariables
 )
-from loki.build import jit_compile, jit_compile_lib, Obj
+from loki.jit_build import jit_compile, jit_compile_lib, Obj
 from loki.frontend import available_frontends, OMNI
 
 from conftest import XFAIL_DERIVED_TYPE_JIT_TESTS

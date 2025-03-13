@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine
-from loki.build import jit_compile
+from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -510,7 +510,7 @@ end subroutine acraneb_transt
 def test_inline_member_routines_with_optionals(frontend):
     """
     Ensure that internal routines with optional arguments get
-    inlined as expected (esp. present instrinsics are correctly 
+    inlined as expected (esp. present instrinsics are correctly
     evaluated for all variables types)
     """
     fcode = """
@@ -524,26 +524,26 @@ subroutine test_inline(klon, ydxfu, ydmf_phys_out)
   integer(kind=4), intent(in) :: klon
   type(txfu)              ,intent(inout)            :: ydxfu
   type(mf_phys_out_type)  ,intent(in)               :: ydmf_phys_out
- 
+
   call member_rout (ydxfu%visicld, pvmin=ydmf_phys_out%visicld, psmax=1.0_8)
 
   contains
 
   subroutine member_rout (x, pvmin, pvmax, psmin, psmax)
-    
+
     real(kind=8)         ,intent(inout)            :: x(1:klon)
     real(kind=8)         ,intent(in)    ,optional  :: pvmin(1:klon)
     real(kind=8)         ,intent(in)    ,optional  :: pvmax(1:klon)
     real(kind=8)         ,intent(in)    ,optional  :: psmin
     real(kind=8)         ,intent(in)    ,optional  :: psmax
-    
+
     if (present (psmin)) x = psmin
     if (present (psmax)) x = psmax
     if (present (pvmin)) x = minval(pvmin(:))
     if (present (pvmax)) x = maxval(pvmax(:))
-    
-  end subroutine member_rout 
-    
+
+  end subroutine member_rout
+
 end subroutine test_inline
     """
 

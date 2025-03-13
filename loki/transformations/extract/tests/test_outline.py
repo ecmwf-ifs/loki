@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine
-from loki.build import jit_compile, jit_compile_lib, Builder, Obj
+from loki.jit_build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.frontend import available_frontends
 from loki.ir import FindNodes, Section, Assignment, CallStatement, Intrinsic
 from loki.tools import as_tuple
