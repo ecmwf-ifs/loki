@@ -4,6 +4,7 @@
 - J. Ericsson (ECMWF)
 - R. Heilemann Myhre (Met Norway)
 - S. Karppinen (FMI)
+- R. Kazeroni (CNRS/IPSL)
 - P. Kiepas (École polytechnique/IPSL)
 - M. Lange (ECMWF)
 - J. Legaux (CERFACS)
