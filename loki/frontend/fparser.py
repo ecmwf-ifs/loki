@@ -481,13 +481,12 @@ class FParser2IR(GenericVisitor):
                     # Don't import private module symbols
                     if v.private:
                         continue
+                    if module.default_access_spec == "private":
+                        if k not in module.public_access_spec and not v.public:
+                            continue
                     else:
-                        if module.default_access_spec == "private":
-                            if k not in module.public_access_spec and not v.public:
-                                continue
-                        else:
-                            if k in module.private_access_spec:
-                                continue
+                        if k in module.private_access_spec:
+                            continue
                     if k in rename_list:
                         local_name = rename_list[k].name
                         scope.symbol_attrs[local_name] = v.clone(imported=True, module=module, use_name=k)
