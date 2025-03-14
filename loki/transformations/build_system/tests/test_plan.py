@@ -14,8 +14,9 @@ from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.transformations.build_system import CMakePlanTransformation, FileWriteTransformation
 
 
-@pytest.mark.parametrize('rootpath', [None, 'tmp_path'])
-def test_plan_relative_paths(tmp_path, monkeypatch, rootpath):
+@pytest.mark.parametrize('use_rootpath', [False, True])
+@pytest.mark.parametrize('use_fullpath', [False, True])
+def test_plan_relative_paths(tmp_path, monkeypatch, use_rootpath, use_fullpath):
     """
     A test that emulates the use of overlay file systems that may cause issues
     if paths are resolved prematurely.
@@ -43,8 +44,8 @@ def test_plan_relative_paths(tmp_path, monkeypatch, rootpath):
     (tmp_path/'overlay_path').symlink_to('real_path')
     (tmp_path/'build').mkdir()
 
-    if rootpath == 'tmp_path':
-        rootpath = tmp_path
+    rootpath = tmp_path if use_rootpath else None
+    srcpath = f'{tmp_path}/' if use_fullpath else ''
 
     fcode_mymod = """
 module mymod
@@ -83,7 +84,7 @@ end subroutine mysub
         }
     })
     scheduler = Scheduler(
-        paths=['overlay_path'],
+        paths=[f'{srcpath}overlay_path'],
         config=config,
         full_parse=False,
         output_dir=tmp_path/'build'
@@ -91,8 +92,8 @@ end subroutine mysub
     assert scheduler.items == ('#mysub', 'mymod#mod_sub')
 
     # Scheduler items are all relative paths
-    assert scheduler['#mysub'].source.path == Path('overlay_path/src/mysub.F90')
-    assert scheduler['mymod#mod_sub'].source.path == Path('overlay_path/module/mymod.F90')
+    assert scheduler['#mysub'].source.path == Path(f'{srcpath}overlay_path/src/mysub.F90')
+    assert scheduler['mymod#mod_sub'].source.path == Path(f'{srcpath}overlay_path/module/mymod.F90')
 
     # Run the planning transformation pipeline
     scheduler.process(
@@ -120,15 +121,11 @@ end subroutine mysub
     if rootpath:
         to_transform = [Path('real_path/src/mysub.F90'), Path('real_path/module/mymod.F90')]
     else:
-        to_transform = [Path('overlay_path/src/mysub.F90'), Path('overlay_path/module/mymod.F90')]
-
-    # The list of files to remove matches the relative paths given to the original Scheduler
-    # invocation to ensure we match exactly what the build system gave us
-    to_remove = [Path('overlay_path/src/mysub.F90'), Path('overlay_path/module/mymod.F90')]
+        to_transform = [Path(f'{srcpath}overlay_path/src/mysub.F90'), Path(f'{srcpath}overlay_path/module/mymod.F90')]
 
     assert plan_trafo.sources_to_append == to_append
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == to_append
     assert plan_trafo.sources_to_transform == to_transform
     assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == to_transform
-    assert plan_trafo.sources_to_remove == to_remove
-    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == to_remove
+    assert plan_trafo.sources_to_remove == to_transform
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == to_transform

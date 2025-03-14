@@ -106,12 +106,15 @@ class CMakePlanTransformation(Transformation):
                 # Replace old source file to avoid ghosting
                 self.sources_to_append += [newsource]
                 if source_exists:
-                    # NB: we use the item path directly here instead of resolving it,
-                    #     to stay compatible with what has been provided on the CLI.
-                    #     This is because the build system will likely use this path
-                    #     internally to identify the original file, and if the paths
-                    #     don't match the removal of source files from the target fails.
-                    self.sources_to_remove += [item.path]
+                    if self.rootpath is not None:
+                        self.sources_to_remove += [sourcepath]
+                    else:
+                        # NB: we use the item path directly here instead of resolving it,
+                        #     to stay compatible with what has been provided on the CLI.
+                        #     This is because the build system will likely use this path
+                        #     internally to identify the original file, and if the paths
+                        #     don't match the removal of source files from the target fails.
+                        self.sources_to_remove += [item.path]
 
     def write_plan(self, filepath):
         """
