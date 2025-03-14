@@ -15,6 +15,8 @@ from pathlib import Path
 from loki.batch.transformation import Transformation
 from loki.logging import debug
 
+__all__ = ['CMakePlanTransformation']
+
 class CMakePlanTransformation(Transformation):
     """
     Gather the planning information from all :any:`Item.trafo_data` to which
@@ -79,7 +81,7 @@ class CMakePlanTransformation(Transformation):
         if not 'FileWriteTransformation' in item.trafo_data:
             return
 
-        sourcepath = item.path.resolve()
+        sourcepath = item.path
 
         # This makes sure the sourcepath does in fact exist. Combined with
         # item duplication or other transformations we might end up adding
@@ -88,7 +90,7 @@ class CMakePlanTransformation(Transformation):
         source_exists = sourcepath.exists()
 
         if self.rootpath is not None:
-            sourcepath = sourcepath.relative_to(self.rootpath)
+            sourcepath = sourcepath.resolve().relative_to(self.rootpath)
 
         newsource = item.trafo_data['FileWriteTransformation']['path']
 
@@ -104,7 +106,15 @@ class CMakePlanTransformation(Transformation):
                 # Replace old source file to avoid ghosting
                 self.sources_to_append += [newsource]
                 if source_exists:
-                    self.sources_to_remove += [sourcepath]
+                    if self.rootpath is not None:
+                        self.sources_to_remove += [sourcepath]
+                    else:
+                        # NB: we use the item path directly here instead of resolving it,
+                        #     to stay compatible with what has been provided on the CLI.
+                        #     This is because the build system will likely use this path
+                        #     internally to identify the original file, and if the paths
+                        #     don't match the removal of source files from the target fails.
+                        self.sources_to_remove += [item.path]
 
     def write_plan(self, filepath):
         """
