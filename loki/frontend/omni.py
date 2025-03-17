@@ -1303,8 +1303,9 @@ class OMNI2IR(GenericVisitor):
     def visit_FprintStatement(self, o, **kwargs):
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
         args = ', '.join(f'{v}' for v in values)
+        args = f", {args}" if values else ""
         fmt = o.attrib['format']
-        return ir.Intrinsic(text=f'print {fmt}, {args}', source=kwargs['source'])
+        return ir.Intrinsic(text=f'print {fmt}{args}', source=kwargs['source'])
 
     def visit_FformatDecl(self, o, **kwargs):
         fmt = f'FORMAT{o.attrib["format"]}'
