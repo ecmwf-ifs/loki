@@ -872,6 +872,54 @@ end module mod_main
     assert var.type.module is mod_public
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_access_spec(tmp_path, frontend):
+    """
+    Check that access-spec statements are dealt with correctly.
+    """
+    code_mod_private_var_public = """
+module mod_private_var_public
+    private
+    integer :: var
+    public :: var
+end module mod_private_var_public
+    """
+    code_mod_public_var_private = """
+module mod_public_var_private
+    public
+    integer :: var
+    private :: var
+end module mod_public_var_private
+    """
+    code_mod_main = """
+module mod_main
+    use mod_private_var_public
+    use mod_public_var_private
+contains
+
+    subroutine test_routine()
+        integer :: result
+        result = var
+    end subroutine test_routine
+
+end module mod_main
+    """
+
+    mod_private_var_public = Module.from_source(code_mod_private_var_public, frontend=frontend, xmods=[tmp_path])
+    mod_public_var_private = Module.from_source(code_mod_public_var_private, frontend=frontend, xmods=[tmp_path])
+    mod_main = Module.from_source(
+        code_mod_main, frontend=frontend, definitions=[mod_private_var_public, mod_public_var_private], xmods=[tmp_path]
+    )
+    var = mod_main.subroutines[0].body.body[0].rhs
+    # Check if this is really our symbol
+    assert var.name == "var"
+    assert var.scope is mod_main
+    # Check if the symbol is imported
+    assert var.type.imported is True
+    # Check if the symbol comes from the mod_private_var_public module
+    assert var.type.module is mod_private_var_public
+
+
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI does not like intrinsic shading for member functions!')]
 ))
