@@ -19,8 +19,8 @@ from loki.scope import Scope
 
 
 __all__ = [
-    'FieldAPITransferType', 'FieldPointerMap', 'get_field_type',
-    'field_get_device_data', 'field_sync_host'
+    'FieldAPITransferType', 'FieldPointerMap', 'get_field_type', 'field_get_device_data',
+    'field_get_host_data', 'field_sync_device', 'field_sync_host'
 ]
 
 
@@ -28,6 +28,12 @@ class FieldAPITransferType(Enum):
     READ_ONLY = 1
     READ_WRITE = 2
     WRITE_ONLY = 3
+    FORCE = 4
+
+
+class FieldAPITransferDirection(Enum):
+    DEVICE_TO_HOST=1
+    HOST_TO_DEVICE=2
 
 
 class FieldPointerMap:
@@ -147,6 +153,47 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
     return field_type
 
 
+def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
+                    transfer_direction: FieldAPITransferDirection,
+                    scope: Scope, queue=None, blk_bounds=None):
+
+    if not isinstance(transfer_type, FieldAPITransferType):
+        raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
+    if transfer_type != FieldAPITransferType.FORCE and (queue is not None or blk_bounds is not None):
+        raise ValueError("Only force copy methods can have non-None type queue or blk_bounds")
+
+    if transfer_type == FieldAPITransferType.READ_ONLY:
+        suffix = 'RDONLY'
+    elif transfer_type == FieldAPITransferType.READ_WRITE:
+        suffix = 'RDWR'
+    elif transfer_type == FieldAPITransferType.WRITE_ONLY:
+        suffix = 'WRONLY'
+    elif transfer_type == FieldAPITransferType.FORCE:
+        suffix = 'FORCE'
+    else:
+        suffix = ''
+
+    if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
+        direction = 'HOST'
+    elif transfer_direction == FieldAPITransferDirection.HOST_TO_DEVICE:
+        direction = 'DEVICE'
+    else:
+        raise TypeError("transfer_direction must be of type FieldAPITransferDirection, but is of" +
+                        f"type {type(transfer_type)}")
+
+    procedure_name = 'GET_' + direction + '_DATA_' + suffix
+
+    kwargs = []
+    if queue is not None:
+        kwargs.append(('queue', queue))
+    if blk_bounds is not None:
+        kwargs.append(('blk_bounds', blk_bounds))
+    kwargs = tuple(kwargs) if len(kwargs) > 0 else None
+
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                            arguments=(dev_ptr.clone(dimensions=None),), kwarguments=kwargs)
+
+
 def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope,
                           queue=None, blk_bounds=None):
     """
@@ -168,9 +215,44 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
     blk_bounds: integer dimension(2) array
         ``BLK_BOUNDS`` optional argument
     """
+    return _field_get_data(field_ptr, dev_ptr, transfer_type, FieldAPITransferDirection.HOST_TO_DEVICE,
+                           scope, blk_bounds)
+
+
+def field_get_host_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope,
+                        queue=None, blk_bounds=None):
+    """
+    Utility function to generate a :any:`CallStatement` corresponding to a Field API
+    ``GET_HOST_DATA`` call.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``GET_DEVICE_DATA`` from.
+    dev_ptr: :any:`Array`
+        Device pointer array
+    transfer_type: :any:`FieldAPITransferType`
+        Field API transfer type to determine which ``GET_DEVICE_DATA`` method to call.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    queue: integer
+       ``QUEUE`` optional  argument
+    blk_bounds: integer dimension(2) array
+        ``BLK_BOUNDS`` optional argument
+    """
+    return _field_get_data(field_ptr, dev_ptr, transfer_type, FieldAPITransferDirection.DEVICE_TO_HOST,
+                           scope, blk_bounds)
+
+
+
+def _field_sync(field_ptr, transfer_type: FieldAPITransferType,
+                transfer_direction: FieldAPITransferDirection,
+                scope: Scope, queue=None, blk_bounds=None):
 
     if not isinstance(transfer_type, FieldAPITransferType):
         raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
+    if transfer_type != FieldAPITransferType.FORCE and (queue is not None or blk_bounds is not None):
+        raise ValueError("Only force copy methods can have non-None type queue or blk_bounds")
 
     if transfer_type == FieldAPITransferType.READ_ONLY:
         suffix = 'RDONLY'
@@ -178,9 +260,20 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
         suffix = 'RDWR'
     elif transfer_type == FieldAPITransferType.WRITE_ONLY:
         suffix = 'WRONLY'
+    elif transfer_type == FieldAPITransferType.FORCE:
+        suffix = 'FORCE'
     else:
         suffix = ''
-    procedure_name = 'GET_DEVICE_DATA_' + suffix
+
+    if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
+        direction = 'HOST'
+    elif transfer_direction == FieldAPITransferDirection.HOST_TO_DEVICE:
+        direction = 'DEVICE'
+    else:
+        raise TypeError("transfer_direction must be of type FieldAPITransferDirection, but is of" +
+                        f"type {type(transfer_type)}")
+
+    procedure_name = 'SYNC_' + direction + '_' + suffix
 
     kwargs = []
     if queue is not None:
@@ -190,7 +283,29 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
     kwargs = tuple(kwargs) if len(kwargs) > 0 else None
 
     return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            arguments=(dev_ptr.clone(dimensions=None),), kwarguments=kwargs)
+                            kwarguments=kwargs)
+
+
+def field_sync_device(field_ptr, transfer_type: FieldAPITransferType, scope: Scope,
+                      queue=None, blk_bounds=None):
+    """
+    Utility function to generate a :any:`CallStatement` corresponding to a Field API
+    ``SYNC_DEVICE`` call.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``SYNC_HOST`` from.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    queue: integer
+       ``QUEUE`` optional  argument
+    blk_bounds: integer dimension(2) array
+        ``BLK_BOUNDS`` optional argument
+    """
+
+    return _field_sync(field_ptr, transfer_type, FieldAPITransferDirection.HOST_TO_DEVICE,
+                       scope, queue, blk_bounds)
 
 
 def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope,
@@ -211,25 +326,8 @@ def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope
         ``BLK_BOUNDS`` optional argument
     """
 
-    if not isinstance(transfer_type, FieldAPITransferType):
-        raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
-    if transfer_type == FieldAPITransferType.READ_ONLY:
-        suffix = 'RDONLY'
-    elif transfer_type == FieldAPITransferType.READ_WRITE:
-        suffix = 'RDWR'
-    else:
-        raise TypeError("incorrect transfer_type for Field-API sync method")
-    procedure_name = 'SYNC_HOST_' + suffix
-
-    kwargs = []
-    if queue is not None:
-        kwargs.append(('queue', queue))
-    if blk_bounds is not None:
-        kwargs.append(('blk_bounds', blk_bounds))
-    kwargs = tuple(kwargs) if len(kwargs) > 0 else None
-
-    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            kwarguments=kwargs)
+    return _field_sync(field_ptr, transfer_type, FieldAPITransferDirection.DEVICE_TO_HOST,
+                       scope, queue, blk_bounds)
 
 
 def find_field_offload_calls(ir_section):
