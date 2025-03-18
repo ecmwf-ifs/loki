@@ -852,6 +852,8 @@ class OMNI2IR(GenericVisitor):
             _type.public = True
         if o.get('is_save') == 'true':
             _type.save = True
+        if o.get('is_protected') == 'true':
+            _type.protected = True
         return _type
 
     def visit_FfunctionType(self, o, **kwargs):
