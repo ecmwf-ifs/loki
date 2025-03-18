@@ -21,8 +21,6 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, FP, HAVE_FP
 from loki.ir import nodes as ir, FindNodes, FindVariables
 
-from conftest import XFAIL_DERIVED_TYPE_JIT_TESTS
-
 
 @pytest.fixture(name='reset_frontend_mode')
 def fixture_reset_frontend_mode():
@@ -31,10 +29,6 @@ def fixture_reset_frontend_mode():
     config['frontend-strict-mode'] = original_frontend_mode
 
 
-@pytest.mark.xfail(
-    XFAIL_DERIVED_TYPE_JIT_TESTS,
-    reason='Support for user-defined derived type arguments is broken in JIT compile'
-)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_check_alloc_opts(tmp_path, frontend):
     """
@@ -128,10 +122,6 @@ end module alloc_mod
     mod.free_deferred(item2)
 
 
-@pytest.mark.xfail(
-    XFAIL_DERIVED_TYPE_JIT_TESTS,
-    reason='Support for user-defined derived type arguments is broken in JIT compile'
-)
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_associates(tmp_path, frontend):
     """Test the use of associate to access and modify other items"""
