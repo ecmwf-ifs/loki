@@ -8,3 +8,4 @@
 from loki.transformations.build_system.dependency import * # noqa
 from loki.transformations.build_system.file_write import * # noqa
 from loki.transformations.build_system.module_wrap import * # noqa
+from loki.transformations.build_system.plan import * # noqa
