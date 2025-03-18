@@ -92,15 +92,22 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     if not compiler:
         compiler = _default_compiler
 
+    # Compile the true sources into a small static lib first
+    compiler.compile(source=filepath.absolute(), cwd=cwd)
+    compiler.link([f'{filepath.stem}.o'], f'lib{filepath.stem}.a', shared=False, cwd=cwd)
+
     # Generate the Python interfaces
     compiler.f90wrap(modname=filepath.stem, source=[filepath.absolute()], kind_map=f90wrap_kind_map, cwd=cwd)
 
-    # Compile the dynamic library
-    f2py_source = [str(filepath.absolute())]
-    for sourcefile in [f'f90wrap_{filepath.stem}.f90', 'f90wrap_toplevel.f90']:
-        if (filepath.parent/sourcefile).exists():
-            f2py_source += [sourcefile]
-    compiler.f2py(modname=filepath.stem, source=f2py_source, cwd=cwd)
+    # Compile the dynamic library and link the static source lib
+    f2py_source = [
+        s for s in (f'f90wrap_{filepath.stem}.f90', 'f90wrap_toplevel.f90')
+        if (filepath.parent/s).exists()
+    ]
+    compiler.f2py(
+        modname=filepath.stem, source=f2py_source,
+        libs=[f'{filepath.stem}'], lib_dirs=[cwd], cwd=cwd
+    )
 
     # Add directory to module search path
     moddir = str(filepath.parent)
