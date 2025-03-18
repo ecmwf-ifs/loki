@@ -312,7 +312,11 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             lhs_vars = {o.variable}
             lhs_vars.update([l.variable for l in FindNodes(Loop).visit(o.body)])
 
-            new_body = self.visit(o.body, constants_map=constants_map, **kwargs)
+            new_body_constants_map = deepcopy(constants_map)
+            new_body = self.visit(o.body, constants_map=new_body_constants_map, **kwargs)
+            popped_keys = constants_map_in.keys() - new_body_constants_map.keys()
+            for key in popped_keys:
+                constants_map.pop(key, None)
 
             # Build a set of invariants
             assignments = FindNodes(Assignment).visit(new_body)
