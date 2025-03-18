@@ -2990,7 +2990,9 @@ class FParser2IR(GenericVisitor):
                             label=kwargs.get('label'))
 
     def visit_Print_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text=f'PRINT {", ".join(str(i) for i in o.items)}',
+        # NOTE: fparser returns None for an empty print (`PRINT *`) instead of
+        #       the usual `Output_Item_List` entity.
+        return ir.Intrinsic(text=f'PRINT {", ".join(str(i) for i in o.items if i is not None)}',
                             source=kwargs.get('source'), label=kwargs.get('label'))
 
     # TODO: Deal with line-continuation pragmas!

@@ -1102,3 +1102,27 @@ end subroutine kernel
     assert c.shape[1].lower == 0
 
     assert all('*' in str(shape) for shape in [a.shape, b.shape, c.shape])
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_empty_print_statement(frontend):
+    """
+    Test if an empty print statement (PRINT *) is parsed correctly.
+    """
+    fcode = """
+SUBROUTINE test_routine()
+    IMPLICIT NONE
+    print *
+    ! Using single quotes to simplify the test comparison (see below)
+    print *, 'test_text'
+END SUBROUTINE test_routine
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    print_stmts = [
+        intr for intr in FindNodes(ir.Intrinsic).visit(routine.ir)
+        if 'print' in intr.text.lower()
+    ]
+    assert print_stmts[0].text.lower() == "print *"
+    # NOTE: OMNI always uses single quotes ('') to represent string data in PRINT statements
+    #       while fparser will mimic the quotes used in the parsed source code
+    assert print_stmts[1].text.lower() == "print *, 'test_text'"
