@@ -217,6 +217,25 @@ END MODULE test
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_fgen_protected_attribute(frontend, tmp_path):
+    """
+    Make sure the PROTECTED attribute on declarations is preserved (#506).
+
+    This test mimics the `test_fgen_save_attribute` test.
+    """
+    fcode = """
+MODULE test
+    INTEGER, PROTECTED :: variable
+END MODULE test
+    """.strip()
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    assert module['variable'].type.protected is True
+    assert len(module.declarations) == 1
+    assert 'PROTECTED' in fgen(module.declarations[0])
+    assert 'PROTECTED' in module.to_fortran()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('external_decl', ('real :: x\n    external x', 'real, external :: x'))
 @pytest.mark.parametrize('body', ('', 'y = x()'))
 def test_fgen_external_procedure(frontend, external_decl, body):
