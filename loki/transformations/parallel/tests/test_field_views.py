@@ -16,7 +16,8 @@ from loki.types import BasicType, SymbolAttributes
 from loki.logging import WARNING
 
 from loki.transformations.field_api import (
-    get_field_type, field_get_device_data, FieldAPITransferType
+    get_field_type, field_get_device_data, field_get_host_data, field_sync_host, field_sync_device,
+    FieldAPITransferType
 )
 from loki.transformations.parallel import (
     remove_field_api_view_updates, add_field_api_view_updates
@@ -191,13 +192,48 @@ def test_get_field_type():
         assert isinstance(field, sym.DerivedType) and field.name == field_name
 
 
-def test_field_get_device_data():
-    scope = Scope()
+@pytest.mark.parametrize("field_get_fn", [field_get_device_data, field_get_host_data])
+def test_field_get_data(field_get_fn):
+    scope= Scope()
     fptr = sym.Variable(name='fptr_var')
     dev_ptr = sym.Variable(name='data_var')
+    queue = sym.IntLiteral(1)
+    blk_bounds = sym.Array(name='blk_bounds', scope=scope, dimensions=(None, None))
+
     for fttype in FieldAPITransferType:
-        get_dev_data_call = field_get_device_data(fptr, dev_ptr, fttype, scope)
-        assert isinstance(get_dev_data_call, ir.CallStatement)
-        assert get_dev_data_call.name.parent == fptr
+        get_data_call = field_get_fn(fptr, dev_ptr, fttype, scope)
+        assert isinstance(get_data_call, ir.CallStatement)
+        assert get_data_call.name.parent == fptr
+        if fttype != FieldAPITransferType.FORCE:
+            with pytest.raises(ValueError):
+                _ = field_get_fn(fptr, dev_ptr, fttype, scope, queue, blk_bounds)
+        else:
+            sync_call = field_get_fn(fptr, dev_ptr, fttype, scope, queue, blk_bounds)
+            assert isinstance(sync_call, ir.CallStatement)
+            assert sync_call.name.parent == fptr
+
     with pytest.raises(TypeError):
-        _ = field_get_device_data(fptr, dev_ptr, "none_transfer_type", scope)
+        _ = field_get_fn(fptr, dev_ptr, "none_transfer_type", scope)
+
+
+@pytest.mark.parametrize("field_sync_fn", [field_sync_device, field_sync_host])
+def test_field_sync(field_sync_fn):
+    scope= Scope()
+    fptr = sym.Variable(name='fptr_var')
+    queue = sym.IntLiteral(1)
+    blk_bounds = sym.Array(name='blk_bounds', scope=scope, dimensions=(None, None))
+
+    for fttype in FieldAPITransferType:
+        sync_call = field_sync_fn(fptr, fttype, scope)
+        assert isinstance(sync_call, ir.CallStatement)
+        assert sync_call.name.parent == fptr
+        if fttype != FieldAPITransferType.FORCE:
+            with pytest.raises(ValueError):
+                _ = field_sync_fn(fptr, fttype, scope, queue, blk_bounds)
+        else:
+            sync_call = field_sync_fn(fptr, fttype, scope, queue, blk_bounds)
+            assert isinstance(sync_call, ir.CallStatement)
+            assert sync_call.name.parent == fptr
+
+    with pytest.raises(TypeError):
+        _ = field_sync_fn(fptr, "none_transfer_type", scope)
