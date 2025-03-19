@@ -23,6 +23,7 @@ from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.tools import as_tuple
 from loki.types import BasicType, SymbolAttributes
+from loki.transformations.array_indexing import flatten_arrays_2
 from loki.transformations.utilities import recursive_expression_map_update
 
 
@@ -136,6 +137,26 @@ class TemporariesRawStackTransformation(Transformation):
 
             self.create_stacks_driver(routine, stack_dict, successors)
 
+        variables = FindVariables().visit(routine.body)
+        variables = [str(var.name).lower() for var in variables if 'stack' in str(var.name).lower() and 'size' not in str(var.name).lower()]
+        # flatten_arrays_2(routine, variables)
+
+    @staticmethod
+    def new_dims(dim, shape, start_index=1, reverse=False):
+        if reverse:
+            dim = dim[::-1]
+            shape = shape[::-1]
+        if all(_dim == RangeIndex((None, None)) for _dim in dim):
+            return None
+        if len(dim) > 1:
+            if isinstance(shape[-2], RangeIndex):
+                raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+            _dim = (Sum((dim[-2], Product((shape[-2], dim[-1] - start_index)))),)
+            new_dim = dim[:-2]
+            new_dim += _dim
+            return TemporariesRawStackTransformation.new_dims(new_dim, shape[:-1])
+        return dim
+
     @staticmethod
     def _insert_stack_at_loki_pragma(routine, insert):
         pragma_map = {}
@@ -229,7 +250,7 @@ class TemporariesRawStackTransformation(Transformation):
         jgpblock = Scalar(name=self.block_dim.index, scope=routine, type=self.int_type)
 
         #Full dimensions for arguments
-        fulldim = (RangeIndex((None,None)),RangeIndex((None,None)))
+        fulldim = (RangeIndex((None,None)),)
 
         stack_vars = []
         stack_arg_dict = {}
@@ -256,14 +277,10 @@ class TemporariesRawStackTransformation(Transformation):
                 # stack_type = stack_var.type.clone(
                 #     shape=(horizontal_size, stack_dict[dtype][kind], kgpblock)
                 # )
-                # stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
-                stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
+                stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
                 stack_var = stack_var.clone(type=stack_type)
 
-                # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(Product((horizontal_size, stack_dict[dtype][kind])), kgpblock)),))
-                stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(horizontal_size, stack_dict[dtype][kind], kgpblock)),))
-                # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(horizontal_size, stack_dict[dtype][kind], kgpblock)),))
-                # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(stack_dict[dtype][kind], horizontal_size, kgpblock)),))
+                stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(Product((horizontal_size, stack_dict[dtype][kind])), kgpblock)),))
                 stack_dealloc = Deallocation(variables=(stack_var.clone(dimensions=None),))  
 
                 #Add the variables to the stack_arg_dict with dimensions (:,:,j_block)
@@ -337,12 +354,13 @@ class TemporariesRawStackTransformation(Transformation):
                 #Create the stack variable and its type with the correct shape
                 shape = (self._get_horizontal_variable(routine), stack_size_var)
                 stack_var = self._get_stack_var(routine, dtype, kind)
-                stack_type = stack_var.type.clone(shape=as_tuple(shape))
+                stack_type = stack_var.type.clone(shape=Product(shape))
                 stack_var = stack_var.clone(type=stack_type)
 
                 #Pass on the stack variable from stack_used + 1 to stack_size
                 #Pass stack_size - stack_used to stack size in called kernel
-                arg_dims = (self._get_horizontal_range(routine), RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
+                arg_dims = self.new_dims((self._get_horizontal_range(routine),
+                            RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var))), shape, reverse=True)
                 if dtype in stack_arg_dict:
                     stack_arg_dict[dtype][kind] = (Sum((stack_size_var, Product((-1, stack_used_var)))),
                                                    stack_var.clone(dimensions = arg_dims))
@@ -353,10 +371,6 @@ class TemporariesRawStackTransformation(Transformation):
                 #Create stack_vars pair
                 stack_vars += [stack_size_var, stack_var.clone(dimensions=stack_type.shape)]
                 pragma_string += f'{stack_var.name}, '
-
-                if stack_used_var not in routine.variables:
-                    routine.variables += (stack_used_var,)
-                    routine.body.prepend((Assignment(lhs=stack_used_var, rhs=IntLiteral(0)),))
 
         if pragma_string:
             pragma_string = pragma_string[:-2].lower()
@@ -722,7 +736,7 @@ class TemporariesRawStackTransformation(Transformation):
             stack_size_name = self._get_stack_int_name('K', t.type.dtype, t.type.kind, 'STACK_SIZE')
             stack_size_var = Scalar(name=stack_size_name, scope=routine)
             relevant_shape = (self._get_horizontal_variable(routine), stack_size_var)
-            temp_map[t] = stack_var.clone(dimensions=as_tuple(stack_dimensions))
+            temp_map[t] = stack_var.clone(dimensions=as_tuple(self.new_dims(stack_dimensions, relevant_shape, reverse=True)))
 
         return temp_map
 
