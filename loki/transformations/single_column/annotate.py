@@ -226,9 +226,10 @@ class SCCAnnotateTransformation(Transformation):
                                 _vars = [var.name.lower() for var in FindVariables(unique=True).visit(loop)]
                                 acc_vars[loop] += _vars
                     else:
+                        _clauses = ('present', 'copy', 'copyin', 'copyout', 'deviceptr', 'in', 'out', 'inout', 'create')
                         _vars = [
                             p.strip().lower()
-                            for category in ('present', 'copy', 'copyin', 'copyout', 'deviceptr')
+                            for category in _clauses
                             for p in parameters.get(category, '').split(',')
                         ]
 

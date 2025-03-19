@@ -123,6 +123,8 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             content += f' create({params_create})'
         if params_default := parameters.get('default'):
             content += f' default({params_default})'
+        if params_present := parameters.get('present'):
+            content += f' present({params_present})'
         if content:
             return Pragma(keyword='acc', content=f'data{content}')
         return self.default_retval()
@@ -234,6 +236,8 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             content += f' map(from: {params_out})'
         if params_create := parameters.get('create'):
             content += f' map(alloc: {params_create})'
+        if params_present := parameters.get('present'):
+            content += f' map(to:{params_present})'
         if content:
             return Pragma(keyword='omp', content=f'target data{content}')
         return self.default_retval()
@@ -266,6 +270,13 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content='end target teams distribute')
         return self.default_retval()
 
+    def pmap_device_present(self, pragma, parameters, **kwargs):
+        if param_vars := parameters.get('vars'):
+            return Pragma(keyword='omp', content=f'target data map(to:{param_vars})')
+        return self.default_retval()
+
+    def pmap_end_device_present(self, pragma, parameters, **kwargs):
+        return Pragma(keyword='omp', content='end target data')
 
 class OpenMPThreadingPragmaMapper(GenericPragmaMapper):
     """
