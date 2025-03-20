@@ -35,6 +35,7 @@ __all__ = [
     'MissingKindSpecifierRealLiterals'
 ]
 
+jprd_files = [] 
 
 class FindFloatLiterals(ExpressionFinder):
     """
@@ -170,17 +171,41 @@ class MissingKindSpecifierRealLiterals(GenericRule):
         ...
         """
         # sourcefile = subroutine.source.file
-        print(f"fix_subroutine: subroutine: {subroutine} | subroutine.source: {subroutine.source} | subroutine.source.file: {subroutine.source.file}")
+        print(f"fix_subroutine: subroutine: {subroutine} | subroutine.source: {subroutine.source} | subroutine.source.file: {subroutine.source.file} | {str(sourcefile.path)}")
+        orig_file = str(sourcefile.path).replace('source/ifs-source/', '')
+        subdir = orig_file.split('/')[0]
+        if orig_file in jprd_files:
+            with open(f"files_to_commit_{subdir}_jprd.txt", "a") as myfile:
+                myfile.write(f"{orig_file}\n")
+            kind_spec = 'JPRD'
+        else:
+            with open(f"files_to_commit_{subdir}_jprm.txt", "a") as myfile:
+                myfile.write(f"{orig_file}\n")
+            kind_spec = 'JPRM'
         original_content = read_file(str(sourcefile.path))
         content = original_content
         literal_nodes = FindFloatLiterals(with_ir_node=True).visit(subroutine.body)
         content_new = None
+        imports = FindNodes(ir.Import).visit(subroutine.spec)
+        imp_map = {}
+        parkind1_available = False
+        substitutions = 0
+        for imp in imports:
+            if imp.module.lower() == 'parkind1':
+                parkind1_available = True
+                imp_map[imp] = imp.clone(symbols=imp.symbols + (imp.symbols[0].clone(name='JPRQ'),))
+        # print(f"imp_map: {imp_map}")
+        if not parkind1_available:
+            with open(f"files_skipped_{subdir}.txt", "a") as myfile:
+                myfile.write(f"{orig_file} since parkind1 not avail\n")
+            print(f"no parkind1 in {str(sourcefile.path)} avail, thus early exit ...")
+            return
         for node, literals in literal_nodes:
             # print(f"node.source: {node.source.string} | {type(node.source.string)}")
             literal_map = {}
             for literal in literals:
                 if literal.kind is None and 'e' not in str(literal.value).lower() and 'd' not in str(literal.value).lower():
-                    literal_map[literal] = FloatLiteral(value=literal.value, kind='JPRB')
+                    literal_map[literal] = FloatLiteral(value=literal.value, kind=kind_spec)
             if literal_map:
                 # fixed_node = SubstituteExpressions(literal_map).visit(node)
                 fixed_node = node.source.string
@@ -190,7 +215,7 @@ class MissingKindSpecifierRealLiterals(GenericRule):
                 # else:
                 #     comment = None 
                 for key in literal_map:
-                    fixed_node = re.sub(rf'{re.escape(str(key))}',
+                    fixed_node = re.sub(rf'{re.escape(str(key))}(?!(_{kind_spec}|_JP|[0-9]|[eEdD]))',
                         str(literal_map[key]), fixed_node, flags = re.S)
                 # indent = int((len(node.source.string) - len(node.source.string.lstrip(' ')))/2)
                 # fixed_node_str = fgen(fixed_node, depth=indent)
@@ -199,12 +224,35 @@ class MissingKindSpecifierRealLiterals(GenericRule):
                 fixed_node_str = str(fixed_node)
                 # with open (f'loki_lint_{subroutine.name}_new_file_fixed_node_str.F90', 'w') as f:
                 #     f.write(fixed_node_str)
-                content_new = re.sub(rf'{re.escape(node.source.string)}',
+                # content_new = re.sub(rf'{re.escape(node.source.string)}(?!_JPRB)(?<!JPRB)$',
+                content_new, subs = re.subn(rf'{re.escape(node.source.string)}(?!(_{kind_spec}|_JP|[0-9]|[eEdD]))',
                         fixed_node_str, content, flags = re.S)
+                substitutions += subs
                 content = content_new
         # with open (f'loki_lint_{subroutine.name}_new_file.F90', 'w') as f:
         #     f.write(content_new)
-        if content_new is not None:
+        if content_new is not None and subs > 0:
+            _subroutine = content_new.lower().find(f'subroutine {subroutine.name.lower()}')
+            _function = content_new.lower().find(f'function {subroutine.name.lower()}')
+            if _subroutine != -1:
+                index = _subroutine
+            if _function != -1:
+                index = _function
+            if index != -1:
+                for node in imp_map:
+                    fixed_node = node.source.string
+                    # fixed_node = re.sub(rf'{re.escape(str(key))}',
+                    #         str(imp_map[node]), fixed_node, flags = re.S)
+                    # fixed_node_str = f'{str(fixed_node)}, JPRQ'
+                    fixed_node_str = str(fixed_node)
+                    if kind_spec not in fixed_node_str.upper():
+                        fixed_node_str = f'{str(fixed_node)}, {kind_spec}'
+                        print(f"fixed_node_str: {fixed_node_str}")
+                        content_new = re.sub(rf'{re.escape(node.source.string)}',
+                                fixed_node_str, content[index:], flags = re.S, count=1)
+                        # content[index::] = content_new
+                        # content = content[:index-1] + content_new
+                        content_new = content[:index] + content_new
             diff = difflib.unified_diff(original_content.splitlines(), content_new.splitlines(),
                     f'a/{sourcefile.path}', f'b/{sourcefile.path}', lineterm='')
             diff_str = '\n'.join(list(diff))

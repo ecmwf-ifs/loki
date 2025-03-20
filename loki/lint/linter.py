@@ -226,7 +226,7 @@ class Linter:
         sourcefile = Fixer.fix(sourcefile, file_report.fixable_reports, config)
 
         # Create the the source string for the output
-        sourcefile.write(conservative=True)
+        # sourcefile.write(conservative=True)
 
 
 class LinterTransformation(Transformation):
@@ -291,7 +291,15 @@ def check_and_fix_file(path, linter, fix=False, backup_suffix=None):
         if fix:
             linter.fix(source, report, backup_suffix=backup_suffix)
     except Exception as exc:  # pylint: disable=broad-except
-        linter.reporter.add_file_error(path, type(exc), str(exc))
+        print(f"exc: {exc}")
+        orig_file = str(path).replace('source/ifs-source/', '')
+        subdir = orig_file.split('/')[0]
+        with open(f"files_exception_{subdir}.txt", "a") as myfile:
+            myfile.write(f"{orig_file}: {exc}\n")
+        try:
+            linter.reporter.add_file_error(path, type(exc), str(exc))
+        except Exception as e:
+            print(f" ... e: {e}")
         if loki_config['debug']:
             raise exc
         return False
