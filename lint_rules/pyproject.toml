@@ -17,7 +17,7 @@ dynamic = ["version"]
 dependencies = ["loki"]
 
 [tool.setuptools]
-license-files = ["../LICENSE", "../AUTHORS.md"]
+license-files = ["LICENSE", "AUTHORS.md"]
 packages = ["lint_rules"]
 
 # Enable SCM versioning
