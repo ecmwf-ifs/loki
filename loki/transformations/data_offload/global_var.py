@@ -19,6 +19,7 @@ from loki.ir import (
 from loki.logging import warning
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
 from loki.types import DerivedType
+from loki.transformations.utilities import find_driver_loops
 
 
 __all__ = [
@@ -302,9 +303,10 @@ class GlobalVarOffloadTransformation(Transformation):
         item = kwargs['item']
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        targets = kwargs.get('targets', None)
 
         if role == 'driver':
-            self.process_driver(routine, successors)
+            self.process_driver(routine, successors, targets)
         elif role == 'kernel':
             self.process_kernel(item, successors)
 
@@ -324,7 +326,7 @@ class GlobalVarOffloadTransformation(Transformation):
             if successor := successors_map.get(module):
                 successor.trafo_data[self._key]['offload'].add(var)
 
-    def process_driver(self, routine, successors):
+    def process_driver(self, routine, successors, targets):
         """
         Add data offload and pullback directives
 
@@ -375,6 +377,7 @@ class GlobalVarOffloadTransformation(Transformation):
         }
 
         # All variables that are used in a kernel need a host-to-device transfer
+        present_vars = set()
         if uses_symbols:
             update_variables = {
                 v for v, _ in uses_symbols
@@ -385,11 +388,13 @@ class GlobalVarOffloadTransformation(Transformation):
                 update_device += (
                     Pragma(keyword='loki', content=f'update device({", ".join(v.name for v in update_variables)})'),
                 )
+                present_vars |= update_variables
             if copyin_variables:
                 content = f'unstructured-data in({", ".join(v.name for v in copyin_variables)})'
                 update_device += (
                     Pragma(keyword='loki', content=content),
                 )
+                present_vars |= copyin_variables
 
         # All variables that are written in a kernel need a device-to-host transfer
         if defines_symbols:
@@ -403,16 +408,19 @@ class GlobalVarOffloadTransformation(Transformation):
                 update_host += (
                     Pragma(keyword='loki', content=f'update host({", ".join(v.name for v in update_variables)})'),
                 )
+                present_vars |= update_variables
             if copyout_variables:
                 update_host += (
                     Pragma(keyword='loki',
                         content=f'end unstructured-data out({", ".join(v.name for v in copyout_variables)})'),
                 )
+                present_vars |= copyout_variables
             if create_variables:
                 update_device += (
                     Pragma(keyword='loki',
                         content=f'unstructured-data create({", ".join(v.name for v in create_variables)})'),
                 )
+                present_vars |= create_variables
 
         # Replace Loki pragmas with acc data/update pragmas
         pragma_map = {}
@@ -424,6 +432,18 @@ class GlobalVarOffloadTransformation(Transformation):
                     pragma_map[pragma] = update_host or None
 
         routine.body = Transformer(pragma_map).visit(routine.body)
+
+        # wrap driver loops in present clause
+        if targets:
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            for loop in driver_loops:
+                pragma_new = Pragma(keyword='loki',
+                                    content=f'device-present vars({", ".join(v.name for v in present_vars)})')
+                pragma_post = Pragma(keyword='loki', content='end device-present')
+                loop._update(
+                    pragma=as_tuple(loop.pragma) + (pragma_new,),
+                    pragma_post=(pragma_post,) + as_tuple(loop.pragma_post)
+                )
 
         # Add imports for offload variables
         offload_map = defaultdict(set)
