@@ -15,7 +15,7 @@ from loki.ir import (
 )
 from loki.logging import info
 from loki.tools import as_tuple, flatten
-from loki.types import DerivedType
+from loki.types import DerivedType, BasicType
 
 from loki.transformations.utilities import (
     find_driver_loops, get_local_arrays
@@ -36,6 +36,8 @@ class SCCAnnotateTransformation(Transformation):
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
     """
+
+    process_ignored_items = True
 
     def __init__(self, block_dim):
         self.block_dim = block_dim
@@ -152,6 +154,11 @@ class SCCAnnotateTransformation(Transformation):
 
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
+
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
+            if call.routine is BasicType.DEFERRED:
+                continue
+            call.convert_kwargs_to_args()
 
         if role == 'kernel':
             # Bail if this routine has been processed before

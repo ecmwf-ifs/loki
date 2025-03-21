@@ -35,6 +35,8 @@ class SCCBaseTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
+    process_ignored_items = True
+
     def __init__(self, horizontal):
         self.horizontal = horizontal
 

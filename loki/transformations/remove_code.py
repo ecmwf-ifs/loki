@@ -68,6 +68,8 @@ class RemoveCodeTransformation(Transformation):
     # Recurse to subroutines in ``contains`` clause
     recurse_to_internal_procedures = True
 
+    process_ignored_items = True
+
     def __init__(
             self, remove_marked_regions=True, mark_with_comment=True,
             remove_dead_code=False, use_simplify=True,

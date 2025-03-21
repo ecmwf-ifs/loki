@@ -211,6 +211,8 @@ class HoistVariablesTransformation(Transformation):
 
     _key = 'HoistVariablesTransformation'
 
+    process_ignored_items = True
+
     def __init__(self, as_kwarguments=False, remap_dimensions=True):
         self.as_kwarguments = as_kwarguments
         self.remap_dimensions = remap_dimensions
@@ -235,6 +237,7 @@ class HoistVariablesTransformation(Transformation):
         """
         role = kwargs.get('role', None)
         item = kwargs.get('item', None)
+        ignore = item.ignore if item else ()
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
@@ -270,12 +273,11 @@ class HoistVariablesTransformation(Transformation):
             # Only process calls in this call tree
             if str(call.name) not in successor_map:
                 continue
-
             successor_item = successor_map[str(call.routine.name)]
             if self.as_kwarguments:
                 to_hoist = successor_item.trafo_data[self._key]["to_hoist"]
                 _hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
-                hoisted_variables = zip(to_hoist, _hoisted_variables)
+                hoisted_variables = list(zip(to_hoist, _hoisted_variables))
             else:
                 hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
             if role == "driver":
@@ -291,6 +293,8 @@ class HoistVariablesTransformation(Transformation):
                     self.kernel_inline_call_argument_remapping(
                         routine=routine, call=call, variables=hoisted_variables
                     )
+            # if isinstance(call, CallStatement):
+            #     call.convert_kwargs_to_args()
 
         # Add imports used to define hoisted
         missing_imports_map = defaultdict(set)

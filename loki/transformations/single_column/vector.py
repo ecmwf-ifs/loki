@@ -50,6 +50,8 @@ class SCCDevectorTransformation(Transformation):
         nodes that are not assignments involving vector parallel arrays.
     """
 
+    process_ignored_items = True
+
     def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
         self.trim_vector_sections = trim_vector_sections
@@ -316,6 +318,8 @@ class BaseRevectorTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
+    process_ignored_items = True
+
     def __init__(self, horizontal):
         self.horizontal = horizontal
 
@@ -423,6 +427,8 @@ class SCCVecRevectorTransformation(BaseRevectorTransformation):
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
     """
+
+    process_ignored_items = True
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -686,6 +692,8 @@ class SCCDemoteTransformation(Transformation):
         :any:`Dimension` object describing the variable conventions used in code
         to define the horizontal data dimension and iteration space.
     """
+
+    process_ignored_items = True
 
     def __init__(self, horizontal, demote_local_arrays=True):
         self.horizontal = horizontal

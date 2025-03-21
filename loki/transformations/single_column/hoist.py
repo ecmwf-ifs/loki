@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.expression import symbols as sym
-from loki.ir import nodes as ir
+from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.utilities import get_integer_variable
@@ -32,6 +32,8 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
         to use for hoisted array arguments on the driver side.
     """
 
+    process_ignored_items = True
+
     def __init__(self, block_dim=None, **kwargs):
         self.block_dim = block_dim
         super().__init__(**kwargs)
@@ -56,6 +58,15 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
             )
 
         block_var = get_integer_variable(routine, self.block_dim.size)
+        ##
+        block_var_map = {
+            assignment.lhs: assignment.rhs
+            for assignment in FindNodes(ir.Assignment).visit(routine.body)
+            if assignment.lhs == block_var
+        }
+        if block_var_map:
+            block_var = block_var_map[block_var]
+        ##
         routine.variables += tuple(
             v.clone(
                 dimensions=v.dimensions + (block_var,),
