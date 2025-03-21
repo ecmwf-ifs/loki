@@ -150,7 +150,7 @@ class PyCodegen(Stringifier):
 
         # ...and generate the spec without imports and only declarations for variables that
         # either are local arrays or are assigned an initial value
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = [self.visit(o.spec, **kwargs)]
 
         # Fill the body
@@ -159,7 +159,7 @@ class PyCodegen(Stringifier):
         # Add return statement for scalar out arguments and close everything off
         ret_args = [arg for arg in o.arguments if arg in inout_args + out_args]
         body += [self.format_line('return ', self.join_items(self.visit_all(ret_args, **kwargs)))]
-        self.depth -= 1
+        self.depth -= self.style.indent_default
 
         return self.join_lines(*header, *body)
 
@@ -236,9 +236,9 @@ class PyCodegen(Stringifier):
         else:
             cntrl = f'range({start}, {end} + 1)'
         header = self.format_line('for ', var, ' in ', cntrl, ':')
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body)
 
     def visit_WhileLoop(self, o, **kwargs):
@@ -252,9 +252,9 @@ class PyCodegen(Stringifier):
         else:
             condition = 'True'
         header = self.format_line('while ', condition, ':')
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body)
 
     def visit_Conditional(self, o, **kwargs):
@@ -270,14 +270,14 @@ class PyCodegen(Stringifier):
         is_elseif = kwargs.pop('is_elseif', False)
         keyword = 'elif' if is_elseif else 'if'
         header = self.format_line(keyword, ' ', self.visit(o.condition, **kwargs), ':')
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
         if o.has_elseif:
-            self.depth -= 1
+            self.depth -= self.style.indent_default
             else_body = [self.visit(o.else_body, is_elseif=True, **kwargs)]
         else:
             else_body = [self.visit(o.else_body, **kwargs)]
-            self.depth -= 1
+            self.depth -= self.style.indent_default
             if o.else_body:
                 else_body = [self.format_line('else:')] + else_body
         return self.join_lines(header, body, *else_body)
@@ -316,9 +316,9 @@ class PyCodegen(Stringifier):
         args = tuple(self.visit(a, **kwargs) for a in o.arguments)
         header = self.format_line('def ', o.variable.name, f'({self.join_items(args)}):')
 
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.format_line('return ', self.visit(o.rhs, **kwargs))
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return f'{header}\n{body}'
 
 

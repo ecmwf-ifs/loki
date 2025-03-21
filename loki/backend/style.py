@@ -16,8 +16,8 @@ class DefaultStyle:
     """
     linewidth: int = 90
 
-    indent_default: int = 1
-    indent_char: str = '  '
+    indent_default: int = 2
+    indent_char: str = ' '
 
 
 class FortranStyle(DefaultStyle):

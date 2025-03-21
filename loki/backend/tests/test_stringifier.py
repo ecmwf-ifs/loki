@@ -156,7 +156,7 @@ END MODULE some_mod
         return f'\n{"...":{max(len(indent), 1)}} '
 
     assert Stringifier(
-        style=DefaultStyle(indent_char='#'), line_cont=line_cont
+        style=DefaultStyle(indent_char='#', indent_default=1), line_cont=line_cont
     ).visit(module).strip() == ref.strip()
 
     # Test default
@@ -172,7 +172,7 @@ END MODULE some_mod
     ref_lines[cont_index + 1] = '...   1. + 1.>'
     depth_ref = '\n'.join(ref_lines)
     assert Stringifier(
-        style=DefaultStyle(indent_char='#'), depth=1, line_cont=line_cont
+        style=DefaultStyle(indent_char='#', indent_default=1), depth=1, line_cont=line_cont
     ).visit(module).strip() == depth_ref
 
     # Test custom linewidth
@@ -182,5 +182,5 @@ END MODULE some_mod
                                           '... + 1. + 1. + 1.>'] + ref_lines[cont_index+2:]
     w_ref = '\n'.join(ref_lines)
     assert Stringifier(
-        style=DefaultStyle(indent_char='#', linewidth=44), line_cont=line_cont
+        style=DefaultStyle(indent_char='#', indent_default=1, linewidth=44), line_cont=line_cont
     ).visit(module).strip() == w_ref

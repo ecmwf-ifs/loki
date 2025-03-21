@@ -165,7 +165,7 @@ class FortranCodegen(Stringifier):
         header = self.format_line('MODULE ', o.name)
         footer = self.format_line('END MODULE ', o.name)
 
-        self.depth += 1
+        self.depth += self.style.indent_default
 
         docstring = self.visit(o.docstring, **kwargs)
 
@@ -195,7 +195,7 @@ class FortranCodegen(Stringifier):
         # Render the routines
         contains = self.visit(o.contains, **kwargs)
 
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, docstring, spec, contains, footer)
 
     def visit_Subroutine(self, o, **kwargs):
@@ -225,12 +225,12 @@ class FortranCodegen(Stringifier):
         header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
         footer = self.format_line('END ', ftype, ' ', o.name)
 
-        self.depth += 1
+        self.depth += self.style.indent_default
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
         body = self.visit(o.body, **kwargs)
         contains = self.visit(o.contains, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         if contains:
             return self.join_lines(header, docstring, spec, body, contains, footer)
         return self.join_lines(header, docstring, spec, body, footer)
@@ -540,9 +540,9 @@ class FortranCodegen(Stringifier):
         else:
             header = self.format_line('INTERFACE')
             footer = self.format_line('END INTERFACE')
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body, footer)
 
     def visit_Loop(self, o, **kwargs):
@@ -564,9 +564,9 @@ class FortranCodegen(Stringifier):
             footer = self.apply_label(footer, o.loop_label)
         else:
             footer = None
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(pragma, header, body, footer, pragma_post)
 
     def visit_WhileLoop(self, o, **kwargs):
@@ -590,9 +590,9 @@ class FortranCodegen(Stringifier):
             footer = self.apply_label(footer, o.loop_label)
         else:
             footer = None
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(pragma, header, body, footer, pragma_post)
 
     def visit_Conditional(self, o, **kwargs):
@@ -628,14 +628,14 @@ class FortranCodegen(Stringifier):
             header = f'{name[1:]}: IF' if name else 'IF'
             header = self.format_line(header, ' (', self.visit(o.condition, **kwargs), ') THEN')
 
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
         if o.has_elseif:
-            self.depth -= 1
+            self.depth -= self.style.indent_default
             else_body = [self.visit(o.else_body, is_elseif=True, name=name, **kwargs)]
         else:
             else_body = [self.visit(o.else_body, **kwargs)]
-            self.depth -= 1
+            self.depth -= self.style.indent_default
             if o.else_body:
                 else_body = [self.format_line('ELSE', name)] + else_body
             else_body += [self.format_line('END IF', name)]
@@ -664,9 +664,9 @@ class FortranCodegen(Stringifier):
         if o.else_body:
             cases.append(self.format_line('CASE DEFAULT', name))
         footer = self.format_line('END SELECT', name)
-        self.depth += 1
+        self.depth += self.style.indent_default
         bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         branches = [item for branch in zip(cases, bodies) for item in branch]
         return self.join_lines(header, *branches, footer)
 
@@ -711,9 +711,9 @@ class FortranCodegen(Stringifier):
             cases += [self.format_line('ELSEWHERE')]
         footer = self.format_line('END WHERE')
 
-        self.depth += 1
+        self.depth += self.style.indent_default
         bodies = self.visit_all(*o.bodies, o.default, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
 
         branches = [item for branch in zip(cases, bodies) for item in branch]
         return self.join_lines(*branches, footer)
@@ -746,9 +746,9 @@ class FortranCodegen(Stringifier):
         # Generate a multi-line FORALL construct
         name = f" {o.name}" if o.name is not None else ""
         footer = self.format_line('END FORALL', name)
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body, footer)
 
     def visit_Section(self, o, **kwargs):
@@ -909,9 +909,9 @@ class FortranCodegen(Stringifier):
             attrs = ''
         header = self.format_line('TYPE', attrs, ' ', o.name)
         footer = self.format_line('END TYPE ', o.name)
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body, footer)
 
     def visit_BasicType(self, o, **kwargs):
@@ -936,7 +936,7 @@ class FortranCodegen(Stringifier):
         """
         header = self.format_line('ENUM, BIND(C)')
         footer = self.format_line('END ENUM')
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = []
         for var in o.symbols:
             name = self.visit(var, **kwargs)
@@ -945,7 +945,7 @@ class FortranCodegen(Stringifier):
             else:
                 initial = f' = {self.visit(var.type.initial, **kwargs)}'
             body += [self.format_line('ENUMERATOR :: ', name, initial)]
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, *body, footer)
 
 

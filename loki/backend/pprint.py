@@ -191,10 +191,10 @@ class Stringifier(Visitor):
              ...routines...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         spec = self.visit(o.spec, **kwargs)
         routines = self.visit(o.subroutines, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, spec, routines)
 
     def visit_Subroutine(self, o, **kwargs):
@@ -210,12 +210,12 @@ class Stringifier(Visitor):
              ...members...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
         body = self.visit(o.body, **kwargs)
         members = self.visit(o.members, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, docstring, spec, body, members)
 
     # Handler for AST base nodes
@@ -258,9 +258,9 @@ class Stringifier(Visitor):
              ...body...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body)
 
 
@@ -277,14 +277,14 @@ class Stringifier(Visitor):
                ...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         conditions = [self.format_node('If', self.visit(o.condition, **kwargs))]
         if o.else_body:
             conditions.append(self.format_node('Else'))
-        self.depth += 1
+        self.depth += self.style.indent_default
         bodies = self.visit_all(o.body, o.else_body, **kwargs)
-        self.depth -= 1
-        self.depth -= 1
+        self.depth -= self.style.indent_default
+        self.depth -= self.style.indent_default
         body = [item for branch in zip(conditions, bodies) for item in branch]
         return self.join_lines(header, *body)
 
@@ -303,17 +303,17 @@ class Stringifier(Visitor):
                ...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         values = []
         for expr in o.values:
             value = f'({", ".join(self.visit_all(expr, **kwargs))})'
             values += [self.format_node('Case', value)]
         if o.else_body:
             values += [self.format_node('Default')]
-        self.depth += 1
+        self.depth += self.style.indent_default
         bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
-        self.depth -= 1
-        self.depth -= 1
+        self.depth -= self.style.indent_default
+        self.depth -= self.style.indent_default
         body = [item for branch in zip(values, bodies) for item in branch]
         return self.join_lines(header, *body)
 
