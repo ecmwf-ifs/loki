@@ -11,6 +11,7 @@ from pymbolic.mapper.stringifier import (
 from pymbolic.primitives import FloorDiv, Remainder
 
 from loki.backend.pprint import Stringifier
+from loki.backend.style import FortranStyle
 
 from loki.expression import LokiStringifyMapper, StringLiteral
 from loki.ir import get_pragma_parameters
@@ -109,9 +110,11 @@ class FortranCodegen(Stringifier):
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, conservative=True):
-        super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=' &\n{}& '.format, symgen=FCodeMapper())
+    def __init__(self, style, depth=0, conservative=True):
+        super().__init__(
+            style=style, depth=depth, line_cont=' &\n{}& '.format,
+            symgen=FCodeMapper()
+        )
         self.conservative = conservative
 
     def apply_label(self, line, label):
@@ -299,8 +302,9 @@ class FortranCodegen(Stringifier):
                     items += [k]
 
             # Ensure '!$<keyword> &' line continuation in final string
-            return str(JoinableStringList(items, sep=' ', width=self.linewidth,
-                                          cont=line_cont, separable=True))
+            return str(JoinableStringList(
+                items, sep=' ', width=self.style.linewidth, cont=line_cont, separable=True
+            ))
         return o.source.string
 
     def visit_CommentBlock(self, o, **kwargs):
@@ -949,7 +953,10 @@ def fgen(ir, depth=0, conservative=False, linewidth=132):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
-    return FortranCodegen(depth=depth, linewidth=linewidth, conservative=conservative).visit(ir) or ''
+    style = FortranStyle(linewidth=linewidth)
+    return FortranCodegen(
+        style=style, depth=depth, conservative=conservative
+    ).visit(ir) or ''
 
 
 """

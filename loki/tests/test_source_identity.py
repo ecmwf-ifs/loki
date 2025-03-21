@@ -14,7 +14,8 @@ they mostly check whether at the end comes out what went in at the beginning.
 """
 import pytest
 
-from loki import Sourcefile, Subroutine, fgen
+from loki import Sourcefile, Subroutine
+from loki.backend import fgen, FortranStyle
 from loki.jit_build import clean_test
 from loki.ir import nodes as ir, FindNodes
 from loki.frontend import available_frontends, OMNI
@@ -229,7 +230,7 @@ END SUBROUTINE CONSERVATIVE
 
     # Parse and re-generate the code
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    source = fgen(routine, linewidth=90, conservative=True)
+    source = fgen(routine, style=FortranStyle(linewidth=90), conservative=True)
     assert source == fcode
 
 
@@ -268,7 +269,7 @@ END SUBROUTINE SIMPLE_FGEN
 
     # Parse and write the code
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    source = fgen(routine, linewidth=90)
+    source = fgen(routine, style=FortranStyle(linewidth=90))
     assert source == fcode
 
 

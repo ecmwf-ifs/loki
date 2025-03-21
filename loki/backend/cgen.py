@@ -11,6 +11,7 @@ from pymbolic.mapper.stringifier import (
 )
 
 from loki.backend.pprint import Stringifier
+from loki.backend.style import DefaultStyle
 
 from loki.expression import (
     symbols as sym, LokiStringifyMapper, Array, symbolic_op, Literal
@@ -170,11 +171,10 @@ class CCodegen(Stringifier):
 
     standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
+    def __init__(self, style, depth=0, **kwargs):
         symgen = kwargs.get('symgen', CCodeMapper(c_intrinsic_type))
         line_cont = kwargs.get('line_cont', '\n{}  '.format)
-        super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=line_cont, symgen=symgen)
+        super().__init__(style=style, depth=depth, line_cont=line_cont, symgen=symgen)
 
     # Handler for outer objects
 
@@ -578,4 +578,6 @@ def cgen(ir, **kwargs):
     """
     Generate standardized C code from one or many IR objects/trees.
     """
-    return CCodegen().visit(ir, **kwargs)
+    style = kwargs.pop('style', DefaultStyle())
+    depth = kwargs.pop('depth', 0)
+    return CCodegen(style=style, depth=depth).visit(ir, **kwargs)

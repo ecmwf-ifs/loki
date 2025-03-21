@@ -11,6 +11,8 @@ Pretty-printer classes for IR
 
 from sys import stdout
 
+from loki.backend.style import DefaultStyle
+
 from loki.tools import JoinableStringList, is_iterable, as_tuple
 from loki.ir.visitor import Visitor
 
@@ -48,13 +50,14 @@ class Stringifier(Visitor):
 
     # pylint: disable=arguments-differ
 
-    def __init__(self, depth=0, indent='  ', linewidth=90,
-                 line_cont=lambda indent: '\n' + indent, symgen=str):
+    def __init__(
+            self, style, depth=0, symgen=str,
+            line_cont=lambda indent: '\n' + indent
+    ):
         super().__init__()
-
+        self.style = style
         self.depth = depth
-        self._indent = indent
-        self.linewidth = linewidth
+
         self.line_cont = line_cont
         self._symgen = symgen
 
@@ -75,7 +78,7 @@ class Stringifier(Visitor):
         str
             A string containing ``indent * depth``.
         """
-        return self._indent * self.depth
+        return self.style.indent_char * self.depth
 
     @staticmethod
     def join_lines(*lines):
@@ -120,8 +123,10 @@ class Stringifier(Visitor):
         -------
         :any:`JoinableStringList`
         """
-        return JoinableStringList(items, sep=sep, width=self.linewidth,
-                                  cont=self.line_cont(self.indent), separable=separable)
+        return JoinableStringList(
+            items, sep=sep, width=self.style.linewidth,
+            cont=self.line_cont(self.indent), separable=separable
+        )
 
     def format_node(self, name, *items):
         """
@@ -327,4 +332,4 @@ def pprint(ir, stream=None):
     """
     if stream is None:
         stream = stdout
-    stream.write(Stringifier().visit(ir))
+    stream.write(Stringifier(style=DefaultStyle()).visit(ir))

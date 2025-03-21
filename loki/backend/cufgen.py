@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.backend.fgen import FortranCodegen
+from loki.backend.style import FortranStyle
 
 __all__ = ['cufgen', 'CudaFortranCodegen']
 
@@ -59,7 +60,7 @@ class CudaFortranCodegen(FortranCodegen):
         return self.join_items([attr_str] + attributes)
 
 
-def cufgen(ir, depth=0, conservative=False, linewidth=132):
+def cufgen(ir, style=None, depth=0, conservative=False):
     """
     Generate CUDA Fortran code from one or many IR objects/trees.
 
@@ -78,4 +79,5 @@ def cufgen(ir, depth=0, conservative=False, linewidth=132):
 
     .. _CUDA_FORTRAN_PROGRAMMING_GUIDE: https://docs.nvidia.com/hpc-sdk/compilers/cuda-fortran-prog-guide/index.html
     """
-    return CudaFortranCodegen(depth=depth, linewidth=linewidth, conservative=conservative).visit(ir)
+    style = style if style else FortranStyle()
+    return CudaFortranCodegen(style=style, depth=depth, conservative=conservative).visit(ir)

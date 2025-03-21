@@ -8,6 +8,7 @@
 from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
 from loki.backend.pprint import Stringifier
+from loki.backend.style import DefaultStyle
 
 from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.types import BasicType, DerivedType, SymbolAttributes
@@ -99,9 +100,10 @@ class PyCodegen(Stringifier):
     Tree visitor to generate standard Python code (with Numpy) from IR.
     """
 
-    def __init__(self, depth=0, indent='  ', linewidth=100):
-        super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont='\n{}  '.format, symgen=PyCodeMapper())
+    def __init__(self, style, depth=0):
+        super().__init__(
+            style=style, depth=depth, symgen=PyCodeMapper(), line_cont='\n{}  '.format
+        )
 
     # Handler for outer objects
 
@@ -324,4 +326,4 @@ def pygen(ir):
     """
     Generate standard Python 3 code (that uses Numpy) from one or many IR objects/trees.
     """
-    return PyCodegen(linewidth=300).visit(ir)
+    return PyCodegen(style=DefaultStyle(linewidth=300)).visit(ir)

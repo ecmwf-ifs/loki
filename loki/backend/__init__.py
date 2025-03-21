@@ -16,3 +16,4 @@ from loki.backend.dacegen import * # noqa
 from loki.backend.fgen import * # noqa
 from loki.backend.pygen import * # noqa
 from loki.backend.pprint import * # noqa
+from loki.backend.style import * # noqa
