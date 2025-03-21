@@ -138,7 +138,10 @@ class Stringifier(Visitor):
             return self.format_line('<', name, ' ', self.join_items(items), '>')
         return self.format_line('<', name, '>')
 
-    def format_line(self, *items, comment=None, no_wrap=False, no_indent=False):
+    def format_line(
+            self, *items, comment=None, no_wrap=False,
+            no_indent=False, trim_spaces=True
+    ):
         """
         Format a line by concatenating all items and applying indentation while observing
         the allowed line width limit.
@@ -165,6 +168,7 @@ class Stringifier(Visitor):
             line = str(self.join_items(items, sep=''))
         if comment:
             return line + comment
+        line = line.rstrip() if trim_spaces else line
         return line
 
     def visit_all(self, item, *args, **kwargs):

@@ -53,21 +53,21 @@ END MODULE
     assert generated_default == """
 MODULE ONCE_UPON
   IMPLICIT NONE
-  
+
   INTEGER, PARAMETER :: ATIME = 8
-  
+
   CONTAINS
-  
+
   SUBROUTINE THERE_WERE (N, M, RICK, DAVE, NEVER)
     INTEGER(KIND=4), INTENT(IN) :: N, M
     REAL(KIND=ATIME), INTENT(INOUT) :: RICK, DAVE(N)
     REAL(KIND=ATIME), INTENT(OUT) :: NEVER(N, M)
     INTEGER :: I, J, IJK
-    
+
     DO I=1,N
       DAVE(I) = DAVE(I) + RICK
     END DO
-    
+
     IF (RICK > 0.5) THEN
       DO I=1,N
         DO J=1,M
@@ -97,21 +97,21 @@ END MODULE ONCE_UPON
     assert generated_custom == """
 MODULE ONCE_UPON
    IMPLICIT NONE
-   
+
    INTEGER, PARAMETER :: ATIME = 8
-   
+
  CONTAINS
- 
+
  SUBROUTINE THERE_WERE (N, M, RICK, DAVE, NEVER)
       INTEGER(KIND=4), INTENT(IN) :: N, M
       REAL(KIND=ATIME), INTENT(INOUT) :: RICK, DAVE(N)
       REAL(KIND=ATIME), INTENT(OUT) :: NEVER(N, M)
       INTEGER :: I, J, IJK
-  
+
   DO I=1,N
      DAVE(I) = DAVE(I) + RICK
   ENDDO
-  
+
   IF (RICK > 0.5) THEN
       DO I=1,N
          DO J=1,M
@@ -119,6 +119,6 @@ MODULE ONCE_UPON
          ENDDO
       ENDDO
   ENDIF
- END SUBROUTINE 
-END MODULE 
-"""
+ END SUBROUTINE
+END MODULE
+""".strip()

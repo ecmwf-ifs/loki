@@ -170,7 +170,7 @@ end subroutine test_fgen
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    out = fgen(routine, linewidth=132)
+    out = fgen(routine)
     for line in out.splitlines():
         assert line.count('&') <= 2
         if line.count('&') == 2:
@@ -193,7 +193,7 @@ end subroutine test_inline_multiline_long
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    out = fgen(routine, linewidth=132)
+    out = fgen(routine)
     for line in out.splitlines():
         assert len(line) < 132
         assert line.count('&') <= 2
