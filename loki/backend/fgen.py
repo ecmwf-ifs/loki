@@ -163,9 +163,9 @@ class FortranCodegen(Stringifier):
           END MODULE
         """
         header = self.format_line('MODULE ', o.name)
-        footer = self.format_line('END MODULE ', o.name)
+        footer = self.format_line('END MODULE ', o.name if self.style.module_end_named else '')
 
-        self.depth += self.style.indent_default
+        self.depth += self.style.module_spec_indent
 
         docstring = self.visit(o.docstring, **kwargs)
 
@@ -191,11 +191,13 @@ class FortranCodegen(Stringifier):
                 spec += self.visit(decl_part, **kwargs) + '\n'
         else:
             spec = self.visit(o.spec, **kwargs)
+        self.depth -= self.style.module_spec_indent
 
         # Render the routines
+        self.depth += self.style.module_contains_indent
         contains = self.visit(o.contains, **kwargs)
+        self.depth -= self.style.module_contains_indent
 
-        self.depth -= self.style.indent_default
         return self.join_lines(header, docstring, spec, contains, footer)
 
     def visit_Subroutine(self, o, **kwargs):
@@ -223,16 +225,23 @@ class FortranCodegen(Stringifier):
         else:
             bind_c = ''
         header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
-        footer = self.format_line('END ', ftype, ' ', o.name)
+        footer = self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
 
-        self.depth += self.style.indent_default
+        self.depth += self.style.procedure_spec_indent
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
+        self.depth -= self.style.procedure_spec_indent
+
+        self.depth += self.style.procedure_body_indent
         body = self.visit(o.body, **kwargs)
+        self.depth -= self.style.procedure_body_indent
+
+        self.depth += self.style.procedure_contains_indent
         contains = self.visit(o.contains, **kwargs)
-        self.depth -= self.style.indent_default
+        self.depth -= self.style.procedure_contains_indent
         if contains:
             return self.join_lines(header, docstring, spec, body, contains, footer)
+
         return self.join_lines(header, docstring, spec, body, footer)
 
     # Handler for AST base nodes
@@ -560,13 +569,14 @@ class FortranCodegen(Stringifier):
         header = self.format_line(header_name, 'DO ', label, control)
         if o.has_end_do:
             footer_name = f' {o.name}' if o.name else ''
-            footer = self.format_line('END DO', footer_name)
+            enddo = 'END DO' if self.style.loop_end_space else 'ENDDO'
+            footer = self.format_line(enddo, footer_name)
             footer = self.apply_label(footer, o.loop_label)
         else:
             footer = None
-        self.depth += self.style.indent_default
+        self.depth += self.style.loop_indent
         body = self.visit(o.body, **kwargs)
-        self.depth -= self.style.indent_default
+        self.depth -= self.style.loop_indent
         return self.join_lines(pragma, header, body, footer, pragma_post)
 
     def visit_WhileLoop(self, o, **kwargs):
@@ -586,13 +596,14 @@ class FortranCodegen(Stringifier):
         header = self.format_line(header_name, 'DO', label, control)
         if o.has_end_do:
             footer_name = f' {o.name}' if o.name else ''
-            footer = self.format_line('END DO', footer_name)
+            enddo = 'END DO' if self.style.loop_end_space else 'ENDDO'
+            footer = self.format_line(enddo, footer_name)
             footer = self.apply_label(footer, o.loop_label)
         else:
             footer = None
-        self.depth += self.style.indent_default
+        self.depth += self.style.loop_indent
         body = self.visit(o.body, **kwargs)
-        self.depth -= self.style.indent_default
+        self.depth -= self.style.loop_indent
         return self.join_lines(pragma, header, body, footer, pragma_post)
 
     def visit_Conditional(self, o, **kwargs):
@@ -628,17 +639,18 @@ class FortranCodegen(Stringifier):
             header = f'{name[1:]}: IF' if name else 'IF'
             header = self.format_line(header, ' (', self.visit(o.condition, **kwargs), ') THEN')
 
-        self.depth += self.style.indent_default
+        self.depth += self.style.conditional_indent
         body = self.visit(o.body, **kwargs)
         if o.has_elseif:
-            self.depth -= self.style.indent_default
+            self.depth -= self.style.conditional_indent
             else_body = [self.visit(o.else_body, is_elseif=True, name=name, **kwargs)]
         else:
             else_body = [self.visit(o.else_body, **kwargs)]
-            self.depth -= self.style.indent_default
+            self.depth -= self.style.conditional_indent
             if o.else_body:
                 else_body = [self.format_line('ELSE', name)] + else_body
-            else_body += [self.format_line('END IF', name)]
+            endif = 'END IF' if self.style.conditional_end_space else 'ENDIF'
+            else_body += [self.format_line(endif, name)]
 
         return self.join_lines(header, body, *else_body)
 
@@ -767,7 +779,9 @@ class FortranCodegen(Stringifier):
         assocs = [f'{self.visit(a[1], **kwargs)}=>{self.visit(a[0], **kwargs)}' for a in o.associations]
         header = self.format_line('ASSOCIATE (', self.join_items(assocs), ')')
         footer = self.format_line('END ASSOCIATE')
+        self.depth += self.style.associate_indent
         body = self.visit(o.body, **kwargs)
+        self.depth += self.style.associate_indent
         return self.join_lines(header, body, footer)
 
     def visit_CallStatement(self, o, **kwargs):
@@ -949,11 +963,11 @@ class FortranCodegen(Stringifier):
         return self.join_lines(header, *body, footer)
 
 
-def fgen(ir, depth=0, conservative=False, linewidth=132):
+def fgen(ir, style=None, depth=0, conservative=False):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
-    style = FortranStyle(linewidth=linewidth)
+    style = style if style else FortranStyle()
     return FortranCodegen(
         style=style, depth=depth, conservative=conservative
     ).visit(ir) or ''
