@@ -175,7 +175,7 @@ class Node:
         Pretty-print the node hierachy under this node.
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
-        from loki.ir.pprint import pprint
+        from loki.backend.pprint import pprint
         pprint(self)
 
     def ir_graph(self, show_comments=False, show_expressions=False, linewidth=40, symgen=str):

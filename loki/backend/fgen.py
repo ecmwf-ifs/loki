@@ -10,9 +10,11 @@ from pymbolic.mapper.stringifier import (
 )
 from pymbolic.primitives import FloorDiv, Remainder
 
-from loki.ir import Stringifier, get_pragma_parameters
-from loki.tools import as_tuple, JoinableStringList, flatten
+from loki.backend.pprint import Stringifier
+
 from loki.expression import LokiStringifyMapper, StringLiteral
+from loki.ir import get_pragma_parameters
+from loki.tools import as_tuple, JoinableStringList, flatten
 from loki.types import DataType, BasicType, DerivedType, ProcedureType
 
 

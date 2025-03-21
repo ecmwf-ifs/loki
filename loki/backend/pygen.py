@@ -7,8 +7,9 @@
 
 from pymbolic.mapper.stringifier import PREC_NONE, PREC_CALL
 
+from loki.backend.pprint import Stringifier
+
 from loki.expression import symbols as sym, LokiStringifyMapper
-from loki.ir import Stringifier
 from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
