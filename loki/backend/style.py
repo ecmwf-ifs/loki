@@ -7,7 +7,7 @@
 
 from pydantic.dataclasses import dataclass
 
-__all__ = ['DefaultStyle', 'FortranStyle']
+__all__ = ['DefaultStyle', 'FortranStyle', 'IFSFortranStyle']
 
 @dataclass
 class DefaultStyle:
@@ -41,5 +41,30 @@ class FortranStyle(DefaultStyle):
     procedure_end_named: bool = True
 
     module_spec_indent: int = 2
+    module_contains_indent: int = 2
+    module_end_named: bool = True
+
+
+@dataclass
+class IFSFortranStyle(FortranStyle):
+    """
+    Style class that defines the output code style for a Fortran backend.
+    """
+    linewidth: int = 132
+
+    associate_indent: int = 0
+
+    conditional_indent: int = 2
+    conditional_end_space: bool = False
+
+    loop_indent: int = 2
+    loop_end_space: bool = False
+
+    procedure_spec_indent: int = 0
+    procedure_body_indent: int = 0
+    procedure_contains_indent: int = 2
+    procedure_end_named: bool = True
+
+    module_spec_indent: int = 0
     module_contains_indent: int = 2
     module_end_named: bool = True
