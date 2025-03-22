@@ -424,10 +424,10 @@ class Sourcefile:
     def source(self):
         return self._source
 
-    def to_fortran(self, conservative=False, cuf=False):
+    def to_fortran(self, conservative=False, cuf=False, style=None):
         if cuf:
-            return cufgen(self, conservative=conservative)
-        return fgen(self, conservative=conservative)
+            return cufgen(self, conservative=conservative, style=style)
+        return fgen(self, conservative=conservative, style=style)
 
     @property
     def modules(self):
@@ -542,7 +542,7 @@ class Sourcefile:
         # TODO: Should type-check for an `Operation` object here
         op.apply(self, **kwargs)
 
-    def write(self, path=None, source=None, conservative=False, cuf=False):
+    def write(self, path=None, source=None, conservative=False, cuf=False, style=None):
         """
         Write content as Fortran source code to file
 
@@ -559,7 +559,7 @@ class Sourcefile:
             To use either Cuda Fortran or Fortran backend
         """
         path = self.path if path is None else Path(path)
-        source = self.to_fortran(conservative, cuf) if source is None else source
+        source = self.to_fortran(conservative, cuf, style=style) if source is None else source
         self.to_file(source=source, path=path)
 
     @classmethod
