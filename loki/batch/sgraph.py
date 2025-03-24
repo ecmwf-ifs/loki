@@ -177,6 +177,9 @@ class SGraph:
         if new_items:
             self.add_nodes(new_items)
 
+        for new_item in new_items:
+            new_item.config['lib'] = item.config.get('lib', None)
+
         # Careful not to include cycles (from recursive TypeDefs)
         self.add_edges((item, item_) for item_ in dependencies if not item == item_)
         return new_items
@@ -259,10 +262,21 @@ class SGraph:
                     ))
             file_item.config['replicate'] = replicate
 
+            default_lib = None # config.get('lib', None)
+            libs = [item.lib for item in items]
+            if any(lib is not default_lib for lib in libs):
+                use_lib = None
+                for lib in libs:
+                    if lib is not default_lib:
+                        use_lib = lib
+                        break
+                file_item.config['lib'] = use_lib 
+
         # Insert edges to the file items corresponding to the successors of the items
         for item in SFilter(sgraph, item_filter, exclude_ignored=exclude_ignored):
             file_item = item_2_file_item_map[item.name]
             for child in sgraph._graph.successors(item):
+                # child.config['lib'] = file_item.config['lib']
                 child_file_item = item_2_file_item_map.get(child.name)
                 if not child_file_item or child_file_item == file_item:
                     # Skip 2 situations:

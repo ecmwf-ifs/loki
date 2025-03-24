@@ -688,3 +688,24 @@ class Scheduler:
         planner = CMakePlanTransformation(rootpath=rootpath)
         self.process(planner, proc_strategy=ProcessingStrategy.PLAN)
         planner.write_plan(filepath)
+
+    @Timer(logger=perf, text='[Loki::Scheduler] Wrote CMake plan file in {:.2f}s')
+    def write_cmake_plans(self, filepaths, rootpath=None):
+        """
+        Generate the "plan file" for CMake
+
+        See :any:`CMakePlanTransformation` for the specification of that file.
+
+        Parameters
+        ----------
+        filepath : str or Path
+            The path of the CMake file to write.
+        rootpath : str or Path (optional)
+            If given, all paths in the CMake file will be made relative to this root directory
+        """
+        info(f'[Loki] Scheduler writing CMake plan: {filepaths}')
+
+        from loki.transformations.build_system.plan import CMakePlanTransformation  # pylint: disable=import-outside-toplevel
+        planner = CMakePlanTransformation(rootpath=rootpath)
+        self.process(planner, proc_strategy=ProcessingStrategy.PLAN)
+        planner.write_plans(filepaths)

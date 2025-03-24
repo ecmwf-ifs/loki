@@ -434,6 +434,13 @@ class ItemConfig:
         return self.config.get('expand', False)
 
     @property
+    def lib(self):
+        """
+        Flag to trigger expansion of children under this node
+        """
+        return self.config.get('lib', None)
+
+    @property
     def strict(self):
         """
         Flag controlling whether to strictly fail if source file cannot be parsed

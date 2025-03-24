@@ -59,6 +59,8 @@ def cli(debug):
               help='Frontend parser to use (default FP)')
 @click.option('--plan-file', type=click.Path(), default=None,
               help='Process pipeline in planning mode and generate CMake "plan" file.')
+@click.option('--plan-files', type=click.Path(), default=(), multiple=True,
+              help='Process pipeline in planning mode and generate CMake "plan" file.')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
               help='Generate and display the subroutine callgraph.')
 @click.option('--root', type=click.Path(), default=None,
@@ -68,7 +70,7 @@ def cli(debug):
               help='Log level to output during batch processing')
 def convert(
         mode, config, build, source, header, cpp, include, define,
-        omni_include, xmod, frontend, plan_file, callgraph, root,
+        omni_include, xmod, frontend, plan_file, plan_files, callgraph, root,
         log_level
 ):
     """
@@ -84,7 +86,7 @@ def convert(
 
     loki_config['log-level'] = log_level
 
-    if plan_file is not None:
+    if plan_file is not None or plan_files:
         processing_strategy = ProcessingStrategy.PLAN
         info(f'[Loki] Creating CMake plan file from config: {config}')
     else:
@@ -153,6 +155,8 @@ def convert(
 
     if plan_file is not None:
         scheduler.write_cmake_plan(plan_file, rootpath=root)
+    if plan_files:
+        scheduler.write_cmake_plans(plan_files, rootpath=root)
 
     if callgraph:
         scheduler.callgraph(callgraph)
@@ -179,13 +183,15 @@ def convert(
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
               help='CMake "plan" file to generate.')
+@click.option('--plan-files', type=click.Path(), default=(), multiple=True,
+              help='Process pipeline in planning mode and generate CMake "plan" file.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 @click.pass_context
 def plan(
         ctx, mode, config, header, source, build, root, cpp,
-        frontend, callgraph, plan_file, log_level
+        frontend, callgraph, plan_file, plan_files, log_level
 ):
     """
     Create a "plan", a schedule of files to inject and transform for a

@@ -167,6 +167,64 @@ function( loki_transform_plan )
 
 endfunction()
 
+function( loki_transform_plan_multiple )
+
+    set( options NO_SOURCEDIR CPP )
+    # set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH PLAN )
+    set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH )
+    set( multiValueArgs SOURCES HEADERS PLANS )
+
+    cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
+
+    if( _PAR_UNPARSED_ARGUMENTS )
+        ecbuild_critical( "Unknown keywords given to loki_transform_plan(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
+    endif()
+
+    set( _ARGS )
+
+    # Translate function args to arguments for loki-transform.py
+    _loki_transform_parse_args()
+
+    if( _PAR_CPP )
+        list( APPEND _ARGS --cpp )
+    endif()
+
+    if( NOT _PAR_NO_SOURCEDIR )
+        if( _PAR_SOURCEDIR )
+            list( APPEND _ARGS --root ${_PAR_SOURCEDIR} )
+        else()
+            ecbuild_critical( "No SOURCEDIR specified for loki_transform_plan()" )
+        endif()
+    endif()
+
+    if( _PAR_CALLGRAPH )
+        list( APPEND _ARGS --callgraph ${_PAR_CALLGRAPH} )
+    endif()
+
+    if( _PAR_PLANS )
+	foreach( plan_file ${_PAR_PLANS} )	
+	  list( APPEND _ARGS --plan-files ${plan_file} )
+	endforeach()
+	# list( APPEND _ARGS --plan-files ${_PAR_PLANS} )
+    else()
+        ecbuild_critical( "No PLAN file specified for loki_transform_plan()" )
+    endif()
+
+    _loki_transform_env_setup()
+
+    # Create a source transformation plan to tell CMake which files will be affected
+    ecbuild_info( "[Loki] Creating plan: mode=${_PAR_MODE} frontend=${_PAR_FRONTEND} config=${_PAR_CONFIG}" )
+    ecbuild_debug( "COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}" )
+
+    execute_process(
+        COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMAND_ERROR_IS_FATAL ANY
+        ECHO_ERROR_VARIABLE
+    )
+
+endfunction()
+
 ##############################################################################
 # .rst:
 #
@@ -350,6 +408,159 @@ function( loki_transform_target )
 
 endfunction()
 
+function( loki_transform_multiple_targets )
+
+    message("loki_transform_multiple_targets CALLED!!!")
+
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
+    # set( single_value_args TARGET COMMAND MODE FRONTEND CONFIG PLAN )
+    set( single_value_args COMMAND MODE FRONTEND CONFIG )
+    set( multi_value_args SOURCES HEADERS DEFINITIONS INCLUDES PLANS TARGETS )
+
+    cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+
+    if( _PAR_UNPARSED_ARGUMENTS )
+        ecbuild_critical( "Unknown keywords given to loki_transform_target(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
+    endif()
+
+    # if( NOT _PAR_T_TARGETS )
+    #     ecbuild_critical( "The call to loki_transform_target() doesn't specify the TARGET." )
+    # endif()
+
+    if( NOT _PAR_T_COMMAND )
+        set( _PAR_T_COMMAND "convert" )
+    endif()
+
+    # if( NOT _PAR_T_PLANS )
+    #     ecbuild_critical( "No PLAN specified for loki_transform_target()" )
+    # endif()
+
+    ecbuild_info( "[Loki] Loki scheduler:: target=${_PAR_T_TARGETS} mode=${_PAR_T_MODE} frontend=${_PAR_T_FRONTEND}")
+
+    # Ensure that changes to the config file trigger the planning stage
+    # configure_file( ${_PAR_T_CONFIG} ${CMAKE_CURRENT_BINARY_DIR}/loki_${_PAR_T_TARGET}.config )
+    foreach( target ${_PAR_T_TARGETS} )
+      configure_file( ${_PAR_T_CONFIG} ${CMAKE_CURRENT_BINARY_DIR}/loki_${target}.config )
+    endforeach()
+
+    # Create the bulk-transformation plan
+    set( _PLAN_OPTIONS "" )
+    if( _PAR_T_CPP_PLAN )
+        list( APPEND _PLAN_OPTIONS CPP )
+    endif()
+    if( _PAR_T_NO_PLAN_SOURCEDIR )
+        list( APPEND _PLAN_OPTIONS NO_SOURCEDIR )
+    endif()
+
+    loki_transform_plan_multiple(
+        MODE      ${_PAR_T_MODE}
+        CONFIG    ${_PAR_T_CONFIG}
+        FRONTEND  ${_PAR_T_FRONTEND}
+        SOURCES   ${_PAR_T_SOURCES}
+	PLANS     ${_PAR_T_PLANS}
+	# CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${_PAR_T_TARGET}
+	CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph
+        BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
+        SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
+        ${_PLAN_OPTIONS}
+    )
+
+    # Import the generated plan
+    # include( ${_PAR_T_PLAN} )
+    include(${CMAKE_CURRENT_BINARY_DIR}/loki_plan_all.cmake)
+    ecbuild_info( "[Loki] Imported transformation plan: ${_PAR_T_PLAN}" )
+    ecbuild_debug( "[Loki] Loki all transform: ${LOKI_SOURCES_TO_TRANSFORM}" )
+    ecbuild_debug( "[Loki] Loki all append: ${LOKI_SOURCES_TO_APPEND}" )
+    ecbuild_debug( "[Loki] Loki all remove: ${LOKI_SOURCES_TO_REMOVE}" )
+
+    # Schedule the source-to-source transformation on the source files from the schedule
+    list( LENGTH LOKI_SOURCES_TO_TRANSFORM LOKI_APPEND_LENGTH )
+    if ( LOKI_APPEND_LENGTH GREATER 0 )
+
+        # Apply the bulk-transformation according to the plan
+        set( _TRANSFORM_OPTIONS "" )
+        if( _PAR_T_CPP )
+            list( APPEND _TRANSFORM_OPTIONS CPP )
+        endif()
+
+        loki_transform(
+            COMMAND     ${_PAR_T_COMMAND}
+            OUTPUT      ${LOKI_SOURCES_TO_APPEND}
+            MODE        ${_PAR_T_MODE}
+            CONFIG      ${_PAR_T_CONFIG}
+            FRONTEND    ${_PAR_T_FRONTEND}
+            BUILDDIR    ${CMAKE_CURRENT_BINARY_DIR}
+            SOURCES     ${_PAR_T_SOURCES}
+            HEADERS     ${_PAR_T_HEADERS}
+            DEFINITIONS ${_PAR_T_DEFINITIONS}
+            INCLUDES    ${_PAR_T_INCLUDES}
+            DEPENDS     ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADERS} ${_PAR_T_CONFIG}
+            ${_TRANSFORM_OPTIONS}
+        )
+    endif()
+
+    foreach( rel_target ${_PAR_T_TARGETS})
+	    include(${CMAKE_CURRENT_BINARY_DIR}/loki_plan_${rel_target}.cmake)
+            ecbuild_info( "[Loki] Imported transformation plan: ${_PAR_T_PLAN}" )
+            ecbuild_debug( "[Loki] Loki ${rel_target} transform: ${LOKI_SOURCES_TO_TRANSFORM}" )
+            ecbuild_debug( "[Loki] Loki ${rel_target} append: ${LOKI_SOURCES_TO_APPEND}" )
+            ecbuild_debug( "[Loki] Loki ${rel_target} remove: ${LOKI_SOURCES_TO_REMOVE}" )  
+            
+	    # Exclude source files that Loki has re-generated.
+            # Note, this is done explicitly here because the HEADER_FILE_ONLY
+            # property is not always being honoured by CMake.
+            get_target_property( _target_sources ${rel_target} SOURCES )
+            foreach( source ${LOKI_SOURCES_TO_REMOVE} )
+        	# get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
+        	list( FILTER _target_sources EXCLUDE REGEX ${source} )
+            endforeach()
+
+            if( NOT _PAR_T_COPY_UNMODIFIED )
+        	# Update the target source list
+        	set_property( TARGET ${rel_target} PROPERTY SOURCES ${_target_sources} )
+            else()
+        	# Copy the unmodified source files to the build dir
+        	set( _target_sources_copy "" )
+        	foreach( source ${_target_sources} )
+        	    get_filename_component( _source_name ${source} NAME )
+        	    list( APPEND _target_sources_copy ${CMAKE_CURRENT_BINARY_DIR}/${_source_name} )
+        	    ecbuild_debug( "[Loki] copy: ${source} -> ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}" )
+        	endforeach()
+        	file( COPY ${_target_sources} DESTINATION ${CMAKE_CURRENT_BINARY_DIR} )
+
+        	# Mark the copied files as build-time generated
+        	set_source_files_properties( ${_target_sources_copy} PROPERTIES GENERATED TRUE )
+
+        	# Update the target source list
+        	set_property( TARGET ${rel_target} PROPERTY SOURCES ${_target_sources_copy} )
+            endif()
+
+            if ( LOKI_APPEND_LENGTH GREATER 0 )
+        	# Mark the generated stuff as build-time generated
+        	set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
+
+        	# Add the Loki-generated sources to our target
+        	target_sources( ${rel_target} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
+            endif()
+
+            # Copy over compile flags for generated source. Note that this assumes
+            # matching indexes between LOKI_SOURCES_TO_TRANSFORM and LOKI_SOURCES_TO_APPEND
+            # to encode the source-to-source mapping. This matching is strictly enforced
+            # in the `CMakePlannerTransformation`.
+            loki_copy_compile_flags(
+        	ORIG_LIST ${LOKI_SOURCES_TO_TRANSFORM}
+        	NEW_LIST ${LOKI_SOURCES_TO_APPEND}
+            )
+
+            if( _PAR_T_COPY_UNMODIFIED )
+        	loki_copy_compile_flags(
+        	    ORIG_LIST ${_target_sources}
+        	    NEW_LIST ${_target_sources_copy}
+        	)
+            endif()
+    endforeach()
+
+endfunction()
 
 ##############################################################################
 # .rst:
