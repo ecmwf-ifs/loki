@@ -20,7 +20,7 @@ from loki.scope import Scope
 
 __all__ = [
     'FieldAPITransferType', 'FieldPointerMap', 'get_field_type', 'field_get_device_data',
-    'field_get_host_data', 'field_sync_device', 'field_sync_host'
+    'field_get_host_data', 'field_sync_device', 'field_sync_host', 'field_create_device_data'
 ]
 
 
@@ -352,3 +352,7 @@ def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope
 
     return _field_sync(field_ptr, transfer_type, FieldAPITransferDirection.DEVICE_TO_HOST,
                        scope, queue, blk_bounds)
+
+def field_create_device_data(field_ptr, scope: Scope, blk_bounds=None):
+    return ir.CallStatement(name=sym.ProcedureSymbol('CREATE_DEVICE_DATA', parent=field_ptr, scope=scope),
+                            kwarguments=(('blk_bounds', blk_bounds),))
