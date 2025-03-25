@@ -12,7 +12,7 @@ from codetiming import Timer
 
 try:
     from fparser.two.parser import ParserFactory
-    from fparser.two.utils import get_child, walk, BlockBase
+    from fparser.two.utils import get_child, walk
     from fparser.two import Fortran2003
     from fparser.common.readfortran import FortranStringReader
 
@@ -229,31 +229,6 @@ def rget_child(node, node_type):
     return None
 
 
-def extract_fparser_source(node, raw_source):
-    """
-    Extract the :any:`Source` object for any :any:`fparser.two.utils.BlockBase`
-    from the raw source string.
-    """
-    assert isinstance(node, BlockBase)
-    if node.item is not None:
-        lines = node.item.span
-    else:
-        start_type = getattr(Fortran2003, node.use_names[0], None)
-        if start_type is None:
-            # If we don't have any starting point we have to bail out
-            return None
-        start_node = get_child(node, start_type)
-        end_node = node.children[-1]
-        if any(i is None or i.item is None for i in [start_node, end_node]):
-            # If we don't have source information for start/end we have to bail out
-            return None
-        lines = (start_node.item.span[0], end_node.item.span[1])
-    string = None
-    if raw_source is not None:
-        string = ''.join(raw_source.splitlines(keepends=True)[lines[0]-1:lines[1]])
-    return Source(lines, string=string)
-
-
 class FParser2IR(GenericVisitor):
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
@@ -279,16 +254,6 @@ class FParser2IR(GenericVisitor):
             lines = (o.item.span[0], o.item.span[1])
             string = ''.join(self.raw_source[lines[0] - 1:lines[1]]).strip('\n')
             source = Source(lines=lines, string=string)
-        return source
-
-    def get_block_source(self, start_node, end_node):
-        """
-        Helper method that builds the source object for a block node.
-        """
-        # Extract source by looking at everything between start_type and end_type nodes
-        lines = (start_node.item.span[0], end_node.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
         return source
 
     def get_label(self, o):
