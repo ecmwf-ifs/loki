@@ -352,21 +352,3 @@ def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope
 
     return _field_sync(field_ptr, transfer_type, FieldAPITransferDirection.DEVICE_TO_HOST,
                        scope, queue, blk_bounds)
-
-
-def find_field_offload_calls(ir_section):
-    """
-    Utility function to find all :any:`CallStatement` nodes that are Field API data transfer calls.
-
-    Parameters
-    ----------
-    field_ptr: pointer to field object
-        Pointer to the field to call ``SYNC_HOST`` from.
-    scope: :any:`Scope`
-        Scope of the created :any:`CallStatement`
-    queue: integer
-       ``QUEUE`` optional  argument
-    blk_bounds: integer dimension(2) array
-        ``BLK_BOUNDS`` optional argument
-    """
-    pass
