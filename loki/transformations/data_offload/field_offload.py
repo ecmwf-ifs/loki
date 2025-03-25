@@ -17,7 +17,7 @@ from loki.types import BasicType
 
 from loki.transformations.loop_blocking import split_loop
 from loki.transformations.utilities import find_driver_loops
-from loki.transformations.field_api import FieldPointerMap
+from loki.transformations.field_api import FieldPointerMap, field_create_device_data
 from loki.transformations.parallel import remove_field_api_view_updates
 
 
@@ -155,6 +155,7 @@ class FieldOffloadBlockedTransformation(Transformation):
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
                     splitting_vars, innner_loop, block_loop = block_driver_loops(driver, region, self.block_size)
+                    add_device_field_allocations(driver, region, offload_map, self.block_size, splitting_vars.num_blocks)
                     add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
 
@@ -251,6 +252,19 @@ def add_blocked_field_offload_calls(driver, region, offload_map, splitting_varia
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
+def add_device_field_allocations(driver, region, offload_map, block_size, num_blocks):
+    blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size*num_blocks))
+    create_device_data_calls = tuple(field_create_device_data(field_ptr=offload_map.field_ptr_from_view(arg),
+                                                              scope=driver,
+                                                              blk_bounds=blk_bounds)
+                                     for arg in offload_map.args)
+    create_device_data_calls = tuple(dict.fromkeys(create_device_data_calls))
+    update_map = {
+        region: create_device_data_calls + (region,)
+    }
+    Transformer(update_map, inplace=True).visit(driver.body)
+
+
 def replace_kernel_args(driver, offload_map, offload_index):
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
@@ -268,6 +282,7 @@ def replace_kernel_args(driver, offload_map, offload_index):
         change_map[arg] = dataptr.clone(dimensions=dims)
 
     driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)
+
 
 
 def block_driver_loops(driver, region, block_size):
