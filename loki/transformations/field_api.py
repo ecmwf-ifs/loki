@@ -125,6 +125,30 @@ class FieldPointerMap:
         )
         return tuple(dict.fromkeys(sync_host))
 
+    def host_to_device_force_calls(self, queue=None, blk_bounds=None):
+        """
+        Returns a tuple of :any:`CallStatement` for host-to-device force transfers on fields.
+        """
+        FORCE = FieldAPITransferType.FORCE
+        host_to_device = tuple(field_get_device_data(
+            self.field_ptr_from_view(arg), self.dataptr_from_array(arg), transfer_type=FORCE,
+            scope=self.scope, queue=queue, blk_bounds=blk_bounds)
+                               for arg in chain(self.inargs, self.inoutargs, self.outargs))
+        return tuple(dict.fromkeys(host_to_device))
+
+
+    def sync_host_force_calls(self, force=False, queue=None, blk_bounds=None):
+        """
+        Returns a tuple of :any:`CallStatement` for host-synchronization transfers on fields.
+        """
+        FORCE = FieldAPITransferType.FORCE
+
+        sync_host = tuple(field_sync_host(
+            self.field_ptr_from_view(arg), transfer_type=FORCE, scope=self.scope, queue=queue,
+            blk_bounds=blk_bounds)
+                          for arg in chain(self.inoutargs, self.outargs))
+        return tuple(dict.fromkeys(sync_host))
+
 
 def get_field_type(a: sym.Array) -> sym.DerivedType:
     """

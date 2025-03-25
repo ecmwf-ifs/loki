@@ -10,17 +10,19 @@ from loki.batch import Transformation
 from loki.expression import Array, symbols as sym
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer,
-    SubstituteExpressions, pragma_regions_attached, is_loki_pragma
+    SubstituteExpressions, pragma_regions_attached, is_loki_pragma, pragmas_attached
 )
 from loki.logging import warning
 from loki.types import BasicType
 
+from loki.transformations.loop_blocking import split_loop
+from loki.transformations.utilities import find_driver_loops
 from loki.transformations.field_api import FieldPointerMap
 from loki.transformations.parallel import remove_field_api_view_updates
 
 
 __all__ = [
-    'FieldOffloadTransformation', 'find_offload_variables',
+    'FieldOffloadTransformation', 'FieldOffloadBlockedTransformation', 'find_offload_variables',
     'add_field_offload_calls', 'replace_kernel_args'
 ]
 
@@ -83,10 +85,77 @@ class FieldOffloadTransformation(Transformation):
                     offload_map = FieldPointerMap(
                         *offload_variables, scope=driver, ptr_prefix=self.deviceptr_prefix
                     )
-
                     # Inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     add_field_offload_calls(driver, region, offload_map)
+                    replace_kernel_args(driver, offload_map, self.offload_index)
+
+
+class FieldOffloadBlockedTransformation(Transformation):
+    """
+
+    Transformation to block offload of arrays owned by Field API fields to the device.
+
+    **This transformation is IFS specific.**
+
+    The transformation assumes that fields are wrapped in derived types specified in
+    ``field_group_types`` and will only offload arrays that are members of such derived types.
+    In the process this transformation removes calls to Field API ``update_view`` and adds
+    declarations for the device pointers to the driver subroutine.
+
+    The transformation acts on ``!$loki data`` regions and offloads all :any:`Array`
+    symbols that satisfy the following conditions:
+
+    1. The array is a member of an object that is of type specified in ``field_group_types``.
+
+    2. The array is passed as a parameter to at least one of the kernel targets passed to ``transform_subroutine``.
+
+    Parameters
+    ----------
+    devptr_prefix: str, optional
+        The prefix of device pointers added by this transformation (defaults to ``'loki_devptr_'``).
+    field_group_types: list or tuple of str, optional
+        Names of the field group types with members that may be offloaded (defaults to ``['']``).
+    offload_index: str, optional
+        Names of index variable to inject in the outmost dimension of offloaded arrays in the kernel
+        calls (defaults to ``'IBL'``).
+    """
+
+    def __init__(self, devptr_prefix=None, field_group_types=None,
+                 offload_index=None, blocking_index=None):
+        self.deviceptr_prefix = 'loki_devptr_' if devptr_prefix is None else devptr_prefix
+        field_group_types = [''] if field_group_types is None else field_group_types
+        self.field_group_types = tuple(typename.lower() for typename in field_group_types)
+        self.offload_index = 'IBL' if offload_index is None else offload_index
+        self.blocking_index = offload_index
+        self.block_size = sym.IntLiteral(100)   # TODO: Fix proper initialization
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        if role == 'driver':
+            self.process_driver(routine)
+
+    def process_driver(self, driver):
+
+        # Remove the Field-API view-pointer boilerplate
+        remove_field_api_view_updates(driver, self.field_group_types)
+
+        with pragma_regions_attached(driver):
+            with dataflow_analysis_attached(driver):
+                for region in FindNodes(ir.PragmaRegion).visit(driver.body):
+                    # Only work on active `!$loki data` regions
+                    if not region.pragma or not is_loki_pragma(region.pragma, starts_with='data'):
+                        continue
+
+                    offload_variables = find_offload_variables(driver, region, self.field_group_types)
+                    offload_map = FieldPointerMap(
+                        *offload_variables, scope=driver, ptr_prefix=self.deviceptr_prefix
+                    )
+                    # inject declarations and offload API calls into driver region
+                    declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
+                    # blocks all loops inside the region and places them inside one
+                    splitting_vars, innner_loop, block_loop = block_driver_loops(driver, region, self.block_size)
+                    add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
 
 
@@ -166,6 +235,22 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
+def add_blocked_field_offload_calls(driver, region, offload_map, splitting_variables):
+    host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
+                                                                splitting_variables.block_start,
+                                                                splitting_variables.block_end)
+                                                      ))
+
+    device_to_host = offload_map.sync_host_force_calls(blk_bounds=sym.LiteralList(values=(
+                                                            splitting_variables.block_start,
+                                                            splitting_variables.block_end)
+                                                ))
+    update_map = {
+        region: host_to_device + (region,) + device_to_host
+    }
+    Transformer(update_map, inplace=True).visit(driver.body)
+
+
 def replace_kernel_args(driver, offload_map, offload_index):
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
@@ -183,3 +268,15 @@ def replace_kernel_args(driver, offload_map, offload_index):
         change_map[arg] = dataptr.clone(dimensions=dims)
 
     driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)
+
+
+def block_driver_loops(driver, region, block_size):
+    with pragmas_attached(driver, ir.Loop):
+        driver_loops = find_driver_loops(driver.body, targets=None)
+    # driver_loops = FindNodes(ir.Loop).visit(routine.ir)
+    if len(driver_loops) > 0:
+        loop = driver_loops[0]
+    else:
+        warning(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
+        return
+    return split_loop(driver, loop, block_size)
