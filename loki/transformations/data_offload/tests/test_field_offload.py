@@ -14,7 +14,7 @@ from loki.ir import nodes as ir, FindNodes, Pragma, CallStatement
 from loki.logging import log_levels
 
 from loki.transformations import (
-        FieldOffloadTransformation, FieldAPITransferType,
+        FieldOffloadTransformation, FieldOffloadBlockedTransformation, FieldAPITransferType,
         field_delete_device_data, field_get_device_data, field_get_host_data
 )
 
@@ -169,6 +169,91 @@ def test_field_offload(frontend, state_module, tmp_path):
     from loki import fgen
     print("\nIR:")
     print(fgen(driver_mod))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_blocked(frontend, state_module, tmp_path):
+    fcode = """
+    module driver_mod
+      use state_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      implicit none
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        !$loki driver-loop
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    driver_mod = Module.from_source(
+        fcode, frontend=frontend, definitions=state_module, xmods=[tmp_path]
+    )
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadBlockedTransformation(devptr_prefix=deviceptr_prefix,
+                                            offload_index='i',
+                                            field_group_types=['state_type']),
+                 role='driver',
+                 targets=['kernel_routine'])
+
+    from loki import fgen, pprint
+    print('\n')
+    print(pprint(driver.ir))
+    print('\n')
+    print(fgen(driver.ir))
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    kernel_call = next(c for c in calls if c.name=='kernel_routine')
+
+    # verify that field offloads are generated properly
+    in_calls = [c for c in calls if 'get_device_data_force' in c.name.name.lower()]
+    assert len(in_calls) == 3
+    # verify that field sync host calls are generated properly
+    sync_calls = [c for c in calls if 'sync_host_force' in c.name.name.lower()]
+    assert len(sync_calls) == 2
+
+    # verify that data offload pragmas remain
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 3
+    assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'driver-loop', 'end data']))
+
+    # verify that new pointer variables are created and used in driver calls
+    for var in ['state_a', 'state_b', 'state_c']:
+        name = deviceptr_prefix + var
+        assert name in driver.variable_map
+        devptr = driver.variable_map[name]
+        assert isinstance(devptr, sym.Array)
+        assert len(devptr.shape) == 3
+        assert devptr.name in (arg.name for arg in kernel_call.arguments)
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_field_offload_slices(frontend, parkind_mod, field_module, tmp_path):  # pylint: disable=unused-argument
@@ -571,7 +656,6 @@ def test_field_offload_driver_compute(frontend, state_module, tmp_path):
         !$loki data
         do ibl=1,nlev
           call state%update_view(ibl)
-
           do i=1, nlon
             state%a(i, 1) = state%b(i, 1) + 0.1
             state%a(i, 2) = state%a(i, 1)

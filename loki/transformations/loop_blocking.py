@@ -29,7 +29,8 @@ class LoopSplittingVariables:
         # self._splitting_vars = splitting_vars
         if isinstance(block_size, int):
             blk_size = sym.IntLiteral(block_size)
-        elif isinstance(block_size, sym.Scalar):
+        elif (isinstance(block_size, sym.Scalar) or
+              isinstance(block_size, sym.IntLiteral)):
             blk_size = block_size
         else:
             error("Block size must a be a an integer constant or a scalar variable")
@@ -82,7 +83,7 @@ class LoopSplittingVariables:
         return self._splitting_vars
 
 
-def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
+def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, outer_loop=None):
     """
     Blocks a loop by splitting it into an outer loop and inner loop of size `block_size`.
 
@@ -139,10 +140,14 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
                                  scope=routine))))
 
     #  Outer loop bounds + body
-    outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
-                         bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
-    change_map = {loop: block_loop_inits + (outer_loop,)}
-    Transformer(change_map, inplace=True).visit(routine.body)
+    if outer_loop is None:
+        outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
+                             bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+        change_map = {loop: block_loop_inits + (outer_loop,)}
+        Transformer(change_map, inplace=True).visit(routine.body)
+    else:
+        pass
+
     return splitting_vars, inner_loop, outer_loop
 
 
@@ -163,9 +168,7 @@ def blocked_type(a: sym.Array):
 
 def replace_indices(dimensions, indices: list, replacement_index):
     """
-    Returns a new dimension object with all occurences of indices changed to replacement_index.
-
-    Parameters
+    Returns a new dimension object with all occurences of indices changed to replacement_index.  Parameters
     ----------
     dimensions:
         Symbolic representation of dimensions or indices.
