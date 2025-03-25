@@ -8,6 +8,7 @@
 from loki.batch import Transformation
 from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
+from loki.expression import symbols as sym
 
 __all__ = ['DuplicateKernel', 'RemoveKernel']
 
@@ -268,7 +269,13 @@ class DuplicateKernel(Transformation):
                 new_call_name = f'{call_name}{self.suffix}'.lower()
                 new_item = new_dependencies[new_call_name]
                 proc_symbol = new_item.ir.procedure_symbol.rescope(scope=routine)
-                call_map[call] = (call, call.clone(name=proc_symbol))
+                # call_map[call] = (call, call.clone(name=proc_symbol))
+                ## new
+                variable_map = routine.variable_map
+                comparison = sym.Comparison(variable_map['ICEND'], '!=', variable_map['NPROMA'])
+                condition = ir.Conditional(condition=comparison, body=(call,), else_body=(call.clone(name=proc_symbol),))
+                call_map[call] = condition
+                ## end: new
 
                 # Register the module import
                 if new_item.scope_name:

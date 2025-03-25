@@ -33,7 +33,7 @@ __all__ = [
     'promote_variables', 'promote_nonmatching_variables',
     'promotion_dimensions_from_loop_nest', 'demote_variables',
     'flatten_arrays', 'normalize_array_shape_and_access',
-    'LowerConstantArrayIndices'
+    'LowerConstantArrayIndices', 'flatten_arrays_2'
 ]
 
 def remove_explicit_array_dimensions(routine, calls_only=False):
@@ -684,6 +684,72 @@ def flatten_arrays(routine, order='F', start_index=1):
             var: var.clone(dimensions=new_dims(var.dimensions, var.shape))
             for var in FindVariables().visit(routine.body)
             if isinstance(var, sym.Array) and var.shape and len(var.shape)
+        }
+    else:
+        raise ValueError(f'Unsupported array order "{order}"')
+
+    routine.body = SubstituteExpressions(array_map).visit(routine.body)
+
+    routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),
+                                 type=v.type.clone(shape=as_tuple(sym.Product(v.shape))))
+                         if isinstance(v, sym.Array) else v for v in routine.variables]
+
+def flatten_arrays_2(routine, variables, order='F', start_index=1):
+    """
+    Flatten arrays, converting multi-dimensional arrays to
+    one-dimensional arrays.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which the variables should be promoted.
+    order : str
+        Assume Fortran (F) vs. C memory/array order.
+    start_index : int
+        Assume array indexing starts with `start_index`.
+    """
+    def new_dims(dim, shape):
+        if all(_dim == sym.RangeIndex((None, None)) for _dim in dim):
+            return None
+        if len(dim) > 2:
+            if isinstance(shape[-2], sym.RangeIndex):
+                # raise TypeError(f'Resolve shapes being of type RangeIndex, e.g., "{shape[-2]}" before flattening!')
+                print(f"  shape[-2] being a range index!!! {shape}")
+            _dim = (sym.Sum((dim[-2], sym.Product((shape[-2], dim[-1] - start_index)))),)
+            new_dim = dim[:-2]
+            new_dim += _dim
+            return new_dims(new_dim, shape[:-1])
+        return dim
+
+    def new_dims_2(var, reverse=False, allocated_vars_map=None):
+        if var.type.allocatable and allocated_vars_map is not None:
+            shape = allocated_vars_map[str(var.name).lower()].dimensions
+        else:
+            shape = var.shape
+        dimensions = var.dimensions
+        if reverse:
+            shape = shape[::-1]
+            dimensions = dimensions[::-1]
+        print(f"new_dims for var {var} ({dimensions} | {shape})")
+        return new_dims(dimensions, shape)
+
+    allocations = FindNodes(ir.Allocation).visit(routine.body)
+    allocated_vars = ()
+    for allocation in allocations:
+        allocated_vars += allocation.variables
+    allocated_vars_map = {str(var.name).lower(): var for var in allocated_vars}
+
+    if order == 'C':
+        array_map = {
+            var: var.clone(dimensions=new_dims_2(var, reverse=True, allocated_vars_map=allocated_vars_map))
+            for var in FindVariables().visit(routine.body)
+            if str(var.name).lower() in variables and isinstance(var, sym.Array) and var.shape and len(var.shape)
+        }
+    elif order == 'F':
+        array_map = {
+            var: var.clone(dimensions=new_dims_2(var, reverse=False, allocated_vars_map=allocated_vars_map))
+            for var in FindVariables().visit(routine.body)
+            if str(var.name).lower() in variables and isinstance(var, sym.Array) and var.shape and len(var.shape)
         }
     else:
         raise ValueError(f'Unsupported array order "{order}"')
