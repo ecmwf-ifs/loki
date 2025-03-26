@@ -246,19 +246,21 @@ class FParser2IR(GenericVisitor):
             raise NotImplementedError
         warning(msg)
 
-    def get_source(self, o, source):
+    def get_source(self, node, end_node=None):
         """
-        Helper method that builds the source object for the node.
+        Builds the source object for a given (pair of) AST node(s).
         """
-        # Only create Source object if configured
+        # Only create Source object if configured and item is given
         if not config['frontend-store-source']:
             return None
+        if not node.item:
+            return None
+        end_node = end_node if end_node else node
 
-        if o is not None and not isinstance(o, str) and o.item is not None:
-            lines = (o.item.span[0], o.item.span[1])
-            string = ''.join(self.raw_source[lines[0] - 1:lines[1]]).strip('\n')
-            source = Source(lines=lines, string=string)
-        return source
+        # Create source object that records lines and raw source string
+        lines = (node.item.span[0], end_node.item.span[1])
+        string = ''.join(self.raw_source[lines[0] - 1:lines[1]]).strip('\n')
+        return Source(lines=lines, string=string)
 
     def get_label(self, o):
         """
@@ -272,7 +274,8 @@ class FParser2IR(GenericVisitor):
         """
         Generic dispatch method that tries to generate meta-data from source.
         """
-        kwargs['source'] = self.get_source(o, kwargs.get('source'))
+        if o and o.item:
+            kwargs['source'] = self.get_source(o)
         kwargs['label'] = self.get_label(o)
         kwargs.setdefault('scope', self.default_scope)
         return super().visit(o, **kwargs)
@@ -1235,7 +1238,8 @@ class FParser2IR(GenericVisitor):
 
         # Finally: update the typedef with its body and make sure all symbols
         # are in the right scope
-        typedef._update(body=body, source=kwargs['source'])
+        source = self.get_source(derived_type_stmt, end_node=end_type_stmt)
+        typedef._update(body=body, source=source)
         typedef.rescope_symbols()
         return (*pre, typedef)
 
@@ -1265,6 +1269,7 @@ class FParser2IR(GenericVisitor):
         name = o.children[1].tostr()
         if o.children[2] is not None:
             self.warn_or_fail('parameter-name-list not implemented for derived types')
+
         return ir.TypeDef(
             name=name, body=(), abstract=abstract, extends=extends, bind_c=bind_c,
             private=private, public=public, label=kwargs['label'], parent=kwargs['scope']
@@ -1788,7 +1793,7 @@ class FParser2IR(GenericVisitor):
         if return_type is not None:
             routine.symbol_attrs[routine.name] = return_type
             return_var = sym.Variable(name=routine.name, scope=routine)
-            decl_source = self.get_source(subroutine_stmt, source=None)
+            decl_source = self.get_source(subroutine_stmt)
             return_var_decl = ir.VariableDeclaration(symbols=(return_var,), source=decl_source)
 
             decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
@@ -2184,9 +2189,7 @@ class FParser2IR(GenericVisitor):
         # Extract source objects for branches
         sources, labels = [], []
         for conditional in (if_then_stmt,) + else_if_stmts:
-            lines = (conditional.item.span[0], end_if_stmt.item.span[1])
-            string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-            sources += [Source(lines=lines, string=string)]
+            sources += [self.get_source(conditional, end_node=end_if_stmt)]
             labels += [self.get_label(conditional)]
 
         # Build IR nodes backwards using else-if branch as else body
@@ -2664,7 +2667,8 @@ class FParser2IR(GenericVisitor):
         symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
 
         # Create the enum and make sure there's nothing else left to do
-        enum = ir.Enumeration(symbols=symbols, source=kwargs['source'], label=kwargs['label'])
+        source = self.get_source(enum_def_stmt, end_node=end_enum_stmt)
+        enum = ir.Enumeration(symbols=symbols, source=source, label=kwargs['label'])
         assert end_enum_stmt_index + 1 == len(o.children)
         return (*pre, enum, *post)
 
@@ -3014,9 +3018,7 @@ class FParser2IR(GenericVisitor):
             has_end_do = False
             end_do_stmt = rget_child(o, Fortran2003.Continue_Stmt)
             assert str(end_do_stmt.item.label) == do_stmt.label.string
-        lines = (do_stmt.item.span[0], end_do_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(do_stmt, end_node=end_do_stmt)
         label = self.get_label(do_stmt)
         construct_name = do_stmt.item.name
         # Extract loop header and get stepping info
