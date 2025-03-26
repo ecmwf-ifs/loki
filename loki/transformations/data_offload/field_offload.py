@@ -155,7 +155,7 @@ class FieldOffloadBlockedTransformation(Transformation):
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
                     splitting_vars, innner_loop, block_loop = block_driver_loops(driver, region, self.block_size)
-                    add_device_field_allocations(driver, region, offload_map, self.block_size, splitting_vars.num_blocks)
+                    add_device_field_allocations(driver, block_loop, offload_map, self.block_size, splitting_vars.num_blocks)
                     add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
 
@@ -236,7 +236,7 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_blocked_field_offload_calls(driver, region, offload_map, splitting_variables):
+def add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_variables):
     host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
                                                                 splitting_variables.block_start,
                                                                 splitting_variables.block_end)
@@ -246,23 +246,23 @@ def add_blocked_field_offload_calls(driver, region, offload_map, splitting_varia
                                                             splitting_variables.block_start,
                                                             splitting_variables.block_end)
                                                 ))
-    update_map = {
-        region: host_to_device + (region,) + device_to_host
-    }
+    new_loop = block_loop.clone(body= host_to_device + block_loop.body + device_to_host)
+    update_map = {block_loop: new_loop}
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_device_field_allocations(driver, region, offload_map, block_size, num_blocks):
+def add_device_field_allocations(driver, block_loop, offload_map, block_size, num_blocks):
     blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size*num_blocks))
     create_device_data_calls = tuple(field_create_device_data(field_ptr=offload_map.field_ptr_from_view(arg),
                                                               scope=driver,
                                                               blk_bounds=blk_bounds)
                                      for arg in offload_map.args)
     create_device_data_calls = tuple(dict.fromkeys(create_device_data_calls))
-    update_map = {
-        region: create_device_data_calls + (region,)
-    }
-    Transformer(update_map, inplace=True).visit(driver.body)
+    with pragmas_attached(driver, ir.Loop):
+        update_map = {
+            block_loop: create_device_data_calls + (block_loop,)
+        }
+        Transformer(update_map, inplace=True).visit(driver.body)
 
 
 def replace_kernel_args(driver, offload_map, offload_index):
@@ -289,9 +289,10 @@ def block_driver_loops(driver, region, block_size):
     with pragmas_attached(driver, ir.Loop):
         driver_loops = find_driver_loops(driver.body, targets=None)
     # driver_loops = FindNodes(ir.Loop).visit(routine.ir)
-    if len(driver_loops) > 0:
-        loop = driver_loops[0]
-    else:
-        warning(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
-        return
-    return split_loop(driver, loop, block_size)
+        if len(driver_loops) > 0:
+            loop = driver_loops[0]
+        else:
+            warning(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
+            return
+        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size)
+    return splitting_vars, inner_loop, outer_loop
