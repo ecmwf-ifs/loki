@@ -141,8 +141,8 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, outer_loop=N
 
     #  Outer loop bounds + body
     if outer_loop is None:
-        outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
-                             bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+        outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
+                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
         change_map = {loop: block_loop_inits + (outer_loop,)}
         Transformer(change_map, inplace=True).visit(routine.body)
     else:
