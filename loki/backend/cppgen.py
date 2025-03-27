@@ -5,9 +5,11 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.backend.cgen import CCodegen, CCodeMapper, IntrinsicTypeC
+from loki.backend.style import DefaultStyle
+
 from loki.expression import Array
 from loki.types import BasicType
-from loki.backend.cgen import CCodegen, CCodeMapper, IntrinsicTypeC
 
 __all__ = ['cppgen', 'CppCodegen', 'CppCodeMapper', 'IntrinsicTypeCpp']
 
@@ -81,4 +83,6 @@ def cppgen(ir, **kwargs):
     """
     Generate standardized C++ code from one or many IR objects/trees.
     """
-    return CppCodegen().visit(ir, **kwargs)
+    style = kwargs.pop('style', DefaultStyle())
+    depth = kwargs.pop('depth', 0)
+    return CppCodegen(style=style, depth=depth).visit(ir, **kwargs)

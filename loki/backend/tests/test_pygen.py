@@ -336,13 +336,19 @@ subroutine pygen_loop_indices(n, idx, mask1, mask2, mask3)
   do i=1, n
      if (i < idx) then
         mask1(i) = 1
-     end if
-
-     if (i == idx) then
+     elseif (i == idx) then
         mask1(i) = 2
+     else
+        mask1(i) = 3
      end if
 
      mask2(i) = i
+  end do
+
+  i = 1
+  do while (i <= idx)
+    mask3(i) = 2.0
+    i = i + 1
   end do
   mask3(n) = 3.0
 end subroutine pygen_loop_indices
@@ -363,9 +369,9 @@ end subroutine pygen_loop_indices
     function(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
     assert np.all(mask1[:cidx-1] == 1)
     assert mask1[cidx] == 2
-    assert np.all(mask1[cidx+1:] == 0)
+    assert np.all(mask1[cidx+1:] == 3)
     assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
-    assert np.all(mask3[:-1] == 0.)
+    assert np.all(mask3[:fidx] == 2.)
     assert mask3[-1] == 3.
 
     # Rename routine to avoid problems with module import caching
@@ -383,9 +389,9 @@ end subroutine pygen_loop_indices
     func(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
     assert np.all(mask1[:cidx-1] == 1)
     assert mask1[cidx] == 2
-    assert np.all(mask1[cidx+1:] == 0)
+    assert np.all(mask1[cidx+1:] == 3)
     assert np.all(mask2 == np.arange(n, dtype=np.int32) + 1)
-    assert np.all(mask3[:-1] == 0.)
+    assert np.all(mask3[:fidx] == 2.)
     assert mask3[-1] == 3.
 
     clean_test(filepath)

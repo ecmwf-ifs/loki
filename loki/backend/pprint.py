@@ -11,6 +11,8 @@ Pretty-printer classes for IR
 
 from sys import stdout
 
+from loki.backend.style import DefaultStyle
+
 from loki.tools import JoinableStringList, is_iterable, as_tuple
 from loki.ir.visitor import Visitor
 
@@ -48,13 +50,14 @@ class Stringifier(Visitor):
 
     # pylint: disable=arguments-differ
 
-    def __init__(self, depth=0, indent='  ', linewidth=90,
-                 line_cont=lambda indent: '\n' + indent, symgen=str):
+    def __init__(
+            self, style, depth=0, symgen=str,
+            line_cont=lambda indent: '\n' + indent
+    ):
         super().__init__()
-
+        self.style = style
         self.depth = depth
-        self._indent = indent
-        self.linewidth = linewidth
+
         self.line_cont = line_cont
         self._symgen = symgen
 
@@ -75,7 +78,7 @@ class Stringifier(Visitor):
         str
             A string containing ``indent * depth``.
         """
-        return self._indent * self.depth
+        return self.style.indent_char * self.depth
 
     @staticmethod
     def join_lines(*lines):
@@ -120,8 +123,10 @@ class Stringifier(Visitor):
         -------
         :any:`JoinableStringList`
         """
-        return JoinableStringList(items, sep=sep, width=self.linewidth,
-                                  cont=self.line_cont(self.indent), separable=separable)
+        return JoinableStringList(
+            items, sep=sep, width=self.style.linewidth,
+            cont=self.line_cont(self.indent), separable=separable
+        )
 
     def format_node(self, name, *items):
         """
@@ -133,7 +138,10 @@ class Stringifier(Visitor):
             return self.format_line('<', name, ' ', self.join_items(items), '>')
         return self.format_line('<', name, '>')
 
-    def format_line(self, *items, comment=None, no_wrap=False, no_indent=False):
+    def format_line(
+            self, *items, comment=None, no_wrap=False,
+            no_indent=False, trim_spaces=True
+    ):
         """
         Format a line by concatenating all items and applying indentation while observing
         the allowed line width limit.
@@ -160,6 +168,7 @@ class Stringifier(Visitor):
             line = str(self.join_items(items, sep=''))
         if comment:
             return line + comment
+        line = line.rstrip() if trim_spaces else line
         return line
 
     def visit_all(self, item, *args, **kwargs):
@@ -186,10 +195,10 @@ class Stringifier(Visitor):
              ...routines...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         spec = self.visit(o.spec, **kwargs)
         routines = self.visit(o.subroutines, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, spec, routines)
 
     def visit_Subroutine(self, o, **kwargs):
@@ -205,12 +214,12 @@ class Stringifier(Visitor):
              ...members...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         docstring = self.visit(o.docstring, **kwargs)
         spec = self.visit(o.spec, **kwargs)
         body = self.visit(o.body, **kwargs)
         members = self.visit(o.members, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, docstring, spec, body, members)
 
     # Handler for AST base nodes
@@ -253,9 +262,9 @@ class Stringifier(Visitor):
              ...body...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         body = self.visit(o.body, **kwargs)
-        self.depth -= 1
+        self.depth -= self.style.indent_default
         return self.join_lines(header, body)
 
 
@@ -272,14 +281,14 @@ class Stringifier(Visitor):
                ...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         conditions = [self.format_node('If', self.visit(o.condition, **kwargs))]
         if o.else_body:
             conditions.append(self.format_node('Else'))
-        self.depth += 1
+        self.depth += self.style.indent_default
         bodies = self.visit_all(o.body, o.else_body, **kwargs)
-        self.depth -= 1
-        self.depth -= 1
+        self.depth -= self.style.indent_default
+        self.depth -= self.style.indent_default
         body = [item for branch in zip(conditions, bodies) for item in branch]
         return self.join_lines(header, *body)
 
@@ -298,17 +307,17 @@ class Stringifier(Visitor):
                ...
         """
         header = self.format_node(repr(o))
-        self.depth += 1
+        self.depth += self.style.indent_default
         values = []
         for expr in o.values:
             value = f'({", ".join(self.visit_all(expr, **kwargs))})'
             values += [self.format_node('Case', value)]
         if o.else_body:
             values += [self.format_node('Default')]
-        self.depth += 1
+        self.depth += self.style.indent_default
         bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
-        self.depth -= 1
-        self.depth -= 1
+        self.depth -= self.style.indent_default
+        self.depth -= self.style.indent_default
         body = [item for branch in zip(values, bodies) for item in branch]
         return self.join_lines(header, *body)
 
@@ -327,4 +336,4 @@ def pprint(ir, stream=None):
     """
     if stream is None:
         stream = stdout
-    stream.write(Stringifier().visit(ir))
+    stream.write(Stringifier(style=DefaultStyle()).visit(ir))

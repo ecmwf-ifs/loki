@@ -6,6 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 from loki.backend.pygen import PyCodegen
+from loki.backend.style import DefaultStyle
+
 from loki.expression import symbols as sym, ExpressionRetriever
 from loki.ir import is_loki_pragma
 from loki.types import BasicType
@@ -29,9 +31,6 @@ class DaceCodegen(PyCodegen):
     """
     Tree visitor that extends `PyCodegen` with Dace-specific language variations.
     """
-
-    def __init__(self, depth=0, indent='  ', linewidth=100):
-        super().__init__(depth=depth, indent=indent, linewidth=linewidth)
 
     # Handler for outer objects
 
@@ -117,4 +116,4 @@ def dacegen(ir):
     Generate standard Python 3 code with Dace-specializations (and Numpy) from one
     or many IR objects/trees.
     """
-    return DaceCodegen().visit(ir)
+    return DaceCodegen(style=DefaultStyle(linewidth=300)).visit(ir)

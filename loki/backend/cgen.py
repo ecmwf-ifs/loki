@@ -10,16 +10,15 @@ from pymbolic.mapper.stringifier import (
     PREC_UNARY, PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_NONE, PREC_CALL
 )
 
+from loki.backend.pprint import Stringifier
+from loki.backend.style import DefaultStyle
+
+from loki.expression import (
+    symbols as sym, LokiStringifyMapper, Array, symbolic_op, Literal
+)
+from loki.ir import Import, FindNodes, FindVariables, FindRealLiterals
 from loki.logging import warning
 from loki.tools import as_tuple
-from loki.ir import (
-        Import, Stringifier, FindNodes,
-        FindVariables, FindRealLiterals
-)
-from loki.expression import (
-        LokiStringifyMapper, Array, symbolic_op, Literal,
-        symbols as sym
-)
 from loki.types import BasicType, SymbolAttributes, DerivedType
 
 __all__ = ['cgen', 'CCodegen', 'CCodeMapper', 'IntrinsicTypeC']
@@ -172,11 +171,10 @@ class CCodegen(Stringifier):
 
     standard_imports = ['stdio.h', 'stdbool.h', 'float.h', 'math.h']
 
-    def __init__(self, depth=0, indent='  ', linewidth=90, **kwargs):
+    def __init__(self, style, depth=0, **kwargs):
         symgen = kwargs.get('symgen', CCodeMapper(c_intrinsic_type))
         line_cont = kwargs.get('line_cont', '\n{}  '.format)
-        super().__init__(depth=depth, indent=indent, linewidth=linewidth,
-                         line_cont=line_cont, symgen=symgen)
+        super().__init__(style=style, depth=depth, line_cont=line_cont, symgen=symgen)
 
     # Handler for outer objects
 
@@ -580,4 +578,6 @@ def cgen(ir, **kwargs):
     """
     Generate standardized C code from one or many IR objects/trees.
     """
-    return CCodegen().visit(ir, **kwargs)
+    style = kwargs.pop('style', DefaultStyle())
+    depth = kwargs.pop('depth', 0)
+    return CCodegen(style=style, depth=depth).visit(ir, **kwargs)

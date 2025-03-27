@@ -5,6 +5,8 @@
 # nor does it submit to any jurisdiction.
 
 from loki.backend.cppgen import CppCodegen, CppCodeMapper, IntrinsicTypeCpp
+from loki.backend.style import DefaultStyle
+
 from loki.ir import Import, FindNodes
 from loki.expression import Array
 
@@ -124,4 +126,6 @@ def cudagen(ir, **kwargs):
     """
     Generate standardized CUDA code from one or many IR objects/trees.
     """
-    return CudaCodegen().visit(ir, **kwargs)
+    style = kwargs.pop('style', DefaultStyle())
+    depth = kwargs.pop('depth', 0)
+    return CudaCodegen(style=style, depth=depth).visit(ir, **kwargs)

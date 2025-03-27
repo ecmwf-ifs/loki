@@ -11,6 +11,7 @@ Transformations to be used in build-system level tasks
 
 from pathlib import Path
 
+from loki.backend import FortranStyle, IFSFortranStyle
 from loki.batch import Transformation, ProcedureItem, ModuleItem
 
 
@@ -36,12 +37,19 @@ class FileWriteTransformation(Transformation):
     # This transformation is applied over the file graph
     traverse_file_graph = True
 
+    _style_map = {
+        None: FortranStyle(),
+        'fortran': FortranStyle(),
+        'ifs': IFSFortranStyle()
+    }
+
     def __init__(
-            self, suffix=None, cuf=False,
-            include_module_var_imports=False
+            self, suffix=None, cuf=False, style=None,
+            include_module_var_imports=False,
     ):
         self.suffix = suffix
         self.cuf = cuf
+        self.style = self._style_map[style]
         self.include_module_var_imports = include_module_var_imports
 
     @property
@@ -76,7 +84,7 @@ class FileWriteTransformation(Transformation):
 
         build_args = kwargs.get('build_args', {})
         sourcepath = self._get_file_path(item, build_args)
-        sourcefile.write(path=sourcepath, cuf=self.cuf)
+        sourcefile.write(path=sourcepath, cuf=self.cuf, style=self.style)
 
     def plan_file(self, sourcefile, **kwargs):  # pylint: disable=unused-argument
         item = kwargs.get('item')
