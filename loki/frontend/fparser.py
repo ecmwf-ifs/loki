@@ -253,9 +253,9 @@ class FParser2IR(GenericVisitor):
         # Only create Source object if configured and item is given
         if not config['frontend-store-source']:
             return None
-        if not node.item:
-            return None
         end_node = end_node if end_node else node
+        if not (node.item and end_node.item):
+            return None
 
         # Create source object that records lines and raw source string
         lines = (node.item.span[0], end_node.item.span[1])
