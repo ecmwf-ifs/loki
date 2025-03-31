@@ -27,19 +27,25 @@ from loki.types import BasicType, DerivedType
 from loki.transformations.array_indexing import (
     shift_to_zero_indexing, invert_array_indices,
     resolve_vector_notation, normalize_array_shape_and_access,
-    flatten_arrays
+    flatten_arrays, remove_explicit_array_dimensions
 )
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
 )
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    convert_to_lower_case, replace_intrinsics, sanitise_imports
+    convert_to_lower_case, replace_intrinsics, sanitise_imports,
+    rename_variables
 )
 
 
 __all__ = ['FortranCTransformation']
 
+
+class SubstituteExpressionsMapperTest(SubstituteExpressionsMapper):
+
+    def map_inline_call(self, expr, *args, **kwargs):
+        return expr
 
 class DeReferenceTrafo(Transformer):
     """
@@ -71,7 +77,7 @@ class DeReferenceTrafo(Transformer):
             symbol: Dereference(symbol.clone()) for symbol in self.retriever.retrieve(o)
             if symbol.name.lower() in self.vars2dereference
         }
-        return SubstituteExpressionsMapper(symbol_map)(o)
+        return SubstituteExpressionsMapperTest(symbol_map)(o)
 
     def visit_CallStatement(self, o, **kwargs):
         new_args = ()
@@ -108,10 +114,11 @@ class FortranCTransformation(Transformation):
     # Set of standard module names that have no C equivalent
     __fortran_intrinsic_modules = ['ISO_FORTRAN_ENV', 'ISO_C_BINDING']
 
-    def __init__(self, inline_elementals=True, language='c'):
+    def __init__(self, inline_elementals=True, language='c', path=None):
         self.inline_elementals = inline_elementals
         self.language = language.lower()
         self._supported_languages = ['c', 'cpp', 'cuda']
+        self.path = Path(path) if path is not None else None
 
         if self.language == 'c':
             self.codegen = cgen
@@ -129,11 +136,14 @@ class FortranCTransformation(Transformation):
         return '.c'
 
     def transform_subroutine(self, routine, **kwargs):
-        if 'path' in kwargs:
-            path = kwargs.get('path')
+        if self.path is None:
+            if 'path' in kwargs:
+                path = kwargs.get('path')
+            else:
+                build_args = kwargs.get('build_args')
+                path = Path(build_args.get('output_dir'))
         else:
-            build_args = kwargs.get('build_args')
-            path = Path(build_args.get('output_dir'))
+            path = self.path
 
         role = kwargs.get('role', 'kernel')
         item = kwargs.get('item', None)
@@ -229,6 +239,7 @@ class FortranCTransformation(Transformation):
         """
         to_be_dereferenced = []
         for arg in routine.arguments:
+            # print(f"routine: {routine} - arg: {arg}")
             if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)) or arg.type.optional:
                 to_be_dereferenced.append(arg.name.lower())
 
@@ -246,6 +257,7 @@ class FortranCTransformation(Transformation):
         kernel.name = f'{kernel.name.lower()}_c'
 
         # Clean up Fortran vector notation
+        remove_explicit_array_dimensions(kernel, calls_only=True)
         resolve_vector_notation(kernel)
         normalize_array_shape_and_access(kernel)
 
@@ -313,7 +325,7 @@ class FortranCTransformation(Transformation):
         # Force pointer on reference-passed arguments (and lower case type names for derived types)
         for arg in kernel.arguments:
 
-            if not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
+            if arg.type.intent is not None and not(arg.type.intent.lower() == 'in' and isinstance(arg, Scalar)):
                 _type = arg.type.clone(pointer=True)
                 if isinstance(arg.type.dtype, DerivedType):
                     # Lower case type names for derived types
@@ -329,8 +341,10 @@ class FortranCTransformation(Transformation):
 
         symbol_map = {'epsilon': 'DBL_EPSILON'}
         function_map = {'min': 'fmin', 'max': 'fmax', 'abs': 'fabs',
-                        'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign'}
+                'exp': 'exp', 'sqrt': 'sqrt', 'sign': 'copysign', 'nint': 'rint'}
         replace_intrinsics(kernel, symbol_map=symbol_map, function_map=function_map)
+        symbol_map = {'const': 'const_var'}
+        rename_variables(kernel, symbol_map=symbol_map)
 
         # Remove redundant imports
         sanitise_imports(kernel)

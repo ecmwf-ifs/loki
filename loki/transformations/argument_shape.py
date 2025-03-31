@@ -27,6 +27,9 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType
+from loki.transformations.inline import (
+    inline_constant_parameters, inline_elemental_functions
+)
 
 
 __all__ = ['ArgumentArrayShapeAnalysis', 'ExplicitArgumentArrayShapeTransformation']
@@ -168,6 +171,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
                 continue
 
             callee = call.routine
+            inline_constant_parameters(callee, external_only=True)
             imported_symbols = callee.imported_symbols
             if callee.parent is not None:
                 imported_symbols += callee.parent.imported_symbols

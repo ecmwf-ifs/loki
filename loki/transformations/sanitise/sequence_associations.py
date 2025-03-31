@@ -102,11 +102,12 @@ class SequenceAssociationTransformer(Transformer):
         Resolve sequence association patterns in arguments and return
         new :any:`CallStatement` object if any were found.
         """
-        if call.procedure_type is BasicType.DEFERRED:
+        if call.procedure_type is BasicType.DEFERRED or call.routine is BasicType.DEFERRED :
             return call
 
         new_args = []
         found_scalar = False
+        print(f"call: {call}")
         for dummy, arg in call.arg_map.items():
             if check_if_scalar_syntax(arg, dummy):
                 found_scalar = True

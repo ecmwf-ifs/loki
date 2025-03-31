@@ -23,7 +23,9 @@ from loki import (
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 
 from loki.transformations.build_system import FileWriteTransformation
-
+from loki.transformations import SanitiseTransformation, SCCLowLevelHoist
+from loki.transformations.transpile import FortranCTransformation, FortranISOCWrapperTransformation
+from loki.transformations.build_system import DependencyTransformation
 
 @click.group()
 @click.option('--debug/--no-debug', default=False, show_default=True,
@@ -133,29 +135,250 @@ def convert(
     # If requested, apply a custom pipeline from the scheduler config
     # Note that this new entry point will bypass all other default
     # behaviour and exit immediately after.
-    if mode not in config.pipelines:
-        msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
-        msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
-        sys.exit(msg)
+    # if mode not in config.pipelines:
+    #     msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
+    #     msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
+    #     sys.exit(msg)
 
-    info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
-    info(str(config.pipelines[mode]))
+    if mode in config.pipelines:
+        info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
+        info(str(config.pipelines[mode]))
 
-    scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
+        scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
+
+        mode = mode.replace('-', '_')  # Sanitize mode string
+
+        # Write out all modified source files into the build directory
+        file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
+        if not file_write_trafo:
+            file_write_trafo = FileWriteTransformation(cuf='cuf' in mode)
+        scheduler.process(transformation=file_write_trafo, proc_strategy=processing_strategy)
+
+        if plan_file is not None:
+            scheduler.write_cmake_plan(plan_file, rootpath=root)
+
+        if callgraph:
+            scheduler.callgraph(callgraph)
+        return
+
+    # Pull dimension definition from configuration
+    horizontal = scheduler.config.dimensions.get('horizontal', None)
+    vertical = scheduler.config.dimensions.get('vertical', None)
+    block_dim = scheduler.config.dimensions.get('block_dim', None)
+
+    # First, remove all derived-type arguments; caller first!
+    # if remove_derived_args and mode not in ['cuda-hoist']:
+    #     scheduler.process( DerivedTypeArgumentsTransformation() )
+
+    # Re-write DR_HOOK labels for non-GPU paths
+    # if 'scc' not in mode and 'cuda' not in mode :
+    #     scheduler.process( DrHookTransformation(mode=mode, remove=False) )
+
+    # Perform general source removal of unwanted calls or code regions
+    # (do not perfrom Dead Code Elimination yet, inlining will do this.)
+    remove_code_trafo = scheduler.config.transformations.get('RemoveCodeTransformation', None)
+    if not remove_code_trafo:
+        remove_code_trafo = RemoveCodeTransformation(
+            remove_marked_regions=True, remove_dead_code=False, kernel_only=True,
+            call_names=('ABOR1', 'DR_HOOK'), intrinsic_names=('WRITE(NULOUT',)
+        )
+    scheduler.process(transformation=remove_code_trafo)
+
+    # Perform general source sanitisation steps to level the playing field
+    sanitise_trafo = scheduler.config.transformations.get('SanitiseTransformation', None)
+    if not sanitise_trafo:
+        sanitise_trafo = SanitiseTransformation(
+            resolve_sequence_association=True # resolve_sequence_association,
+        )
+    scheduler.process(transformation=sanitise_trafo)
+
+    # Perform source-inlining either from CLI arguments or from config
+    # if False:
+    #     inline_trafo = scheduler.config.transformations.get('InlineTransformation', None)
+    #     if not inline_trafo:
+    #         inline_trafo = InlineTransformation(
+    #             inline_internals=inline_members, inline_marked=inline_marked,
+    #             remove_dead_code=eliminate_dead_code, allowed_aliases=horizontal.index,
+    #             resolve_sequence_association=resolve_sequence_association_inlined_calls 
+    #         )
+    #     scheduler.process(transformation=inline_trafo)
+
+    # Backward insert argument shapes (for surface routines)
+    # if derive_argument_array_shape and mode not in ['cuda-hoist']:
+    #     scheduler.process(transformation=ArgumentArrayShapeAnalysis())
+    #     scheduler.process(transformation=ExplicitArgumentArrayShapeTransformation())
+
+    # Insert data offload regions for GPUs and remove OpenMP threading directives
+    # if mode not in ['cuda-hoist', 'cuda-parametrise']:
+    #     use_claw_offload = True
+    #     if data_offload:
+    #         offload_transform = DataOffloadTransformation(
+    #             remove_openmp=remove_openmp, assume_deviceptr=assume_deviceptr
+    #         )
+    #         scheduler.process(offload_transform)
+    #         use_claw_offload = not offload_transform.has_data_regions
+
+    # if frontend == Frontend.OMNI and mode in ['idem-stack', 'scc-stack']:
+    #     # To make the pool allocator size derivation work correctly, we need
+    #     # to normalize the 1:end-style index ranges that OMNI introduces
+    #     class NormalizeRangeIndexingTransformation(Transformation):
+    #         def transform_subroutine(self, routine, **kwargs):
+    #             normalize_range_indexing(routine)
+
+    #     scheduler.process( NormalizeRangeIndexingTransformation() )
+
+    # if global_var_offload and mode not in ['cuda-hoist']:
+    #     scheduler.process(transformation=GlobalVariableAnalysis())
+    #     scheduler.process(transformation=GlobalVarOffloadTransformation())
+
+    # Now we create and apply the main transformation pipeline
+    # if mode == 'idem':
+    #     pipeline = IdemTransformation()
+    #     scheduler.process( pipeline )
+
+    # if mode == 'idem-stack':
+    #     pipeline = Pipeline(
+    #         classes=(IdemTransformation, TemporariesPoolAllocatorTransformation),
+    #         block_dim=block_dim, directive='openmp', check_bounds=True
+    #     )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'idem-lower':
+    #     pipeline = Pipeline(
+    #         classes=(IdemTransformation,
+    #             LowerBlockIndexTransformation,
+    #             InjectBlockIndexTransformation,),
+    #             # LowerBlockLoopTransformation),
+    #         block_dim=block_dim, directive='openmp', check_bounds=True,
+    #         horizontal=horizontal, vertical=vertical,
+    #     )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'idem-lower-loop':
+    #     pipeline = Pipeline(
+    #         classes=(IdemTransformation,
+    #             LowerBlockIndexTransformation,
+    #             InjectBlockIndexTransformation,
+    #             LowerBlockLoopTransformation),
+    #         block_dim=block_dim, directive='openmp', check_bounds=True,
+    #         horizontal=horizontal, vertical=vertical,
+    #     )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'sca':
+    #     pipeline = ExtractSCATransformation(horizontal=horizontal)
+    #     scheduler.process( pipeline )
+
+    # if mode == 'claw':
+    #     pipeline = CLAWTransformation(
+    #         horizontal=horizontal, claw_data_offload=use_claw_offload
+    #     )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'scc':
+    #     pipeline = scheduler.config.transformations.get('scc', None)
+    #     if not pipeline:
+    #         pipeline = SCCVectorPipeline(
+    #             horizontal=horizontal,
+    #             block_dim=block_dim, directive=directive,
+    #             trim_vector_sections=trim_vector_sections
+    #         )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'scc-hoist':
+    #     pipeline = scheduler.config.transformations.get('scc-hoist', None)
+    #     if not pipeline:
+    #         pipeline = SCCHoistPipeline(
+    #             horizontal=horizontal,
+    #             block_dim=block_dim, directive=directive,
+    #             dim_vars=(vertical.size,) if vertical else None,
+    #             trim_vector_sections=trim_vector_sections
+    #         )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'scc-stack':
+    #     pipeline = scheduler.config.transformations.get('scc-stack', None)
+    #     if not pipeline:
+    #         pipeline = SCCStackPipeline(
+    #             horizontal=horizontal,
+    #             block_dim=block_dim, directive=directive,
+    #             check_bounds=False,
+    #             trim_vector_sections=trim_vector_sections
+    #         )
+    #     scheduler.process( pipeline )
+
+    # if mode == 'scc-raw-stack':
+    #     pipeline = scheduler.config.transformations.get('scc-raw-stack', None)
+    #     if not pipeline:
+    #         pipeline = SCCStackPipeline(
+    #             horizontal=horizontal,
+    #             block_dim=block_dim, directive=directive,
+    #             check_bounds=False,
+    #             trim_vector_sections=trim_vector_sections,
+    #         )
+    #     scheduler.process( pipeline )
+
+    # if mode in ['cuf-hoist']:
+    #     pipeline = SCCLowLevelCufHoist(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+    #             transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim,
+    #             dim_vars=(vertical.size,), as_kwarguments=True, remove_vector_section=True)
+    #     scheduler.process( pipeline )
+    # 
+    # if mode in ['cuf-parametrise']:
+    #     dic2p = {'NLEV': 137}
+    #     pipeline = SCCLowLevelCufParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+    #             transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim,
+    #             dim_vars=(vertical.size,), as_kwarguments=True, dic2p=dic2p, remove_vector_section=True)
+    #     scheduler.process( pipeline )
+
+    if mode in ['cuda-hoist']:
+        dic2p = {'nang': 24, 'nfre': 36}
+        pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive='openacc', trim_vector_sections=True, # trim_vector_sections,
+                transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
+                # dim_vars=(vertical.size, horizontal.size),
+                demote_local_arrays=False,
+                as_kwarguments=True, hoist_parameters=True,
+                ignore_modules=['parkind1'], all_derived_types=True,
+                dic2p=dic2p, skip_driver_imports=True)
+        scheduler.process( pipeline )
+
+
+    if mode in ['cuda-parametrise']:
+        dic2p = {'NLEV': 137}
+        pipeline = SCCLowLevelParametrise(horizontal=horizontal, vertical=vertical, directive=directive, trim_vector_sections=trim_vector_sections,
+                transformation_type='parametrise', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
+                # dim_vars=(vertical.size,),
+                as_kwarguments=True, hoist_parameters=True, ignore_modules=['parkind1'], all_derived_types=True, dic2p=dic2p)
+        scheduler.process( pipeline )
 
     mode = mode.replace('-', '_')  # Sanitize mode string
+    if mode in ['c', 'cuda_parametrise', 'cuda_hoist']:
+        if mode in ['c']:
+            f2c_transformation = FortranCTransformation(path=build)
+        elif mode in ['cuda_parametrise', 'cuda_hoist']:
+            f2c_transformation = FortranCTransformation(path=build, language='cuda') # , use_c_ptr=True)
+            f2c_iso_wrapper_trafo = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
+        else:
+            assert False
+        scheduler.process(f2c_transformation)
+        scheduler.process(f2c_iso_wrapper_trafo)
+        for h in definitions:
+            f2c_transformation.apply(h, role='header')
+        # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+        dependency = DependencyTransformation(suffix='_FC', module_suffix='_MOD')
+        scheduler.process(dependency)
+    else:
+        # Housekeeping: Inject our re-named kernel and auto-wrapped it in a module
+        scheduler.process( ModuleWrapTransformation(module_suffix='_MOD') )
+        scheduler.process( DependencyTransformation(suffix=f'_{mode.upper()}', module_suffix='_MOD') )
 
     # Write out all modified source files into the build directory
-    file_write_trafo = scheduler.config.transformations.get('FileWriteTransformation', None)
-    if not file_write_trafo:
-        file_write_trafo = FileWriteTransformation(cuf='cuf' in mode)
-    scheduler.process(transformation=file_write_trafo, proc_strategy=processing_strategy)
-
-    if plan_file is not None:
-        scheduler.write_cmake_plan(plan_file, rootpath=root)
-
-    if callgraph:
-        scheduler.callgraph(callgraph)
+    scheduler.process(transformation=FileWriteTransformation(
+        # builddir=build,
+        # mode=mode,
+        cuf='cuf' in mode,
+        include_module_var_imports=False # global_var_offload
+    ))
 
 
 @cli.command('plan')

@@ -52,7 +52,7 @@ class InlineTransformation(Transformation):
 
         if role == 'kernel':
 
-            inline_constant_parameters(routine, external_only=True)
+            # inline_constant_parameters(routine, external_only=True)
             inline_elemental_functions(routine)
 
 

@@ -78,7 +78,8 @@ class BasicType(DataType, int, Enum):
         """
         type_map = {'logical': cls.LOGICAL, 'integer': cls.INTEGER, 'real': cls.REAL,
                     'double precision': cls.REAL, 'double complex': cls.COMPLEX,
-                    'character': cls.CHARACTER, 'complex': cls.COMPLEX}
+                    'character': cls.CHARACTER, 'complex': cls.COMPLEX,
+                    'int': cls.INTEGER, 'double': cls.REAL}
         return type_map[value.lower()]
 
     @classmethod

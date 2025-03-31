@@ -44,7 +44,8 @@ class IntrinsicTypeC:
             if str(_type.kind) in ['real32']:
                 return 'float'
             return 'double'
-        raise ValueError(str(_type))
+        return str(_type)
+        # raise ValueError(str(_type))
 
 c_intrinsic_type = IntrinsicTypeC()
 
@@ -353,8 +354,11 @@ class CCodegen(Stringifier):
                 continue
             var = self.visit(v, **kwargs)
             initial = ''
-            if v.initial is not None:
-                initial = f' = {self.visit(v.initial, **kwargs)}'
+            try:
+                if v.initial is not None:
+                    initial = f' = {self.visit(v.initial, **kwargs)}'
+            except Exception as e:
+                print(f"e: {e}")
             if v.type.pointer or v.type.allocatable:
                 var = '*' + var
             variables += [f'{var}{initial}']

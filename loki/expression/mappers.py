@@ -559,8 +559,9 @@ class LokiIdentityMapper(IdentityMapper):
         kwargs['recurse_to_declaration_attributes'] = False
 
         new_type = expr.type
-        if recurse_to_declaration_attributes:
+        if recurse_to_declaration_attributes and expr.type is not None:
             old_type = expr.type
+            print(f"expr: {expr} | expr.type: {expr.type}")
             assert expr.type is not None
             kind = self.rec(old_type.kind, *args, **kwargs)
 
@@ -600,6 +601,8 @@ class LokiIdentityMapper(IdentityMapper):
                 if expr.scope:
                     # Update symbol table entry
                     expr.scope.symbol_attrs[expr.name] = new_type
+        else:
+            is_type_changed = False
 
         parent = self.rec(expr.parent, *args, **kwargs)
         if expr.scope is None:
@@ -756,7 +759,9 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         otherwise continue tree traversal
         """
         if expr in self.expr_map:
-            return self._rebuild(self.expr_map[expr])
+            expr = self.expr_map[expr]
+            if not kwargs['recurse_to_declaration_attributes']:
+                return self._rebuild(expr)
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)
 

@@ -26,7 +26,7 @@ from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.vector import SCCDevectorTransformation
 from loki.transformations.utilities import single_variable_declaration
 from loki.ir.pragma_utils import get_pragma_parameters
-from loki.transformations.utilities import get_integer_variable
+from loki.transformations.utilities import get_integer_variable, recursive_expression_map_update 
 
 __all__ = [
     'HoistTemporaryArraysDeviceAllocatableTransformation',
@@ -260,7 +260,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     new_args = ()
                     if upper.name not in call.routine.arguments:
                         new_args += (upper.clone(type=upper.type.clone(intent='in'), scope=call.routine),)
-                    if step.name not in call.routine.arguments:
+                    if isinstance(step, sym.Variable) and step.name not in call.routine.arguments:
                         new_args += (step.clone(type=step.type.clone(intent='in'), scope=call.routine),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
@@ -391,6 +391,7 @@ class SccLowLevelLaunchConfiguration(Transformation):
         # dimension and can thus be privatized.
         variables = [v for v in variables if v.shape is not None]
         variables = [v for v in variables if not any(vertical.size in d for d in v.shape)]
+        variables = [v for v in variables if not any(horizontal.size in d for d in v.shape)]
 
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -454,12 +455,23 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 function=sym.ProcedureSymbol(name="cudaDeviceSynchronize", scope=routine),
                 parameters=())
 
-            upper = routine.variable_map[parameters['upper']]
+            # upper = routine.variable_map[parameters['upper']]
+            upper = get_integer_variable(routine, parameters['upper'])
+            num_threads = None
             try:
-                step = routine.variable_map[parameters['step']]
+                # step = routine.variable_map[parameters['step']]
+                step = get_integer_variable(routine, parameters['step'])
             except Exception as e:
-                print(f"Exception: {e}")
+                # print(f"Exception: {e}")
+                # step = sym.IntLiteral(1)
+                for size_expr in self.horizontal.size_expressions:
+                    if size_expr in routine.symbol_map:
+                        num_threads = routine.symbol_map[size_expr]
+                        break
+            if num_threads is None:
                 step = sym.IntLiteral(1)
+            else:
+                step = num_threads
 
 
             if self.mode == 'cuf':
@@ -502,7 +514,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
-        return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+        # return upper, step, routine.variable_map[block_dim.size], blockdim_var, griddim_var,\
+        #         blockdim_assignment, griddim_assignment
+        return upper, step, get_integer_variable(routine, block_dim.size), blockdim_var, griddim_var,\
                 blockdim_assignment, griddim_assignment
 
 
@@ -641,7 +655,7 @@ class SccLowLevelDataOffload(Transformation):
         for var in routine.variables:
             if var in routine.arguments:
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables\
-                        and var.type.intent.lower() == 'in':
+                        and var.type.intent is not None and var.type.intent.lower() == 'in':
                     var_map[var] = var.clone(type=var.type.clone(value=True))
             else:
                 if isinstance(var, sym.Array):
@@ -662,6 +676,7 @@ class SccLowLevelDataOffload(Transformation):
 
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
+        # print(f"scc_cuf ... routine {routine} | relevant_local_arrays: {relevant_local_arrays}")
         var_map = {}
         arguments_name = [var.name for var in routine.arguments]
         for var in FindVariables().visit(routine.body):
@@ -674,6 +689,7 @@ class SccLowLevelDataOffload(Transformation):
                         dimensions = list(var.dimensions)
                         var_map[var] = var.clone(dimensions=as_tuple(dimensions[1:]))
 
+        var_map = recursive_expression_map_update(var_map) 
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
     def device_derived_types(self, routine, derived_types, targets=None):
