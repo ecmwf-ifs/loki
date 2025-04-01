@@ -12,7 +12,7 @@ from loki import Transformer
 
 __all__ = ['AbstractDataflowAnalysis', 'dataflow_analysis_attached']
 
-class AbstractDataflowAnalysis(Transformer, ABC):
+class AbstractDataflowAnalysis(ABC):
     class _Attacher(Transformer):
         pass
 
