@@ -426,7 +426,7 @@ class Sourcefile:
 
     def to_fortran(self, conservative=False, cuf=False, style=None):
         if cuf:
-            return cufgen(self, conservative=conservative, style=style)
+            return cufgen(self, style=style)
         return fgen(self, conservative=conservative, style=style)
 
     @property

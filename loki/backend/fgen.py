@@ -110,12 +110,11 @@ class FortranCodegen(Stringifier):
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, style, depth=0, conservative=True):
+    def __init__(self, style, depth=0):
         super().__init__(
             style=style, depth=depth, line_cont=' &\n{}& '.format,
             symgen=FCodeMapper()
         )
-        self.conservative = conservative
 
     def apply_label(self, line, label):
         """
@@ -133,15 +132,6 @@ class FortranCodegen(Stringifier):
             indent = max(1, len(line) - len(line.lstrip()) - 1)
             line = f'{label:{indent}} {line.lstrip()}'
         return line
-
-    def visit(self, o, *args, **kwargs):
-        """
-        Overwrite standard visit routine to inject original source in conservative mode.
-        """
-        if self.conservative and hasattr(o, 'source') and getattr(o.source, 'string', None) is not None:
-            # Re-use original source associated with node
-            return o.source.string
-        return super().visit(o, *args, **kwargs)
 
     # Handler for outer objects
 
@@ -1038,10 +1028,14 @@ def fgen(ir, style=None, depth=0, conservative=False):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
+    from loki.backend.fgencon import FortranCodegenConservative  # pylint: disable=import-outside-toplevel,cyclic-import
+
     style = style if style else FortranStyle()
-    return FortranCodegen(
-        style=style, depth=depth, conservative=conservative
-    ).visit(ir) or ''
+
+    if conservative:
+        return FortranCodegenConservative(style=style, depth=depth).visit(ir) or ''
+
+    return FortranCodegen(style=style, depth=depth).visit(ir) or ''
 
 
 """
