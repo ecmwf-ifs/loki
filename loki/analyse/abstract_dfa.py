@@ -10,7 +10,7 @@ from contextlib import contextmanager
 
 from loki import Transformer
 
-__all__ = ['AbstractDataflowAnalysis']
+__all__ = ['AbstractDataflowAnalysis', 'dataflow_analysis_attached']
 
 class AbstractDataflowAnalysis(Transformer, ABC):
     class _Attacher(Transformer):
@@ -41,10 +41,11 @@ class AbstractDataflowAnalysis(Transformer, ABC):
         if hasattr(module_or_routine, 'body'):
             self.get_detacher().visit(module_or_routine.body)
 
-    @contextmanager
-    def dataflow_analysis_attached(self, module_or_routine):
-        self.attach_dataflow_analysis(module_or_routine)
-        try:
-            yield module_or_routine
-        finally:
-            self.detach_dataflow_analysis(module_or_routine)
+@contextmanager
+def dataflow_analysis_attached(module_or_routine, dfa=None):
+    if dfa is None:
+        from loki.analyse.dataflow_analysis import DataflowAnalysis  # pylint: disable=no-toplevel-import
+        dfa = DataflowAnalysis()
+    dfa.attach_dataflow_analysis(module_or_routine)
+    yield
+    dfa.detach_dataflow_analysis(module_or_routine)

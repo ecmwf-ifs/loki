@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from loki import Sourcefile, graphviz_present
-from loki.analyse import DataFlowAnalysis
+from loki.analyse import dataflow_analysis_attached
 from loki.ir import Node, FindNodes, ir_graph, GraphCollector
 
 
@@ -349,7 +349,7 @@ def test_ir_graph_live_variable_analysis_attached(testdir, test_file, tmp_path):
         )
 
     for routine in source.all_subroutines:
-        with DataFlowAnalysis().dataflow_analysis_attached(routine):
+        with dataflow_analysis_attached(routine):
             for node in FindNodes(Node).visit(routine.body):
                 node_info, _ = GraphCollector(show_comments=True).visit(node)[0]
                 lives, defines, uses = find_lives_defines_uses(node_info["label"])

@@ -9,7 +9,7 @@ import re
 
 from more_itertools import split_at
 
-from loki.analyse import DataFlowAnalysis
+from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
@@ -164,7 +164,7 @@ class SCCDevectorTransformation(Transformation):
         """
 
         trimmed_sections = ()
-        with DataFlowAnalysis().dataflow_analysis_attached(routine):
+        with dataflow_analysis_attached(routine):
             for sec in sections:
                 vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
                 start = sec.index(vec_nodes[0])
