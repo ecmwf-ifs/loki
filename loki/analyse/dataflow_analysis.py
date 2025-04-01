@@ -10,11 +10,11 @@ from loki import flatten, as_tuple, Transformer, Subroutine, CaseInsensitiveDict
 from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
 
 __all__ = [
-    'DataFlowAnalysis', 'read_after_write_vars',
+    'DataflowAnalysis', 'read_after_write_vars',
     'loop_carried_dependencies'
 ]
 
-class DataFlowAnalysis(AbstractDataflowAnalysis):
+class DataflowAnalysis(AbstractDataflowAnalysis):
     class _Attacher(Transformer):
         """
         Analyse and attach in-place the definition, use and live status of
@@ -63,7 +63,7 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
                 The sets of defined and used symbols (in that order).
             """
             defines = {expr.clone(dimensions=None)}
-            uses = DataFlowAnalysis._symbols_from_expr(getattr(expr, 'dimensions', ()))
+            uses = DataflowAnalysis._symbols_from_expr(getattr(expr, 'dimensions', ()))
             return defines, uses
 
         # Abstract node (also called from every node type for integration)
@@ -115,7 +115,7 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
         def visit_Loop(self, o, **kwargs):
             # A loop defines the induction variable for its body before entering it
             live = kwargs.pop('live_symbols', set())
-            uses = DataFlowAnalysis._symbols_from_expr(o.bounds)
+            uses = DataflowAnalysis._symbols_from_expr(o.bounds)
             body, defines, uses = self._visit_body(o.body, live=live | {o.variable.clone()}, uses=uses, **kwargs)
             o._update(body=body)
             # Make sure the induction variable is not considered outside the loop
@@ -126,7 +126,7 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
         def visit_WhileLoop(self, o, **kwargs):
             # A while loop uses variables in its condition
             live = kwargs.pop('live_symbols', set())
-            uses = DataFlowAnalysis._symbols_from_expr(o.condition)
+            uses = DataflowAnalysis._symbols_from_expr(o.condition)
             body, defines, uses = self._visit_body(o.body, live=live, uses=uses, **kwargs)
             o._update(body=body)
             return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
@@ -140,7 +140,7 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
             query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_call))
             cset = set(v for v in FindVariables().visit(o.condition) if not v in query_args)
 
-            condition = DataFlowAnalysis._symbols_from_expr(as_tuple(cset))
+            condition = DataflowAnalysis._symbols_from_expr(as_tuple(cset))
             body, defines, uses = self._visit_body(o.body, live=live, uses=condition, **kwargs)
             else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
             o._update(body=body, else_body=else_body)
@@ -160,7 +160,7 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
             query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
             vset = set(v for v in FindVariables().visit(o.values) if not v in query_args)
 
-            uses = DataFlowAnalysis._symbols_from_expr(as_tuple(eset)) | DataFlowAnalysis._symbols_from_expr(as_tuple(vset))
+            uses = DataflowAnalysis._symbols_from_expr(as_tuple(eset)) | DataflowAnalysis._symbols_from_expr(as_tuple(vset))
             body = ()
             defines = set()
             for b in o.bodies:
@@ -174,7 +174,7 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
 
         def visit_MaskedStatement(self, o, **kwargs):
             live = kwargs.pop('live_symbols', set())
-            conditions = DataFlowAnalysis._symbols_from_expr(o.conditions)
+            conditions = DataflowAnalysis._symbols_from_expr(o.conditions)
 
             body = ()
             defines = set()
@@ -200,14 +200,14 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
             defines, uses = self._symbols_from_lhs_expr(o.lhs)
 
             # Anything on the right-hand side is used before assigning to it
-            uses |= DataFlowAnalysis._symbols_from_expr(as_tuple(rset))
+            uses |= DataflowAnalysis._symbols_from_expr(as_tuple(rset))
             return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
         def visit_ConditionalAssignment(self, o, **kwargs):
             # The left-hand side variable is defined by this statement
             defines, uses = self._symbols_from_lhs_expr(o.lhs)
             # Anything on the right-hand side is used before assigning to it
-            uses |= DataFlowAnalysis._symbols_from_expr((o.condition, o.rhs, o.else_rhs))
+            uses |= DataflowAnalysis._symbols_from_expr((o.condition, o.rhs, o.else_rhs))
             return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
         def visit_CallStatement(self, o, **kwargs):
@@ -220,13 +220,13 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
                 invals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'in')]
 
                 arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
-                dims = set(v for a in arrays for v in DataFlowAnalysis._symbols_from_expr(a.dimensions))
+                dims = set(v for a in arrays for v in DataflowAnalysis._symbols_from_expr(a.dimensions))
                 for val in outvals:
-                    exprs = DataFlowAnalysis._symbols_from_expr(val)
+                    exprs = DataflowAnalysis._symbols_from_expr(val)
                     defines |= {e for e in exprs if not e in dims}
                     uses |= dims
 
-                uses |= {s for val in invals for s in DataFlowAnalysis._symbols_from_expr(val)}
+                uses |= {s for val in invals for s in DataflowAnalysis._symbols_from_expr(val)}
             else:
                 # We don't know the intent of any of these arguments and thus have
                 # to assume all of them are potentially used or defined by this
@@ -235,9 +235,9 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
                 arrays += [v for arg, val in o.kwarguments for v in FindVariables().visit(val) if isinstance(v, Array)]
 
                 dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
-                defines = DataFlowAnalysis._symbols_from_expr(o.arguments, condition=lambda x: x not in dims)
+                defines = DataflowAnalysis._symbols_from_expr(o.arguments, condition=lambda x: x not in dims)
                 for arg, val in o.kwarguments:
-                    defines |= DataFlowAnalysis._symbols_from_expr(val, condition=lambda x: x not in dims)
+                    defines |= DataflowAnalysis._symbols_from_expr(val, condition=lambda x: x not in dims)
                 uses = defines.copy() | dims
 
             return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
@@ -245,12 +245,12 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
         def visit_Allocation(self, o, **kwargs):
             arrays = [v for v in FindVariables().visit(o.variables) if isinstance(v, Array)]
             dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
-            defines = DataFlowAnalysis._symbols_from_expr(o.variables, condition=lambda x: x not in dims)
-            uses = DataFlowAnalysis._symbols_from_expr(o.data_source or ()) | dims
+            defines = DataflowAnalysis._symbols_from_expr(o.variables, condition=lambda x: x not in dims)
+            uses = DataflowAnalysis._symbols_from_expr(o.data_source or ()) | dims
             return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
         def visit_Deallocation(self, o, **kwargs):
-            defines = DataFlowAnalysis._symbols_from_expr(o.variables)
+            defines = DataflowAnalysis._symbols_from_expr(o.variables)
             return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
         visit_Nullify = visit_Deallocation
@@ -261,8 +261,8 @@ class DataFlowAnalysis(AbstractDataflowAnalysis):
             return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
         def visit_VariableDeclaration(self, o, **kwargs):
-            defines = DataFlowAnalysis._symbols_from_expr(o.symbols, condition=lambda v: v.type.initial is not None)
-            uses = {v for a in o.symbols if isinstance(a, Array) for v in DataFlowAnalysis._symbols_from_expr(a.dimensions)}
+            defines = DataflowAnalysis._symbols_from_expr(o.symbols, condition=lambda v: v.type.initial is not None)
+            uses = {v for a in o.symbols if isinstance(a, Array) for v in DataflowAnalysis._symbols_from_expr(a.dimensions)}
             return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     class _Detacher(Transformer):
