@@ -240,7 +240,7 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
         ``BLK_BOUNDS`` optional argument
     """
     return _field_get_data(field_ptr, dev_ptr, transfer_type, FieldAPITransferDirection.HOST_TO_DEVICE,
-                           scope, blk_bounds)
+                           scope, queue, blk_bounds)
 
 
 def field_get_host_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope,
@@ -265,7 +265,7 @@ def field_get_host_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
         ``BLK_BOUNDS`` optional argument
     """
     return _field_get_data(field_ptr, dev_ptr, transfer_type, FieldAPITransferDirection.DEVICE_TO_HOST,
-                           scope, blk_bounds)
+                           scope, queue, blk_bounds)
 
 
 
