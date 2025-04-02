@@ -43,7 +43,7 @@ class FieldOffloadTransformation(Transformation):
     symbols that satisfy the following conditions:
 
     1. The array is a member of an object that is of type specified in ``field_group_types``.
-    
+
     2. The array is passed as a parameter to at least one of the kernel targets passed to ``transform_subroutine``.
 
     Parameters
@@ -209,8 +209,8 @@ def find_offload_variables(driver, region, field_group_types):
                             f'{parent.type.dtype} is not in the list of field wrapper types')
                     continue
             except AttributeError:
-                warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in'
-                        + f' {driver.name} that is not wrapped by a Field API object')
+                warning(f'[Loki] Data offload: Raw array object {arg.name} encountered in' +
+                        f' {driver.name} that is not wrapped by a Field API object')
                 continue
 
     return inargs, inoutargs, outargs
@@ -246,7 +246,7 @@ def add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_v
                                                             splitting_variables.block_start,
                                                             splitting_variables.block_end)
                                                 ))
-    new_loop = block_loop.clone(body= host_to_device + block_loop.body + device_to_host)
+    new_loop = block_loop.clone(body=host_to_device + block_loop.body + device_to_host)
     update_map = {block_loop: new_loop}
     Transformer(update_map, inplace=True).visit(driver.body)
 
@@ -288,11 +288,15 @@ def replace_kernel_args(driver, offload_map, offload_index):
 def block_driver_loops(driver, region, block_size):
     with pragmas_attached(driver, ir.Loop):
         driver_loops = find_driver_loops(driver.body, targets=None)
-    # driver_loops = FindNodes(ir.Loop).visit(routine.ir)
-        if len(driver_loops) > 0:
+        if len(driver_loops) == 1:
             loop = driver_loops[0]
+        elif len(driver_loops) > 1:
+            warning(f'[Loki] Data offload (field blocking): Multiple driver loops found in {driver.name}')
         else:
             warning(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
             return
         splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size)
+        if outer_loop.pragma is not None:
+            inner_loop._update(pragma=outer_loop.pragma)
+            outer_loop._update(pragma=None)
     return splitting_vars, inner_loop, outer_loop
