@@ -8,6 +8,7 @@
 """
 Visitor classes for transforming the IR
 """
+from loki.frontend.source import Source, SourceStatus
 from loki.ir.nodes import Node, Conditional, ScopedNode
 from loki.ir.visitor import Visitor
 from loki.tools import flatten, is_iterable, as_tuple, replace_windowed
@@ -17,6 +18,13 @@ __all__ = [
     'Transformer', 'NestedTransformer', 'MaskedTransformer',
     'NestedMaskedTransformer'
 ]
+
+
+def is_source_valid(source):
+    """ Determine the validty status of a given :any:`Node` """
+    if source and isinstance(source, Source):
+        return source.status == SourceStatus.VALID
+    return False
 
 
 class Transformer(Visitor):
@@ -80,23 +88,6 @@ class Transformer(Visitor):
         self.inplace = inplace
         self.rebuild_scopes = rebuild_scopes
 
-    def _rebuild_without_source(self, o, children, **args):
-        """
-        Utility method to rebuild the given node without the source property.
-        """
-        args_frozen = o.args_frozen
-        args_frozen.update(args)
-        if 'source' in o.args_frozen:
-            args_frozen['source'] = None
-
-        if self.inplace:
-            # Updated nodes in place, if requested
-            o._update(*children, **args_frozen)
-            return o
-
-        # Rebuild updated nodes by default
-        return o._rebuild(*children, **args_frozen)
-
     def _rebuild(self, o, children, **args):
         """
         Utility method to rebuild the given node with the provided children.
@@ -107,10 +98,12 @@ class Transformer(Visitor):
         args_frozen = o.args_frozen
         args_frozen.update(args)
         if self.invalidate_source and 'source' in args_frozen:
-            if any(isinstance(child, Node) for child in flatten(children)):
-                child_has_no_source = [getattr(i, 'source', None) is None for i in flatten(children)]
-                if any(child_has_no_source) or len(child_has_no_source) != len(flatten(o.children)):
-                    return self._rebuild_without_source(o, children, **args_frozen)
+            # If any child node has been invalidated, mark this node as invalid too
+            if any(isinstance(c, Node) and not is_source_valid(c) for c in flatten(children)):
+                if is_source_valid(args_frozen.get('source')):
+                    args_frozen['source'] = args_frozen['source'].clone(
+                        status=SourceStatus.INVALID_CHILDREN
+                    )
 
         if self.inplace:
             # Updated nodes in place, if requested

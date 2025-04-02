@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Subroutine, fgen
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, SourceStatus
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, NestedTransformer,
     MaskedTransformer, NestedMaskedTransformer, SubstituteExpressions
@@ -53,42 +53,48 @@ end subroutine routine_simple
 
     stmt = get_innermost_statement(routine.ir)
     new_expr = sym.Sum((*stmt.rhs.children[:-1], sym.FloatLiteral(2.)))
-    new_stmt = ir.Assignment(stmt.lhs, new_expr)
-    mapper = {stmt: new_stmt}
 
-    body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
-    body_with_source = Transformer(mapper, invalidate_source=False).visit(routine.body)
+    # Check source invalidation via status flags
+    mapper = {stmt: stmt.clone(rhs=new_expr, source=stmt.source.invalidate())}
+    body_invalid_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
 
-    # Find the original and new node in all bodies
-    orig_node = stmt
-    node_without_src = get_innermost_statement(body_without_source)
-    node_with_src = get_innermost_statement(body_with_source)
+    # Check that original source has not been modified
+    assert stmt.source and stmt.source.status == SourceStatus.VALID
 
-    # Check that source of new statement is untouched
-    assert orig_node.source is not None
-    assert node_without_src.source is None
-    assert node_with_src.source is None
+    # Check that directly and indirectly affected nodes have been invalidated
+    assigns = FindNodes(ir.Assignment).visit(body_invalid_source)
+    assert len(assigns) == 3
+    assert assigns[0].source.status == SourceStatus.VALID
+    assert assigns[1].source.status == SourceStatus.INVALID_NODE
+    assert assigns[2].source.status == SourceStatus.VALID
 
-    # Check recursively the presence or absence of the source property
-    while True:
-        node_without_src = FindNodes(node_without_src, mode='scope').visit(body_without_source)[0]
-        node_with_src = FindNodes(node_with_src, mode='scope').visit(body_with_source)[0]
-        orig_node = FindNodes(orig_node, mode='scope').visit(routine.body)[0]
-        if isinstance(orig_node, ir.Section):
-            assert isinstance(node_without_src, ir.Section)
-            assert isinstance(node_with_src, ir.Section)
-            break
-        assert node_without_src.source is None
-        assert node_with_src.source and node_with_src.source == orig_node.source
+    loops = FindNodes(ir.Loop).visit(body_invalid_source)
+    assert len(loops) == 2
+    assert loops[0].source.status == SourceStatus.INVALID_CHILDREN
+    assert loops[1].source.status == SourceStatus.INVALID_CHILDREN
 
-    # Check that else body is untouched
-    def get_else_stmt(nodes):
-        return FindNodes(ir.Conditional).visit(nodes)[0].else_body[0]
+    conds = FindNodes(ir.Conditional).visit(body_invalid_source)
+    assert len(conds) == 1
+    assert conds[0].source.status == SourceStatus.INVALID_CHILDREN
 
-    else_stmt = get_else_stmt(routine.body)
-    assert else_stmt.source is not None
-    assert get_else_stmt(body_without_source).source == else_stmt.source
-    assert get_else_stmt(body_with_source).source == else_stmt.source
+    # Check manual source removal without invalidation
+    mapper = {stmt: stmt.clone(rhs=new_expr, source=None)}
+    body_valid_source = Transformer(mapper, invalidate_source=False).visit(routine.body)
+
+    assigns = FindNodes(ir.Assignment).visit(body_valid_source)
+    assert len(assigns) == 3
+    assert assigns[0].source.status == SourceStatus.VALID
+    assert assigns[1].source is None
+    assert assigns[2].source.status == SourceStatus.VALID
+
+    loops = FindNodes(ir.Loop).visit(body_valid_source)
+    assert len(loops) == 2
+    assert loops[0].source.status == SourceStatus.VALID
+    assert loops[1].source.status == SourceStatus.VALID
+
+    conds = FindNodes(ir.Conditional).visit(body_valid_source)
+    assert len(conds) == 1
+    assert conds[0].source.status == SourceStatus.VALID
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -125,42 +131,50 @@ end subroutine routine_simple
 
     cond = get_conditional(routine.ir)
     new_stmt = ir.Assignment(lhs=routine.arguments[0], rhs=routine.arguments[1])
-    mapper = {cond: (new_stmt, cond)}
+    mapper = {cond: (new_stmt, cond.clone(source=cond.source.invalidate()))}
 
-    body_without_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
-    body_with_source = Transformer(mapper, invalidate_source=False).visit(routine.body)
+    body_invalid_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
 
-    # Find the conditional in new bodies and check that source is untouched
-    assert cond.source is not None
-    cond_without_src = get_conditional(body_without_source)
-    assert cond_without_src.source is None
-    cond_with_src = get_conditional(body_with_source)
-    assert cond_with_src.source == cond.source
+    # Check that original source has not been modified
+    assert cond.source and cond.source.status == SourceStatus.VALID
+    assert not new_stmt.source
 
-    # Find the newly inserted statement and check that source is None
-    def get_new_statement(nodes):
-        for stmt in FindNodes(ir.Assignment).visit(nodes):
-            if stmt.lhs == routine.arguments[0]:
-                return stmt
-        return None
+    # Check that directly and indirectly affected nodes have been invalidated
+    assigns = FindNodes(ir.Assignment).visit(body_invalid_source)
+    assert len(assigns) == 4
+    assert assigns[0].source.status == SourceStatus.VALID
+    assert not assigns[1].source
+    assert assigns[2].source.status == SourceStatus.VALID
+    assert assigns[2].source.status == SourceStatus.VALID
 
-    node_without_src = get_new_statement(body_without_source)
-    assert node_without_src.source is None
-    node_with_src = get_new_statement(body_with_source)
-    assert node_with_src.source is None
+    loops = FindNodes(ir.Loop).visit(body_invalid_source)
+    assert len(loops) == 2
+    assert loops[0].source.status == SourceStatus.INVALID_CHILDREN
+    assert loops[1].source.status == SourceStatus.INVALID_CHILDREN
 
-    # Check recursively the presence or absence of the source property
-    orig_node = cond
-    while True:
-        node_without_src = FindNodes(node_without_src, mode='scope').visit(body_without_source)[0]
-        node_with_src = FindNodes(node_with_src, mode='scope').visit(body_with_source)[0]
-        orig_node = FindNodes(orig_node, mode='scope').visit(routine.body)[0]
-        if isinstance(orig_node, ir.Section):
-            assert isinstance(node_without_src, ir.Section)
-            assert isinstance(node_with_src, ir.Section)
-            break
-        assert node_without_src.source is None
-        assert node_with_src.source and node_with_src.source == orig_node.source
+    conds = FindNodes(ir.Conditional).visit(body_invalid_source)
+    assert len(conds) == 1
+    assert conds[0].source.status == SourceStatus.INVALID_NODE
+
+    # Check manual source removal without invalidation
+    mapper = {cond: (new_stmt, cond.clone())}
+    body_valid_source = Transformer(mapper, invalidate_source=False).visit(routine.body)
+
+    assigns = FindNodes(ir.Assignment).visit(body_valid_source)
+    assert len(assigns) == 4
+    assert assigns[0].source.status == SourceStatus.VALID
+    assert not assigns[1].source
+    assert assigns[2].source.status == SourceStatus.VALID
+    assert assigns[2].source.status == SourceStatus.VALID
+
+    loops = FindNodes(ir.Loop).visit(body_valid_source)
+    assert len(loops) == 2
+    assert loops[0].source.status == SourceStatus.VALID
+    assert loops[1].source.status == SourceStatus.VALID
+
+    conds = FindNodes(ir.Conditional).visit(body_valid_source)
+    assert len(conds) == 1
+    assert conds[0].source.status == SourceStatus.VALID
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
