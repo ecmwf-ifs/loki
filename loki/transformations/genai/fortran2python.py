@@ -38,12 +38,14 @@ def fortran2python(routine: Subroutine) -> str:
 
     
     # Cut python code in response
+    logging.info(f"Response content : {response.message.content}") 
+    print(response.message.content)   
     
-    response_msg = response.message.content
-    logging.info(f"Response content : {response_msg}")
-    
-    
-    python_code = response_msg.split("```python")[1].split("```")[0]
+    if "```python" in response.message.content:
+        python_code = response.message.content.split("```python")[1].split("```")[0]
+    else:
+        python_code = response.message.content
+        
     rendered_code = format_source("python", python_code)
     
     return rendered_code
