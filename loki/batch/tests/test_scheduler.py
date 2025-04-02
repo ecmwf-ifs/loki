@@ -1219,6 +1219,97 @@ def test_scheduler_cmake_planner(tmp_path, testdir, frontend):
     builddir.rmdir()
 
 
+@pytest.mark.parametrize('prec', ['DP', 'SP'])
+def test_scheduler_cmake_planner_libs(tmp_path, testdir, frontend, prec):
+    """
+    Test the plan generation feature over a call hierarchy spanning two
+    distinctive projects. However, this time using the 'lib' attribute.
+
+    projA: driverB -> kernelB -> compute_l1<replicated> -> compute_l2
+                         |
+    projB:          ext_driver -> ext_kernel
+    """
+
+    sourcedir = testdir/'sources'
+    proj_a = sourcedir/'projA'
+    proj_b = sourcedir/'projB'
+
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'ignore': ('header_mod',),
+            'mode': 'foobar',
+            'lib': f'projAlib.{prec}'
+        },
+        'routines': {
+            'driverB': {'role': 'driver'},
+            'ext_driver': {'lib': f'projBlib.{prec}'}
+        }
+    })
+    builddir = tmp_path/'scheduler_cmake_planner_libs_dummy_dir'
+    builddir.mkdir(exist_ok=True)
+
+    # Populate the scheduler
+    scheduler = Scheduler(
+        paths=[proj_a, proj_b], includes=proj_a/'include',
+        config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=builddir
+    )
+
+    # Apply the transformation
+    planfile = builddir/'loki_plan_libs.cmake'
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.write_cmake_plan(filepath=planfile, rootpath=sourcedir)
+
+    loki_plan = planfile.read_text()
+
+    # Validate the plan file content
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+
+    # loki_plan = planfile.read_text()
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+
+    expected_keys = {'LOKI_SOURCES_TO_TRANSFORM', 'LOKI_SOURCES_TO_APPEND', 'LOKI_SOURCES_TO_REMOVE',
+            f'LOKI_SOURCES_TO_TRANSFORM_projBlib_{prec}', f'LOKI_SOURCES_TO_APPEND_projBlib_{prec}',
+            f'LOKI_SOURCES_TO_REMOVE_projBlib_{prec}', f'LOKI_SOURCES_TO_TRANSFORM_projAlib_{prec}',
+            f'LOKI_SOURCES_TO_APPEND_projAlib_{prec}', f'LOKI_SOURCES_TO_REMOVE_projAlib_{prec}'}
+
+    assert set(plan_dict.keys()) == expected_keys
+
+    expected_files_a = {
+        'driverB_mod', 'kernelB_mod',
+        'compute_l1_mod', 'compute_l2_mod',
+    }
+    expected_files_b = {
+            'ext_driver_mod', 'ext_kernel'
+    }
+    expected_files = expected_files_a | expected_files_b
+
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_files
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_files
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {
+        f'{name}.foobar' for name in expected_files
+    }
+
+    assert plan_dict[f'LOKI_SOURCES_TO_TRANSFORM_projAlib_{prec}'] == expected_files_a
+    assert plan_dict[f'LOKI_SOURCES_TO_REMOVE_projAlib_{prec}'] == expected_files_a
+    assert plan_dict[f'LOKI_SOURCES_TO_APPEND_projAlib_{prec}'] == {
+        f'{name}.foobar' for name in expected_files_a
+    }
+
+    assert plan_dict[f'LOKI_SOURCES_TO_TRANSFORM_projBlib_{prec}'] == expected_files_b
+    assert plan_dict[f'LOKI_SOURCES_TO_REMOVE_projBlib_{prec}'] == expected_files_b
+    assert plan_dict[f'LOKI_SOURCES_TO_APPEND_projBlib_{prec}'] == {
+        f'{name}.foobar' for name in expected_files_b
+    }
+
+    planfile.unlink()
+    builddir.rmdir()
+
+
 def test_scheduler_item_dependencies(testdir, tmp_path):
     """
     Make sure children are correct and unique for items

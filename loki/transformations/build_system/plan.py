@@ -67,9 +67,9 @@ class CMakePlanTransformation(Transformation):
 
     def __init__(self, rootpath=None):
         self.rootpath = None if rootpath is None else Path(rootpath).resolve()
-        self.sources_to_append = []
-        self.sources_to_remove = []
-        self.sources_to_transform = []
+        self.sources_to_append = {}
+        self.sources_to_remove = {}
+        self.sources_to_transform = {}
 
     def plan_file(self, sourcefile, **kwargs):
         item = kwargs.get('item')
@@ -94,28 +94,74 @@ class CMakePlanTransformation(Transformation):
 
         debug(f'Planning:: {item.name} (role={item.role}, mode={item.mode})')
 
+        key = item.lib
         if newsource not in self.sources_to_append:
             if source_exists:
-                self.sources_to_transform += [sourcepath]
+                self.sources_to_transform.setdefault(key,[]).append(sourcepath)
             if item.replicate:
                 # Add new source file next to the old one
-                self.sources_to_append += [newsource]
+                self.sources_to_append.setdefault(key,[]).append(newsource)
             else:
                 # Replace old source file to avoid ghosting
-                self.sources_to_append += [newsource]
+                self.sources_to_append.setdefault(key,[]).append(newsource)
                 if source_exists:
-                    self.sources_to_remove += [sourcepath]
+                    # self.sources_to_remove += [sourcepath]
+                    if self.rootpath is not None:
+                        self.sources_to_remove.setdefault(key,[]).append(sourcepath)
+                    else:
+                        # NB: we use the item path directly here instead of resolving it,
+                        #     to stay compatible with what has been provided on the CLI.
+                        #     This is because the build system will likely use this path
+                        #     internally to identify the original file, and if the paths
+                        #     don't match the removal of source files from the target fails.
+                        self.sources_to_remove.setdefault(key,[]).append(item.path)
+
+    def _write_plan(self, filepath):
+        """
+        Write the key/target/library independent part of CMake plan file to :data:`filepath`
+        """
+        sources_to_transform = []
+        sources_to_append = []
+        sources_to_remove = []
+        for _, vals in self.sources_to_transform.items():
+            sources_to_transform.extend(vals)
+        for _, vals in self.sources_to_append.items():
+            sources_to_append.extend(vals)
+        for _, vals in self.sources_to_remove.items():
+            sources_to_remove.extend(vals)
+
+        with Path(filepath).open('w') as f:
+            s_transform = '\n'.join(f'    {s}' for s in sources_to_transform)
+            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
+
+            s_append = '\n'.join(f'    {s}' for s in sources_to_append)
+            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
+
+            s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
+            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+>>>>>>> 639319fb (Allow multiple targets for 'loki_transform_target' invocations, items/routines can be assigned using the new attribute 'lib')
 
     def write_plan(self, filepath):
         """
         Write the CMake plan file to :data:`filepath`
         """
-        with Path(filepath).open('w') as f:
-            s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform)
-            f.write(f'set( LOKI_SOURCES_TO_TRANSFORM \n{s_transform}\n   )\n')
+        # write plan disregarding the key/target/library
+        self._write_plan(filepath)
 
-            s_append = '\n'.join(f'    {s}' for s in self.sources_to_append)
-            f.write(f'set( LOKI_SOURCES_TO_APPEND \n{s_append}\n   )\n')
+        # write plan file for each key/target/library
+        keys = set(self.sources_to_transform.keys()) | \
+                set(self.sources_to_append.keys()) | set(self.sources_to_remove.keys())
+        for key in keys:
+            if key is None:
+                continue
+            with Path(filepath).open('a') as f:
+                # sanitize key = target, e.g., remove '.' and replace with '_'
+                sanitized_key = key.replace('.', '_')
+                s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform.get(key, ()))
+                f.write(f'set( LOKI_SOURCES_TO_TRANSFORM_{sanitized_key} \n{s_transform}\n   )\n')
 
-            s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove)
-            f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
+                s_append = '\n'.join(f'    {s}' for s in self.sources_to_append.get(key, ()))
+                f.write(f'set( LOKI_SOURCES_TO_APPEND_{sanitized_key} \n{s_append}\n   )\n')
+
+                s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove.get(key, ()))
+                f.write(f'set( LOKI_SOURCES_TO_REMOVE_{sanitized_key} \n{s_remove}\n   )\n')
