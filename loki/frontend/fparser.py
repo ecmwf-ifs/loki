@@ -1844,6 +1844,18 @@ class FParser2IR(GenericVisitor):
             comment_map[node] = None
         spec = Transformer(comment_map, invalidate_source=False).visit(spec)
 
+        # To complete spec and body, build source objects once we're done moving things around
+        if config['frontend-store-source']:
+            if spec.body:
+                spec_lines = (spec.body[0].source.lines[0], spec.body[-1].source.lines[1])
+                spec_string = ''.join(self.raw_source[spec_lines[0]-1:spec_lines[1]]).strip('\n')
+                spec._update(source=Source(lines=spec_lines, string=spec_string))
+
+            if body.body:
+                body_lines = (body.body[0].source.lines[0], body.body[-1].source.lines[1])
+                body_string = ''.join(self.raw_source[body_lines[0]-1:body_lines[1]]).strip('\n')
+                body._update(source=Source(lines=body_lines, string=body_string))
+
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call

@@ -164,6 +164,13 @@ end module test_source_mod
         module = source['test_source_mod']
         routine = module['my_test_routine']
 
+    if store_source:
+        assert routine.spec.source and routine.spec.source.lines == (14, 16)
+        assert routine.body.source and routine.body.source.lines == (17, 23)
+    else:
+        assert not routine.spec.source
+        assert not routine.body.source
+
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     loops = FindNodes(ir.Loop).visit(routine.body)
     conds = FindNodes(ir.Conditional).visit(routine.body)
