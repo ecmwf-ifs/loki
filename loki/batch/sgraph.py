@@ -419,6 +419,12 @@ class SGraph:
         }
         return depths
 
+    def traverse(self, item, func=None):
+        for successor in self.successors(item):
+            self.traverse(successor, func=func)
+            if func is not None:
+                func(successor)
+
     def add_node(self, item):
         """
         Add :data:`item` as a node to the dependency graph
