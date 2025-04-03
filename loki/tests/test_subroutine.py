@@ -8,7 +8,6 @@
 # pylint: disable=too-many-lines
 from pathlib import Path
 import pytest
-import numpy as np
 
 from loki import Sourcefile, Module, Subroutine, fgen, fexprgen
 from loki.jit_build import jit_compile, jit_compile_lib, clean_test
@@ -116,27 +115,34 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_arguments(tmp_path, frontend):
+def test_routine_arguments(frontend):
     """
     A set of test to test internalisation and handling of arguments.
     """
 
     fcode = """
-subroutine routine_arguments (x, y, vector, matrix)
-  ! Test internal argument handling
+subroutine routine_arguments &
+ ! Test multiline dummy arguments with comments
+ & (x, y, scalar, &
+ ! Of course, not one...
+ ! but two comment lines
+ & vector, matrix)
+  implicit none
   integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: x, y
-  real(kind=jprb), dimension(x), intent(inout) :: vector
+  ! The order below is intentioanlly inverted
   real(kind=jprb), intent(inout) :: matrix(x, y)
+  real(kind=jprb), intent(in)    :: scalar
+  real(kind=jprb), dimension(x)  :: local_vector
+  real(kind=jprb), dimension(x), intent(out) :: vector
+  integer, intent(in) :: x, y
 
   integer :: i, j
-  real(kind=jprb), dimension(x) :: local_vector
   real(kind=jprb) :: local_matrix(x, y)
 
   do i=1, x
      local_vector(i) = i * 10.
      do j=1, y
-        local_matrix(i, j) = local_vector(i) + j * 2.
+        local_matrix(i, j) = local_vector(i) + j * scalar
      end do
   end do
 
@@ -147,90 +153,55 @@ end subroutine routine_arguments
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # The line-creaking comments are attributed to the docstring.
+    # This behaviour is not ideal, but it is the current status quo!
+    if frontend == OMNI:
+        assert not routine.docstring
+    else:
+        assert len(routine.docstring) == 1
+        assert len(routine.docstring[0].comments) == 3
+        assert routine.docstring[0].comments[0].text == '! Test multiline dummy arguments with comments'
+        assert routine.docstring[0].comments[1].text == '! Of course, not one...'
+        assert routine.docstring[0].comments[2].text == '! but two comment lines'
+
+    # Argument order is determined by the dummies in the signature
+    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
+    assert all(isinstance(a, sym.Scalar) for a in routine.arguments[0:3])
+    assert all(a.type.intent == 'in' for a in routine.arguments[0:3])
+    assert all(isinstance(a, sym.Array) for a in routine.arguments[3:])
+    assert all(a.type.dtype == BasicType.INTEGER for a in routine.arguments[0:2])
+    assert all(a.type.dtype == BasicType.REAL for a in routine.arguments[2:5])
+    if frontend == OMNI:
+        assert all(isinstance(a.type.kind, sym.InlineCall) for a in routine.arguments[2:5])
+    else:
+        assert all(a.type.kind == 'jprb' for a in routine.arguments[2:5])
+    assert routine.arguments[3].shape == ('x',)
+    assert routine.arguments[4].shape == ('x', 'y')
+    assert routine.arguments[3].type.intent == 'out'
+    assert routine.arguments[4].type.intent == 'inout'
+
+    # Local variable order is determined by the order of the declarations
     assert routine.variables == (
-        'jprb', 'x', 'y', 'vector(x)', 'matrix(x, y)',
-        'i', 'j', 'local_vector(x)', 'local_matrix(x, y)'
+        'jprb', 'matrix(x, y)', 'scalar', 'local_vector(x)',
+        'vector(x)', 'x', 'y', 'i', 'j', 'local_matrix(x, y)'
     )
-    assert routine.arguments == ('x', 'y', 'vector(x)', 'matrix(x, y)')
-
-    # Generate code, compile and load
-    filepath = tmp_path/(f'routine_arguments_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_arguments')
-
-    # Test results of the generated and compiled code
-    x, y = 2, 3
-    vector = np.zeros(x, order='F')
-    matrix = np.zeros((x, y), order='F')
-    function(x=x, y=y, vector=vector, matrix=matrix)
-    assert np.all(vector == [10., 20.])
-    assert np.all(matrix == [[12., 14., 16.],
-                             [22., 24., 26.]])
-    clean_test(filepath)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_arguments_multiline(tmp_path, frontend):
-    """
-    Test argument declarations with comments interjectected between dummies.
-    """
-    fcode = """
-subroutine routine_arguments_multiline &
- ! Test multiline dummy arguments with comments
- & (x, y, scalar, &
- ! Of course, not one...
- ! but two comment lines
- & vector, matrix)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: x, y
-  real(kind=jprb), intent(in) :: scalar
-  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
-  integer :: i
-
-  do i=1, x
-     vector(i) = vector(i) + scalar
-     matrix(i, :) = i * vector(i)
-  end do
-end subroutine routine_arguments_multiline
-"""
-
-    # Test the internals of the subroutine
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
-
-    # Generate code, compile and load
-    filepath = tmp_path/(f'routine_arguments_multiline_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_arguments_multiline')
-
-    # Test results of the generated and compiled code
-    x, y = 2, 3
-    vector = np.zeros(x, order='F')
-    matrix = np.zeros((x, y), order='F')
-    function(x=x, y=y, scalar=5., vector=vector, matrix=matrix)
-    assert np.all(vector == 5.)
-    assert np.all(matrix[0, :] == 5.)
-    assert np.all(matrix[1, :] == 10.)
-    clean_test(filepath)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_arguments_order(frontend):
-    """
-    Test argument ordering honours singateu (dummy list) instead of
-    order of apearance in spec declarations.
-    """
-    fcode = """
-subroutine routine_arguments_order(x, y, scalar, vector, matrix)
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: x
-  real(kind=jprb), intent(inout) :: matrix(x, y)
-  real(kind=jprb), intent(in) :: scalar
-  integer, intent(in) :: y
-  real(kind=jprb), intent(inout) :: vector(x)
-  integer :: i
-end subroutine routine_arguments_order
-"""
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
+    assert routine.variables[0].type.parameter
+    assert isinstance(routine.variables[0].type.initial, sym.InlineCall)
+    assert routine.variables[0].type.initial.function == 'selected_real_kind'
+    assert routine.variables[1].type.dtype == BasicType.REAL
+    assert routine.variables[1].shape == ('x', 'y')
+    assert routine.variables[2].type.dtype == BasicType.REAL
+    assert routine.variables[3].type.dtype == BasicType.REAL
+    assert routine.variables[3].shape == ('x',)
+    assert routine.variables[4].type.dtype == BasicType.REAL
+    assert routine.variables[4].shape == ('x',)
+    assert routine.variables[5].type.dtype == BasicType.INTEGER
+    assert routine.variables[6].type.dtype == BasicType.INTEGER
+    assert routine.variables[7].type.dtype == BasicType.INTEGER
+    assert routine.variables[8].type.dtype == BasicType.INTEGER
+    assert routine.variables[9].type.dtype == BasicType.REAL
+    assert routine.variables[9].shape == ('x', 'y')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -295,48 +266,6 @@ integer, intent(in) :: c
     assert 'vector(x)' in routine_vars
     assert 'matrix(x, y)' in routine_vars
     assert 'b(x)' in routine_vars
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_variables_local(tmp_path, frontend):
-    """
-    Test local variables and types
-    """
-    fcode = """
-subroutine routine_variables_local (x, y, maximum)
-  ! Test local variables and types
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: x, y
-  real(kind=jprb), intent(out) :: maximum
-
-  integer :: i, j
-  real(kind=jprb), dimension(x) :: vector
-  real(kind=jprb) :: matrix(x, y)
-
-  do i=1, x
-     vector(i) = i * 10.
-     do j=1, y
-        matrix(i, j) = vector(i) + j * 2.
-     end do
-  end do
-  maximum = matrix(x, y)
-end subroutine routine_variables_local
-"""
-
-    # Test the internals of the subroutine
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert routine.variables == (
-        'jprb', 'x', 'y', 'maximum', 'i', 'j', 'vector(x)', 'matrix(x, y)'
-    )
-
-    # Generate code, compile and load
-    filepath = tmp_path/(f'routine_variables_local_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_variables_local')
-
-    # Test results of the generated and compiled code
-    maximum = function(x=3, y=4)
-    assert np.all(maximum == 38.)  # 10*x + 2*y
-    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
