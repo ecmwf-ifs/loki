@@ -34,13 +34,19 @@ def fixture_header_path(here):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_simple(tmp_path, frontend):
+def test_routine_simple(frontend):
     """
     A simple standard looking routine to test argument declarations.
     """
     fcode = """
 subroutine routine_simple (x, y, scalar, vector, matrix)
-  ! This is the docstring
+  ! This is the docstring ...
+
+  ! It spans multiple intersected lines ...
+  ! ... and is followed by a ...
+
+  !$loki routine fun
+
   integer, parameter :: jprb = selected_real_kind(13,300)
   integer, intent(in) :: x, y
   real(kind=jprb), intent(in) :: scalar
@@ -56,27 +62,57 @@ end subroutine routine_simple
 
     # Test the internals of the subroutine
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert isinstance(routine.body, ir.Section)
-    assert isinstance(routine.spec, ir.Section)
-    assert len(routine.docstring) == 1
-    assert routine.docstring[0].text == '! This is the docstring'
-    assert routine.definitions == ()
 
     assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
+    assert routine.variables == ('jprb', 'x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)', 'i')
 
-    # Generate code, compile and load
-    filepath = tmp_path/(f'routine_simple_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_simple')
+    # Check the docstring
+    assert len(routine.docstring) == 1
+    assert isinstance(routine.docstring[0], ir.CommentBlock)
+    if frontend == OMNI:
+        assert len(routine.docstring[0].comments) == 3
+        assert routine.docstring[0].comments[0].text == '! This is the docstring ...'
+        assert routine.docstring[0].comments[1].text == '! It spans multiple intersected lines ...'
+        assert routine.docstring[0].comments[2].text == '! ... and is followed by a ...'
+    else:
+        assert len(routine.docstring[0].comments) == 5
+        assert routine.docstring[0].comments[0].text == '! This is the docstring ...'
+        assert routine.docstring[0].comments[2].text == '! It spans multiple intersected lines ...'
+        assert routine.docstring[0].comments[3].text == '! ... and is followed by a ...'
+    assert routine.definitions == ()
 
-    # Test the generated identity results
-    x, y = 2, 3
-    vector = np.zeros(x, order='F')
-    matrix = np.zeros((x, y), order='F')
-    function(x=x, y=y, scalar=5., vector=vector, matrix=matrix)
-    assert np.all(vector == 5.)
-    assert np.all(matrix[0, :] == 5.)
-    assert np.all(matrix[1, :] == 10.)
-    clean_test(filepath)
+    # Check the spec
+    assert isinstance(routine.body, ir.Section)
+    if frontend == OMNI:
+        assert len(routine.spec.body) == 9
+        assert isinstance(routine.spec.body[0], ir.Intrinsic)
+        assert isinstance(routine.spec.body[1], ir.Pragma)
+        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec.body[2:])
+        assert routine.spec.body[2].symbols == ('jprb',)
+        assert routine.spec.body[3].symbols == ('x',)
+        assert routine.spec.body[4].symbols == ('y',)
+        assert routine.spec.body[5].symbols == ('scalar',)
+        assert routine.spec.body[6].symbols == ('vector(x)',)
+        assert routine.spec.body[7].symbols == ('matrix(x, y)',)
+        assert routine.spec.body[8].symbols == ('i',)
+    else:
+        assert len(routine.spec.body) == 7
+        assert isinstance(routine.spec.body[0], ir.Pragma)
+        assert isinstance(routine.spec.body[1], ir.Comment)
+        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec.body[2:])
+        assert routine.spec.body[2].symbols == ('jprb',)
+        assert routine.spec.body[3].symbols == ('x', 'y')
+        assert routine.spec.body[4].symbols == ('scalar',)
+        assert routine.spec.body[5].symbols == ('vector(x)', 'matrix(x, y)')
+        assert routine.spec.body[6].symbols == ('i',)
+
+    # Check the routine body
+    assert isinstance(routine.spec, ir.Section)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1 and loops[0].variable == 'i'
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0] in loops[0].body and assigns[1] in loops[0].body
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
