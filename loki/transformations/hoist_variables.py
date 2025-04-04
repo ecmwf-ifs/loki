@@ -185,7 +185,9 @@ class HoistVariablesAnalysis(Transformation):
         routine : :any:`Subroutine`
             The subroutine find the variables.
         """
-        return [var for var in routine.variables if var not in routine.arguments if not var.type.parameter]
+        # return [var for var in routine.variables if var not in routine.arguments if not var.type.parameter]
+        _vars = [var for var in routine.variables if var not in routine.arguments if not var.type.parameter]
+        _vars = [var for var in _vars in str(var.name).upper() in ['PWLIQ', 'ZTENC', 'ZCM1']]
 
 
 class HoistVariablesTransformation(Transformation):
@@ -489,6 +491,9 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
             result_name = routine.name
 
         variables = [var for var in routine.variables if isinstance(var, sym.Array)]
+        # _vars = [var for var in routine.variables if var not in routine.arguments if not var.type.parameter]
+        # _vars = [var for var in _vars in str(var.name).upper() in ['PWLIQ', 'ZTENC', 'ZCM1']]
+        variables = [var for var in variables if str(var.name).upper() in ['PWLIQ', 'ZTENC', 'ZCM1']]
         return [var for var in variables
                 if var not in routine.arguments    # local variable
                 and not all(is_dimension_constant(d) for d in var.shape)

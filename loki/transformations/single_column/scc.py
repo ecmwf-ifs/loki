@@ -356,6 +356,8 @@ SCCVRawStackPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
+        HoistTemporaryArraysAnalysis,
+        SCCHoistTemporaryArraysTransformation,
         TemporariesRawStackTransformation,
         PragmaModelTransformation
     )
@@ -408,6 +410,8 @@ SCCSRawStackPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
+        HoistTemporaryArraysAnalysis,
+        SCCHoistTemporaryArraysTransformation,
         TemporariesRawStackTransformation,
         PragmaModelTransformation
     )

@@ -139,7 +139,6 @@ class CMakePlanTransformation(Transformation):
 
             s_remove = '\n'.join(f'    {s}' for s in sources_to_remove)
             f.write(f'set( LOKI_SOURCES_TO_REMOVE \n{s_remove}\n   )\n')
->>>>>>> 639319fb (Allow multiple targets for 'loki_transform_target' invocations, items/routines can be assigned using the new attribute 'lib')
 
     def write_plan(self, filepath):
         """
