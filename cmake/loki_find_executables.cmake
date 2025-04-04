@@ -61,27 +61,11 @@ macro( loki_find_executables )
 
         # Find the path of the virtual environment relative to the binary directory
         # because that is also how we install it in the prefix location
-        file( RELATIVE_PATH _REL_VENV_BIN ${CMAKE_CURRENT_BINARY_DIR} ${Python3_VENV_BIN} )
 
         # Create a bin directory in the install location and add the Python binaries
         # as a quasi-symlink
         install( CODE "
-            file( REAL_PATH \"\${CMAKE_INSTALL_PREFIX}\" _REAL_INSTALL_PREFIX )
             file( MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\" )
-            file( WRITE \"\${CMAKE_INSTALL_PREFIX}/bin/python\"
-                \"#!/bin/bash
-                \\\"\${_REAL_INSTALL_PREFIX}/${_REL_VENV_BIN}/python\\\" \\\"$@\\\"\"
-            )
-            file( CHMOD \"\${CMAKE_INSTALL_PREFIX}/bin/python\"
-                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-            )
-            file( WRITE \"\${CMAKE_INSTALL_PREFIX}/bin/python3\"
-                \"#!/bin/bash
-                \\\"\${_REAL_INSTALL_PREFIX}/${_REL_VENV_BIN}/python3\\\" \\\"$@\\\"\"
-            )
-            file( CHMOD \"\${CMAKE_INSTALL_PREFIX}/bin/python3\"
-                PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-            )
         ")
 
         # Make CLI executables available in add_custom_command by setting
@@ -95,29 +79,14 @@ macro( loki_find_executables )
 
             # Create symlinks for frontend scripts when actually installing Loki (in the CMake sense)
             install( CODE "
-                file( REAL_PATH \"\${CMAKE_INSTALL_PREFIX}\" _REAL_INSTALL_PREFIX )
                 file( CREATE_LINK
-                    \${_REAL_INSTALL_PREFIX}/${_REL_VENV_BIN}/${_exe_name}
+                    ${Python3_INSTALL_VENV}/bin/${_exe_name}
                     \${CMAKE_INSTALL_PREFIX}/bin/${_exe_name}
                     SYMBOLIC
                 )
             ")
         endforeach()
 
-        if( ${loki_HAVE_CLAW} )
-            add_dependencies( loki-transform.py clawfc )
-        endif()
-
-    endif()
-
-    # Find clawfc on the PATH to make available as target
-    if( ${loki_HAVE_NO_INSTALL} OR NOT ${loki_HAVE_CLAW} )
-        if( NOT TARGET clawfc )
-            find_program ( _CLAWFC_EXECUTABLE NAMES clawfc )
-            add_executable( clawfc IMPORTED GLOBAL )
-            set_property( TARGET clawfc PROPERTY IMPORTED_LOCATION ${_CLAWFC_EXECUTABLE} )
-            ecbuild_debug( "Adding executable clawfc from ${_CLAWFC_EXECUTABLE}" )
-        endif()
     endif()
 
 endmacro()

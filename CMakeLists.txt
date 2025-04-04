@@ -98,11 +98,13 @@ if( NOT HAVE_NO_INSTALL )
     endif()
 
     # Setup Python virtual environment
-    include( python_venv )
-    set( loki_VENV_PATH ${CMAKE_CURRENT_BINARY_DIR}/loki_env )
-    set( PYTHON_VERSION 3.8 )
-    setup_python_venv( ${loki_VENV_PATH} ${PYTHON_VERSION} )
-    install( DIRECTORY ${loki_VENV_PATH} DESTINATION . USE_SOURCE_PERMISSIONS )
+    include( loki_python_macros )
+    set( PYTHON_VERSION 3.9 )
+    loki_setup_python_venv(
+        VENV_NAME loki_env
+        PYTHON_VERSION ${PYTHON_VERSION}
+        INSTALL_VENV
+    )
 
     # Enable Pytest tests as ecbuild/ctest targets
     if( HAVE_TESTS )
@@ -152,12 +154,6 @@ if( NOT HAVE_NO_INSTALL )
     endif()
 
     # Install Loki python package with dependencies
-    if( NOT ${CMAKE_VERBOSE_MAKEFILE} )
-        # Less verbose output
-        list ( APPEND PIP_OPTIONS "-q" )
-    endif()
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install --upgrade ${PIP_OPTIONS} pip )
-
     if( HAVE_EDITABLE )
         # Use checked-out source instead of installing into venv
         list( APPEND PIP_OPTIONS "-e" )
@@ -169,24 +165,26 @@ if( NOT HAVE_NO_INSTALL )
         set( _INSTALL_OPTIONS "[${_INSTALL_OPT_STR}]" )
     endif()
 
+    # Optionally use the ARTIFACTS_DIR as wheelhouse, if provided
+    if( DEFINED ARTIFACTS_DIR )
+        set( WHEELS_DIR_OPTION WHEELS_DIR "${ARTIFACTS_DIR}" )
+    else()
+        set( WHEELS_DIR_OPTION "" )
+    endif()
+
     # We install Loki at configure time (for now), since bulk-transformation planning
     # requires configure time execution to allow injection with CMake targets.
 
     ecbuild_info( "Install Loki in virtual environment" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS} )
-    ecbuild_info( "Install Loki in virtual environment - done" )
-
-    ecbuild_info( "Install Loki lint_rules in virtual environment" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m pip install ${PIP_OPTIONS} ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules )
-    ecbuild_info( "Install Loki lint_rules in virtual environment - done" )
-
-    # Make the shebang in Python scripts use relative paths
-    list(
-        TRANSFORM LOKI_EXECUTABLES
-        PREPEND ${Python3_VENV_BIN}/
-        OUTPUT_VARIABLE _venv_executables
+    loki_install_python_package(
+        REQUIREMENT_SPEC ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS}
+        ${WHEELS_DIR_OPTION}
     )
-    update_python_shebang( ${_venv_executables} )
+    loki_install_python_package(
+        REQUIREMENT_SPEC ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules
+        ${WHEELS_DIR_OPTION}
+    )
+    ecbuild_info( "Install Loki in virtual environment - done" )
 
 endif()
 
