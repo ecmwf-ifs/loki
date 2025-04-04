@@ -230,7 +230,12 @@ endfunction()
 # Download all dependencies for the given ``REQUIREMENT_SPEC`` and cache them in a
 # wheelhouse at ``WHEELS_DIR``
 #
-#   loki_download_python_wheels( REQUIREMENT_SPEC <spec> [ WHEELS_DIR <path> ] [ PYTHON_VERSION <version str> ] )
+#   loki_download_python_wheels(
+#       REQUIREMENT_SPEC <spec>
+#       [ WHEELS_DIR <path> ]
+#       [ WHEEL_ARCH <spec> ]
+#       [ WHEEL_PYTHON_VERSION <version str> ]
+#       [ PYTHON_VERSION <version str> ] )
 #
 # Implementation note
 # -------------------
@@ -258,6 +263,7 @@ endfunction()
 # :REQUIREMENT_SPEC: The requirement spec as given to ``pip download`` and ``pip wheel``
 # :WHEELS_DIR: The path of the wheelhouse directory to cache the wheels. Defaults to
 #              ``${CMAKE_CURRENT_BINARY_DIR}/wheelhouse``
+# :WHEEL_ARCH: Optional specification of architecture for which to download non-pure Python wheels
 # :PYTHON_VERSION: Optional specification of permissible Python versions for find_package
 #
 ##############################################################################
@@ -265,7 +271,7 @@ endfunction()
 function( loki_download_python_wheels )
 
     set( options "" )
-    set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR PYTHON_VERSION )
+    set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR WHEEL_ARCH WHEEL_PYTHON_VERSION PYTHON_VERSION )
     set( multiValueArgs "" )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
@@ -291,13 +297,24 @@ function( loki_download_python_wheels )
     endif()
     file( MAKE_DIRECTORY "${WHEELS_DIR}" )
 
+    unset( PIP_OPTIONS )
+    if( DEFINED _PAR_WHEEL_ARCH AND NOT _PAR_WHEEL_ARCH MATCHES None|NONE )
+       list( APPEND PIP_OPTIONS --platform=${_PAR_WHEEL_ARCH} )
+    endif()
+    if( DEFINED _PAR_WHEEL_PYTHON_VERSION AND NOT _PAR_WHEEL_PYTHON_VERSION MATCHES None|NONE )
+       list( APPEND PIP_OPTIONS --python-version=${_PAR_WHEEL_PYTHON_VERSION} )
+    endif()
+    if( PIP_OPTIONS )
+        list( APPEND PIP_OPTIONS --no-deps )
+    endif()
+
     # We use a dry-run installation to check if all dependencies have already been downloaded
     execute_process(
         COMMAND
             ${Python3_EXECUTABLE} -m pip install
                 --dry-run --break-system-packages
                 --no-index --find-links "${WHEELS_DIR}" --only-binary :all:
-                ${_PAR_REQUIREMENT_SPEC}
+                ${PIP_OPTIONS} ${_PAR_REQUIREMENT_SPEC}
         OUTPUT_QUIET ERROR_QUIET
         RESULT_VARIABLE _RET_VAL
     )
@@ -315,7 +332,7 @@ function( loki_download_python_wheels )
             COMMAND
                 ${Python3_EXECUTABLE} -m pip download
                 --disable-pip-version-check --dest "${WHEELS_DIR}"
-                setuptools wheel
+                ${PIP_OPTIONS} setuptools>=75.0.0 wheel
             OUTPUT_QUIET
         )
 
@@ -324,7 +341,7 @@ function( loki_download_python_wheels )
             COMMAND
                 ${Python3_EXECUTABLE} -m pip download
                 --disable-pip-version-check --dest "${WHEELS_DIR}"
-                ${_PAR_REQUIREMENT_SPEC}
+                ${PIP_OPTIONS} ${_PAR_REQUIREMENT_SPEC}
             OUTPUT_QUIET
         )
 

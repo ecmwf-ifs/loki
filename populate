@@ -19,8 +19,10 @@ ARTIFACTS_DIR=${ARTIFACTS_DIR:-"${SOURCE_DIR}/artifacts"}
 # Download dependencies for Python packages in this repository
 cmake \
     -DWHEELS_DIR=${ARTIFACTS_DIR} -DREQUIREMENT_SPEC=${SOURCE_DIR}${LOKI_INSTALL_OPTIONS} \
-    -P ${SOURCE_DIR}/cmake/get_python_wheels.cmake
+    -DLOKI_WHEEL_ARCH=${LOKI_WHEEL_ARCH} -DLOKI_WHEEL_PYTHON_VERSION=${LOKI_WHEEL_PYTHON_VERSION} \
+    -P ${SOURCE_DIR}/cmake/loki_get_python_wheels.cmake
 
 cmake \
     -DWHEELS_DIR=${ARTIFACTS_DIR} -DREQUIREMENT_SPEC=${SOURCE_DIR}/lint_rules \
-    -P ${SOURCE_DIR}/cmake/get_python_wheels.cmake
+    -DLOKI_WHEEL_ARCH=${LOKI_WHEEL_ARCH} -DLOKI_WHEEL_PYTHON_VERSION=${LOKI_WHEEL_PYTHON_VERSION} \
+    -P ${SOURCE_DIR}/cmake/loki_get_python_wheels.cmake
