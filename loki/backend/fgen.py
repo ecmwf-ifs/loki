@@ -190,17 +190,7 @@ class FortranCodegen(Stringifier):
 
         return self.join_lines(header, docstring, spec, contains, footer)
 
-    def visit_Subroutine(self, o, **kwargs):
-        """
-        Format as
-          <ftype> [<prefix>] <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
-            ...docstring...
-            ...spec...
-            ...body...
-          [CONTAINS]
-            [...member...]
-          END <ftype> <name>
-        """
+    def _construct_subroutine_header(self, o, **kwargs):
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
@@ -214,8 +204,25 @@ class FortranCodegen(Stringifier):
             bind_c = f' BIND(c, name={o.bind})'
         else:
             bind_c = ''
-        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
-        footer = self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
+        return self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
+
+    def _construct_subroutine_footer(self, o, **kwargs):
+        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        return self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Format as
+          <ftype> [<prefix>] <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
+            ...docstring...
+            ...spec...
+            ...body...
+          [CONTAINS]
+            [...member...]
+          END <ftype> <name>
+        """
+        header = self._construct_subroutine_header(o, **kwargs)
+        footer = self._construct_subroutine_footer(o, **kwargs)
 
         self.depth += self.style.procedure_spec_indent
         docstring = self.visit(o.docstring, **kwargs)
