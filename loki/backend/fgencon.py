@@ -19,11 +19,57 @@ class FortranCodegenConservative(FortranCodegen):
     the frontends where possible.
     """
 
-    def visit(self, o, *args, **kwargs):
-        """
-        Overwrite standard visit routine to inject original source in conservative mode.
-        """
-        if hasattr(o, 'source') and o.source and o.source.status == SourceStatus.VALID:
-            # Re-use original source associated with node
+    def visit_Node(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
             return o.source.string
-        return super().visit(o, *args, **kwargs)
+        return super().visit_Node(o, *args, **kwargs)
+
+    def visit_Assignment(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Assignment(o, *args, **kwargs)
+
+    def visit_CallStatement(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_CallStatement(o, *args, **kwargs)
+
+    def visit_Comment(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Comment(o, *args, **kwargs)
+
+    def visit_Conditional(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Conditional(o, *args, **kwargs)
+
+    def visit_VariableDeclaration(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_VariableDeclaration(o, *args, **kwargs)
+
+    def visit_Import(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Import(o, *args, **kwargs)
+
+    def visit_Loop(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Loop(o, *args, **kwargs)
+
+    def visit_Section(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Section(o, *args, **kwargs)
+
+    def visit_Subroutine(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Subroutine(o, *args, **kwargs)
+
+    def visit_Module(self, o, *args, **kwargs):
+        if o.source and o.source.status == SourceStatus.VALID:
+            return o.source.string
+        return super().visit_Module(o, *args, **kwargs)
