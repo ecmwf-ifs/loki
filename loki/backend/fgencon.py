@@ -36,6 +36,12 @@ class FortranCodegenConservative(FortranCodegen):
 
     def visit_Comment(self, o, *args, **kwargs):
         if o.source and o.source.status == SourceStatus.VALID:
+            slist = o.source.string.split('!', maxsplit=1)
+            pre, txt = (slist[0], slist[1]) if len(slist) > 1 else (None, slist[0])
+            if pre and not pre.isspace():
+                # An inline comment, only return text and leading whitespace
+                ws = ' '*(len(pre)-len(pre.rstrip(' ')))
+                return f'{ws}!{txt}'
             return o.source.string
         return super().visit_Comment(o, *args, **kwargs)
 
@@ -47,6 +53,26 @@ class FortranCodegenConservative(FortranCodegen):
     def visit_VariableDeclaration(self, o, *args, **kwargs):
         if o.source and o.source.status == SourceStatus.VALID:
             return o.source.string
+
+        if o.source and o.source.status == SourceStatus.INVALID_NODE:
+            # Attempt to recreate some structure by locating `::`
+            slist = o.source.string.split('::', maxsplit=1)
+            assert len(slist) == 2
+
+            # If type attributes haven't changed, prefer source
+            attributes = str(self.join_items(self._construct_type_attributes(o, **kwargs))) + ' '
+            if slist[0].strip() == attributes.strip():
+                attributes = slist[0]
+
+            # If declared variables haven't changed, prefer source
+            variables = ' ' + str(self.join_items(self._construct_decl_variables(o, **kwargs)))
+            if slist[1].strip() == variables.strip():
+                variables = slist[1]
+
+            comment = str(self.visit(o.comment, **kwargs)) if o.comment else ''
+
+            return f'{attributes}::{variables}{comment}'
+
         return super().visit_VariableDeclaration(o, *args, **kwargs)
 
     def visit_Import(self, o, *args, **kwargs):

@@ -375,11 +375,7 @@ class FortranCodegen(Stringifier):
         """
         return self.format_line(str(o.text).lstrip(), no_wrap=True, no_indent=True)
 
-    def visit_VariableDeclaration(self, o, **kwargs):
-        """
-        Format declaration as
-          [<type>] [, DIMENSION(...)] :: var [= initial] [, var [= initial] ] ...
-        """
+    def _construct_type_attributes(self, o, **kwargs):
         attributes = []
         assert len(o.symbols) > 0
         types = [v.type for v in o.symbols]
@@ -424,6 +420,9 @@ class FortranCodegen(Stringifier):
         if o.dimensions:
             attributes += [f'DIMENSION({", ".join(self.visit_all(o.dimensions, **kwargs))})']
 
+        return attributes
+
+    def _construct_decl_variables(self, o, **kwargs):
         # Declared entities
         variables = []
         for v in o.symbols:
@@ -435,6 +434,18 @@ class FortranCodegen(Stringifier):
                 op = '=>' if v.type.pointer else '='
                 initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
             variables += [f'{var}{initial}']
+        return variables
+
+    def visit_VariableDeclaration(self, o, **kwargs):
+        """
+        Format declaration as
+          [<type>] [, DIMENSION(...)] :: var [= initial] [, var [= initial] ] ...
+        """
+        # Construct type attributes to the left of `::`
+        attributes = self._construct_type_attributes(o, **kwargs)
+
+        # Construct variable symbols to be declared to the right of `::`
+        variables = self._construct_decl_variables(o, **kwargs)
 
         # In-line comment
         comment = None
