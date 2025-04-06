@@ -83,6 +83,19 @@ class FortranCodegenConservative(FortranCodegen):
     def visit_Loop(self, o, *args, **kwargs):
         if o.source and o.source.status == SourceStatus.VALID:
             return o.source.string
+
+        if o.source and o.source.status == SourceStatus.INVALID_CHILDREN:
+            # Recapture header and footer from source
+            header = o.source.string.splitlines()[0]
+            footer = o.source.string.splitlines()[o.source.lines[1]-o.source.lines[0]]
+
+            pragma = self.visit(o.pragma, **kwargs)
+            pragma_post = self.visit(o.pragma_post, **kwargs)
+            self.depth += self.style.loop_indent
+            body = self.visit(o.body, **kwargs)
+            self.depth -= self.style.loop_indent
+            return self.join_lines(pragma, header, body, footer, pragma_post)
+
         return super().visit_Loop(o, *args, **kwargs)
 
     def visit_Section(self, o, *args, **kwargs):
