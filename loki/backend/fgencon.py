@@ -48,6 +48,36 @@ class FortranCodegenConservative(FortranCodegen):
     def visit_Conditional(self, o, *args, **kwargs):
         if o.source and o.source.status == SourceStatus.VALID:
             return o.source.string
+
+        if o.source and o.source.status == SourceStatus.INVALID_CHILDREN:
+            if o.inline:
+                # TODO: Deal with inline conditionals properly
+                return super().visit_Conditional(o, *args, **kwargs)
+
+            header = o.source.string.splitlines()[0]
+
+            self.depth += self.style.conditional_indent
+            body = self.visit(o.body, **kwargs)
+            if o.has_elseif:
+                self.depth -= self.style.conditional_indent
+                else_body = [self.visit(o.else_body, is_elseif=True, **kwargs)]
+            else:
+                else_body = [self.visit(o.else_body, **kwargs)]
+                self.depth -= self.style.conditional_indent
+                if o.else_body:
+                    # Get the `ELSE` from source to get its indentation
+                    elseline = [
+                        s for s in o.source.string.splitlines()
+                        if s.upper().strip() == 'ELSE'
+                    ]
+                    else_body = [elseline[-1]] + else_body
+
+                # Recapture the footer line from source
+                footer = o.source.string.splitlines()[o.source.lines[1]-o.source.lines[0]]
+                else_body += [footer]
+
+            return self.join_lines(header, body, *else_body)
+
         return super().visit_Conditional(o, *args, **kwargs)
 
     def visit_VariableDeclaration(self, o, *args, **kwargs):
