@@ -27,6 +27,32 @@ class FortranCodegenConservative(FortranCodegen):
     def visit_Assignment(self, o, *args, **kwargs):
         if o.source and o.source.status == SourceStatus.VALID:
             return o.source.string
+
+        if o.source and o.source.status == SourceStatus.INVALID_NODE:
+            # Attempt to recreate some structure by locating `=`
+            slist = o.source.string.split('=', maxsplit=1)
+            assert len(slist) == 2
+
+            # If LHS hasn't changed, prefer source
+            lhs = self.visit(o.lhs, **kwargs) + ' '
+            if slist[0].strip() == lhs.strip():
+                lhs = slist[0]
+            else:
+                # At least prescribe previous indent...
+                ind = len(o.source.string) - len(o.source.string.lstrip())
+                lhs = ind*' ' + lhs
+
+            # If RHS hasn't changed, prefer source
+            rhs = ' ' + self.visit(o.rhs, **kwargs)
+            if slist[1].strip() == rhs.strip():
+                rhs = slist[1]
+
+            comment = str(self.visit(o.comment, **kwargs)) if o.comment else ''
+            if o.ptr:
+                return self.format_line(lhs, '=>', rhs, comment=comment)
+
+            return self.format_line(lhs, '=', rhs, comment=comment, no_indent=True)
+
         return super().visit_Assignment(o, *args, **kwargs)
 
     def visit_CallStatement(self, o, *args, **kwargs):
