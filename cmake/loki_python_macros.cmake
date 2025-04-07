@@ -299,22 +299,30 @@ function( loki_download_python_wheels )
 
     unset( PIP_OPTIONS )
     if( DEFINED _PAR_WHEEL_ARCH AND NOT _PAR_WHEEL_ARCH MATCHES None|NONE )
-       list( APPEND PIP_OPTIONS --platform=${_PAR_WHEEL_ARCH} )
+        # PIP does not recognize the Python version anymore if it is enclosed
+        # by quotes, thus we need to strip any spurious quotes from the version
+        string( REPLACE "\"" "" _ARCH ${_PAR_WHEEL_ARCH} )
+       list( APPEND PIP_OPTIONS --platform=${_ARCH} )
     endif()
     if( DEFINED _PAR_WHEEL_PYTHON_VERSION AND NOT _PAR_WHEEL_PYTHON_VERSION MATCHES None|NONE )
-       list( APPEND PIP_OPTIONS --python-version=${_PAR_WHEEL_PYTHON_VERSION} )
+        # PIP does not recognize the Python version anymore if it is enclosed
+        # by quotes, thus we need to strip any spurious quotes from the version
+        string( REPLACE "\"" "" _PYTHON_VERSION ${_PAR_WHEEL_PYTHON_VERSION} )
+        list( APPEND PIP_OPTIONS --python-version=${_PYTHON_VERSION} )
     endif()
     if( PIP_OPTIONS )
         list( APPEND PIP_OPTIONS --no-deps )
     endif()
 
     # We use a dry-run installation to check if all dependencies have already been downloaded
+    set( _CMD
+        ${Python3_EXECUTABLE} -m pip install
+            --dry-run --break-system-packages
+            --no-index --find-links "${WHEELS_DIR}" --only-binary :all:
+            ${PIP_OPTIONS} ${_PAR_REQUIREMENT_SPEC}
+    )
     execute_process(
-        COMMAND
-            ${Python3_EXECUTABLE} -m pip install
-                --dry-run --break-system-packages
-                --no-index --find-links "${WHEELS_DIR}" --only-binary :all:
-                ${PIP_OPTIONS} ${_PAR_REQUIREMENT_SPEC}
+        COMMAND ${_CMD}
         OUTPUT_QUIET ERROR_QUIET
         RESULT_VARIABLE _RET_VAL
     )
@@ -328,20 +336,24 @@ function( loki_download_python_wheels )
         message( STATUS "Downloading dependency wheels for ${_PAR_REQUIREMENT_SPEC} to ${WHEELS_DIR}" )
 
         # Download typical build dependencies for wheels: setuptools and wheel
+        set( _CMD
+            ${Python3_EXECUTABLE} -m pip download
+            --disable-pip-version-check --dest "${WHEELS_DIR}"
+            ${PIP_OPTIONS} setuptools>=75.0.0 wheel
+        )
         execute_process(
-            COMMAND
-                ${Python3_EXECUTABLE} -m pip download
-                --disable-pip-version-check --dest "${WHEELS_DIR}"
-                ${PIP_OPTIONS} setuptools>=75.0.0 wheel
+            COMMAND ${_CMD}
             OUTPUT_QUIET
         )
 
         # Download dependencies for the specified REQUIREMENT_SPEC
+        set( _CMD
+            ${Python3_EXECUTABLE} -m pip download
+            --disable-pip-version-check --dest "${WHEELS_DIR}"
+            ${PIP_OPTIONS} ${_PAR_REQUIREMENT_SPEC}
+        )
         execute_process(
-            COMMAND
-                ${Python3_EXECUTABLE} -m pip download
-                --disable-pip-version-check --dest "${WHEELS_DIR}"
-                ${PIP_OPTIONS} ${_PAR_REQUIREMENT_SPEC}
+            COMMAND ${_CMD}
             OUTPUT_QUIET
         )
 
