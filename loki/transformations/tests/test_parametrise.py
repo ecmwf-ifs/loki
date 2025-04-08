@@ -12,13 +12,13 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import Scheduler, fgen
+from loki import Scheduler, fgen, Subroutine
 from loki.jit_build import jit_compile
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 
-from loki.transformations.parametrise import ParametriseTransformation
+from loki.transformations.parametrise import ParametriseTransformation, declare_fixed_value_scalars_as_constants
 
 
 @pytest.fixture(scope='module', name='here')
@@ -473,3 +473,72 @@ def test_parametrise_non_driver_entry_points(tmp_path, testdir, frontend, config
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_declare_constant_scalars(frontend):
+    fcode = """
+subroutine transform_declare_constant_scalars(invar, ret)
+  implicit none
+  integer, intent(in) :: invar
+  integer, intent(out) :: ret
+  integer, parameter :: param = 1
+  integer :: a, b, c, d, e, f
+  real :: x, y, z
+  logical :: l1, l2, l3
+  real :: arr1(2), arr2(3)
+
+  arr1(1) = 1.0
+  arr1(2) = 2.0
+  arr2 = (/ 1.0, 2.0, 3.0 /)
+  ret = 0
+  x = 3.5
+  y = invar * 2.0
+  z = 4.5 + 3.5
+  a = ret
+  b = 10
+  C = invar*invar
+  e = 1
+  F = 1
+  L1 = .false.
+  l3 = .true.
+  if (c .gt. 0) then
+    L2 = .true.
+  else
+    l2 = .false.
+  endif
+
+  call some_routine(e)
+  arr1(1) = some_inline_func(f)
+
+contains
+  function some_inline_func(a) result(res)
+    integer, intent(in) :: a
+    integer :: res
+    res = a
+  end function some_inline_func
+end subroutine transform_declare_constant_scalars
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    init_dict = {'x': '3.5', 'z': '4.5 + 3.5', 'b': '10', 'l1': '.false.', 'l3': '.true.',
+            'param': '1'}
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assignments) == 17
+    variables = routine.variables
+    params = [var for var in variables if var.type.parameter]
+    assert len(params) == 1
+    for param in params:
+        assert param.initial == parse_expr(init_dict[str(param.name)])
+
+    # declare those scalars as constant which are only written to once and assigned with a value
+    declare_fixed_value_scalars_as_constants(routine)
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assignments) == 12
+    variables = routine.variables
+    params = [var for var in variables if var.type.parameter]
+    assert len(params) == 6
+    for param in params:
+        assert param.initial == parse_expr(init_dict[str(param.name)])

@@ -84,13 +84,70 @@ using the transformation
 
 from loki.batch import Transformation
 from loki.expression import symbols as sym
-from loki.ir import nodes as ir, Transformer, FindNodes
+from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 
+from loki.transformations.utilities import single_variable_declaration
 from loki.transformations.inline import inline_constant_parameters
 
 
-__all__ = ['ParametriseTransformation']
+__all__ = ['ParametriseTransformation', 'declare_fixed_value_scalars_as_constants']
+
+
+def declare_fixed_value_scalars_as_constants(routine):
+    """
+    Mark local scalars that are assigned a fixed value as parameters.
+
+    This is not really sophisticated and will eventually be superseded by
+    a constant propagation transformation.
+    """
+    def is_constant_rhs(expr):
+        # expr is a literal e.g., a IntLiteral
+        if issubclass(type(expr), sym._Literal):
+            return True
+        # expr is a Product/Sum and all children are literals
+        if isinstance(expr, (sym.Product, sym.Sum)):
+            return all(issubclass(type(_expr), sym._Literal) for _expr in expr.children)
+        return False
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    # filter for local variables and scalars
+    variables = [var for var in routine.variables if var not in routine.arguments and not isinstance(var, sym.Array)]
+    # don't bother with those being used in (inline) calls (although intent 'in' would be fine)
+    calls = as_tuple(FindNodes(ir.CallStatement).visit(routine.body)) + as_tuple(FindInlineCalls().visit(routine.body))
+    args = set()
+    for call in calls:
+        args |= set(call.arguments) | set(arg[1] for arg in call.kwarguments)
+    if args:
+        variables = [var for var in variables if var not in args]
+    assignments_dic = {}
+    for assignment in assignments:
+        if assignment.lhs in variables:
+            assignments_dic.setdefault(assignment.lhs, []).append(assignment)
+    # remove those which are written to multiple times
+    keys2remove = []
+    for key, vals in assignments_dic.items():
+        if len(vals) > 1:
+            keys2remove.append(key)
+    for key in keys2remove:
+        del assignments_dic[key]
+    # keep only those which are assigned a constant value to
+    parametrise_map = {}
+    for key, vals in assignments_dic.items():
+        val = vals[0]
+        if is_constant_rhs(val.rhs):
+            parametrise_map[key] = val
+    _vars = list(parametrise_map.keys())
+    # make sure the relevant variables are declared individually
+    single_variable_declaration(routine, [str(var.name) for var in _vars])
+    # update relevant vars to be parameters and assign correct initial value
+    for var in _vars:
+        routine.symbol_attrs[str(var.name)] = var.type.clone(parameter=True, initial=parametrise_map[var].rhs)
+    # remove the original assignments in the body which are now used to initialise the parameter variables
+    assignment_map = {}
+    for assignment in parametrise_map.values():
+        assignment_map[assignment] = None
+    routine.body = Transformer(assignment_map).visit(routine.body)
 
 
 class ParametriseTransformation(Transformation):
