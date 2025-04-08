@@ -434,6 +434,13 @@ class ItemConfig:
         return self.config.get('expand', False)
 
     @property
+    def lib(self):
+        """
+        Compile unit/library this item belongs to
+        """
+        return self.config.get('lib', None)
+
+    @property
     def strict(self):
         """
         Flag controlling whether to strictly fail if source file cannot be parsed

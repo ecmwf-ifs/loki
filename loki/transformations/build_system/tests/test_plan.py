@@ -123,9 +123,9 @@ end subroutine mysub
     else:
         to_transform = [Path(f'{srcpath}overlay_path/src/mysub.F90'), Path(f'{srcpath}overlay_path/module/mymod.F90')]
 
-    assert plan_trafo.sources_to_append == to_append
+    assert plan_trafo.sources_to_append[None] == to_append
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == to_append
-    assert plan_trafo.sources_to_transform == to_transform
+    assert plan_trafo.sources_to_transform[None] == to_transform
     assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == to_transform
-    assert plan_trafo.sources_to_remove == to_transform
+    assert plan_trafo.sources_to_remove[None] == to_transform
     assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == to_transform
