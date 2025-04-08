@@ -810,7 +810,7 @@ class FortranCodegen(Stringifier):
         footer = self.format_line('END ASSOCIATE')
         self.depth += self.style.associate_indent
         body = self.visit(o.body, **kwargs)
-        self.depth += self.style.associate_indent
+        self.depth -= self.style.associate_indent
         return self.join_lines(header, body, footer)
 
     def visit_CallStatement(self, o, **kwargs):
