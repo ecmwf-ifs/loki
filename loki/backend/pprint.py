@@ -321,6 +321,35 @@ class Stringifier(Visitor):
         body = [item for branch in zip(values, bodies) for item in branch]
         return self.join_lines(header, *body)
 
+    def visit_TypeConditional(self, o, **kwargs):
+        """
+        Format :any:`TypeConditional` as
+
+        .. code-block:: none
+
+           <repr(TypeConditional)>
+             <Class [value(s)]>
+               ...
+             <Type [value(s)]>
+               ...
+             <Default>
+               ...
+        """
+        header = self.format_node(repr(o))
+        self.depth += self.style.indent_default
+        values = []
+        for expr in o.values:
+            value = self.visit(expr[0], **kwargs)
+            values += [self.format_node('Class' if expr[1] else 'Type', value)]
+        if o.else_body:
+            values += [self.format_node('Default')]
+        self.depth += self.style.indent_default
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= self.style.indent_default
+        self.depth -= self.style.indent_default
+        body = [item for branch in zip(values, bodies) for item in branch]
+        return self.join_lines(header, *body)
+
 
 def pprint(ir, stream=None):
     """

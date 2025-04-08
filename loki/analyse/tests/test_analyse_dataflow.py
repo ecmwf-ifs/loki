@@ -7,15 +7,14 @@
 
 import pytest
 
-from loki import (
-    Subroutine, FindNodes, Assignment, Loop, Conditional, Pragma, fgen, Sourcefile,
-    CallStatement, MultiConditional, MaskedStatement, ProcedureSymbol, WhileLoop,
-    Associate, Module
-)
+from loki import Module, Sourcefile, Subroutine
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
-from loki.frontend import available_frontends
+from loki.backend import fgen
+from loki.expression import symbols as sym
+from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -41,7 +40,7 @@ end subroutine analyse_live_symbols
     routine = Subroutine.from_source(fcode, frontend=frontend)
     ref_fgen = fgen(routine)
 
-    assignments = FindNodes(Assignment).visit(routine.body)
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assignments) == 4
 
     with pytest.raises(RuntimeError):
@@ -92,9 +91,9 @@ end subroutine analyse_defines_uses_symbols
     routine = Subroutine.from_source(fcode, frontend=frontend)
     ref_fgen = fgen(routine)
 
-    conditionals = FindNodes(Conditional).visit(routine.body)
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 2
-    loops = FindNodes(Loop).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
 
     with pytest.raises(RuntimeError):
@@ -105,8 +104,8 @@ end subroutine analyse_defines_uses_symbols
 
     with dataflow_analysis_attached(routine):
         assert fgen(routine) == ref_fgen
-        assert len(FindNodes(Conditional).visit(routine.body)) == 2
-        assert len(FindNodes(Loop).visit(routine.body)) == 1
+        assert len(FindNodes(ir.Conditional).visit(routine.body)) == 2
+        assert len(FindNodes(ir.Loop).visit(routine.body)) == 1
 
         assert {str(s) for s in routine.body.uses_symbols} == {'m', 'n'}
         assert {str(s) for s in loops[0].uses_symbols} == {'m', 'n', 'a', 'j'}
@@ -161,7 +160,7 @@ end subroutine analyse_read_after_write_vars
         'E': set(),
     }
 
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
     assert len(pragmas) == 5
 
     with dataflow_analysis_attached(routine):
@@ -207,7 +206,7 @@ end subroutine analyse_read_after_write_vars_conditionals
         'E': {variable_map['e']},
     }
 
-    pragmas = FindNodes(Pragma).visit(routine.body)
+    pragmas = FindNodes(ir.Pragma).visit(routine.body)
     assert len(pragmas) == len(vars_at_inspection_node)
 
     with dataflow_analysis_attached(routine):
@@ -234,7 +233,7 @@ end subroutine analyse_loop_carried_dependencies
     routine = Subroutine.from_source(fcode, frontend=frontend)
     variable_map = routine.variable_map
 
-    loops = FindNodes(Loop).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
 
     with dataflow_analysis_attached(routine):
@@ -278,7 +277,7 @@ end subroutine test
         assert len(routine.body.uses_symbols) == 0
         assert len(routine.spec.uses_symbols) == 0
         assert len(routine.spec.defines_symbols) == 1
-        assert isinstance(list(routine.spec.defines_symbols)[0], ProcedureSymbol)
+        assert isinstance(list(routine.spec.defines_symbols)[0], sym.ProcedureSymbol)
         assert 'random_call' in routine.spec.defines_symbols
 
 
@@ -344,7 +343,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
     routine.enrich(source.all_subroutines)
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
 
     with dataflow_analysis_attached(routine):
         assert all(i in call.defines_symbols for i in ('v_out', 'v_inout'))
@@ -368,7 +367,7 @@ end subroutine test
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
-    call = FindNodes(CallStatement).visit(routine.body)[0]
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
 
     with dataflow_analysis_attached(routine):
         assert all(i in call.defines_symbols for i in ('v_out', 'v_inout', 'v_in'))
@@ -480,7 +479,7 @@ end subroutine test
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['test']
 
-    calls = FindNodes(CallStatement).visit(routine.body)
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     routine.enrich(source.all_subroutines)
 
     with dataflow_analysis_attached(routine):
@@ -509,7 +508,7 @@ end subroutine test
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    mcond = FindNodes(MultiConditional).visit(routine.body)[0]
+    mcond = FindNodes(ir.MultiConditional).visit(routine.body)[0]
     with dataflow_analysis_attached(routine):
         assert len(mcond.bodies) == 2
         assert len(mcond.else_body) == 1
@@ -521,9 +520,49 @@ end subroutine test
         assert all(i in mcond.uses_symbols for i in ['ic', 'ia', 'ib'])
         assert all(i in mcond.defines_symbols for i in ['a', 'b'])
 
-        assigns = FindNodes(Assignment).visit(routine.body)
+        assigns = FindNodes(ir.Assignment).visit(routine.body)
         for assign in assigns:
             assert assign.live_symbols == {'ia', 'ib', 'ic'}
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
+def test_analyse_typeconditional(frontend):
+    fcode = """
+subroutine test(arg)
+use type_mod, only: base_type, some_type, other_type
+class(base_type), intent(in) :: arg
+integer             :: a, b, c
+
+typecond: select type(arg)
+  class is(some_type)
+    associate (aa => arg%s)
+      a = aa
+    end associate
+  type is(other_type)
+    associate (bb => arg%t)
+      b = bb
+    end associate
+  class default
+    c = 0
+end select typecond
+end subroutine test
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    tcond = FindNodes(ir.TypeConditional).visit(routine.body)[0]
+    with dataflow_analysis_attached(routine):
+        assert len(tcond.bodies) == 2
+        assert len(tcond.else_body) == 1
+        for b in tcond.bodies:
+            assert len(b) == 1
+
+        assert tcond.uses_symbols == {'arg%t', 'arg%s', 'arg'}
+        assert tcond.defines_symbols == {'a', 'b', 'c'}
+        assert tcond.live_symbols == {'arg'}
+
+        assigns = FindNodes(ir.Assignment).visit(routine.body)
+        for assign in assigns:
+            assert assign.live_symbols == {'arg'}
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -547,7 +586,7 @@ end subroutine masked_statements
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    mask = FindNodes(MaskedStatement).visit(routine.body)[0]
+    mask = FindNodes(ir.MaskedStatement).visit(routine.body)[0]
     num_bodies = len(mask.bodies)
     with dataflow_analysis_attached(routine):
         assert len(mask.uses_symbols) == 1
@@ -580,8 +619,8 @@ end subroutine while_loop
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    loop = FindNodes(WhileLoop).visit(routine.body)[0]
-    cond = FindNodes(Conditional).visit(routine.body)[0]
+    loop = FindNodes(ir.WhileLoop).visit(routine.body)[0]
+    cond = FindNodes(ir.Conditional).visit(routine.body)[0]
     with dataflow_analysis_attached(routine):
         assert len(cond.uses_symbols) == 1
         assert 'flag' in cond.uses_symbols
@@ -619,8 +658,8 @@ end subroutine associate_test
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    associates = FindNodes(Associate).visit(routine.body)
-    assigns = FindNodes(Assignment).visit(routine.body)
+    associates = FindNodes(ir.Associate).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
     with dataflow_analysis_attached(routine):
         # check that associates use variables names in outer scope
         assert associates[0].uses_symbols == {'in_var'}

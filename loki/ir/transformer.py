@@ -596,3 +596,5 @@ class NestedMaskedTransformer(MaskedTransformer):
         # rebuild conditional with remaining branches
         values, bodies = zip(*branches)
         return self._rebuild(o, tuple((expr,) + (values,) + (bodies,) + (else_body,)))
+
+    visit_TypeConditional = visit_MultiConditional

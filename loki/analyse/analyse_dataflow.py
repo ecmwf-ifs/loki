@@ -188,6 +188,8 @@ class DataflowAnalysisAttacher(Transformer):
         defines = defines | else_defines
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
+    visit_TypeConditional = visit_MultiConditional
+
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
         conditions = self._symbols_from_expr(o.conditions)
