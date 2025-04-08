@@ -6,11 +6,13 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
+import numpy as np
 
 from loki import Module, Subroutine
-from loki.jit_build import jit_compile_lib, Builder, Obj
+from loki.jit_build import jit_compile_lib, Builder, Obj, jit_compile, clean_test
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
+from loki.expression import symbols as sym, parse_expr
 
 from loki.transformations.inline import inline_constant_parameters
 from loki.transformations.utilities import replace_selected_kind
@@ -196,24 +198,62 @@ end module inline_param_repl_kind_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_constant_replacement_internal(frontend):
+def test_constant_replacement_internal(tmp_path, frontend):
     """
     Test constant replacement for internally defined constants.
     """
     fcode = """
 subroutine kernel(a, b)
   integer, parameter :: par = 10
+  integer, parameter :: par2 = 0
   integer, intent(inout) :: a, b
+  real, parameter :: par_x = 1.3
+  real :: x, y
+  logical, parameter :: flag1 = .true.
 
-  a = b + par
+  x = 0.0
+  y = 1.4
+  if (flag1 .and. par2 .eq. 0) then
+    x = y + par_x
+  endif
+
+  a = b + par + ceiling(x)
 end subroutine kernel
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    # test original function
+    a, b = np.array(1, dtype=np.int32), np.array(2, dtype=np.int32)
+    function(a=a, b=b)
+    assert a == 15
+
     inline_constant_parameters(routine=routine, external_only=False)
 
-    assert len(routine.variables) == 2
-    assert 'a' in routine.variables and 'b' in routine.variables
+    transf_filepath = tmp_path/(f'{routine.name}_transf_{frontend}.f90')
+    transf_function = jit_compile(routine, filepath=transf_filepath, objname=routine.name)
+    # test transformed function
+    transf_a, transf_b = np.array(1, dtype=np.int32), np.array(2, dtype=np.int32)
+    transf_function(a=transf_a, b=transf_b)
+    assert transf_a == 15
+
+    # check IR
+    assert len(routine.variables) == 4
+    assert 'a' in routine.variables
+    assert 'b' in routine.variables
+    assert 'x' in routine.variables
+    assert 'y' in routine.variables
 
     stmts = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(stmts) == 1
-    assert stmts[0].rhs == 'b + 10'
+    assert len(stmts) == 4
+    assert stmts[2].rhs == 'y + 1.3'
+    assert '10' in stmts[3].rhs
+
+    conditionals = FindNodes(ir.Conditional).visit(routine.body)
+    cond = conditionals[0].condition
+    assert isinstance(cond, sym.LogicalAnd)
+    assert cond.children[0] == parse_expr('.true.')
+    assert cond.children[1] == '0 == 0'
+
+    clean_test(filepath)
+    clean_test(transf_filepath)

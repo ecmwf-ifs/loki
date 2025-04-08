@@ -46,7 +46,7 @@ def inline_constant_parameters(routine, external_only=True):
         variables = [v for v in variables if v not in routine.variables]
 
     def is_inline_parameter(v):
-        return hasattr(v, 'type') and v.type.parameter and v.type.initial
+        return hasattr(v, 'type') and v.type.parameter and v.type.initial is not None
 
     # Create mapping for variables and imports
     vmap = {v: v.type.initial for v in variables if is_inline_parameter(v)}
@@ -59,7 +59,7 @@ def inline_constant_parameters(routine, external_only=True):
             # Substitute kind specifier in literals in initializers (I know...)
             init_map = {literal.kind: literal.kind.type.initial
                         for literal in FindLiterals().visit(variable.type.initial)
-                        if is_inline_parameter(literal.kind)}
+                        if hasattr(literal, 'kind') and is_inline_parameter(literal.kind)}
             if init_map:
                 initial = SubstituteExpressions(init_map).visit(variable.type.initial)
                 routine.symbol_attrs[variable.name] = variable.type.clone(initial=initial)
@@ -83,6 +83,6 @@ def inline_constant_parameters(routine, external_only=True):
     # Clean up declarations that are about to become defunct
     decl_map = {
         decl: None for decl in routine.declarations
-        if all(isinstance(s, sym.IntLiteral) for s in decl.symbols)
+        if all(issubclass(type(s), sym._Literal) for s in decl.symbols)
     }
     routine.spec = Transformer(decl_map).visit(routine.spec)
