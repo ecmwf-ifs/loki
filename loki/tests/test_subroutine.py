@@ -1517,10 +1517,14 @@ end function f_elem
     assert routine.is_function is True
     assert routine.return_type.dtype is BasicType.REAL
 
+    # When using implicit return types, we currently insert a ghost
+    # declaration for the return type. Check that this exists and has
+    # been prepended to the spec.
     assert routine.name in routine.symbol_map
-    decl = [d for d in FindNodes(ir.VariableDeclaration).visit(routine.spec) if routine.name in d.symbols]
-    assert len(decl) == 1
-    decl = decl[0]
+    assert len(routine.spec.body) == 3 if frontend == OMNI else 2
+    decl = routine.spec.body[1] if frontend == OMNI else routine.spec.body[0]
+    assert isinstance(decl, ir.VariableDeclaration)
+    assert decl.symbols == ('f_elem',)
 
     assert routine.procedure_type.is_function is True
     assert routine.procedure_type.return_type.dtype is BasicType.REAL

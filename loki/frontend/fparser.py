@@ -1799,7 +1799,7 @@ class FParser2IR(GenericVisitor):
             decls = FindNodes((ir.VariableDeclaration, ir.ProcedureDeclaration)).visit(spec)
             if not decls:
                 # No other declarations: add it to the end
-                spec.append(return_var_decl)
+                spec.prepend(return_var_decl)
             else:
                 spec.insert(spec.body.index(decls[0]), return_var_decl)
 
