@@ -3002,8 +3002,9 @@ class FParser2IR(GenericVisitor):
         # In the visit() below, skip the Forall_Constrct_Stmt and go directly to the Forall_Header
         named_bounds, mask = self.visit(start.children[1], **kwargs)
         body = as_tuple(self.visit(c, **kwargs) for c in body)
+        source = self.get_source(start, end_node=end)
         return *prelude, ir.Forall(name=name, named_bounds=named_bounds, mask=mask,
-                                   body=body, inline=False, source=kwargs.get("source"))
+                                   body=body, inline=False, source=source)
 
     def visit_Forall_Header(self, o, **kwargs):
         """
