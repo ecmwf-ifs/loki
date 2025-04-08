@@ -11,10 +11,11 @@ Visitor classes for traversing and transforming all expression trees in
 """
 from pymbolic.primitives import Expression
 
+from loki.frontend.source import SourceStatus
 from loki.ir.nodes import Node
 from loki.ir.visitor import Visitor
 from loki.ir.transformer import Transformer
-from loki.tools import flatten, as_tuple
+from loki.tools import flatten, as_tuple, dict_override
 from loki.expression.mappers import (
     SubstituteExpressionsMapper, ExpressionRetriever,
     AttachScopesMapper, LokiIdentityMapper
@@ -237,13 +238,27 @@ class ExpressionTransformer(Transformer):
     """
     expr_mapper = LokiIdentityMapper()
 
+    def visit(self, o, *args, **kwargs):
+        source = kwargs.get('source')
+        if hasattr(o, 'source'):
+            source = o.source
+        # Pass down the enclosing `Source` object, so we may invalidate it
+        with dict_override(kwargs, {'source': source}):
+            obj = super().visit(o, *args, **kwargs)
+        return obj
+
     def visit_Expression(self, o, **kwargs):
         """
         Call the associated mapper for the given expression node
         """
         if kwargs.get('recurse_to_declaration_attributes'):
-            return self.expr_mapper(o, recurse_to_declaration_attributes=True)
-        return self.expr_mapper(o)
+            new = self.expr_mapper(o, recurse_to_declaration_attributes=True)
+        else:
+            new = self.expr_mapper(o)
+        # Invalidate `Source` object if we've changed the expression
+        if kwargs.get('source') and not o == new:
+            kwargs['source'].status = SourceStatus.INVALID_NODE
+        return new
 
 
 class SubstituteExpressions(ExpressionTransformer):
