@@ -264,7 +264,6 @@ def add_device_field_allocations(driver, block_loop, offload_map, block_size, nu
         }
         Transformer(update_map, inplace=True).visit(driver.body)
 
-
 def replace_kernel_args(driver, offload_map, offload_index):
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
@@ -284,7 +283,6 @@ def replace_kernel_args(driver, offload_map, offload_index):
     driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)
 
 
-
 def block_driver_loops(driver, region, block_size):
     with pragmas_attached(driver, ir.Loop):
         driver_loops = find_driver_loops(driver.body, targets=None)
@@ -295,7 +293,8 @@ def block_driver_loops(driver, region, block_size):
         else:
             warning(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
             return
-        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size)
+        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)
+        # move loop pragmas to inner loop
         if outer_loop.pragma is not None:
             inner_loop._update(pragma=outer_loop.pragma)
             outer_loop._update(pragma=None)
