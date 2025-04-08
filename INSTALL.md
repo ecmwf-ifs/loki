@@ -18,14 +18,14 @@ do this automatically.
 
 ## Requirements
 
-- Python 3.8+ with virtualenv and pip
+- Python 3.9+ with virtualenv and pip
 - For graphical output of Scheduler dependency graphs: graphviz
 
 ### Optional requirements
 
-The following is required to use the Open Fortran Parser (OFP) or OMNI frontend or the CLAW compiler:
+The following is required to use the OMNI frontend:
 
-- JDK 1.8+ with ant (can be installed using the install script or ecbuild)
+- JDK 1.8+ (can be installed using the install script or ecbuild)
 - libxml2 (with headers)
 
 ## Installation without prior download
@@ -87,8 +87,8 @@ pip install ./lint_rules
 
 The provided `install` script can be used to install Loki with selected
 dependencies inside a local virtual environment `loki_env`. This is the
-recommended way when additional optional dependencies, such as CLAW, the OMNI
-frontend, or Open Fortran Parser are required.
+recommended way when additional optional dependencies, such as the OMNI
+frontend, are required.
 
 After downloading Loki, call the script with `-h` to display usage information:
 
@@ -96,25 +96,19 @@ After downloading Loki, call the script with `-h` to display usage information:
 $ ./install -h
 Loki install script. This installs Loki and selected dependencies.
 
-Usage: ./install [-v] [--hpc2020] [--*-certificate[=]<path>] [--use-venv[=]<path>] [--with-*] [...]
+Usage: ./install [-v] [--hpc2020] [--use-venv[=]<path>] [--with-*] [...]
 
 Available options:
   -h / --help                  Display this help message
   -v                           Enable verbose output
   --hpc2020                    Load HPC2020 (Atos) specific modules and settings
-  --proxy-certificate[=]<path> Provide https proxy certificate, disable cert verification for JDK/ant/OFP downloads
-  --jdk-certificate[=]<path>   Provide trusted certificate for JDK runtime
   --use-venv[=]<path>          Use existing virtual environment at <path>
   --with[out]-jdk              Install JDK instead of using system version (default: use system version)
-  --with[out]-ant              Install ant instead of using system version (default: use system version)
-  --with[out]-claw             Install CLAW and OMNI Compiler (default: disabled)
-  --with[out]-omni             Install OMNI Compiler; cannot be combined with --with-claw (default: disabled)
-  --with[out]-ofp              Install Open Fortran Parser (default: disabled)
+  --with[out]-omni             Install OMNI Compiler (default: disabled)
   --with[out]-dace             Install DaCe (default: enabled)
   --with[out]-tests            Install dependencies to run tests (default: enabled)
   --with[out]-docs             Install dependencies to generate documentation (default: disabled)
   --with[out]-examples         Install dependencies to run the example notebooks (default: enabled)
-  --claw-install-env[=]<...>   Specify environmental variables for CLAW build and install
 ```
 
 On the ECMWF Atos HPC facility, the `--hpc2020` flag is recommended as it loads
@@ -129,30 +123,30 @@ to bring up the virtual environment and set paths for the external dependencies.
 The default command on ECMWF's Atos HPC facility for a full stack installation is
 
 ```bash
-./install --hpc2020 --with-ant --with-omni --with-ofp
+./install --hpc2020 --with-omni
 ```
 
 On standard Linux hosts with up-to-date JDK and ant, it is as easy as
 
 ```bash
-./install --with-omni --with-ofp
+./install --with-omni
 ```
 
 To update the installation (e.g., to add JDK), the existing virtual environment can be provided, e.g.,
 
 ```bash
-./install --with-omni --with-jdk --with-ant --use-venv=loki_env --with-ofp
+./install --with-omni --with-jdk --use-venv=loki_env
 ```
 
 ### Installation using CMake/ecbuild
 
 Loki and dependencies (excluding OpenFortranParser) can be installed using
 [ecbuild](https://github.com/ecmwf/ecbuild) (a set of CMake macros and a wrapper
-around CMake). This requires ecbuild 3.4+ and CMake 3.17+.
+around CMake). This requires ecbuild 3.7+ and CMake 3.19+.
 
 ```bash
-ecbuild <path-to-loki>
-make
+cmake -DCMAKE_MODULE_PATH=</path-to-ecbuild>/cmake -S <path-to-loki> -B <build-dir>
+cmake --build <build-dir>
 ```
 
 The following options are available and can be enabled/disabled by providing `-DENABLE_<feature>=<ON|OFF>`:
@@ -165,49 +159,68 @@ The following options are available and can be enabled/disabled by providing `-D
 - `OMNI` (default: `OFF`): Install the OMNI compiler as well as its
   Java dependencies as required. Note that this is an experimental setup and comes
   with no support or guarantees.
-- `CLAW` (default: `OFF`): Install the CLAW with the included OMNI Compiler and their
-  Java dependencies as required. Note that this is an experimental setup and comes
-  with no support or guarantees.
 
-This method is also suitable to create a system-wide installation of Loki:
+This method is also suitable to create a system-wide installation of Loki.
+After running the above steps, install Loki to a chosen prefix using
 
 ```bash
-mkdir build && cd build
-ecbuild --prefix=<install-path> <path-to-loki>
-make install
+cmake --install <build-dir> --prefix <install-path>
 ```
 
-*Note: Using this to install Loki system-wide does currently not install OMNI Compiler and CLAW Compiler with it, even if the relevant ecbuild option is activated. It is recommended to install them separately, if required.*
+*Note: Using this to install Loki system-wide does currently not install the OMNI frontend with it, even if the relevant ecbuild option is activated. It is recommended to install them separately, if required.*
 
 The ecbuild installation method creates a virtual environment in the build
 directory and downloads OpenJDK and Ant on-demand if no up-to-date versions have
-been found.  This installation method is particularly handy when used as a
+been found. This installation method is particularly handy when used as a
 subproject of a larger CMake build.
 
 When used this way, it exports a number of CMake functions that can then be used
 elsewhere:
 
-- `loki_transform_convert`: A wrapper for calls to `loki-transform.py` in
-  `convert` mode that takes care of automatically setting path and environment.
-- `loki_transform_transpile`: A wrapper for calls to `loki-transform.py` in
-  `transpile` mode that takes care of automatically setting path and environment.
-- `claw_compile`: A wrapper for calls to `clawfc` that takes care of
-  automatically setting path and environment.
-- `generate_xmod`: A wrapper for calls to OMNI's `F_Front` frontend to generate
-  xmod dependency files.
+- `loki_transform`: A wrapper for calls to `loki-transform.py` that takes care
+  of automatically setting path and environment.
 - `loki_transform_plan`: A wrapper for calls to `loki-transform.py` in `plan`
   mode to generate CMake plan files.
-- `loki_transform_ecphys`: A wrapper for calls to `loki-transform.py` in
-  `ecphys` mode to apply bulk transformations across the ec_phys call tree
 - `loki_transform_target`: A wrapper that takes care of calling the plan mode
   during configuration and applying bulk transformations at build time to a CMake
   target. This includes updates to the target's source file list as determined
   during the planning stage.
+- `generate_xmod`: A wrapper for calls to OMNI's `F_Front` frontend to generate
+  xmod dependency files.
 
 This allows to apply transformations as part of the build process without the
 need to take care of PATH handling on the user side. See the [CLOUDSC
 dwarf](https://github.com/ecmwf-ifs/dwarf-p-cloudsc) for an example how this can
 be used.
+
+### Offline installation using CMake/ecbuild
+
+When the CMake/ecbuild installation procedure is required on a system without
+internet access, then the required Python wheels can be downloaded and transferred
+to the target system. To do so, run the [`populate`](populate) script from the Loki
+main directory.
+
+This will download all required Python weels into a directory `artifacts`.
+Transfer this wheelhouse directory to the target system and provide
+`-DARTIFACTS_DIR=<path-to-artifacts>` to the CMake command when installing Loki.
+
+The behaviour of this script can be customized using the following environment variables:
+
+- `ARTIFACTS_DIR`: Choose a different target directory (default: `artifacts` in the current
+  working directory)
+- `LOKI_INSTALL_OPTIONS`: Add additional PIP install options to ensure dependencies for this
+  are included in the wheelhouse. Most commonly required is `[tests]`.
+- `LOKI_WHEEL_PYTHON_VERSION`: When using a different Python version to download the wheels
+  than on the target system, specify the version here (e.g., `LOKI_WHEEL_PYTHON_VERSION=312`
+  to request wheels for Python 3.12). See the
+  [PIP documentation](https://pip.pypa.io/en/stable/cli/pip_download/#cmdoption-python-version)
+  for more details.
+- `LOKI_WHEEL_ARCH`: When the system that downloads the wheels uses a different architecture
+  than the target system (e.g., an ARM-based MacBook is used to download wheels for a Linux
+  x86_64 system), specify the target architecture here (e.g.,
+  `LOKI_WHEEL_ARCH=manylinux_2_17_x86_64`). A list of typical platform tags are available
+  [here](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#platform-tag).
+
 
 ## Installation on MacOS
 
@@ -297,7 +310,7 @@ pip install -e ./lint_rules
 popd
 ```
 
-### 4.  Install OMNI compiler -- optional
+### 4.  Install OMNI frontend -- optional
 
 #### Option a: install latest xcodeml-tools
 
@@ -323,22 +336,7 @@ cmake --install build
 popd
 ```
 
-### 5.  Install OpenFortranParser (OFP) -- optional
-
-```bash
-pip install -e git+https://github.com/mlange05/open-fortran-parser-xml@mlange05-dev#egg=open-fortran-parser
-# Fix version number in OFP to enable download of dependencies:
-echo "VERSION = '0.5.3'" > loki_env/src/open-fortran-parser/open_fortran_parser/_version.py
-python3 -m open_fortran_parser --deps
-pushd loki_env/src/open-fortran-parser
-mkdir -p lib
-cp open_fortran_parser/*.jar lib
-# Rebuild OFP binaries to include custom changes:
-ant
-popd
-```
-
-### 6.  Verify everything is working
+### 5.  Verify everything is working
 
 ```bash
 pushd loki

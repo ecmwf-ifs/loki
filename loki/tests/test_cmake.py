@@ -9,6 +9,7 @@
 Functional tests for cmake macros.
 """
 
+import os
 from pathlib import Path
 import re
 import shutil
@@ -118,28 +119,57 @@ def fixture_ecbuild(tmp_dir):
     shutil.rmtree(ecbuilddir)
 
 
+@pytest.fixture(scope='module', name='loki_artifacts_and_env', params=[True, False])
+def fixture_loki_artifacts_and_env(here, tmp_dir, silent, request):
+    """
+    Download wheels using the populate mechanism and provide the artifacts dir
+    """
+    artifacts_dir = tmp_dir/'artifacts'
+    if artifacts_dir.exists():
+        shutil.rmtree(artifacts_dir)
+
+    cmake_args = []
+    env = os.environ.copy()
+    if request.param:
+        env['ARTIFACTS_DIR'] = str(artifacts_dir)
+        env['LOKI_INSTALL_OPTIONS'] = '[tests]'
+        execute(['./populate'], silent=silent, cwd=str(here.parent.parent), env=env)
+        cmake_args += [f'-DARTIFACTS_DIR={artifacts_dir}']
+        # Set http_proxy and https_proxy to nonsense, which should prevent PIP from connecting
+        # to a package index during the configure step
+        env['http_proxy'] = 'http://foo.bar.baz'
+        env['https_proxy'] = 'http://foo.bar.baz'
+
+    yield cmake_args, env
+
+    if artifacts_dir.exists():
+        shutil.rmtree(artifacts_dir)
+
+
 @pytest.fixture(scope='module', name='loki_install', params=[True, False])
-def fixture_loki_install(here, tmp_dir, ecbuild, silent, request):
+def fixture_loki_install(here, tmp_dir, ecbuild, loki_artifacts_and_env, silent, request):
     """
     Install Loki using CMake into an install directory
     """
     builddir = tmp_dir/'loki_bootstrap'
+    artifacts_arg, env = loki_artifacts_and_env
     cmd = [
         'cmake', f'-DCMAKE_MODULE_PATH={ecbuild}/cmake',
         '-S', str(here.parent.parent),
         '-B', str(builddir)
     ]
+    cmd += artifacts_arg
     if request.param:
         cmd += ['-DENABLE_EDITABLE=ON']
     else:
         cmd += ['-DENABLE_EDITABLE=OFF']
 
-    execute(cmd, silent=silent, cwd=tmp_dir)
+    execute(cmd, silent=silent, cwd=tmp_dir, env=env)
 
     lokidir = tmp_dir/'loki'
     execute(
         ['cmake', '--install', '.', '--prefix', str(lokidir)],
-        silent=True, cwd=builddir
+        silent=True, cwd=builddir, env=env
     )
 
     yield builddir, lokidir
