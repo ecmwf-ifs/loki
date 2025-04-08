@@ -43,7 +43,8 @@ __all__ = [
     'Allocation', 'Deallocation', 'Nullify',
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
-    'StatementFunction', 'TypeDef', 'MultiConditional', 'Forall', 'MaskedStatement',
+    'StatementFunction', 'TypeDef', 'MultiConditional', 'TypeConditional',
+    'Forall', 'MaskedStatement',
     'Intrinsic', 'Enumeration', 'RawSource',
 ]
 
@@ -1764,7 +1765,7 @@ class _MultiConditionalBase():
 @dataclass_strict(frozen=True)
 class MultiConditional(LeafNode, _MultiConditionalBase):
     """
-    Internal representation of a multi-value conditional (eg. ``SELECT``).
+    Internal representation of a multi-value conditional (eg. ``SELECT CASE``).
 
     Parameters
     ----------
@@ -1796,6 +1797,58 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
     def __repr__(self):
         label = f' {self.name}' if self.name else ''
         return f'MultiConditional::{label} {str(self.expr)}'
+
+
+@dataclass_strict(frozen=True)
+class _TypeConditionalBase():
+    """ Type definitions for :any:`TypeConditional` node type. """
+
+    expr: Expression
+    values: Tuple[Tuple[Expression, bool], ...]
+    bodies: Tuple[Any, ...]
+    else_body: Tuple[Node, ...]
+    name: Optional[str] = None
+
+
+@dataclass_strict(frozen=True)
+class TypeConditional(LeafNode, _TypeConditionalBase):
+    """
+    Internal representation of a multi-type conditional (eg. ``SELECT TYPE``).
+
+    Parameters
+    ----------
+    expr : :any:`pymbolic.primitives.Expression`
+        The expression that is evaluated to choose the appropriate type case.
+    values : tuple of 2-tuple with (:any:`pymbolic.primitives.Expression`, bool)
+        The list of values, a tuple for each case consisting of the type name and
+        a bool value to indicate if this is a derived/polymorphic type case (in Fortran,
+        this yields the difference between ``TYPE IS`` and ``CLASS IS``)
+    bodies : tuple of tuple
+        The corresponding bodies for each case.
+    else_body : tuple
+        The body for the ``DEFAULT`` case.
+    name : str, optional
+        The construct-name of the multi conditional in the original source.
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    _traversable = ['expr', 'values', 'bodies', 'else_body']
+
+    def __post_init__(self):
+        super().__post_init__()
+        assert isinstance(self.expr, Expression)
+        assert is_iterable(self.values)
+        assert all(
+            isinstance(v, tuple) and len(v) == 2 and isinstance(v[0], Expression) and isinstance(v[1], bool)
+            for v in self.values
+        )
+        assert is_iterable(self.bodies) and all(is_iterable(b) for b in self.bodies)
+        assert is_iterable(self.else_body)
+
+    def __repr__(self):
+        label = f' {self.name}' if self.name else ''
+        return f'TypeConditional::{label} {str(self.expr)}'
 
 
 @dataclass_strict(frozen=True)

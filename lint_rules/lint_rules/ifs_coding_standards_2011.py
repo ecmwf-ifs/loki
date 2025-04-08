@@ -72,6 +72,8 @@ class CodeBodyRule(GenericRule):  # Coding standards 1.3
             too_deep += self.visit(o.else_body, level=level + 1, **kwargs)
             return too_deep
 
+        visit_TypeConditional = visit_MultiConditional
+
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check the code body: Nesting of conditional blocks.'''

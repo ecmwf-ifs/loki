@@ -318,3 +318,92 @@ END SUBROUTINE SPCMNEW
     # Ensure that the fgen backend does the right thing
     assert 'procedure(spnsi), pointer :: spnsiptr' in source.to_fortran().lower()
     assert 'procedure(real), pointer, intent(out) :: func' in source.to_fortran().lower()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'SELECT TYPE not implemented')]))
+def test_fgen_select_type(frontend, tmp_path):
+    fcode_module = """
+module select_type_mod
+    implicit none
+
+    type, abstract :: base_type
+    end type base_type
+
+    type, extends(base_type) :: my_type
+        integer :: val
+    contains
+        procedure :: get_val_ptr => get_val_ptr_my
+    end type my_type
+
+    type, extends(base_type) :: other_type
+        integer :: val(2)
+    contains
+        procedure :: get_val_ptr => get_val_ptr_other
+    end type other_type
+
+    type :: container_type
+        type(base_type), allocatable :: arr(:)
+        integer :: n_arr
+    end type container_type
+
+contains
+
+    subroutine get_val_ptr_my(self, ptr)
+        class(my_type), intent(inout) :: self
+        integer, pointer, intent(out) :: ptr
+
+        ptr => self%val
+    end subroutine get_val_ptr_my
+
+    subroutine get_val_ptr_other(self, ptr)
+        class(other_type), intent(inout) :: self
+        integer, pointer, intent(out) :: ptr(:)
+
+        ptr => self%val
+    end subroutine get_val_ptr_other
+
+    subroutine my_routine(container)
+        use, intrinsic :: iso_fortran_env, only: error_unit
+
+        type(container_type), intent(inout) :: container
+        type(my_type), pointer :: my_t => null()
+        type(other_type), pointer :: other_t => null()
+        integer, pointer :: my_ptr => null()
+        integer, pointer :: other_ptr(:) => null()
+        integer :: jj
+
+        do jj=1,self%n_arr
+            associate( t_ptr => self%arr(j) )
+                select type( t_ptr )
+                    class is( my_type )
+                        my_t => t_ptr
+                        call my_t%get_val_ptr(my_ptr)
+                    class is( other_type )
+                        other_t => t_ptr
+                        call other_t%get_val_ptr(other_ptr)
+                    class default
+                        write(error_unit, '(a)') 'unexpected class for t_ptr'
+                        call abor1('error')
+                end select
+
+                named_cond: select type( t_ptr )
+                    type is( my_type ) named_cond
+                        print *, 'my_type'
+                end select named_cond
+            end associate
+        end do
+    end subroutine my_routine
+end module select_type_mod
+    """.strip()
+
+    module = Sourcefile.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    code = module.to_fortran()
+
+    assert 'SELECT TYPE (t_ptr)' in code
+    assert 'CLASS IS (my_type)' in code
+    assert 'CLASS DEFAULT' in code
+    assert 'named_cond: SELECT TYPE (t_ptr)' in code
+    assert 'TYPE IS (my_type) named_cond' in code
+
+    reparsed = Sourcefile.from_source(code, frontend=frontend, xmods=[tmp_path])
+    assert reparsed.to_fortran() == module.to_fortran()

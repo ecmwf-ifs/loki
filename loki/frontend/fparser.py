@@ -2355,6 +2355,138 @@ class FParser2IR(GenericVisitor):
     visit_Case_Value_Range_List = visit_List
 
     #
+    # SELECT TYPE constructs
+    #
+
+    def visit_Select_Type_Construct(self, o, **kwargs):
+        """
+        The entire ``SELECT TYPE`` construct
+
+        :class:`fparser.two.Fortran2003.Select_Type_Construct` has variable number of children:
+
+        * Any preceeding comments :class:`fparser.two.Fortran2003.Comment`
+        * :class:`fparser.two.Fortran2003.Select_Type_Stmt` (the actual statement
+          with the selection expression)
+        * the body of the case-construct, containing one or multiple
+          :class:`fparser.two.Fortran2003.Type_Guard_Stmt` followed by their
+          corresponding bodies
+        * :class:`fparser.two.Fortran2003.End_Select_Type_Stmt`
+        """
+        # Find start and end of construct
+        select_type_stmt = get_child(o, Fortran2003.Select_Type_Stmt)
+        select_type_stmt_index = o.children.index(select_type_stmt)
+        end_select_stmt = get_child(o, Fortran2003.End_Select_Type_Stmt)
+        end_select_stmt_index = o.children.index(end_select_stmt)
+
+        # Everything before the SELECT TYPE statement
+        pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:select_type_stmt_index])
+
+        # Extract source object for construct
+        lines = (select_type_stmt.item.span[0], end_select_stmt.item.span[1])
+        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        source = Source(lines=lines, string=string)
+
+        # Handle the SELECT TYPE statement
+        expr = self.visit(select_type_stmt, **kwargs)
+        name = select_type_stmt.get_start_name()
+        label = self.get_label(select_type_stmt)
+
+        # Find all CLASS IS/TYPE IS statements and corresponding bodies
+        case_stmts, case_stmt_index = zip(*[(c, i) for i, c in enumerate(o.children)
+                                            if isinstance(c, Fortran2003.Type_Guard_Stmt)])
+
+        # Retain any comments between `SELECT TYPE` and the first `CLASS IS`/`TYPE IS` statement
+        if case_stmt_index[0] > select_type_stmt_index + 1:
+            # Our IR doesn't provide a means to store them in the right place, so
+            # we'll just put them before the `SELECT TYPE`
+            pre += as_tuple(self.visit(c, **kwargs) for c in o.children[select_type_stmt_index+1:case_stmt_index[0]])
+
+        # Extract all cases
+        values = as_tuple(self.visit(c, **kwargs) for c in case_stmts)
+        bodies = tuple(
+            as_tuple(flatten(as_tuple(self.visit(c, **kwargs)) for c in o.children[start+1:stop]))
+            for start, stop in zip(case_stmt_index, case_stmt_index[1:] + (end_select_stmt_index,))
+        )
+
+        # Type_Name in the Type_Guard_Stmts will be converted to DerivedType objects,
+        # thus we need to convert them to DerivedTypeSymbol
+        values = tuple(
+            (
+                sym.DerivedTypeSymbol(name=t.name, scope=kwargs['scope'], type=SymbolAttributes(dtype=t))
+                if isinstance(t, DerivedType) else t,
+                i
+            )
+            for (t, i) in values
+        )
+
+        if (None, None) in values: # CLASS DEFAULT
+            default_index = values.index((None, None))
+            else_body = bodies[default_index]
+            values = values[:default_index] + values[default_index+1:]
+            bodies = bodies[:default_index] + bodies[default_index+1:]
+        else:
+            else_body = ()
+
+        # Everything past the END ASSOCIATE (should be empty)
+        assert not o.children[end_select_stmt_index+1:]
+
+        type_construct = ir.TypeConditional(expr=expr, values=values, bodies=bodies, else_body=else_body,
+                                            label=label, name=name, source=source)
+        return (*pre, type_construct)
+
+    def visit_Select_Type_Stmt(self, o, **kwargs):
+        """
+        A ``SELECT TYPE`` statement for a select-type-construct
+
+        :class:`fparser.two.Fortran2003.Select_Type_Stmt` has two children:
+
+        * the associate name or None
+        * the selection expression
+        """
+        if o.children[0] is not None:
+            raise NotImplementedError('Associate name in Select_Type_Stmt not yet implemented')
+        return self.visit(o.children[1], **kwargs)
+
+    def visit_Type_Guard_Stmt(self, o, **kwargs):
+        """
+        A ``CLASS`` or ``TYPE`` statement in a select-type-construct
+
+        :class:`fparser.two.Fortran2003.Type_Guard_Stmt` has 3 children:
+
+        * the selection keyword ``CLASS IS`` or ``TYPE IS`` or ``CLASS DEFAULT``
+        * the selection expression, a :class:`fparser.two.Fortran2003.Type_Name`
+        * the construct name :class:`fparser.two.Fortran2003.Select_Construct_Name` or None
+        """
+        if o.children[0] == 'CLASS IS':
+            is_polymorphic = True
+        elif o.children[0] == 'TYPE IS':
+            is_polymorphic = False
+        elif o.children[0] == 'CLASS DEFAULT':
+            is_polymorphic = None
+        else:
+            raise ValueError(f'Unsupported first child of Type_Guard_Stmt: {o.children[0]}')
+
+        return self.visit(o.children[1], **kwargs), is_polymorphic
+
+        # # The banter before the construct...
+        # banter = []
+        # for ch in o.content:
+        #     if isinstance(ch, Fortran2003.Select_Type_Stmt):
+        #         select_stmt = ch
+        #         break
+        #     banter += [self.visit(ch, **kwargs)]
+        # else:
+        #     select_stmt = get_child(o, Fortran2003.Select_Type_Stmt)
+        # # Extract source by looking at everything between SELECT and END SELECT
+        # end_select_stmt = rget_child(o, Fortran2003.End_Select_Type_Stmt)
+        # lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
+        # string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
+        # source = Source(lines=lines, string=string)
+        # label = self.get_label(select_stmt)
+        # # TODO: Treat this with a dedicated IR node (LOKI-33)
+        # return (*banter, ir.Intrinsic(text=string, label=label, source=source))
+
+    #
     # Allocation statements
     #
 
@@ -3245,25 +3377,6 @@ class FParser2IR(GenericVisitor):
     def visit_Cpp_Include_Stmt(self, o, **kwargs):
         fname = o.items[0].tostr()
         return ir.Import(module=fname, c_import=True, source=kwargs.get('source'))
-
-    def visit_Select_Type_Construct(self, o, **kwargs):
-        # The banter before the construct...
-        banter = []
-        for ch in o.content:
-            if isinstance(ch, Fortran2003.Select_Type_Stmt):
-                select_stmt = ch
-                break
-            banter += [self.visit(ch, **kwargs)]
-        else:
-            select_stmt = get_child(o, Fortran2003.Select_Type_Stmt)
-        # Extract source by looking at everything between SELECT and END SELECT
-        end_select_stmt = rget_child(o, Fortran2003.End_Select_Type_Stmt)
-        lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
-        label = self.get_label(select_stmt)
-        # TODO: Treat this with a dedicated IR node (LOKI-33)
-        return (*banter, ir.Intrinsic(text=string, label=label, source=source))
 
     def visit_Nullify_Stmt(self, o, **kwargs):
         if not o.items[1]:
