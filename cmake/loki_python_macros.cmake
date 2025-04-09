@@ -133,6 +133,7 @@ function( loki_create_python_venv )
     # Create a virtualenv
     message( STATUS "Create Python virtual environment ${VENV_PATH}" )
     execute_process( COMMAND ${Python3_EXECUTABLE} -m venv "${VENV_PATH}" )
+    set( Python3_VENV_NAME "${_PAR_VENV_NAME}" PARENT_SCOPE )
 
     # Upon installation, we create an equivalent Python venv in the installation directory
     if( _PAR_INSTALL_VENV )
@@ -140,7 +141,7 @@ function( loki_create_python_venv )
             CODE
                 "execute_process( COMMAND ${Python3_EXECUTABLE} -m venv \${CMAKE_INSTALL_PREFIX}/var/${_PAR_VENV_NAME} RESULT_VARIABLE _RET )"
         )
-        set( Python3_INSTALL_VENV "\${CMAKE_INSTALL_PREFIX}/var/${_PAR_VENV_NAME}" PARENT_SCOPE )
+        set( Python3_INSTALL_VENV TRUE PARENT_SCOPE )
     endif()
 
 endfunction()
@@ -170,8 +171,8 @@ endfunction()
 # :Python3_FOUND:        Exported into parent scope from FindPython3
 # :Python3_EXECUTABLE:   Exported into parent scope from FindPython3
 # :Python3_VENV_BIN:     The path to the virtual environment's `bin` directory
-# :Python3_INSTALL_VENV: The path to the virtual environment in the install directory,
-#                        if INSTALL_VENV has been provided.
+# :Python3_VENV_NAME:    The name of the virtual environment
+# :Python3_INSTALL_VENV: Will be set with the value TRUE if INSTALL_VENV has been provided.
 # :ENV{VIRTUAL_ENV}:     Environment variable with the virtual environment directory,
 #                        emulating the activate script
 #
@@ -204,7 +205,8 @@ function( loki_setup_python_venv )
 
     loki_create_python_venv( ${_ARGS} )
 
-    if( Python3_INSTALL_VENV )
+    set( Python3_VENV_NAME "${Python3_VENV_NAME}" PARENT_SCOPE )
+    if( DEFINED Python3_INSTALL_VENV )
         set( Python3_INSTALL_VENV "${Python3_INSTALL_VENV}" PARENT_SCOPE )
     endif()
 
@@ -543,10 +545,10 @@ function( loki_install_python_package )
     )
 
     # Upon installation, repeat the installation
-    if( Python3_INSTALL_VENV )
+    if( ${Python3_INSTALL_VENV} )
         install(
             CODE
-                "execute_process( COMMAND ${Python3_INSTALL_VENV}/bin/python -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC} )"
+                "execute_process( COMMAND \${CMAKE_INSTALL_PREFIX}/var/${Python3_VENV_NAME}/bin/python -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC} )"
         )
     endif()
 

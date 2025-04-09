@@ -146,12 +146,13 @@ def fixture_loki_artifacts_and_env(here, tmp_dir, silent, request):
         shutil.rmtree(artifacts_dir)
 
 
-@pytest.fixture(scope='module', name='loki_install', params=[True, False])
+@pytest.fixture(scope='module', name='loki_install', params=['editable', 'relative_install', 'default'])
 def fixture_loki_install(here, tmp_dir, ecbuild, loki_artifacts_and_env, silent, request):
     """
     Install Loki using CMake into an install directory
     """
     builddir = tmp_dir/'loki_bootstrap'
+    installdir = tmp_dir/'loki'
     artifacts_arg, env = loki_artifacts_and_env
     cmd = [
         'cmake', f'-DCMAKE_MODULE_PATH={ecbuild}/cmake',
@@ -159,20 +160,23 @@ def fixture_loki_install(here, tmp_dir, ecbuild, loki_artifacts_and_env, silent,
         '-B', str(builddir)
     ]
     cmd += artifacts_arg
-    if request.param:
+    if request.param == 'editable':
         cmd += ['-DENABLE_EDITABLE=ON']
     else:
         cmd += ['-DENABLE_EDITABLE=OFF']
 
     execute(cmd, silent=silent, cwd=tmp_dir, env=env)
 
-    lokidir = tmp_dir/'loki'
+    if request.param == 'relative_install':
+        prefix = 'loki'
+    else:
+        prefix = installdir
     execute(
-        ['cmake', '--install', '.', '--prefix', str(lokidir)],
-        silent=True, cwd=builddir, env=env
+        ['cmake', '--install', str(builddir), '--prefix', str(prefix)],
+        silent=True, cwd=tmp_dir, env=env
     )
 
-    yield builddir, lokidir
+    yield builddir, installdir
 
 
 @contextmanager
