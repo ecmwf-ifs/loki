@@ -79,8 +79,9 @@ macro( loki_find_executables )
 
             # Create symlinks for frontend scripts when actually installing Loki (in the CMake sense)
             install( CODE "
+                file( REAL_PATH \${CMAKE_INSTALL_PREFIX}/var/${Python3_VENV_NAME}/bin _venv_bin )
                 file( CREATE_LINK
-                    ${Python3_INSTALL_VENV}/bin/${_exe_name}
+                    \${_venv_bin}/${_exe_name}
                     \${CMAKE_INSTALL_PREFIX}/bin/${_exe_name}
                     SYMBOLIC
                 )
