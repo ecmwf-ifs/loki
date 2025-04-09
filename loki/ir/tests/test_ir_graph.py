@@ -324,7 +324,7 @@ def test_ir_graph_writes_correct_graphs(testdir, test_file, tmp_path):
 
 
 @pytest.mark.parametrize("test_file", test_files)
-def test_ir_graph_dataflow_analysis_attached(testdir, test_file, tmp_path):
+def test_ir_graph_live_variable_analysis_attached(testdir, test_file, tmp_path):
     source = Sourcefile.from_file(testdir / test_file, xmods=[tmp_path])
 
     def find_lives_defines_uses(text):
