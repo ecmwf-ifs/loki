@@ -9,7 +9,7 @@ from loki.expression import symbols as sym
 from loki.ir import nodes as ir
 
 from loki.transformations.hoist_variables import HoistVariablesTransformation
-from loki.transformations.utilities import get_integer_variable
+from loki.transformations.utilities import get_integer_variable, remap_variables
 
 
 __all__ = ['SCCHoistTemporaryArraysTransformation']
@@ -56,6 +56,7 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
             )
 
         block_var = get_integer_variable(routine, self.block_dim.size)
+        block_var = remap_variables(routine, variables=block_var)[0]
         routine.variables += tuple(
             v.clone(
                 dimensions=v.dimensions + (block_var,),
