@@ -121,14 +121,14 @@ class FieldOffloadBlockedTransformation(Transformation):
         calls (defaults to ``'IBL'``).
     """
 
-    def __init__(self, devptr_prefix=None, field_group_types=None,
+    def __init__(self, block_size, devptr_prefix=None, field_group_types=None,
                  offload_index=None, blocking_index=None):
+        self.block_size = block_size
         self.deviceptr_prefix = 'loki_devptr_' if devptr_prefix is None else devptr_prefix
         field_group_types = [''] if field_group_types is None else field_group_types
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
         self.offload_index = 'IBL' if offload_index is None else offload_index
         self.blocking_index = offload_index
-        self.block_size = sym.IntLiteral(100)   # TODO: Fix proper initialization
         self.asynchronous = False
         self.num_queues = 0
     def transform_subroutine(self, routine, **kwargs):
