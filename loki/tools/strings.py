@@ -66,8 +66,10 @@ class JoinableStringList:
             if len(cont) == 1:
                 cont += ['']
         assert is_iterable(cont) and len(cont) == 2
-        # Reset indentation if we exceed the line length
-        cont = [c.strip() if len(c) >= width else c for c in cont]
+        # Reset indentation if we exceed the line length by just having
+        # both continuation parts on the same line
+        if len(cont[0] + cont[1]) >= width:
+            cont = [c.strip(' ') for c in cont]
         assert all(width > len(c) for c in cont)
 
         self.items = [item for item in items if item is not None]

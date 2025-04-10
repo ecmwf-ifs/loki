@@ -176,10 +176,10 @@ def test_joinable_string_list_long():
 
 def test_joinable_string_list_exceeding_indentation():
     items = ['a', 'b', 'c']
-    for depth in range(100):
+    for depth in range(50, 100):
         # This should not throw an assertion
         obj = JoinableStringList(
-            items, sep=' ', width=132,
+            items, sep='  ' * depth, width=132,
             cont=f' &\n{"  " * depth}&')
         assert all(len(line) <= 132 for line in str(obj).splitlines())
 
