@@ -682,6 +682,35 @@ class FortranCodegen(Stringifier):
         branches = [item for branch in zip(cases, bodies) for item in branch]
         return self.join_lines(header, *branches, footer)
 
+    def visit_TypeConditional(self, o, **kwargs):
+        """
+        Format as
+          [name:] SELECT TYPE (<expr>)
+          [CLASS IS (<value>) [name]]
+            [...body...]
+          [TYPE IS (<value>) [name]]
+            [...body...]
+          [CLASS DEFAULT [name]]
+            [...body...]
+          END SELECT [name]
+        """
+        header_name = f'{o.name}: ' if o.name else ''
+        header = self.format_line(header_name, 'SELECT TYPE (', self.visit(o.expr, **kwargs), ')')
+        cases = []
+        name = f' {o.name}' if o.name else ''
+        for value in o.values:
+            case = self.visit(value[0], **kwargs)
+            guard = 'CLASS' if value[1] else 'TYPE'
+            cases.append(self.format_line(guard, ' IS (', case, ')', name))
+        if o.else_body:
+            cases.append(self.format_line('CLASS DEFAULT', name))
+        footer = self.format_line('END SELECT', name)
+        self.depth += self.style.indent_default
+        bodies = self.visit_all(*o.bodies, o.else_body, **kwargs)
+        self.depth -= self.style.indent_default
+        branches = [item for branch in zip(cases, bodies) for item in branch]
+        return self.join_lines(header, *branches, footer)
+
     def visit_Assignment(self, o, **kwargs):
         """
         Format statement as
@@ -781,7 +810,7 @@ class FortranCodegen(Stringifier):
         footer = self.format_line('END ASSOCIATE')
         self.depth += self.style.associate_indent
         body = self.visit(o.body, **kwargs)
-        self.depth += self.style.associate_indent
+        self.depth -= self.style.associate_indent
         return self.join_lines(header, body, footer)
 
     def visit_CallStatement(self, o, **kwargs):

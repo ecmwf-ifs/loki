@@ -145,7 +145,7 @@ class SCCDevectorTransformation(Transformation):
                 for ebody in separator.else_bodies:
                     subsections += cls.extract_vector_sections(ebody, horizontal)
 
-            if isinstance(separator, ir.MultiConditional):
+            if isinstance(separator, (ir.MultiConditional, ir.TypeConditional)):
                 for body in separator.bodies:
                     subsec_body = cls.extract_vector_sections(body, horizontal)
                     if subsec_body:
@@ -276,7 +276,7 @@ def wrap_vector_section_from_dimension(section, routine, horizontal, insert_prag
 def wrap_vector_section(section, routine, bounds, index, insert_pragma=True):
     """
     Wrap a section of nodes in a vector-level loop across the horizontal.
-    
+
     Parameters
     ----------
     section : tuple of :any:`Node`

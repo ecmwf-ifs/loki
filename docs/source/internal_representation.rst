@@ -203,6 +203,7 @@ Leaf node classes
    loki.ir.StatementFunction
    loki.ir.TypeDef
    loki.ir.MultiConditional
+   loki.ir.TypeConditional
    loki.ir.MaskedStatement
    loki.ir.Intrinsic
    loki.ir.Enumeration
