@@ -546,6 +546,9 @@ function( loki_install_python_package )
 
     # Upon installation, repeat the installation
     if( ${Python3_INSTALL_VENV} )
+        if( DEFINED ENV{SETUPTOOLS_SCM_PRETEND_VERSION} )
+            install(CODE "set( ENV{SETUPTOOLS_SCM_PRETEND_VERSION} $ENV{SETUPTOOLS_SCM_PRETEND_VERSION})")
+        endif()
         install(
             CODE
                 "execute_process( COMMAND \${CMAKE_INSTALL_PREFIX}/var/${Python3_VENV_NAME}/bin/python -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC} )"
