@@ -129,7 +129,8 @@ class FieldOffloadBlockedTransformation(Transformation):
         self.offload_index = 'IBL' if offload_index is None else offload_index
         self.blocking_index = offload_index
         self.block_size = sym.IntLiteral(100)   # TODO: Fix proper initialization
-
+        self.asynchronous = False
+        self.num_queues = 0
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
         if role == 'driver':
@@ -154,8 +155,11 @@ class FieldOffloadBlockedTransformation(Transformation):
                     # inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
-                    splitting_vars, innner_loop, block_loop = block_driver_loops(driver, region, self.block_size)
-                    add_device_field_allocations(driver, block_loop, offload_map, self.block_size, splitting_vars.num_blocks)
+                    splitting_vars, innner_loop, block_loop = block_driver_loops(driver, region,
+                                                                                 self.block_size)
+                    if self.asynchronous and self.num_queues > 1:
+                        add_device_field_allocations(driver, block_loop, offload_map,
+                                                     self.block_size, self.num_queues)
                     add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
 
@@ -251,7 +255,7 @@ def add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_v
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_device_field_allocations(driver, block_loop, offload_map, block_size, num_blocks):
+def add_device_field_allocations(driver, block_loop, offload_map, block_size, num_queues):
     blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size*num_blocks))
     create_device_data_calls = tuple(field_create_device_data(field_ptr=offload_map.field_ptr_from_view(arg),
                                                               scope=driver,
