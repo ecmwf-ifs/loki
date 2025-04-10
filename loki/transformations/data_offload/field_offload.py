@@ -155,12 +155,12 @@ class FieldOffloadBlockedTransformation(Transformation):
                     # inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
-                    splitting_vars, innner_loop, block_loop = block_driver_loops(driver, region,
+                    splitting_vars, inner_loop, block_loop = block_driver_loops(driver, region,
                                                                                  self.block_size)
                     if self.asynchronous and self.num_queues > 1:
                         add_device_field_allocations(driver, block_loop, offload_map,
                                                      self.block_size, self.num_queues)
-                    add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_vars)
+                    add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
 
 
@@ -240,7 +240,7 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_variables):
+def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables):
     host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
                                                                 splitting_variables.block_start,
                                                                 splitting_variables.block_end)
@@ -250,13 +250,14 @@ def add_blocked_field_offload_calls(driver, block_loop, offload_map, splitting_v
                                                             splitting_variables.block_start,
                                                             splitting_variables.block_end)
                                                 ))
-    new_loop = block_loop.clone(body=host_to_device + block_loop.body + device_to_host)
-    update_map = {block_loop: new_loop}
-    Transformer(update_map, inplace=True).visit(driver.body)
+    with pragmas_attached(driver, ir.Loop):
+        # new_loop = block_loop.clone(body=host_to_device + block_loop.body + device_to_host)
+        update_map = {region: host_to_device+(region,)+device_to_host}
+        Transformer(update_map, inplace=True).visit(block_loop)
 
 
 def add_device_field_allocations(driver, block_loop, offload_map, block_size, num_queues):
-    blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size*num_blocks))
+    blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size*num_queues))
     create_device_data_calls = tuple(field_create_device_data(field_ptr=offload_map.field_ptr_from_view(arg),
                                                               scope=driver,
                                                               blk_bounds=blk_bounds)
