@@ -2468,24 +2468,6 @@ class FParser2IR(GenericVisitor):
 
         return self.visit(o.children[1], **kwargs), is_polymorphic
 
-        # # The banter before the construct...
-        # banter = []
-        # for ch in o.content:
-        #     if isinstance(ch, Fortran2003.Select_Type_Stmt):
-        #         select_stmt = ch
-        #         break
-        #     banter += [self.visit(ch, **kwargs)]
-        # else:
-        #     select_stmt = get_child(o, Fortran2003.Select_Type_Stmt)
-        # # Extract source by looking at everything between SELECT and END SELECT
-        # end_select_stmt = rget_child(o, Fortran2003.End_Select_Type_Stmt)
-        # lines = (select_stmt.item.span[0], end_select_stmt.item.span[1])
-        # string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        # source = Source(lines=lines, string=string)
-        # label = self.get_label(select_stmt)
-        # # TODO: Treat this with a dedicated IR node (LOKI-33)
-        # return (*banter, ir.Intrinsic(text=string, label=label, source=source))
-
     #
     # Allocation statements
     #

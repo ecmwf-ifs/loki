@@ -5,10 +5,12 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from io import StringIO
+
 import pytest
 
-from loki import Module
-from loki.backend import DefaultStyle, Stringifier
+from loki import Module, Subroutine
+from loki.backend import DefaultStyle, Stringifier, pprint
 from loki.frontend import available_frontends, OMNI
 
 
@@ -184,3 +186,32 @@ END MODULE some_mod
     assert Stringifier(
         style=DefaultStyle(indent_char='#', indent_default=1, linewidth=44), line_cont=line_cont
     ).visit(module).strip() == w_ref
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
+def test_pprint_select_type(frontend, tmp_path):
+    fcode = """
+subroutine select_type_routine(arg)
+    use type_mod
+    implicit none
+    class(base), intent(inout) :: arg
+    select type( arg )
+        class is(derived1)
+            print *, 'derived1'
+        type is(derived2)
+            print *, 'derived2'
+        class default
+            print *, 'default'
+    end select
+    print *, 'after select'
+end subroutine select_type_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    stream = StringIO()
+    pprint(routine, stream=stream)
+    text = stream.getvalue()
+    assert '<TypeConditional:: arg>' in text
+    assert '<Class derived1>' in text
+    assert '<Type derived2>' in text
+    assert '<Default>' in text
