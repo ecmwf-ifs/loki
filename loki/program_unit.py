@@ -792,7 +792,7 @@ class ProgramUnit(Scope):
         """
         if cuf:
             from loki.backend.cufgen import cufgen # pylint: disable=import-outside-toplevel
-            return cufgen(self, conservative=conservative)
+            return cufgen(self)
         from loki.backend.fgen import fgen  # pylint: disable=import-outside-toplevel
         return fgen(self, conservative=conservative)
 
