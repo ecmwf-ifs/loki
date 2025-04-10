@@ -151,11 +151,13 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
         # Transformer to place block loop outside data region
         class BlockDataRegionTransformer(Transformer):
             def visit_PragmaRegion(self, pragma_region, **kwargs):
-                if not is_loki_pragma(pragma_region.pragma, starts_with='data'):
+                # if not is_loki_pragma(pragma_region.pragma, starts_with='data'):
+                if not pragma_region is data_region:
                     return pragma_region
                 change_map = {loop: (inner_loop,)}
-                Transformer(change_map, inplace=True).visit(data_region.body)
-                return outer_loop
+                Transformer(change_map, inplace=True).visit(data_region)
+                return block_loop_inits + (outer_loop,)
+
         BlockDataRegionTransformer(inplace=True).visit(routine.body)
 
     return splitting_vars, inner_loop, outer_loop
