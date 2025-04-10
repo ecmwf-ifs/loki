@@ -608,7 +608,7 @@ def is_driver_loop(loop, targets):
     return False
 
 
-def find_driver_loops(section, targets):
+def find_driver_loops(section, targets, nested=False):
     """
     Find and return all driver loops in a given `section`.
 
@@ -623,7 +623,7 @@ def find_driver_loops(section, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
-
+    print(f"\nnested = {nested}\n")
     driver_loops = []
     nested_driver_loops = []
     for loop in FindNodes(ir.Loop).visit(section):
@@ -636,6 +636,8 @@ def find_driver_loops(section, targets):
         driver_loops.append(loop)
         loops = FindNodes(ir.Loop).visit(loop.body)
         nested_driver_loops.extend(loops)
+    if nested:
+        return nested_driver_loops
     return driver_loops
 
 
