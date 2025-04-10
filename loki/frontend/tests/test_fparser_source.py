@@ -156,6 +156,9 @@ contains
       end if
     end do
 
+    forall(i=1:n)
+      dave(i) = dave(i) + 2.0
+    end forall
   end subroutine my_test_routine
 end module test_source_mod
 """
@@ -164,11 +167,20 @@ end module test_source_mod
         module = source['test_source_mod']
         routine = module['my_test_routine']
 
+    if store_source:
+        assert routine.spec.source and routine.spec.source.lines == (14, 16)
+        assert routine.body.source and routine.body.source.lines == (17, 26)
+    else:
+        assert not routine.spec.source
+        assert not routine.body.source
+
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     loops = FindNodes(ir.Loop).visit(routine.body)
     conds = FindNodes(ir.Conditional).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(decls) ==3 and len(loops) == 1 and len(conds) == 1 and len(assigns) == 1
+    foralls = FindNodes(ir.Forall).visit(routine.body)
+    assert len(decls) == 3 and len(loops) == 1 and len(conds) == 1
+    assert len(assigns) == 2 and len(foralls) == 1
 
     if store_source:
         assert decls[0].source and decls[0].source.lines == (14, 14)
@@ -177,6 +189,8 @@ end module test_source_mod
         assert loops[0].source and loops[0].source.lines == (18, 22)
         assert conds[0].source and conds[0].source.lines == (19, 21)
         assert assigns[0].source and assigns[0].source.lines == (20, 20)
+        assert assigns[1].source and assigns[1].source.lines == (25, 25)
+        assert foralls[0].source and foralls[0].source.lines == (24, 26)
     else:
         assert not decls[0].source and not decls[1].source and not decls[2].source
         assert not loops[0].source
