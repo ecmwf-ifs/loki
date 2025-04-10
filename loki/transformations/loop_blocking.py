@@ -113,7 +113,7 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
                       sym.InlineCall(sym.DeferredTypeSymbol('MIN', scope=routine),
                                      parameters=(sym.Product(children=(
                                          splitting_vars.block_idx, splitting_vars.block_size)),
-                                                 loop.bounds.upper))
+                                                 loop.bounds.num_iterations))
                       ))
 
     # Outer loop blocking variable assignments
