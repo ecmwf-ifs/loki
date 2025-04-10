@@ -34,7 +34,7 @@ __all__ = [
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
     'get_integer_variable', 'get_loop_bounds', 'find_driver_loops',
-    'get_local_arrays', 'check_routine_sequential'
+    'get_local_arrays', 'check_routine_sequential', 'substitute_variables_for_definitions'
 ]
 
 
@@ -680,3 +680,25 @@ def check_routine_sequential(routine):
             return True
 
     return False
+
+def substitute_variables_for_definitions(routine, variables):
+    """
+    Substitute variables for definitions if applicable.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine to remap the variables.
+    variables : :any:`Expression`, list, tuple
+        List of variables to remap.
+    """
+    variables = as_tuple(variables)
+    var_map = {
+        assignment.lhs: assignment.rhs
+        for assignment in FindNodes(ir.Assignment).visit(routine.body)
+        if assignment.lhs in variables
+    }
+    if var_map:
+        remapped_variables = [var_map[var] if var in var_map else var for var in variables]
+        return remapped_variables
+    return variables

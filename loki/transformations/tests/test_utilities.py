@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Module, Subroutine, Dimension, fgen
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls,
@@ -20,7 +20,8 @@ from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update,
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
-    find_driver_loops, get_local_arrays, check_routine_sequential
+    find_driver_loops, get_local_arrays, check_routine_sequential,
+    substitute_variables_for_definitions
 )
 
 
@@ -563,3 +564,43 @@ end module test_check_routine_sequential_mod
     assert not check_routine_sequential(module['test_acc_seq'])
     assert check_routine_sequential(module['test_loki_seq'])
     assert not check_routine_sequential(module['test_acc_vec'])
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilites_substitute_variables_for_definitions(tmp_path, frontend):
+    """ Test :any:`substitute_variables_for_definitions` utility. """
+
+    fcode_mod = """
+module some_mod
+    type some_type
+      integer :: a
+      integer :: b
+      integer :: n
+    end type
+end module some_mod
+"""
+
+    fcode = """
+subroutine test_substitute_variables_for_definitions(start, end, arr, derived_var)
+  use some_mod, only: some_type
+  integer, intent(in) ::start, end
+  real, intent(inout) :: arr(derived_var%n)
+  type(some_type), intent(in) :: derived_var
+  integer :: a, b, i, j, n
+
+  n = derived_var%n
+  a = derived_var%a + 1
+  i = 2
+  j = i
+
+end subroutine test_substitute_variables_for_definitions
+"""
+    some_mod = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path], definitions=some_mod)
+    var_map = routine.variable_map
+    remapped_1 = substitute_variables_for_definitions(routine, variables=var_map['n'])
+    assert len(remapped_1) == 1
+    assert remapped_1[0] == 'derived_var%n'
+    remap_vars = [var_map[var] for var in ['n', 'a', 'i', 'j', 'b']]
+    remapped_2 = substitute_variables_for_definitions(routine, variables=remap_vars)
+    assert remapped_2 == ['derived_var%n', parse_expr('derived_var%a + 1'), '2', 'i', 'b']

@@ -42,7 +42,7 @@ def fixture_vertical():
 
 @pytest.fixture(scope='module', name='blocking')
 def fixture_blocking():
-    return Dimension(name='blocking', size='nb', index='b')
+    return Dimension(name='blocking', size='nb', index='b', aliases=('block_var%nb',))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -380,16 +380,22 @@ def test_scc_hoist_openacc(frontend, horizontal, vertical, blocking, tmp_path):
 
     fcode_mod = """
 MODULE BLOCK_DIM_MOD
-    INTEGER :: nb
+    type block_type
+      INTEGER :: nb
+    end type block_type
 END MODULE BLOCK_DIM_MOD
     """.strip()
 
     fcode_driver = """
 SUBROUTINE column_driver(nlon, nz, q)
-    USE BLOCK_DIM_MOD, ONLY : nb
+    USE BLOCK_DIM_MOD, ONLY : block_type
     INTEGER, INTENT(IN)   :: nlon, nz  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+    REAL, INTENT(INOUT)   :: q(nlon,nz,block_var%nb)
     INTEGER :: b, start, end
+    type(block_type) :: block_var
+    INTEGER :: nb
+
+    nb = block_var%nb
 
     start = 1
     end = nlon
@@ -467,9 +473,6 @@ end module my_scaling_value_mod
         driver, role='driver', item=driver_item, targets=['compute_column'],
         sub_sgraph=graph
     )
-
-    # Check that blocking size has not been redefined
-    assert driver.symbol_map[blocking.size].type.module.name.lower() == 'block_dim_mod'
 
     with pragmas_attached(kernel, Loop):
         # Ensure kernel routine is anntoated at vector level
