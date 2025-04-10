@@ -384,6 +384,7 @@ class GlobalVarOffloadTransformation(Transformation):
             if update_variables:
                 update_device += (
                     Pragma(keyword='loki', content=f'update device({", ".join(v.name for v in update_variables)})'),
+                    Pragma(keyword='loki', content=f'unstructured-data in({", ".join(v.name for v in update_variables)})'),
                 )
             if copyin_variables:
                 content = f'unstructured-data in({", ".join(v.name for v in copyin_variables)})'
