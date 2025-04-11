@@ -29,10 +29,36 @@ from loki.transformations.utilities import (
 
 
 __all__ = [
-    'SCCDevectorTransformation', 'SCCRevectorTransformation',
-    'SCCVecRevectorTransformation', 'SCCSeqRevectorTransformation',
-    'SCCDemoteTransformation', 'wrap_vector_section'
+    'RemoveLoopTransformer', 'SCCDevectorTransformation',
+    'SCCRevectorTransformation', 'SCCVecRevectorTransformation',
+    'SCCSeqRevectorTransformation', 'SCCDemoteTransformation',
+    'wrap_vector_section'
 ]
+
+
+class RemoveLoopTransformer(Transformer):
+    """
+    A :any:`Transformer` that removes all loops over the specified
+    dimension.
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    """
+    # pylint: disable=unused-argument
+
+    def __init__(self, dimension, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dimension = dimension
+
+    def visit_Loop(self, loop, **kwargs):
+        if loop.variable == self.dimension.index:
+            # Recurse and return body as replacement
+            return self.visit(loop.body)
+
+        # Rebuild loop after recursing to children
+        return self._rebuild(loop, self.visit(loop.children))
 
 
 class SCCDevectorTransformation(Transformation):
@@ -53,24 +79,6 @@ class SCCDevectorTransformation(Transformation):
     def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
         self.trim_vector_sections = trim_vector_sections
-
-    @classmethod
-    def kernel_remove_vector_loops(cls, routine, horizontal):
-        """
-        Remove all vector loops over the specified dimension.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine in the vector loops should be removed.
-        horizontal : :any:`Dimension`
-            The dimension specifying the horizontal vector dimension
-        """
-        loop_map = {}
-        for loop in FindNodes(ir.Loop).visit(routine.body):
-            if loop.variable == horizontal.index:
-                loop_map[loop] = loop.body
-        routine.body = Transformer(loop_map).visit(routine.body)
 
     @classmethod
     def extract_vector_sections(cls, section, horizontal):
@@ -206,7 +214,7 @@ class SCCDevectorTransformation(Transformation):
         """
 
         # Remove all vector loops over the specified dimension
-        self.kernel_remove_vector_loops(routine, self.horizontal)
+        routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
 
         # Extract vector-level compute sections from the kernel
         sections = self.extract_vector_sections(routine.body.body, self.horizontal)
@@ -239,11 +247,7 @@ class SCCDevectorTransformation(Transformation):
         # remove vector loops
         driver_loop_map = {}
         for loop in driver_loops:
-            loop_map = {}
-            for l in FindNodes(ir.Loop).visit(loop.body):
-                if l.variable == self.horizontal.index:
-                    loop_map[l] = l.body
-            new_driver_loop = Transformer(loop_map).visit(loop.body)
+            new_driver_loop = RemoveLoopTransformer(dimension=self.horizontal).visit(loop.body)
             new_driver_loop = loop.clone(body=new_driver_loop)
             sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
             if self.trim_vector_sections:
