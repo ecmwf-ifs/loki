@@ -23,7 +23,7 @@ from loki.scope import SymbolAttributes
 from loki.transformations.hoist_variables import HoistVariablesTransformation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
-from loki.transformations.single_column.vector import RemoveLoopTransformer
+from loki.transformations.single_column.devector import RemoveLoopTransformer
 from loki.transformations.utilities import single_variable_declaration
 from loki.ir.pragma_utils import get_pragma_parameters
 from loki.transformations.utilities import get_integer_variable

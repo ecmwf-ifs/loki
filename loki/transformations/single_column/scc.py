@@ -17,9 +17,9 @@ from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
-from loki.transformations.single_column.vector import (
-    SCCDevectorTransformation, SCCVecRevectorTransformation,
-    SCCSeqRevectorTransformation
+from loki.transformations.single_column.devector import SCCDevectorTransformation
+from loki.transformations.single_column.revector import (
+    SCCVecRevectorTransformation, SCCSeqRevectorTransformation
 )
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 from loki.transformations.pragma_model import PragmaModelTransformation
