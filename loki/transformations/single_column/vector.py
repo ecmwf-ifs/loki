@@ -258,25 +258,6 @@ class SCCDevectorTransformation(Transformation):
         routine.body = Transformer(driver_loop_map).visit(routine.body)
 
 
-def wrap_vector_section_from_dimension(section, routine, horizontal, insert_pragma=True):
-    """
-    Wrap a section of nodes in a vector-level loop across the horizontal.
-
-    Parameters
-    ----------
-    section : tuple of :any:`Node`
-        A section of nodes to be wrapped in a vector-level loop
-    routine : :any:`Subroutine`
-        The subroutine in the vector loops should be removed.
-    horizontal: :any:`Dimension`
-        The dimension specifying the horizontal vector dimension
-    insert_pragma: bool, optional
-        Adds a ``!$loki vector`` pragma around the created loop
-    """
-    bounds = get_loop_bounds(routine, dimension=horizontal)
-    return wrap_vector_section(section, routine, bounds, horizontal.index, insert_pragma=insert_pragma)
-
-
 def wrap_vector_section(section, routine, bounds, index, insert_pragma=True):
     """
     Wrap a section of nodes in a vector-level loop across the horizontal.
@@ -308,6 +289,44 @@ def wrap_vector_section(section, routine, bounds, index, insert_pragma=True):
     return (ir.Comment(''), vector_loop, ir.Comment(''))
 
 
+class RevectorSectionTransformer(Transformer):
+    """
+    :any:`Transformer` that replaces :any:`Section` objects labelled
+    with ``"vector_section"`` with vector-level loops across the
+    horizontal.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in the vector loops should be removed.
+    horizontal: :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+    insert_pragma: bool, optional
+        Adds a ``!$loki vector`` pragma around the created loop
+    """
+    # pylint: disable=unused-argument
+
+    def __init__(self, routine, horizontal, *args, insert_pragma=True, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.routine = routine
+        self.horizontal = horizontal
+
+        self.insert_pragma = insert_pragma
+
+    def visit_Section(self, s, **kwargs):
+        if s.label == 'vector_section':
+            # Derive the loop bounds wrap section in loop
+            bounds = get_loop_bounds(self.routine, dimension=self.horizontal)
+            return wrap_vector_section(
+                s.body, self.routine, bounds=bounds, index=self.horizontal.index,
+                insert_pragma=self.insert_pragma
+            )
+
+        # Rebuild loop after recursing to children
+        return self._rebuild(s, self.visit(s.children))
+
+
 class BaseRevectorTransformation(Transformation):
     """
     A base/parent class for transformation to wrap thread-parallel IR sections within a horizontal loop.
@@ -322,28 +341,6 @@ class BaseRevectorTransformation(Transformation):
 
     def __init__(self, horizontal):
         self.horizontal = horizontal
-
-    def revector_section(self, routine, section):
-        """
-        Wrap all thread-parallel :any:`Section` objects within a given
-        code section in a horizontal loop and mark interior loops as
-        ``!$loki loop seq``.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        section : tuple of :any:`Node`
-            Code section in which to replace vector-parallel
-            :any:`Section` objects.
-        """
-        # Wrap all thread-parallel sections into horizontal thread loops
-        mapper = {
-            s: wrap_vector_section_from_dimension(s.body, routine, self.horizontal)
-            for s in FindNodes(ir.Section).visit(section)
-            if s.label == 'vector_section'
-        }
-        return Transformer(mapper).visit(section)
 
     def mark_vector_reductions(self, routine, section):
         """
@@ -455,7 +452,7 @@ class SCCVecRevectorTransformation(BaseRevectorTransformation):
                 return
 
             # Revector all marked vector sections within the kernel body
-            routine.body = self.revector_section(routine, routine.body)
+            routine.body = RevectorSectionTransformer(routine, self.horizontal).visit(routine.body)
 
             with pragmas_attached(routine, ir.Loop):
                 # Check for explicitly labelled vector-reduction regions
@@ -473,7 +470,7 @@ class SCCVecRevectorTransformation(BaseRevectorTransformation):
 
                 for loop in driver_loops:
                     # Revector all marked sections within the driver loop body
-                    loop._update(body=self.revector_section(routine, loop.body))
+                    loop._update(body=RevectorSectionTransformer(routine, self.horizontal).visit(loop.body))
 
                     # Check for explicitly labelled vector-reduction regions
                     self.mark_vector_reductions(routine, loop.body)
@@ -662,7 +659,7 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
                     loop._update(body=Transformer(call_map).visit(loop.body))
 
                     # Revector all marked sections within the driver loop body
-                    loop._update(body=self.revector_section(routine, loop.body))
+                    loop._update(body=RevectorSectionTransformer(routine, self.horizontal).visit(loop.body))
 
                     # Check for explicitly labelled vector-reduction regions
                     super().mark_vector_reductions(routine, loop.body)
