@@ -152,7 +152,6 @@ class SCCAnnotateTransformation(Transformation):
 
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
-        nested_driver_loops = True
 
         if role == 'kernel':
             # Bail if this routine has been processed before
@@ -183,15 +182,13 @@ class SCCAnnotateTransformation(Transformation):
             with pragma_regions_attached(routine):
                 with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
                     # Find variables with existing OpenACC data declarations
-                    acc_vars = self.find_acc_vars(routine, targets,
-                                                  nested_driver_loops=nested_driver_loops)
+                    acc_vars = self.find_acc_vars(routine, targets)
 
-                    driver_loops = find_driver_loops(section=routine.body, targets=targets,
-                                                     nested=nested_driver_loops)
+                    driver_loops = find_driver_loops(section=routine.body, targets=targets)
                     for loop in driver_loops:
                         self.annotate_driver_loop(loop, acc_vars.get(loop, []))
 
-    def find_acc_vars(self, routine, targets, nested_driver_loops=False):
+    def find_acc_vars(self, routine, targets):
         """
         Find variables already specified in loki/acc data clauses.
 
@@ -215,8 +212,7 @@ class SCCAnnotateTransformation(Transformation):
                     parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
                             only_loki_pragmas=False)
                 if parameters is not None:
-                    driver_loops = find_driver_loops(section=region.body, targets=targets,
-                                                     nested=nested_driver_loops)
+                    driver_loops = find_driver_loops(section=region.body, targets=targets)
                     if not driver_loops:
                         continue
 
