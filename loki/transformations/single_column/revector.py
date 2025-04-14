@@ -224,7 +224,6 @@ class SCCVecRevectorTransformation(BaseRevectorTransformation):
         """
         role = kwargs['role']
         targets = kwargs.get('targets', ())
-        nested_driver_loops = True
 
         if role == 'kernel':
             # Skip if kernel is marked as `!$loki routine seq`
@@ -246,8 +245,7 @@ class SCCVecRevectorTransformation(BaseRevectorTransformation):
 
         if role == 'driver':
             with pragmas_attached(routine, ir.Loop):
-                driver_loops = find_driver_loops(section=routine.body, targets=targets,
-                                                 nested=nested_driver_loops)
+                driver_loops = find_driver_loops(section=routine.body, targets=targets)
 
                 for loop in driver_loops:
                     # Revector all marked sections within the driver loop body
@@ -345,7 +343,6 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
         # ignore = kwargs.get('ignore', ())
         item = kwargs.get('item', None)
         ignore = item.ignore if item else () + tuple(str(t).lower() for t in as_tuple(kwargs.get('ignore', None)))
-        nested_driver_loops = True
 
         if role == 'kernel':
             # Skip if kernel is marked as `!$loki routine seq`
@@ -404,8 +401,7 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
             routine.variables += (index,)
 
             with pragmas_attached(routine, ir.Loop):
-                driver_loops = find_driver_loops(section=routine.body, targets=targets,
-                                                 nested=nested_driver_loops)
+                driver_loops = find_driver_loops(section=routine.body, targets=targets)
 
                 for loop in driver_loops:
 
