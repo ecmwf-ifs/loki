@@ -12,6 +12,7 @@ from loki.batch import Pipeline
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
+from loki.transformations.raw_stack_allocator_new import TemporariesRawStackNewTransformation
 
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
@@ -27,7 +28,8 @@ __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
     'SCCHoistPipeline', 'SCCVHoistPipeline', 'SCCSHoistPipeline',
     'SCCStackPipeline', 'SCCVStackPipeline', 'SCCSStackPipeline',
-    'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
+    'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
+    'SCCRawStackNewPipeline', 'SCCVRawStackNewPipeline', 'SCCSRawStackNewPipeline'
 ]
 
 SCCVVectorPipeline = partial(
@@ -453,3 +455,33 @@ driver_horizontal : str, optional
     Override string if a separate variable name should be used for the
     horizontal when allocating the stack in the driver.
 """
+
+SCCVRawStackNewPipeline = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        SCCAnnotateTransformation,
+        HoistTemporaryArraysAnalysis,
+        SCCHoistTemporaryArraysTransformation,
+        TemporariesRawStackNewTransformation,
+        PragmaModelTransformation
+    )
+)
+
+SCCRawStackNewPipeline = SCCVRawStackNewPipeline
+
+SCCSRawStackNewPipeline = partial(
+    Pipeline, classes=(
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        SCCAnnotateTransformation,
+        HoistTemporaryArraysAnalysis,
+        SCCHoistTemporaryArraysTransformation,
+        TemporariesRawStackNewTransformation,
+        PragmaModelTransformation
+    )
+)
