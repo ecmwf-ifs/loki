@@ -662,7 +662,8 @@ def test_field_offload_blocked(frontend, state_module, tmp_path):
     deviceptr_prefix = 'loki_devptr_prefix_'
     driver.apply(FieldOffloadBlockedTransformation(devptr_prefix=deviceptr_prefix,
                                                    offload_index='i',
-                                                   field_group_types=['state_type']),
+                                                   field_group_types=['state_type'],
+                                                   block_size=100),
                  role='driver',
                  targets=['kernel_routine'])
 
