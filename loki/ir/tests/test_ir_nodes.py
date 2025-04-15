@@ -354,7 +354,7 @@ def test_associate(scope, a_i):
 
 def test_multiconditional(scope, a_i, i):
     """
-    Test constructors and scoping bahviour of :any:`MultiConditional`.
+    Test constructors and scoping behaviour of :any:`MultiConditional`.
     """
     assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(66.6))
