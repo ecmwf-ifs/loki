@@ -202,3 +202,31 @@ end module test_source_mod
         assert not tdefs[0].source
         assert not tdecls[0].source
         assert not tdecls[1].source
+
+
+def test_fparser_sanitize_fypp_line_annotations():
+    """
+    Test that fypp line number annotations are sanitized correctly.
+    """
+
+    fcode = """
+module some_templated_mod
+
+# 1 "/path-to-hypp-macro/macro.hypp" 1
+# 2 "/path-to-hypp-macro/macro.hypp"
+# 3 "/path-to-hypp-macro/macro.hypp"
+# 5 "/path-to-fypp-template/template.fypp" 2
+
+integer :: a0
+integer :: a1
+integer :: a2
+integer :: a3
+integer :: a4
+
+end module some_templated_mod
+"""
+
+    module = Module.from_source(fcode, frontend=FP)
+    decls = FindNodes(ir.VariableDeclaration).visit(module.spec)
+
+    assert len(decls) == 5
