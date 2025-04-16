@@ -215,7 +215,7 @@ class PPRule:
 sanitize_registry = {
     REGEX: {
         # Strip line annotations from Fypp preprocessor
-        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
+        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.(?:fypp|hypp)\"(?:\s+\d+)?\n)'), replace=''),
     },
     OMNI: {},
     FP: {
@@ -251,7 +251,7 @@ sanitize_registry = {
             postprocess=reinsert_open_newunit),
 
         # Strip line annotations from Fypp preprocessor
-        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.fypp\"\n)'), replace=''),
+        'FYPP ANNOTATIONS': PPRule(match=re.compile(r'(# [1-9].*\".*\.(?:fypp|hypp)\"(?:\s+\d+)?\n)'), replace=''),
     }
 }
 """
