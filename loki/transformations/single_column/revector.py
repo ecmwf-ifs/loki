@@ -109,6 +109,8 @@ class BaseRevectorTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
+    _reduction_match_pattern = r'reduction\([\+\w:0-9 \t]+\)'
+
     def __init__(self, horizontal):
         self.horizontal = horizontal
 
@@ -127,7 +129,7 @@ class BaseRevectorTransformation(Transformation):
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(section):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
-                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+                    if (reduction_clause := re.search(self._reduction_match_pattern, region.pragma.content)):
 
                         loops = FindNodes(ir.Loop).visit(region)
                         assert len(loops) == 1
@@ -303,7 +305,7 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(section):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
-                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+                    if (reduction_clause := re.search(self._reduction_match_pattern, region.pragma.content)):
 
                         loops = FindNodes(ir.Loop).visit(region)
                         if loops:

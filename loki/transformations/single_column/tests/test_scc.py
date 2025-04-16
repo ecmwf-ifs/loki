@@ -362,11 +362,11 @@ def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
 
     start = 1
     end = nlon
-    
+
     do b=1, nb
       call compute_column(start, end, nlon, nproma, nz, q(:,:,b), other_var, more_var)
     end do
-  
+
   END SUBROUTINE column_driver
 """
 
@@ -1014,11 +1014,12 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
     """
 
     fcode = """
-    subroutine some_kernel(start, end, nlon, mij)
+    subroutine some_kernel(start, end, nlon, mij, lcond)
        integer, intent(in) :: nlon, start, end
        integer, dimension(nlon), intent(in) :: mij
+       logical, intent(in) :: lcond
 
-       integer :: jl, maxij
+       integer :: jl, maxij, sumij
 
        maxij = -1
        !$loki vector-reduction( mAx:maXij )
@@ -1026,6 +1027,23 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
           maxij = max(maxij, mij(jl))
        enddo
        !$loki end vector-reduction( mAx:maXij )
+
+       do jl=start,end
+          mij(jl) = jl
+       enddo
+
+       if (lcond) then
+          sumij = 0
+          !$loki vector-reduction( +:sumij )
+          do jl=start,end
+             sumij = sumij + mij(jl)
+          enddo
+          !$loki end vector-reduction( +:sumij )
+       endif
+
+       do jl=start,end
+          mij(jl) = 0
+       enddo
 
     end subroutine some_kernel
     """
@@ -1038,22 +1056,30 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
     routine = source['some_kernel']
 
     with pragma_regions_attached(routine):
-        region = FindNodes(PragmaRegion).visit(routine.body)
-        assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
+        regions = FindNodes(PragmaRegion).visit(routine.body)
+        for region in regions:
+            assert is_loki_pragma(region.pragma, starts_with = 'vector-reduction')
 
 
     scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.body)
     if pipeline == SCCVVectorPipeline:
-        assert len(pragmas) == 3
+        assert len(pragmas) == 6
         assert all(p.keyword == 'acc' for p in pragmas)
 
         # Check OpenACC directives have been inserted
         with pragmas_attached(routine, Loop):
             loops = FindNodes(Loop).visit(routine.body)
-            assert len(loops) == 1
+            assert len(loops) == 4
             assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+            assert loops[2].pragma[0].content == 'loop vector reduction( +:sumij )'
+
+            conds = FindNodes(Conditional).visit(routine.body)
+            assert len(conds) == 1
+            loops = FindNodes(Loop).visit(conds[0].body)
+            assert len(loops) == 1
+            assert loops[0].pragma[0].content == 'loop vector reduction( +:sumij )'
 
     if pipeline == SCCSVectorPipeline:
         assert len(pragmas) == 4
