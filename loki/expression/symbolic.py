@@ -572,12 +572,21 @@ class SimplifyMapper(LokiIdentityMapper):
     map_parenthesised_div = map_quotient
 
     def map_comparison(self, expr, *args, **kwargs):
+        def get_constant_value(expr):
+            if is_minus_prefix(expr):
+                return -1 * strip_minus_prefix(expr).value
+            return expr.value
+
         left = self.rec(expr.left, *args, **kwargs)
         right = self.rec(expr.right, *args, **kwargs)
 
+        op_map = {'==': _op.eq, '>': _op.gt, '>=': _op.ge, '!=': _op.ne,
+                '<': _op.lt, '<=': _op.le}
         if self.enabled_simplifications & Simplification.LogicEvaluation:
             if is_constant(left) and is_constant(right):
-                if expr.operator == '==' and left == right:
+                left = get_constant_value(left)
+                right = get_constant_value(right)
+                if op_map[expr.operator](left, right):
                     return sym.LogicLiteral('True')
                 return sym.LogicLiteral('False')
 
