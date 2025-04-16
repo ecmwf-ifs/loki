@@ -406,7 +406,7 @@ def test_expression_parser_evaluate(case):
     context = {'VAR1': True, 'VAR2': False}
     test_str = 'VAR1 .AND. VAR2 .AND. .TRUE.'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
-    assert parsed
+    assert not parsed
 
     test_str = '(2*3)**2 - 16'
     parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True)

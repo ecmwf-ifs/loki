@@ -1143,6 +1143,9 @@ class LogicLiteral(StrCompareMixin, _Literal):
     def __getinitargs__(self):
         return (self.value, )
 
+    def __bool__(self):
+        return self.value
+
     mapper_method = intern('map_logic_literal')
 
 
