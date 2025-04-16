@@ -365,7 +365,7 @@ class Transformation:
             self.plan_subroutine(subroutine, **kwargs)
         else:
             if subroutine._incomplete:
-                raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
+                raise RuntimeError(f'Transformation.apply_subroutine requires Subroutine to be complete {subroutine}')
 
             self.transform_subroutine(subroutine, **kwargs)
 

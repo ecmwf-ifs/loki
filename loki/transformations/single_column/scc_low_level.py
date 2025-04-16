@@ -24,11 +24,15 @@ from loki.transformations.block_index_transformations import (
 )
 from loki.transformations.transform_derived_types import DerivedTypeArgumentsTransformation
 from loki.transformations.data_offload import (
-    GlobalVariableAnalysis, GlobalVarHoistTransformation
+    GlobalVariableAnalysis, GlobalVarHoistTransformation, GlobalVarOffloadTransformation
 )
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
     inline_constant_parameters, inline_elemental_functions
+)
+from loki.transformations.pragma_model import PragmaModelTransformation
+from loki.transformations.argument_shape import (
+    ExplicitArgumentArrayShapeTransformation, ArgumentArrayShapeAnalysis 
 )
 
 __all__ = [
@@ -268,7 +272,8 @@ SCCLowLevelParametrise = partial(
         LowerBlockLoopTransformation,
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
-        ParametriseTransformation
+        ParametriseTransformation,
+        PragmaModelTransformation
     )
 )
 """
@@ -353,8 +358,11 @@ SCCLowLevelHoist = partial(
     Pipeline, classes=(
         InlineTransformation,
         GlobalVariableAnalysis,
+        GlobalVarOffloadTransformation,
         GlobalVarHoistTransformation,
         DerivedTypeArgumentsTransformation,
+        ArgumentArrayShapeAnalysis,
+        ExplicitArgumentArrayShapeTransformation,
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
@@ -365,7 +373,8 @@ SCCLowLevelHoist = partial(
         SccLowLevelLaunchConfiguration,
         SccLowLevelDataOffload,
         HoistTemporaryArraysAnalysis,
-        HoistTemporaryArraysPragmaOffloadTransformation
+        HoistTemporaryArraysPragmaOffloadTransformation,
+        PragmaModelTransformation
     )
 )
 """

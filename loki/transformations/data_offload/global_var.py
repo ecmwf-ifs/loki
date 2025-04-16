@@ -419,9 +419,9 @@ class GlobalVarOffloadTransformation(Transformation):
         for pragma in FindNodes(Pragma).visit(routine.body):
             if pragma.keyword == 'loki':
                 if 'update_device' in pragma.content:
-                    pragma_map[pragma] = update_device or None
+                    pragma_map[pragma] = update_device or pragma # None
                 if 'update_host' in pragma.content:
-                    pragma_map[pragma] = update_host or None
+                    pragma_map[pragma] = update_host or pragma # None
 
         routine.body = Transformer(pragma_map).visit(routine.body)
 

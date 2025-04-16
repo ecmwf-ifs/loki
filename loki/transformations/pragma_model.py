@@ -91,6 +91,12 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'update{content}')
         return self.default_retval()
 
+    def pmap_serial(self, pragma, parameters, **kwargs):
+        return Pragma(keyword='acc', content='serial')
+
+    def pmap_end_serial(self, pragma, parameters, **kwargs):
+        return Pragma(keyword='acc', content='end serial')
+
     def pmap_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if param_in := parameters.get('in'):
@@ -123,6 +129,8 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             content += f' create({params_create})'
         if params_default := parameters.get('default'):
             content += f' default({params_default})'
+        if params_present := parameters.get('present'):
+            content += f' present({params_present})'
         if content:
             return Pragma(keyword='acc', content=f'data{content}')
         return self.default_retval()
@@ -180,6 +188,13 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
 
     def pmap_end_device_ptr(self, pragma, parameters, **kwargs):
         return Pragma(keyword='acc', content='end data')
+
+    def pmap_host_data_use_device(self, pragma, parameters, **kwargs):
+        if param_vars := parameters.get('vars'):
+            return Pragma(keyword='acc', content=f'host_data use_device({param_vars})')
+
+    def pmap_end_host_data_use_device(self, pragma, parameters, **kwargs):
+        return Pragma(keyword='acc', content='end host_data')
 
 
 class OpenMPOffloadPragmaMapper(GenericPragmaMapper):

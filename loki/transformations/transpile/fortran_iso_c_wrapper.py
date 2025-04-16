@@ -329,6 +329,10 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
     wrapper_spec.append(interface)
     wrapper.spec = wrapper_spec
 
+    pragmas = FindNodes(ir.Pragma).visit(wrapper.ir)
+    pragma_map = {pragma: None for pragma in pragmas if 'routine' in pragma.content.lower()}
+    wrapper.spec = Transformer(pragma_map).visit(wrapper.spec)
+
     # Create the wrapper function with casts and interface invocation
     local_arg_map = OrderedDict()
     casts_in = []

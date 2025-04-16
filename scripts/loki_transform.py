@@ -93,6 +93,9 @@ def convert(
         processing_strategy = ProcessingStrategy.DEFAULT
         info(f'[Loki] Batch-processing source files using config: {config} ')
 
+    print(f"processing_strategy: {processing_strategy}")
+    print(f"plan_file: {plan_file}")
+
     config = SchedulerConfig.from_file(config)
 
     # set default transformation mode in Scheduler config
@@ -377,7 +380,7 @@ def convert(
         # builddir=build,
         # mode=mode,
         cuf='cuf' in mode,
-        include_module_var_imports=False # global_var_offload
+        include_module_var_imports=True # global_var_offload
     ))
 
 
