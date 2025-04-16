@@ -10,9 +10,9 @@ from functools import partial
 from loki.batch import Pipeline, Transformation
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.single_column.base import SCCBaseTransformation
-from loki.transformations.single_column.vector import (
-    SCCDevectorTransformation, SCCRevectorTransformation, SCCDemoteTransformation
-)
+from loki.transformations.single_column.demote import SCCDemoteTransformation
+from loki.transformations.single_column.devector import SCCDevectorTransformation
+from loki.transformations.single_column.revector import SCCRevectorTransformation
 from loki.transformations.single_column.scc_cuf import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
     HoistTemporaryArraysPragmaOffloadTransformation,
