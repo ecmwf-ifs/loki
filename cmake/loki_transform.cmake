@@ -178,6 +178,88 @@ endfunction()
 ##############################################################################
 # .rst:
 #
+# loki_update_target_sources
+# ==========================
+#
+# A reusable utility to update the sources of a CMake target .::
+#
+#   loki_update_target_sources(
+#      TARGET            <target>
+#      REMOVE_SOURCES    <sources-to-remove>
+#      TRANSFORM_SOURCES <sources-to-transform>
+#      APPEND_SOURCES    <sources-to-append>
+#      [COPY_UNMODIFIED]
+#   )
+#
+##############################################################################
+
+function( loki_update_target_sources )
+
+    set( options COPY_UNMODIFIED )
+    set( single_value_args TARGET )
+    set( multi_value_args REMOVE_SOURCES TRANSFORM_SOURCES APPEND_SOURCES )
+
+    cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+
+    # Exclude source files that Loki has re-generated.
+    # Note, this is done explicitly here because the HEADER_FILE_ONLY
+    # property is not always being honoured by CMake.
+    get_target_property( _target_sources ${_PAR_T_TARGET} SOURCES )
+    foreach( source ${_PAR_T_REMOVE_SOURCES} )
+        # get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
+        list( FILTER _target_sources EXCLUDE REGEX ${source} )
+    endforeach()
+
+    if( NOT _PAR_T_COPY_UNMODIFIED )
+        # Update the target source list
+        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources} )
+    else()
+        # Copy the unmodified source files to the build dir
+        set( _target_sources_copy "" )
+        foreach( source ${_target_sources} )
+            get_filename_component( _source_name ${source} NAME )
+            list( APPEND _target_sources_copy ${CMAKE_CURRENT_BINARY_DIR}/${_source_name} )
+            ecbuild_debug( "[Loki] copy: ${source} -> ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}" )
+        endforeach()
+        file( COPY ${_target_sources} DESTINATION ${CMAKE_CURRENT_BINARY_DIR} )
+
+        # Mark the copied files as build-time generated
+        set_source_files_properties( ${_target_sources_copy} PROPERTIES GENERATED TRUE )
+
+        # Update the target source list
+        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources_copy} )
+    endif()
+
+    list( LENGTH _PAR_T_TRANSFORM_SOURCES LOKI_APPEND_LENGTH )
+    if ( LOKI_APPEND_LENGTH GREATER 0 )
+        # Mark the generated stuff as build-time generated
+        set_source_files_properties( ${PAR_T_APPEND_SOURCES} PROPERTIES GENERATED TRUE )
+
+        # Add the Loki-generated sources to our target (CLAW is not called)
+        target_sources( ${_PAR_T_TARGET} PRIVATE ${_PAR_T_APPEND_SOURCES} )
+    endif()
+
+    # Copy over compile flags for generated source. Note that this assumes
+    # matching indexes between LOKI_SOURCES_TO_TRANSFORM and LOKI_SOURCES_TO_APPEND
+    # to encode the source-to-source mapping. This matching is strictly enforced
+    # in the `CMakePlannerTransformation`.
+    loki_copy_compile_flags(
+        ORIG_LIST ${_PAR_T_TRANSFORM_SOURCES}
+        NEW_LIST ${_PAR_T_APPEND_SOURCES}
+    )
+
+    if( _PAR_T_COPY_UNMODIFIED )
+        loki_copy_compile_flags(
+            ORIG_LIST ${_target_sources}
+            NEW_LIST ${_target_sources_copy}
+        )
+    endif()
+
+endfunction()
+
+##############################################################################
+# .rst:
+#
 # loki_transform_target
 # ======================
 #
@@ -328,65 +410,20 @@ function( loki_transform_target )
         )
     endif()
 
-    # Exclude source files that Loki has re-generated.
-    # Note, this is done explicitly here because the HEADER_FILE_ONLY
-    # property is not always being honoured by CMake.
-    get_target_property( _target_sources ${_PAR_T_TARGET} SOURCES )
-    foreach( source ${LOKI_SOURCES_TO_REMOVE} )
-        # get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
-        list( FILTER _target_sources EXCLUDE REGEX ${source} )
-    endforeach()
-
-    if( NOT _PAR_T_COPY_UNMODIFIED )
-        # Update the target source list
-        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources} )
-    else()
-        # Copy the unmodified source files to the build dir
-        set( _target_sources_copy "" )
-        foreach( source ${_target_sources} )
-            get_filename_component( _source_name ${source} NAME )
-            list( APPEND _target_sources_copy ${CMAKE_CURRENT_BINARY_DIR}/${_source_name} )
-            ecbuild_debug( "[Loki] copy: ${source} -> ${CMAKE_CURRENT_BINARY_DIR}/${_source_name}" )
-        endforeach()
-        file( COPY ${_target_sources} DESTINATION ${CMAKE_CURRENT_BINARY_DIR} )
-
-        # Mark the copied files as build-time generated
-        set_source_files_properties( ${_target_sources_copy} PROPERTIES GENERATED TRUE )
-
-        # Update the target source list
-        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources_copy} )
+    unset( _OPTIONS )
+    if( _PAR_T_COPY_UNMODIFIED )
+       list( APPEND _OPTIONS COPY_UNMODIFIED )
     endif()
 
-    if ( LOKI_APPEND_LENGTH GREATER 0 )
-        # Mark the generated stuff as build-time generated
-        set_source_files_properties( ${LOKI_SOURCES_TO_APPEND} PROPERTIES GENERATED TRUE )
-
-        # Add the Loki-generated sources to our target (CLAW is not called)
-        target_sources( ${_PAR_T_TARGET} PRIVATE ${LOKI_SOURCES_TO_APPEND} )
-    endif()
-
-    # Copy over compile flags for generated source. Note that this assumes
-    # matching indexes between LOKI_SOURCES_TO_TRANSFORM and LOKI_SOURCES_TO_APPEND
-    # to encode the source-to-source mapping. This matching is strictly enforced
-    # in the `CMakePlannerTransformation`.
-    loki_copy_compile_flags(
-        ORIG_LIST ${LOKI_SOURCES_TO_TRANSFORM}
-        NEW_LIST ${LOKI_SOURCES_TO_APPEND}
+    # update target sources using the plan
+    loki_update_target_sources(
+       TARGET            ${_PAR_T_TARGET}
+       REMOVE_SOURCES    ${LOKI_SOURCES_TO_REMOVE}
+       TRANSFORM_SOURCES ${LOKI_SOURCES_TO_TRANSFORM}
+       APPEND_SOURCES    ${LOKI_SOURCES_TO_APPEND}
+       ${_OPTIONS}
     )
 
-    if( _PAR_T_ADDITIONAL_FLAGS )
-      loki_add_compile_flags(
-        SRC_LIST ${LOKI_SOURCES_TO_APPEND}
-        FLAG_LIST ${_PAR_T_ADDITIONAL_FLAGS}
-      )
-    endif()
-
-    if( _PAR_T_COPY_UNMODIFIED )
-        loki_copy_compile_flags(
-            ORIG_LIST ${_target_sources}
-            NEW_LIST ${_target_sources_copy}
-        )
-    endif()
 
 endfunction()
 
