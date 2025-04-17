@@ -594,15 +594,7 @@ def is_pragma_driver_loop(loop):
     return False
 
 
-def has_target_calls(loop, targets, recurse=True):
-    greedy = not recurse
-    for call in FindNodes(ir.CallStatement, greedy=greedy).visit(loop.body):
-        if call.name in targets:
-            return True
-    return False
-
-
-def is_driver_loop(loop, targets):
+def is_target_driver_loop(loop, targets):
     """
     Test/check whether a given loop is a *driver loop*.
 
@@ -614,10 +606,10 @@ def is_driver_loop(loop, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
-    if is_pragma_driver_loop(loop):
-        return True
-    return has_target_calls(loop, targets)
-
+    for call in FindNodes(ir.CallStatement).visit(loop.body):
+        if call.name in targets:
+            return True
+    return False
 
 def find_driver_loops(section, targets):
     """
@@ -634,22 +626,23 @@ def find_driver_loops(section, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
-    driver_loops = []
-    def add_driver_loop(loop, targets):
+    pragma_driver_loops = []
+    target_driver_loops = []
+    nested_driver_loops = []
+    for loop in FindNodes(ir.Loop).visit(section):
         if is_pragma_driver_loop(loop):
-            driver_loops.append(loop)
-            return False
-        if has_target_calls(loop, targets, recurse=False):
-            return True
-        for nested_loop in FindNodes(ir.Loop, greedy=True).visit(loop):
-            if add_driver_loop(nested_loop):
-                return True
-        return False
-
-    for loop in FindNodes(ir.Loop, greedy=True).visit(section):
-        if add_driver_loop(loop, targets):
-            driver_loops.append(loop)
-    return driver_loops
+            pragma_driver_loops.append(loop)
+        if loop in nested_driver_loops:
+            continue
+        if targets and not is_target_driver_loop(loop, targets):
+            continue
+        target_driver_loops.append(loop)
+        loops = FindNodes(ir.Loop).visit(loop.body)
+        nested_driver_loops.extend(loops)
+    
+    if pragma_driver_loops:
+        return pragma_driver_loops
+    return target_driver_loops
 
 
 def get_local_arrays(routine, section, unique=True):
