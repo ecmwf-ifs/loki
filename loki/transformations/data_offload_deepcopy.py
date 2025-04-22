@@ -361,10 +361,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     if (new_vars := set(kwargs['new_vars'])):
                         routine.variables += as_tuple(new_vars)
 
-                    if mode == 'offload':
-                        if (private_vars := kwargs.get('private', None)):
-                            pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
-                            loop._update(pragma=as_tuple(pragma))
+#                    if mode == 'offload':
+#                        if (private_vars := kwargs.get('private', None)):
+#                            pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
+#                            loop._update(pragma=as_tuple(pragma))
 
                     present_vars = [v.upper() for v in _analysis if not v in kwargs['private'] and not
                             (isinstance(symbol_map[v], sym.Scalar) and isinstance(symbol_map[v].type.dtype, BasicType))]

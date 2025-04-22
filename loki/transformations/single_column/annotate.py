@@ -283,15 +283,18 @@ class SCCAnnotateTransformation(Transformation):
 
         # Mark driver loop as "gang parallel".
         if self.directive == 'openacc':
-            arrays = FindVariables(unique=True).visit(loop)
-            arrays = [v for v in arrays if isinstance(v, sym.Array)]
-            arrays = [v for v in arrays if not v.type.intent]
-            arrays = [v for v in arrays if not v.type.pointer]
+            aggregate_vars = FindVariables(unique=True).visit(loop)
+            aggregate_vars = [v for v in aggregate_vars
+                              if isinstance(v, sym.Array) or isinstance(v, DerivedType)]
+            aggregate_vars = [v for v in aggregate_vars if not v.type.intent]
+            aggregate_vars = [v for v in aggregate_vars if not v.type.pointer]
 
             # Filter out arrays that are explicitly allocated with block dimension
             sizes = self.block_dim.size_expressions
-            arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
-            private_arrays = ', '.join(set(v.name for v in arrays if not v.name_parts[0].lower() in acc_vars))
+            aggregate_vars = [v for v in aggregate_vars
+                              if not any(d in sizes for d in as_tuple(getattr(v, 'shape', [])))]
+            private_arrays = ', '.join(set(v.name for v in aggregate_vars
+                                           if not v.name_parts[0].lower() in acc_vars))
             private_clause = '' if not private_arrays else f' private({private_arrays})'
 
             for pragma in as_tuple(loop.pragma):
