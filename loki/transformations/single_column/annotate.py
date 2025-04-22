@@ -292,6 +292,7 @@ class SCCAnnotateTransformation(Transformation):
             sizes = self.block_dim.size_expressions
             arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
             private_arrays = ', '.join(set(v.name for v in arrays if not v.name_parts[0].lower() in acc_vars))
+            private_clause = '' if not private_arrays else f' private({private_arrays})'
 
             for pragma in as_tuple(loop.pragma):
                 if is_loki_pragma(pragma, starts_with='loop driver'):
@@ -299,14 +300,6 @@ class SCCAnnotateTransformation(Transformation):
                     params = get_pragma_parameters(loop.pragma, starts_with='loop driver')
                     vlength = params.get('vector_length')
                     vlength_clause = f' vector_length({vlength})' if vlength else ''
-
-                    explicit_privates = params.get('private')
-                    private_clause = ''
-                    if explicit_privates:
-                        if private_arrays:
-                            private_clause = f' private({explicit_privates},{private_arrays})'
-                        else:
-                            private_clause = f' private({explicit_privates})'
 
                     content = f'parallel loop gang{private_clause}{vlength_clause}'
                     pragma_new = ir.Pragma(keyword='acc', content=content)
