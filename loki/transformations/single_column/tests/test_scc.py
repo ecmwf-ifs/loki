@@ -16,7 +16,7 @@ from loki.ir import (
     Pragma, PragmaRegion, pragmas_attached, is_loki_pragma,
     pragma_regions_attached, FindInlineCalls
 )
-
+from loki.logging import WARNING
 from loki.transformations import (
     DataOffloadTransformation, SanitiseTransformation,
     InlineTransformation, get_loop_bounds, PragmaModelTransformation
@@ -33,7 +33,8 @@ from loki.transformations.single_column import (
 def fixture_horizontal():
     return Dimension(
         name='horizontal', size=['dims%klon', 'nlon'], index='jl',
-        bounds=('start', 'end'), aliases=('nproma',)
+        aliases=('nproma',), lower=('start', 'dims%ist'),
+        upper=('end', 'dims%iend')
     )
 
 @pytest.fixture(scope='module', name='horizontal_bounds_aliases')
@@ -873,17 +874,21 @@ def test_scc_multicond(frontend, horizontal, blocking):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
+@pytest.mark.parametrize('dims_type', ['pointer', 'allocatable', 'static'])
+def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp_path, caplog):
     """
     Test that both '!$acc data' and '!$acc parallel loop gang' pragmas are created at the
     driver layer.
     """
 
-    fcode = """
+    fcode = f"""
     module test_mod
 
     type dims_type
       integer :: klon
+      integer :: ist
+      integer :: iend
+      integer :: kbl
     end type
 
     contains
@@ -894,33 +899,43 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
       integer, intent(in) :: nb
       type(dims_type), intent(in) :: dims
       real, dimension(nlon, nb), intent(inout) :: work
+      {'type(dims_type), pointer :: local_dims' if dims_type == 'pointer' else ''}
+      {'type(dims_type), allocatable :: local_dims' if dims_type == 'allocatable' else ''}
+      {'type(dims_type) :: local_dims' if dims_type == 'static' else ''}
       integer :: b
 
+      local_dims = dims
+      !$acc data present(dims)
       !$loki data
       !$omp parallel do private(b) shared(work, nproma)
         do b=1, nb
-           call some_kernel(1, dims%klon, dims%klon, work(:,b))
+           local_dims%ist = 1
+           local_dims%iend = dims%klon
+           local_dims%kbl = b
+           call some_kernel(local_dims, local_dims%klon, work(:,b))
         enddo
       !$omp end parallel do
       !$loki end data
+      !$acc end data
 
     end subroutine test
 
-    subroutine some_kernel(start, end, nlon, work)
+    subroutine some_kernel(dims, nlon, work)
     implicit none
 
-      integer, intent(in) :: start, end, nlon
+      type(dims_type), intent(in) :: dims
+      integer, intent(in) :: nlon
       real, dimension(nlon), target, intent(inout) :: work
       real, pointer :: tmp(:) => null()
       integer :: jl
 
-      do jl=start,end
+      do jl=dims%ist,dims%iend
          work(jl) = work(jl) + 1.
       enddo
 
       tmp => work
 
-      do jl=start,end
+      do jl=dims%ist,dims%iend
          tmp(jl) = tmp(jl) + 1.
       enddo
 
@@ -928,7 +943,7 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     end module test_mod
     """
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test']
     routine.enrich(source.all_subroutines)
 
@@ -940,22 +955,33 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     scc_pipeline = SCCVectorPipeline(
         horizontal=horizontal, block_dim=blocking, directive='openacc'
     )
-    scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
 
-    # Check that both acc pragmas are created
+    if dims_type in ['pointer', 'allocatable']:
+        with caplog.at_level(WARNING):
+            scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
+        if frontend == OMNI:
+            assert len(caplog.records) == 2
+            message = caplog.records[1].message
+        else:
+            assert len(caplog.records) == 1
+            message = caplog.records[0].message
+        assert "[Loki-SCC::Annotate] dynamically allocated structs are being privatised: ['local_dims']" in message
+    else:
+        scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
+
     pragmas = FindNodes(Pragma).visit(routine.ir)
-    assert len(pragmas) == 4
-    assert pragmas[0].keyword == 'acc'
-    assert pragmas[1].keyword == 'acc'
-    assert pragmas[2].keyword == 'acc'
-    assert pragmas[3].keyword == 'acc'
+    assert len(pragmas) == 6
 
-    assert 'data' in pragmas[0].content
-    assert 'copy' in pragmas[0].content
-    assert '(work)' in pragmas[0].content
-    assert pragmas[1].content == 'parallel loop gang vector_length(dims%klon)'
-    assert pragmas[2].content == 'end parallel loop'
-    assert pragmas[3].content == 'end data'
+    assert all(p.keyword.lower() == 'acc' for p in pragmas)
+    assert pragmas[0].content == 'data present(dims)'
+    assert pragmas[2].content == 'parallel loop gang private(local_dims) vector_length(dims%klon)'
+    assert pragmas[3].content == 'end parallel loop'
+    assert pragmas[4].content == 'end data'
+    assert pragmas[5].content == 'end data'
+
+    assert 'data' in pragmas[1].content
+    assert 'copy' in pragmas[1].content
+    assert '(work)' in pragmas[1].content
 
     # check that pointer association was correctly identified as a separator node
     routine = source['some_kernel']
