@@ -118,8 +118,8 @@ class SCCBaseTransformation(Transformation):
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
-            # we don't want to reshape function arguments
-            if isinstance(stmt.rhs, sym.InlineCall):
+            # We want to preserve vector notation for an array reduction intrinsic
+            if isinstance(stmt.rhs, sym.InlineCall) and isinstance(stmt.lhs, sym.Scalar):
                 continue
 
             ranges = [e for e in FindExpressions().visit(stmt)
