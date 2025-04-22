@@ -172,7 +172,8 @@ class DependencyTransformation(Transformation):
             # Change the name of kernel routines
             routine.name += self.suffix
             if item:
-                item.name += self.suffix.lower()
+                if not item.name.endswith(self.suffix):
+                    item.name += self.suffix.lower()
 
         self.rename_calls(routine, targets=targets, item=item)
 
@@ -266,6 +267,8 @@ class DependencyTransformation(Transformation):
                 continue
             if targets is None or call.name in targets:
                 orig_name = str(call.name)
+                if orig_name.endswith(self.suffix):
+                    continue
                 new_name = f'{orig_name}{self.suffix}'
                 new_type = call.name.type.clone(dtype=ProcedureType(name=new_name))
                 call._update(name=call.name.clone(name=new_name, type=new_type))
@@ -276,6 +279,8 @@ class DependencyTransformation(Transformation):
                 continue
             if targets is None or call.function in targets:
                 orig_name = str(call.name)
+                if orig_name.endswith(self.suffix):
+                    continue
                 new_name = f'{orig_name}{self.suffix}'
                 new_type = call.function.type.clone(dtype=ProcedureType(name=new_name))
                 call.function = call.function.clone(name=new_name, type=new_type)
@@ -316,6 +321,8 @@ class DependencyTransformation(Transformation):
             if im.c_import:
                 target_symbol, *suffixes = im.module.lower().split('.', maxsplit=1)
                 if targets and target_symbol.lower() in targets and not 'func.h' in suffixes:
+                    if self.suffix in str(target_sumbol):
+                        continue
                     # Modify the the basename of the C-style header import
                     s = '.'.join(im.module.split('.')[1:])
                     im._update(module=f'{target_symbol}{self.suffix}.{s}')
@@ -336,7 +343,7 @@ class DependencyTransformation(Transformation):
                         # Append suffix to all symbols and in-place update the import
                         symbols = tuple(
                             s.clone(name=f'{s.name}{self.suffix}')
-                            if s in call_targets else s for s in im.symbols
+                            if s in call_targets and not s.name.endswith(self.suffix) else s for s in im.symbols
                         )
                         im._update(module=new_module_name, symbols=symbols)
 
@@ -368,7 +375,7 @@ class DependencyTransformation(Transformation):
             access_spec = tuple(elem for elem in access_spec if elem in active_nodes
                                 or elem.lower() not in module_routines)
         return tuple(
-            f'{elem}{self.suffix}' if elem.lower() in module_routines and (not targets or elem in targets)
+            f'{elem}{self.suffix}' if elem.lower() in module_routines and not elem.endswith(self.suffix) and (not targets or elem in targets)
             else elem
             for elem in access_spec
         )
@@ -387,7 +394,7 @@ class DependencyTransformation(Transformation):
         for i in intfs:
             for routine in i.body:
                 if isinstance(routine, Subroutine):
-                    if targets and routine.name.lower() in targets:
+                    if targets and routine.name.lower() in targets and not routine.name.endswith(self.suffix):
                         routine.name = f'{routine.name}{self.suffix}'
 
     def generate_interfaces(self, routine):

@@ -339,10 +339,15 @@ def convert(
         pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive='openacc', trim_vector_sections=True, # trim_vector_sections,
                 transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
                 # dim_vars=(vertical.size, horizontal.size),
-                demote_local_arrays=False,
+                demote_local_arrays=True,
                 as_kwarguments=True, hoist_parameters=True,
                 ignore_modules=['parkind1'], all_derived_types=True,
-                dic2p=dic2p, skip_driver_imports=True)
+                dic2p=dic2p, skip_driver_imports=True,
+                allowed_aliases="IJ", inline_elementals=False,
+                remove_marked_regions=True, remove_dead_code=False,
+                call_names=['dr_hook', 'abort1'], intrinsic_names=['write(iu06'],
+                kernel_only=True, dimensions=horizontal,
+                loop_interchange=True)
         scheduler.process( pipeline )
 
 

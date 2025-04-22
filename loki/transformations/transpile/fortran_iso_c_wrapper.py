@@ -103,7 +103,7 @@ class FortranISOCWrapperTransformation(Transformation):
 
         role = kwargs.get('role', 'kernel')
 
-        if role == 'kernel':
+        if role == 'kernel': #  and routine.name.lower() == 'implsch':
             c_structs = {}
             for arg in routine.arguments:
                 if isinstance(arg.type.dtype, DerivedType):

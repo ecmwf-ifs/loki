@@ -28,12 +28,15 @@ from loki.transformations.data_offload import (
 )
 from loki.transformations.parametrise import ParametriseTransformation
 from loki.transformations.inline import (
-    inline_constant_parameters, inline_elemental_functions
+    inline_constant_parameters, inline_elemental_functions, InlineTransformation
 )
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.argument_shape import (
     ExplicitArgumentArrayShapeTransformation, ArgumentArrayShapeAnalysis 
 )
+from loki.transformations.split_read_write import SplitReadWriteTransformation
+from loki.transformations.remove_code import RemoveCodeTransformation
+from loki.transformations.transform_loop import TransformLoopsTransformation
 
 __all__ = [
         'SCCLowLevelCufHoist', 'SCCLowLevelCufParametrise', 'SCCLowLevelHoist',
@@ -49,7 +52,7 @@ def inline_elemental_kernel(routine, **kwargs):
         inline_elemental_functions(routine)
 
 
-class InlineTransformation(Transformation):
+class InlineTransformationTmp(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
@@ -259,6 +262,7 @@ mode: str
 
 SCCLowLevelParametrise = partial(
     Pipeline, classes=(
+        InlineTransformationTmp,
         InlineTransformation,
         GlobalVariableAnalysis,
         GlobalVarHoistTransformation,
@@ -354,8 +358,38 @@ dic2p: dict
     Dictionary of variable names and corresponding values to be parametrised.
 """
 
+# SCCLowLevelHoist = partial(
+#     Pipeline, classes=(
+#         InlineTransformationTmp,
+#         InlineTransformation,
+#         SplitReadWriteTransformation,
+#         RemoveCodeTransformation,
+#         GlobalVariableAnalysis,
+#         GlobalVarOffloadTransformation,
+#         GlobalVarHoistTransformation,
+#         DerivedTypeArgumentsTransformation,
+#         ArgumentArrayShapeAnalysis,
+#         ExplicitArgumentArrayShapeTransformation,
+#         SCCBaseTransformation,
+#         SCCDevectorTransformation,
+#         SCCDemoteTransformation,
+#         SCCRevectorTransformation,
+#         LowerBlockIndexTransformation,
+#         InjectBlockIndexTransformation,
+#         LowerBlockLoopTransformation,
+#         SccLowLevelLaunchConfiguration,
+#         SccLowLevelDataOffload,
+#         HoistTemporaryArraysAnalysis,
+#         HoistTemporaryArraysPragmaOffloadTransformation,
+#         PragmaModelTransformation
+#     )
+# )
 SCCLowLevelHoist = partial(
     Pipeline, classes=(
+        RemoveCodeTransformation,
+        TransformLoopsTransformation,
+        SplitReadWriteTransformation,
+        InlineTransformationTmp,
         InlineTransformation,
         GlobalVariableAnalysis,
         GlobalVarOffloadTransformation,
