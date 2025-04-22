@@ -32,7 +32,7 @@ from loki.transformations.single_column import (
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
     return Dimension(
-        name='horizontal', size='nlon', index='jl',
+        name='horizontal', size=['dims%klon', 'nlon'], index='jl',
         bounds=('start', 'end'), aliases=('nproma',)
     )
 
@@ -880,17 +880,26 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     """
 
     fcode = """
-    subroutine test(work, nlon, nb)
+    module test_mod
+
+    type dims_type
+      integer :: klon
+    end type
+
+    contains
+
+    subroutine test(work, nb, dims)
     implicit none
 
-      integer, intent(in) :: nb, nlon
+      integer, intent(in) :: nb
+      type(dims_type), intent(in) :: dims
       real, dimension(nlon, nb), intent(inout) :: work
       integer :: b
 
       !$loki data
       !$omp parallel do private(b) shared(work, nproma)
         do b=1, nb
-           call some_kernel(1, nlon, nlon, work(:,b))
+           call some_kernel(1, dims%klon, dims%klon, work(:,b))
         enddo
       !$omp end parallel do
       !$loki end data
@@ -916,6 +925,7 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
       enddo
 
     end subroutine some_kernel
+    end module test_mod
     """
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
@@ -943,7 +953,7 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     assert 'data' in pragmas[0].content
     assert 'copy' in pragmas[0].content
     assert '(work)' in pragmas[0].content
-    assert pragmas[1].content == 'parallel loop gang vector_length(nlon)'
+    assert pragmas[1].content == 'parallel loop gang vector_length(dims%klon)'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
 
