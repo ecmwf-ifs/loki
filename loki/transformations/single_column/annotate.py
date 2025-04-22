@@ -285,7 +285,7 @@ class SCCAnnotateTransformation(Transformation):
         if self.directive == 'openacc':
             aggregate_vars = FindVariables(unique=True).visit(loop)
             aggregate_vars = [v for v in aggregate_vars
-                              if isinstance(v, sym.Array) or isinstance(v, DerivedType)]
+                              if isinstance(v, sym.Array) or isinstance(v.type.dtype, DerivedType)]
             aggregate_vars = [v for v in aggregate_vars if not v.type.intent]
             aggregate_vars = [v for v in aggregate_vars if not v.type.pointer]
 
