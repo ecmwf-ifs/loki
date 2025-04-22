@@ -14,7 +14,7 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Conditional, Loop,
     Pragma, PragmaRegion, pragmas_attached, is_loki_pragma,
-    pragma_regions_attached
+    pragma_regions_attached, FindInlineCalls
 )
 
 from loki.transformations import (
@@ -274,11 +274,13 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: d(nproma)
+    REAL :: tmp(nproma)
     REAL :: e(nlev)
     REAL :: b(nlon,psize)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
+    REAL :: tmp_sum
 
     c = 5.345
     DO jk = 2, nz
@@ -288,6 +290,12 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
       END DO
     END DO
 
+    DO jl = start, end
+      tmp(jl) = other_var(jl)
+    END DO
+
+    tmp_sum = sum(tmp(start:end))
+
     ! The scaling is purposefully upper-cased
     DO JL = START, END
       a(jl) = Q(JL, 1)
@@ -295,7 +303,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
       b(jl, 2) = Q(JL, 3)
       b(jl, 3) = a(jl) * (b(jl, 1) + b(jl, 2))
 
-      Q(JL, NZ) = Q(JL, NZ) * C
+      Q(JL, NZ) = Q(JL, NZ) * C + tmp
     END DO
   END SUBROUTINE compute_column
 """
@@ -315,7 +323,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
 
     # Ensure routine is anntoated at vector level
     pragmas = FindNodes(Pragma).visit(kernel.ir)
-    assert len(pragmas) == 5
+    assert len(pragmas) == 6
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
     assert pragmas[1].keyword == 'acc'
@@ -326,11 +334,17 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     # Ensure vector and seq loops are annotated, including privatized variable `b`
     with pragmas_attached(kernel, Loop):
         kernel_loops = FindNodes(Loop).visit(kernel.ir)
-        assert len(kernel_loops) == 2
+        assert len(kernel_loops) == 3
         assert kernel_loops[0].pragma[0].keyword == 'acc'
         assert kernel_loops[0].pragma[0].content == 'loop vector private(b)'
         assert kernel_loops[1].pragma[0].keyword == 'acc'
         assert kernel_loops[1].pragma[0].content == 'loop seq'
+        assert kernel_loops[2].pragma[0].keyword == 'acc'
+        assert kernel_loops[2].pragma[0].content == 'loop vector private(b)'
+
+    # Ensure array reduction intrinsic is still in the correct place
+    assert 'nproma' in kernel.variable_map['tmp'].dimensions
+    assert 'tmp(start:end)' in list(FindInlineCalls().visit(kernel.body))[0].parameters
 
     # Ensure a single outer parallel loop in driver
     with pragmas_attached(driver, Loop):

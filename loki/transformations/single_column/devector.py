@@ -136,6 +136,18 @@ class SCCDevectorTransformation(Transformation):
                 if any(s in assign.rhs.shape for s in horizontal.size_expressions):
                     separator_nodes = cls._add_separator(assign, section, separator_nodes)
 
+            if isinstance(assign.rhs, sym.InlineCall):
+                # filter out array arguments
+                # we can't use arg_map here because intrinsic functions are not enriched
+                _params = assign.rhs.parameters + as_tuple(assign.rhs.kw_parameters.values())
+                _params = [p for p in _params if isinstance(p, sym.Array)]
+
+                # check if a horizontal array is passed as an argument, meaning we have a vector
+                # InlineCall, e.g. an array reduction intrinsic
+                for p in _params:
+                    if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions):
+                        separator_nodes = cls._add_separator(assign, section, separator_nodes)
+
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)
         subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]

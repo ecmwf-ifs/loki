@@ -6,9 +6,9 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation
-from loki.expression import is_dimension_constant
-from loki.ir import nodes as ir, FindNodes
-from loki.tools import flatten
+from loki.expression import is_dimension_constant, Array
+from loki.ir import nodes as ir, FindNodes, FindInlineCalls
+from loki.tools import flatten, as_tuple
 
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.utilities import get_local_arrays
@@ -87,9 +87,19 @@ class SCCDemoteTransformation(Transformation):
         # Demote temporaries that are only used in one section or not at all
         to_demote = [k for k, v in counts.items() if v <= 1]
 
+        # Get InlineCall args containing a horizontal array section
+        icalls = FindInlineCalls().visit(routine.body)
+        _params = flatten([call.parameters + as_tuple(call.kw_parameters.values()) for call in icalls])
+        _params = [p for p in _params if isinstance(p, Array)]
+
+        call_args = [
+            p.clone(dimensions=None) for p in _params
+            if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions)
+        ]
+
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
-        call_args = flatten(call.arguments for call in calls)
+        call_args += flatten(call.arguments for call in calls)
         call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
         to_demote = [v for v in to_demote if v.name not in call_args]
 
