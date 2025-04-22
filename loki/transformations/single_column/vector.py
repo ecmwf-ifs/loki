@@ -407,6 +407,12 @@ class SCCRevectorTransformation(Transformation):
         This method assumes that pragmas have been attached via
         :any:`pragmas_attached`.
         """
+
+        # Skip OpenMP parallel do loops
+        if loop.pragma and any(pragma.keyword.lower() == 'omp' and 'parallel do' in pragma.content.lower()
+                               for pragma in loop.pragma):
+            return
+
         # Find a horizontal size variable to mark vector_length
         symbol_map = routine.symbol_map
         sizes = tuple(
