@@ -169,6 +169,13 @@ class BaseRevectorTransformation(Transformation):
         This method assumes that pragmas have been attached via
         :any:`pragmas_attached`.
         """
+
+        # Skip loops with existing parallel annotations
+        if loop.pragma:
+            if any(pragma.keyword.lower() in ['omp', 'acc'] and 'parallel' in pragma.content.lower()
+                   for pragma in loop.pragma):
+                return
+
         # Find a horizontal size variable to mark vector_length
         symbol_map = routine.symbol_map
         sizes = tuple(

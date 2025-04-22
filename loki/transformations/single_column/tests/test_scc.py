@@ -875,7 +875,9 @@ def test_scc_multicond(frontend, horizontal, blocking):
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('dims_type', ['pointer', 'allocatable', 'static'])
-def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp_path, caplog):
+@pytest.mark.parametrize('data_offload', [True, False])
+def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp_path, caplog,
+                                  data_offload):
     """
     Test that both '!$acc data' and '!$acc parallel loop gang' pragmas are created at the
     driver layer.
@@ -904,7 +906,6 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
       {'type(dims_type) :: local_dims' if dims_type == 'static' else ''}
       integer :: b
 
-      local_dims = dims
       !$acc data present(dims)
       !$loki data
       !$omp parallel do private(b) shared(work, nproma)
@@ -947,8 +948,9 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
     routine = source['test']
     routine.enrich(source.all_subroutines)
 
-    data_offload = DataOffloadTransformation(remove_openmp=True)
-    data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+    if data_offload:
+        data_offload = DataOffloadTransformation(remove_openmp=True)
+        data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
     pragma_model = PragmaModelTransformation(directive='openacc')
     pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
@@ -972,16 +974,25 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
     pragmas = FindNodes(Pragma).visit(routine.ir)
     assert len(pragmas) == 6
 
-    assert all(p.keyword.lower() == 'acc' for p in pragmas)
+    assert pragmas[0].keyword.lower() == 'acc'
     assert pragmas[0].content == 'data present(dims)'
-    assert pragmas[2].content == 'parallel loop gang private(local_dims) vector_length(dims%klon)'
-    assert pragmas[3].content == 'end parallel loop'
-    assert pragmas[4].content == 'end data'
     assert pragmas[5].content == 'end data'
+    assert pragmas[5].keyword.lower() == 'acc'
 
-    assert 'data' in pragmas[1].content
-    assert 'copy' in pragmas[1].content
-    assert '(work)' in pragmas[1].content
+    if data_offload:
+        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:5])
+        assert pragmas[2].content == 'parallel loop gang private(local_dims) vector_length(dims%klon)'
+        assert pragmas[3].content == 'end parallel loop'
+        assert pragmas[4].content == 'end data'
+
+        assert 'data copy(work)' in pragmas[1].content
+    else:
+        assert pragmas[1].keyword == 'loki'
+        assert pragmas[2].keyword.lower() == 'omp'
+        assert pragmas[3].keyword.lower() == 'omp'
+        assert pragmas[4].keyword == 'loki'
+        assert pragmas[2].content == 'parallel do private(b) shared(work, nproma)'
+        assert pragmas[3].content == 'end parallel do'
 
     # check that pointer association was correctly identified as a separator node
     routine = source['some_kernel']
