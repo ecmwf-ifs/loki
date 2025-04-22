@@ -16,7 +16,7 @@ from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
     nodes as ir, FindNodes, FindScopes, FindVariables, Transformer,
     NestedTransformer, is_loki_pragma, pragmas_attached,
-    pragma_regions_attached
+    pragma_regions_attached, FindInlineCalls
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
@@ -133,6 +133,18 @@ class SCCDevectorTransformation(Transformation):
             if assign.ptr and isinstance(assign.rhs, sym.Array):
                 if any(s in assign.rhs.shape for s in horizontal.size_expressions):
                     separator_nodes = cls._add_separator(assign, section, separator_nodes)
+
+            if isinstance(assign.rhs, sym.InlineCall):
+                # filter out array arguments
+                _params = assign.rhs.parameters + as_tuple(assign.rhs.kw_parameters.values())
+                _params = [p for p in _params if isinstance(p, sym.Array)]
+
+                # check if a horizontal array is passed as an argument, meaning we have a vector
+                # InlineCall, e.g. an array reduction intrinsic
+                for p in _params:
+                    if (p.dimensions and any(s in p.dimensions for s in horizontal.size_expressions)) \
+                    or (not p.dimensions and any(s in p.shape for s in horizontal.size_expressions)):
+                        separator_nodes = cls._add_separator(assign, section, separator_nodes)
 
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)
@@ -550,9 +562,19 @@ class SCCDemoteTransformation(Transformation):
         # Demote temporaries that are only used in one section or not at all
         to_demote = [k for k, v in counts.items() if v <= 1]
 
+
+        # Get InlineCall args containing a horizontal array section
+        icalls = FindInlineCalls().visit(routine.body)
+        _params = flatten([call.parameters + as_tuple(call.kw_parameters.values()) for call in icalls])
+        _params = [p for p in _params if isinstance(p, sym.Array)]
+
+        _params = [p.clone(dimensions=None) for p in _params 
+                   if (p.dimensions and any(s in p.dimensions for s in horizontal.size_expressions))
+                   or (not p.dimensions and any(s in p.shape for s in horizontal.size_expressions))]
+
         # Filter out variables that we will pass down the call tree
         calls = FindNodes(ir.CallStatement).visit(routine.body)
-        call_args = flatten(call.arguments for call in calls)
+        call_args = flatten(call.arguments for call in calls) + _params
         call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
         to_demote = [v for v in to_demote if v.name not in call_args]
 

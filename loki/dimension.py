@@ -188,4 +188,6 @@ class Dimension:
         exprs += (f'1:{self.size}', )
         if self.bounds:
             exprs += (f'{self.bounds[1]} - {self.bounds[0]} + 1', )
+            exprs += (f'{self.bounds[0]}:{self.bounds[1]}', )
         return exprs
+

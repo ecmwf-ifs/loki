@@ -118,6 +118,10 @@ class SCCBaseTransformation(Transformation):
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
+            # we don't want to reshape function arguments
+            if isinstance(stmt.rhs, sym.InlineCall):
+                continue
+
             ranges = [e for e in FindExpressions().visit(stmt)
                       if isinstance(e, sym.RangeIndex) and e == bounds_str]
             if ranges:
