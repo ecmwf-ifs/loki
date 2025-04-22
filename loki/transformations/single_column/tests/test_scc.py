@@ -1089,7 +1089,11 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
             assert is_loki_pragma(region.pragma, starts_with = 'vector-reduction')
 
 
-    scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
+    if pipeline == SCCSVectorPipeline:
+        with pytest.raises(RuntimeError):
+            scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
+    else:
+        scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.body)
     if pipeline == SCCVVectorPipeline:
@@ -1108,15 +1112,6 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
             loops = FindNodes(Loop).visit(conds[0].body)
             assert len(loops) == 1
             assert loops[0].pragma[0].content == 'loop vector reduction( +:sumij )'
-
-    if pipeline == SCCSVectorPipeline:
-        assert len(pragmas) == 4
-        assert pragmas[0].keyword == 'acc'
-        assert pragmas[1].keyword == 'loki'
-        assert 'vector-reduction' in pragmas[1].content
-        assert pragmas[2].keyword == 'loki'
-        assert 'vector-reduction' in pragmas[2].content
-        assert pragmas[3].keyword == 'acc'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
