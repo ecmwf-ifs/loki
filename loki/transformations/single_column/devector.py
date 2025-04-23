@@ -45,10 +45,10 @@ class RemoveLoopTransformer(Transformer):
     def visit_Loop(self, loop, **kwargs):
         if loop.variable == self.dimension.index:
             # Recurse and return body as replacement
-            return self.visit(loop.body)
+            return self.visit(loop.body, **kwargs)
 
         # Rebuild loop after recursing to children
-        return self._rebuild(loop, self.visit(loop.children))
+        return self._rebuild(loop, self.visit(loop.children, **kwargs))
 
 
 class SCCDevectorTransformation(Transformation):
