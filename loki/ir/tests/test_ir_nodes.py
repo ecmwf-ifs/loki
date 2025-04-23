@@ -165,7 +165,7 @@ def test_conditional(scope, n, a_i):
     # TODO: Test inline, name, has_elseif
 
 
-def test_multi_conditional(i, a_i):
+def test_conditional_nested(i, a_i):
     """
     Test nested chains of constructors of :any:`Conditional` to form
     multi-conditional.
@@ -350,3 +350,68 @@ def test_associate(scope, a_i):
     assoc.rescope_symbols()
     assert assign.lhs.scope is assoc
     assert assign2.lhs.scope is scope
+
+
+def test_multiconditional(scope, a_i, i):
+    """
+    Test constructors and scoping behaviour of :any:`MultiConditional`.
+    """
+    assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(66.6))
+    assign3 = ir.Assignment(lhs=a_i, rhs=sym.Literal(12.3))
+    values = ((sym.Literal(1),), (sym.Literal(2),))
+    multicond = ir.MultiConditional(
+        expr=i, values=values, bodies=((assign1,), (assign2,)), else_body=(assign3,)
+    )
+    assert isinstance(multicond.expr, Expression)
+    assert isinstance(multicond.values, tuple)
+    assert all(isinstance(e, tuple) for e in multicond.values)
+    assert all(
+        all(isinstance(v, Expression) for v in val) for val in multicond.values
+    )
+    assert isinstance(multicond.bodies, tuple)
+    assert all(isinstance(b, tuple) for b in multicond.bodies)
+    assert all(
+        all(isinstance(b, ir.Node) for b in body) for body in multicond.bodies
+    )
+    assert isinstance(multicond.else_body, tuple)
+    assert all(isinstance(b, ir.Node) for b in multicond.else_body)
+    assert multicond.children == (
+        i, ((sym.Literal(1),), (sym.Literal(2),)), ((assign1,), (assign2,)), (assign3,)
+    )
+
+    # Ensure "frozen" status of node objects
+    with pytest.raises(FrozenInstanceError):
+        multicond.expr = parse_expr('k', scope=scope)
+    with pytest.raises(FrozenInstanceError):
+        multicond.values = ((sym.Literal(3),), (sym.Literal(4),))
+    with pytest.raises(FrozenInstanceError):
+        multicond.bodies = ((assign1,), (assign1,))
+    with pytest.raises(FrozenInstanceError):
+        multicond.else_body = (assign1, assign2)
+
+    # Test auto-casting of the bodies and else_body to (nested) tuple(s)
+    multicond = ir.MultiConditional(
+        expr=i, values=sym.Literal(1), bodies=(()), else_body=()
+    )
+    assert multicond.values == ((sym.Literal(1),),)
+    multicond = ir.MultiConditional(
+        expr=i, values=((sym.Literal(1),),sym.Literal(2),), bodies=(()), else_body=()
+    )
+    assert multicond.values == ((sym.Literal(1),), (sym.Literal(2),))
+    multicond = ir.MultiConditional(
+        expr=i, values=values, bodies=assign1, else_body=()
+    )
+    assert multicond.bodies == ((assign1,),)
+    multicond = ir.MultiConditional(
+        expr=i, values=values, bodies=((assign1,), assign2), else_body=()
+    )
+    assert multicond.bodies == ((assign1,), (assign2,))
+    multicond = ir.MultiConditional(
+        expr=i, values=(()), bodies=(()), else_body=assign3
+    )
+    assert multicond.else_body == (assign3,)
+    multicond = ir.MultiConditional(
+        expr=i, values=(()), bodies=(()), else_body=((assign3,), assign2)
+    )
+    assert multicond.else_body == (assign3, assign2)

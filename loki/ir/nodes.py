@@ -1756,7 +1756,7 @@ class _MultiConditionalBase():
     """ Type definitions for :any:`MultiConditional` node type. """
 
     expr: Expression
-    values: Tuple[Any, ...]
+    values: Tuple[Tuple[Expression, ...], ...]
     bodies: Tuple[Any, ...]
     else_body: Tuple[Node, ...]
     name: Optional[str] = None
@@ -1784,6 +1784,16 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
     """
 
     _traversable = ['expr', 'values', 'bodies', 'else_body']
+
+    @field_validator('else_body', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return _sanitize_tuple(value)
+
+    @field_validator('values', 'bodies', mode='before')
+    @classmethod
+    def ensure_nested_tuple(cls, value):
+        return tuple(_sanitize_tuple(pair) for pair in as_tuple(value))
 
     def __post_init__(self):
         super().__post_init__()

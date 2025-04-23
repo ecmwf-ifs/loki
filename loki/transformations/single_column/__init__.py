@@ -7,9 +7,11 @@
 
 from loki.transformations.single_column.annotate import * # noqa
 from loki.transformations.single_column.base import * # noqa
+from loki.transformations.single_column.demote import * # noqa
+from loki.transformations.single_column.devector import * # noqa
 from loki.transformations.single_column.hoist import * # noqa
+from loki.transformations.single_column.revector import * # noqa
 from loki.transformations.single_column.scc import * # noqa
 from loki.transformations.single_column.scc_cuf import * # noqa
-from loki.transformations.single_column.vector import * # noqa
 from loki.transformations.single_column.scc_low_level import * # noqa
 from loki.transformations.single_column.vertical import * # noqa
