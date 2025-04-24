@@ -7,13 +7,13 @@
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
-from loki.expression import Array, symbols as sym
+from loki.expression import Array, symbols as sym, parse_expr
+from loki.types import BasicType, SymbolAttributes
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, pragma_regions_attached, is_loki_pragma, pragmas_attached
 )
 from loki.logging import warning
-from loki.types import BasicType
 
 from loki.transformations.loop_blocking import split_loop
 from loki.transformations.utilities import find_driver_loops
@@ -122,15 +122,22 @@ class FieldOffloadBlockedTransformation(Transformation):
     """
 
     def __init__(self, block_size, devptr_prefix=None, field_group_types=None,
-                 offload_index=None, blocking_index=None):
+                 offload_index=None, blocking_index=None, asynchronous=False, num_queues=1):
         self.block_size = block_size
         self.deviceptr_prefix = 'loki_devptr_' if devptr_prefix is None else devptr_prefix
         field_group_types = [''] if field_group_types is None else field_group_types
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
         self.offload_index = 'IBL' if offload_index is None else offload_index
         self.blocking_index = offload_index
-        self.asynchronous = False
-        self.num_queues = 0
+
+        if not isinstance(asynchronous, bool):
+            warning('[Loki] FieldOffloadBlockedTransformation: asynchronous kwarg must be a bool' +
+                    ' asynchronous set to False')
+            self.asynchronous = False
+        else:
+            self.asynchronous = asynchronous
+        self.num_queues = num_queues
+
     def transform_subroutine(self, routine, **kwargs):
         role = kwargs['role']
         if role == 'driver':
@@ -156,12 +163,19 @@ class FieldOffloadBlockedTransformation(Transformation):
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
                     splitting_vars, inner_loop, block_loop = block_driver_loops(driver, region,
-                                                                                 self.block_size)
+                                                                                self.block_size)
+
                     if self.asynchronous and self.num_queues > 1:
                         add_device_field_allocations(driver, block_loop, offload_map,
                                                      self.block_size, self.num_queues)
-                    add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars)
+                        queue, offset = add_async_blocking_vars(driver, block_loop, self.num_queues, splitting_vars)
+                        add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars, queue, offset)
+
+                    else:
+                        add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
+        if self.asynchronous:
+            add_async_queue_to_pragmas(block_loop, queue)
 
 
 def find_offload_variables(driver, region, field_group_types):
@@ -240,16 +254,22 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables):
+def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables, queue=None, offset=None):
     host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
                                                                 splitting_variables.block_start,
                                                                 splitting_variables.block_end)
-                                                      ))
+                                                                                      ),
+                                                            queue=queue,
+                                                            offset=offset
+                                                            )
 
     device_to_host = offload_map.sync_host_force_calls(blk_bounds=sym.LiteralList(values=(
                                                             splitting_variables.block_start,
                                                             splitting_variables.block_end)
-                                                ))
+                                                                                 ),
+                                                       queue=queue,
+                                                       offset=offset
+                                                       )
     with pragmas_attached(driver, ir.Loop):
         # new_loop = block_loop.clone(body=host_to_device + block_loop.body + device_to_host)
         update_map = {region: host_to_device+(region,)+device_to_host}
@@ -268,6 +288,34 @@ def add_device_field_allocations(driver, block_loop, offload_map, block_size, nu
             block_loop: create_device_data_calls + (block_loop,)
         }
         Transformer(update_map, inplace=True).visit(driver.body)
+
+
+
+def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
+    queue = sym.Variable(name='loki_block_queue', type=SymbolAttributes(BasicType.INTEGER),
+                         scope=routine)
+    nqueues = sym.Variable(name='loki_block_nqueues', type=SymbolAttributes(BasicType.INTEGER),
+                           scope=routine)
+    offset = sym.Variable(name='loki_block_offset', type=SymbolAttributes(BasicType.INTEGER),
+                          scope=routine)
+    # add variables to routine variable map
+    routine.variables += (queue, nqueues, offset)
+
+    # set queue and offset in loop
+    async_blocking_body = (
+        ir.Assignment(nqueues, sym.IntLiteral(num_queues)),   # TODO: Make a parameter
+        ir.Assignment(queue,
+                      sym.Sum(children=(sym.InlineCall(sym.DeferredTypeSymbol('MODULO', scope=routine),
+                                                       parameters=(splitting_vars.block_idx,
+                                                       nqueues)),
+                                        sym.IntLiteral(1)))
+                      ),
+        ir.Assignment(offset, parse_expr(f'({queue}-1)*{splitting_vars.block_size}'))
+    )
+    block_loop._update(body=async_blocking_body+block_loop.body)
+
+    return queue, offset
+
 
 def replace_kernel_args(driver, offload_map, offload_index):
     change_map = {}
@@ -301,6 +349,18 @@ def block_driver_loops(driver, region, block_size):
         splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)
         # move loop pragmas to inner loop
         if outer_loop.pragma is not None:
-            inner_loop._update(pragma=outer_loop.pragma)
+            pragmas = []
+            for pragma in outer_loop.pragma:
+                content = pragma.content
+                pragmas.append(pragma.clone(content=content))
+            inner_loop._update(pragma=tuple(pragmas))
             outer_loop._update(pragma=None)
     return splitting_vars, inner_loop, outer_loop
+
+
+def add_async_queue_to_pragmas(section, queue):
+    pragmas = FindNodes(ir.Pragma).visit(section)
+    async_content = f' async({queue.name})'
+    for pragma in pragmas:
+        if is_loki_pragma(pragma, starts_with='data') or is_loki_pragma(pragma, starts_with='driver-loop'):
+            pragma._update(content=pragma.content+async_content)
