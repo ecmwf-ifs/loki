@@ -147,7 +147,9 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             fprivate = f' firstprivate({fprivate_param})' if fprivate_param else ''
             reduction_param = parameters.get('reduction')
             reduction = f' reduction({reduction_param})' if reduction_param else ''
-            content = f'loop vector{private}{fprivate}{reduction}'
+            asynchronous_param = parameters.get('async')
+            asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
+            content = f'loop vector{private}{fprivate}{reduction}{asynchronous}'
             return Pragma(keyword='acc', content=content)
         if 'gang' in parameters:
             private_param = parameters.get('private')
@@ -166,16 +168,20 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
         return self.default_retval()
 
     def pmap_device_present(self, pragma, parameters, **kwargs):
+        asynchronous_param = parameters.get('async')
+        asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
         if param_vars := parameters.get('vars'):
-            return Pragma(keyword='acc', content=f'data present({param_vars})')
+            return Pragma(keyword='acc', content=f'data present({param_vars})'+asynchronous)
         return self.default_retval()
 
     def pmap_end_device_present(self, pragma, parameters, **kwargs):
         return Pragma(keyword='acc', content='end data')
 
     def pmap_device_ptr(self, pragma, parameters, **kwargs):
+        asynchronous_param = parameters.get('async')
+        asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
         if param_vars := parameters.get('vars'):
-            return Pragma(keyword='acc', content=f'data deviceptr({param_vars})')
+            return Pragma(keyword='acc', content=f'data deviceptr({param_vars})'+asynchronous)
         return self.default_retval()
 
     def pmap_end_device_ptr(self, pragma, parameters, **kwargs):
