@@ -199,20 +199,24 @@ function( loki_update_target_sources )
     set( single_value_args TARGET )
     set( multi_value_args REMOVE_SOURCES TRANSFORM_SOURCES APPEND_SOURCES )
 
-    cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+    cmake_parse_arguments( _PAR_LUTS "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
+
+    if( _PAR_LUTS_UNPARSED_ARGUMENTS )
+        ecbuild_critical( "Unknown keywords given to loki_update_target_sources(): \"${_PAR_LUTS_UNPARSED_ARGUMENTS}\"")
+    endif()
 
     # Exclude source files that Loki has re-generated.
     # Note, this is done explicitly here because the HEADER_FILE_ONLY
     # property is not always being honoured by CMake.
-    get_target_property( _target_sources ${_PAR_T_TARGET} SOURCES )
-    foreach( source ${_PAR_T_REMOVE_SOURCES} )
+    get_target_property( _target_sources ${_PAR_LUTS_TARGET} SOURCES )
+    foreach( source ${_PAR_LUTS_REMOVE_SOURCES} )
         # get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
         list( FILTER _target_sources EXCLUDE REGEX ${source} )
     endforeach()
 
-    if( NOT _PAR_T_COPY_UNMODIFIED )
+    if( NOT _PAR_LUTS_COPY_UNMODIFIED )
         # Update the target source list
-        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources} )
+        set_property( TARGET ${_PAR_LUTS_TARGET} PROPERTY SOURCES ${_target_sources} )
     else()
         # Copy the unmodified source files to the build dir
         set( _target_sources_copy "" )
@@ -227,16 +231,16 @@ function( loki_update_target_sources )
         set_source_files_properties( ${_target_sources_copy} PROPERTIES GENERATED TRUE )
 
         # Update the target source list
-        set_property( TARGET ${_PAR_T_TARGET} PROPERTY SOURCES ${_target_sources_copy} )
+        set_property( TARGET ${_PAR_LUTS_TARGET} PROPERTY SOURCES ${_target_sources_copy} )
     endif()
 
-    list( LENGTH _PAR_T_TRANSFORM_SOURCES LOKI_APPEND_LENGTH )
+    list( LENGTH _PAR_LUTS_TRANSFORM_SOURCES LOKI_APPEND_LENGTH )
     if ( LOKI_APPEND_LENGTH GREATER 0 )
         # Mark the generated stuff as build-time generated
-        set_source_files_properties( ${PAR_T_APPEND_SOURCES} PROPERTIES GENERATED TRUE )
+        set_source_files_properties( ${_PAR_LUTS_APPEND_SOURCES} PROPERTIES GENERATED TRUE )
 
         # Add the Loki-generated sources to our target (CLAW is not called)
-        target_sources( ${_PAR_T_TARGET} PRIVATE ${_PAR_T_APPEND_SOURCES} )
+        target_sources( ${_PAR_LUTS_TARGET} PRIVATE ${_PAR_LUTS_APPEND_SOURCES} )
     endif()
 
     # Copy over compile flags for generated source. Note that this assumes
@@ -244,11 +248,11 @@ function( loki_update_target_sources )
     # to encode the source-to-source mapping. This matching is strictly enforced
     # in the `CMakePlannerTransformation`.
     loki_copy_compile_flags(
-        ORIG_LIST ${_PAR_T_TRANSFORM_SOURCES}
-        NEW_LIST ${_PAR_T_APPEND_SOURCES}
+        ORIG_LIST ${_PAR_LUTS_TRANSFORM_SOURCES}
+        NEW_LIST ${_PAR_LUTS_APPEND_SOURCES}
     )
 
-    if( _PAR_T_COPY_UNMODIFIED )
+    if( _PAR_LUTS_COPY_UNMODIFIED )
         loki_copy_compile_flags(
             ORIG_LIST ${_target_sources}
             NEW_LIST ${_target_sources_copy}
@@ -314,8 +318,8 @@ function( loki_transform_target )
 
     cmake_parse_arguments( _PAR_T "${options}" "${single_value_args}" "${multi_value_args}" ${ARGN} )
 
-    if( _PAR_UNPARSED_ARGUMENTS )
-        ecbuild_critical( "Unknown keywords given to loki_transform_target(): \"${_PAR_UNPARSED_ARGUMENTS}\"")
+    if( _PAR_T_UNPARSED_ARGUMENTS )
+        ecbuild_critical( "Unknown keywords given to loki_transform_target(): \"${_PAR_T_UNPARSED_ARGUMENTS}\"")
     endif()
 
     if( NOT _PAR_T_TARGET )
