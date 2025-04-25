@@ -11,9 +11,9 @@ section and to perform Dead Code Elimination.
 """
 
 from loki.batch import Transformation
-from loki.expression.symbolic import simplify
+from loki.expression import simplify, symbols as sym
 from loki.tools import flatten, as_tuple
-from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes
+from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
 from loki.analyse import dataflow_analysis_attached
 
@@ -125,54 +125,51 @@ class RemoveCodeTransformation(Transformation):
         if role == 'kernel':
             item.trafo_data[self._key] = {'unused_args': {}}
 
-            # cache original routine args
-            _routine_args = routine.arguments
+            # find unused args
+            unused_args = self._find_unused_args(routine)
 
-            # we repeat to also catch args that are only used to define the size of other
-            # unused args
-            for _ in range(2):
-                # find unused args
-                unused_args = self._find_unused_args(routine, _routine_args)
+            # store unused args
+            item.trafo_data[self._key]['unused_args'].update(unused_args)
 
-                # store unused args
-                item.trafo_data[self._key]['unused_args'].update(unused_args)
-
-                # remove unused args
-                routine.variables = [a for a in routine.variables
-                                     if not (a in unused_args or a.name.lower() in unused_args)]
+            # remove unused args
+            routine.variables = [a for a in routine.variables
+                                 if not a.name.lower() in unused_args]
 
     @staticmethod
-    def _find_unused_args(routine, _routine_args):
+    def _find_unused_args(routine):
 
         unused_args = {}
         variable_map = routine.symbol_map
         with dataflow_analysis_attached(routine):
-            used_or_defined_symbols = routine.spec.uses_symbols | routine.body.uses_symbols
-            used_or_defined_symbols |= routine.body.defines_symbols
+            used_or_defined_symbols = routine.body.uses_symbols | routine.body.defines_symbols
+
+            # we search for symbols used to define array sizes
+            used_or_defined_array_shapes = [s.shape for s in used_or_defined_symbols if isinstance(s, sym.Array)]
+            used_or_defined_symbols |= set(FindVariables().visit(used_or_defined_array_shapes))
 
             used_or_defined_symbols |= set(variable_map.get(v.name_parts[0], v) for v in used_or_defined_symbols)
 
-            unused_args = {a: c for c, a in enumerate(_routine_args)
+            unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
                            if not a.name.lower() in used_or_defined_symbols}
 
         return unused_args
 
     def _update_callstatements(self, routine, successors):
 
+        _successor_map = {s.ir: s for s in successors}
+
         for call in FindNodes(CallStatement).visit(routine.body):
-            successor = [s for s in successors if call.routine == s.ir]
-            if not successor or not successor[0].trafo_data.get(self._key, None):
+            successor = _successor_map.get(call.routine, None)
+            if not successor or not successor.trafo_data.get(self._key, None):
                 continue
 
-            successor = successor[0]
             unused_dummies = successor.trafo_data[self._key]['unused_args']
-            unused_dummy_names = [d.name.lower() for d in unused_dummies]
 
             unused_args = [call.arguments[c] for c in unused_dummies.values() if c < len(call.arguments)]
-            unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_dummy_names]
+            unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_dummies]
 
-            new_args = [a for a in call.arguments if not a in unused_args]
-            new_kwargs = [a for a in call.kwarguments if not a in unused_kwargs]
+            new_args = [arg for arg in call.arguments if not arg in unused_args]
+            new_kwargs = [(kw, arg) for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs]
 
             call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
 
