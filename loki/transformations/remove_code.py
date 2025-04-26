@@ -123,13 +123,11 @@ class RemoveCodeTransformation(Transformation):
         self._update_callstatements(routine, successors)
 
         if role == 'kernel':
-            item.trafo_data[self._key] = {'unused_args': {}}
-
             # find unused args
             unused_args = self._find_unused_args(routine)
 
             # store unused args
-            item.trafo_data[self._key]['unused_args'].update(unused_args)
+            item.trafo_data[self._key] = {'unused_args': unused_args}
 
             # remove unused args
             routine.variables = [a for a in routine.variables
@@ -138,7 +136,6 @@ class RemoveCodeTransformation(Transformation):
     @staticmethod
     def _find_unused_args(routine):
 
-        unused_args = {}
         variable_map = routine.symbol_map
         with dataflow_analysis_attached(routine):
             used_or_defined_symbols = routine.body.uses_symbols | routine.body.defines_symbols
