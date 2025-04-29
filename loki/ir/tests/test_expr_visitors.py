@@ -7,9 +7,9 @@
 
 import pytest
 
-from loki import Sourcefile, Subroutine
+from loki import Sourcefile, Subroutine, config_override
 from loki.expression import symbols as sym, parse_expr
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, SourceStatus
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
     SubstituteExpressions, SubstituteStringExpressions,
@@ -262,3 +262,82 @@ end subroutine test_routine
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert calls[0].arguments == ('n - 1', 'd', 'c(1:2)')
     assert calls[0].kwarguments == (('a2', 'a'),)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('use_string', [True, False])
+def test_substitute_expression_source_invalidation(use_string, frontend):
+    """ Test source invalidation when using symbol or string substitution """
+
+    fcode = """
+subroutine test_routine(n, a, b)
+  implicit none
+  integer, intent(in) :: n
+  real(kind=8), intent(inout) :: a, b
+  real(kind=8) :: c(n)
+  integer :: i
+
+  associate(d => b)
+  do i=1, n
+    if (i > 2) then
+      c(i) = b(i) + a
+    else
+      c(i) = 42.0
+    end if
+
+    if (a > 0.5) then
+      c(i) = 66.6
+    end if
+  end do
+
+  if (c(1) > 0.5) then
+    call another_routine(n, a, c(:), a2=d)
+  end if
+
+  end associate
+end subroutine test_routine
+"""
+    with config_override({'frontend-store-source': True}):
+        routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assoc = FindNodes(ir.Associate).visit(routine.body)[0]
+    assert calls[0].arguments == ('n', 'a', 'c(:)')
+    assert calls[0].kwarguments == (('a2', 'd'),)
+
+    if use_string:
+        expr_map = {'a': 'd'}
+        routine.body = SubstituteStringExpressions(expr_map, scope=assoc).visit(routine.body)
+    else:
+        a = routine.variable_map['a']
+        expr_map = {a: parse_expr('d', scope=assoc)}
+        routine.body = SubstituteExpressions(expr_map).visit(routine.body)
+
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].variable == 'i' and loops[0].bounds == '1:n'
+    assert loops[0].source.status == SourceStatus.INVALID_CHILDREN
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 3
+    assert all(a.lhs == 'c(i)' for a in assigns)
+    assert assigns[0].rhs == 'b(i) + d'
+    assert assigns[0].source.status == SourceStatus.INVALID_NODE
+    assert assigns[1].source.status == SourceStatus.VALID
+    assert assigns[2].source.status == SourceStatus.VALID
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ('n', 'd', 'c(:)')
+    assert calls[0].kwarguments == (('a2', 'd'),)
+    assert calls[0].source.status == SourceStatus.INVALID_NODE
+
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 3
+    assert conds[0].condition == 'i > 2'
+    assert conds[1].condition == 'd > 0.5'
+    assert conds[2].condition == 'c(1) > 0.5'
+    assert conds[0].source.status == SourceStatus.INVALID_CHILDREN
+    assert conds[1].source.status == SourceStatus.INVALID_NODE
+    assert conds[2].source.status == SourceStatus.INVALID_CHILDREN
