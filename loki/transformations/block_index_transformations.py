@@ -145,7 +145,8 @@ class BlockViewToFieldViewTransformation(Transformation):
             decls = (ir.VariableDeclaration(symbols=(pointer_var,)),)
             decls += (ir.VariableDeclaration(symbols=(contig_pointer_var,)),)
 
-            field_object_type = SymbolAttributes(DerivedType(name=_type.replace('_ARRAY', '')), pointer=True, polymorphic=True)
+            field_object_type = SymbolAttributes(DerivedType(name=_type.lower().replace('_array', '')),
+                                                 pointer=True, polymorphic=True)
             field_object = Variable(name='F_P', type=field_object_type)
             decls += (ir.VariableDeclaration(symbols=(field_object,)),)
 
@@ -180,9 +181,8 @@ class BlockViewToFieldViewTransformation(Transformation):
         """
 
         for child in successors:
-            if isinstance(child, ProcedureItem):
-                child.ir.enrich(definitions)
-                child.trafo_data.update({key: {'definitions': definitions}})
+            child.ir.enrich(definitions)
+            child.trafo_data.update({key: {'definitions': definitions}})
 
     def process_driver(self, routine, successors):
 
