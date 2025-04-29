@@ -18,20 +18,20 @@ from loki.expression.symbols import (
 from loki.expression.symbolic import is_dimension_constant, simplify
 from loki.expression.mappers import DetachScopesMapper
 from loki.ir.expr_visitors import FindVariables, SubstituteExpressions
-from loki.ir.nodes import Assignment, CallStatement, Pragma, Allocation, Deallocation
+from loki.ir.nodes import Assignment, CallStatement, Pragma, Allocation, Deallocation, VariableDeclaration
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.tools import as_tuple
 from loki.types import BasicType, SymbolAttributes
-from loki.transformations.utilities import recursive_expression_map_update
+from loki.transformations.utilities import recursive_expression_map_update, single_variable_declaration
 
 
-__all__ = ['TemporariesRawStackTransformation']
+__all__ = ['PoolAllocatorFtrPtrTransformation']
 
 one = IntLiteral(1)
 
 
-class TemporariesRawStackTransformation(Transformation):
+class PoolAllocatorFtrPtrTransformation(Transformation):
     """
     Transformation to inject stack arrays at the driver level. These, as well
     as corresponding sizes are passed on to the kernels. Any temporary arrays with
@@ -229,7 +229,8 @@ class TemporariesRawStackTransformation(Transformation):
         jgpblock = Scalar(name=self.block_dim.index, scope=routine, type=self.int_type)
 
         #Full dimensions for arguments
-        fulldim = (RangeIndex((None,None)),RangeIndex((None,None)))
+        # fulldim = (RangeIndex((None,None)),RangeIndex((None,None)))
+        fulldim = (RangeIndex((None,None)),)
 
         stack_vars = []
         stack_arg_dict = {}
@@ -259,12 +260,13 @@ class TemporariesRawStackTransformation(Transformation):
                 # stack_type = stack_var.type.clone(
                 #     shape=(horizontal_size, stack_dict[dtype][kind], kgpblock)
                 # )
-                # stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
-                stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
+                stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
+                # stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None)), RangeIndex((None,None))), allocatable=True)
                 stack_var = stack_var.clone(type=stack_type)
 
                 # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(Product((horizontal_size, stack_dict[dtype][kind])), kgpblock)),))
-                stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(horizontal_size, stack_dict[dtype][kind], kgpblock)),))
+                # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(horizontal_size, stack_dict[dtype][kind], kgpblock)),))
+                stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(stack_dict[dtype][kind], kgpblock)),))
                 # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(horizontal_size, stack_dict[dtype][kind], kgpblock)),))
                 # stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(stack_dict[dtype][kind], horizontal_size, kgpblock)),))
                 stack_dealloc = Deallocation(variables=(stack_var.clone(dimensions=None),))  
@@ -276,7 +278,7 @@ class TemporariesRawStackTransformation(Transformation):
                     stack_arg_dict[dtype] = {kind: (stack_size_var, stack_var.clone(dimensions = fulldim+(jgpblock,)), stack_used_var)}
                 stack_var = stack_var.clone(dimensions=stack_type.shape)
 
-                stack_used_var_init = Assignment(lhs=stack_used_var, rhs=IntLiteral(0))
+                stack_used_var_init = Assignment(lhs=stack_used_var, rhs=IntLiteral(1))
                 #Create stack_vars pair and assignment of the size variable
                 stack_vars += [stack_size_var, stack_var, stack_used_var]
                 assignments += [Assignment(lhs=stack_size_var, rhs=stack_dict[dtype][kind]), stack_alloc, stack_used_var_init]
@@ -347,16 +349,17 @@ class TemporariesRawStackTransformation(Transformation):
                 assignments += [Assignment(lhs=stack_used_var, rhs=stack_used_arg)]
 
                 #Create the stack variable and its type with the correct shape
-                shape = (self._get_horizontal_variable(routine), stack_size_var)
+                # shape = (self._get_horizontal_variable(routine), stack_size_var)
+                shape = (stack_size_var,)
                 stack_var = self._get_stack_var(routine, dtype, kind)
-                stack_type = stack_var.type.clone(shape=as_tuple(shape))
+                stack_type = stack_var.type.clone(shape=as_tuple(shape), target=True)
                 stack_var = stack_var.clone(type=stack_type)
 
                 #Pass on the stack variable from stack_used + 1 to stack_size
                 #Pass stack_size - stack_used to stack size in called kernel
                 # arg_dims = (self._get_horizontal_range(routine), RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
                 # arg_dims = (RangeIndex((None, None)), RangeIndex((Sum((stack_used_var,IntLiteral(1))), stack_size_var)))
-                arg_dims = (RangeIndex((None, None)), RangeIndex((None, None)))
+                arg_dims = (RangeIndex((None, None)),) # RangeIndex((None, None)))
                 if dtype in stack_arg_dict:
                     # stack_arg_dict[dtype][kind] = (Sum((stack_size_var, Product((-1, stack_used_var)))), stack_var.clone(dimensions = arg_dims))
                     stack_arg_dict[dtype][kind] = (stack_size_var, stack_var.clone(dimensions = arg_dims), stack_used_var)
@@ -454,7 +457,7 @@ class TemporariesRawStackTransformation(Transformation):
                 stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
 
                 #Initialize stack_used to 0
-                stack_used = IntLiteral(0)
+                stack_used = IntLiteral(1)
                 if kind not in stack_dict[dtype]:
                     stack_dict[dtype][kind] = Literal(0)
 
@@ -477,7 +480,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                     #Computer array size
                     array_size = one
-                    for d in array.shape[1:]:
+                    for d in array.shape: # [1:]:
                         if isinstance(d, RangeIndex):
                             d_extent = Sum((d.upper, Product((-1,d.lower)), one))
                         else:
@@ -500,6 +503,30 @@ class TemporariesRawStackTransformation(Transformation):
                     var_map = {**var_map, **temp_map}
                     stack_set.add(stack_var)
 
+                    _arr_dim = ()
+                    _stack_dim_upper = ()
+                    horizontal_size = self._get_horizontal_variable(routine) 
+                    for i_dim, dim in enumerate(array.shape):
+                        # if i_dim == 0:
+                        #     continue
+                        # _arr_dim += (RangeIndex((IntLiteral(1), dim)),)
+                        if isinstance(dim, RangeIndex):
+                            _arr_dim += (dim,)
+                            # if not i_dim == 0:
+                            _stack_dim_upper += (Sum((dim.upper, IntLiteral(1), Product((-1, dim.lower)))),)
+                        else:
+                            _arr_dim += (RangeIndex((IntLiteral(1), dim)),)
+                            # if not i_dim == 0:
+                            _stack_dim_upper += (dim,)
+
+                    if _stack_dim_upper:
+                        _stack_dim_upper = Sum((int_var, Product(_stack_dim_upper)))
+                    else:
+                        _stack_dim_upper = Sum((int_var, IntLiteral(1)))
+                    ptr_assignment = Assignment(lhs=array.clone(dimensions=_arr_dim), rhs=stack_var.clone(dimensions=(RangeIndex((int_var, _stack_dim_upper)))), # TODO: ZSTACK
+                        ptr=True)
+                    allocations += [ptr_assignment]
+
                 #Compute stack used
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
@@ -508,11 +535,22 @@ class TemporariesRawStackTransformation(Transformation):
                 #List up integers and allocations generated
                 # integers += [stack_used_var]
                 allocations += [Assignment(lhs=stack_used_var, rhs=stack_used)]
+                ## here!
+                # _arr_dim = ()
+                # _stack_dim_upper = ()
+                # for dim in array.shape:
+                #     _arr_dim += (RangeIndex((IntLiteral(1), dim)),)
+                #     _stack_dim_upper += (dim,)
+                # _stack_dim_upper = Sum((stack_var, Product(_stack_dim_upper)))
+                # ptr_assignment = Assignment(lhs=array.clone(dimensions=_arr_dim), rhs=stack_var.clone(dimensions=RangeIndex((stack_var, _stack_dim_upper))), # TODO: ZSTACK
+                #     ptr=True)
+                # allocations += [ptr_assignment]
+                ## end: here!
 
         #Substitute temporary arrays if any map
-        if var_map:
-            var_map = recursive_expression_map_update(var_map)
-            routine.body = SubstituteExpressions(var_map).visit(routine.body)
+        # if var_map:
+        #     var_map = recursive_expression_map_update(var_map)
+        #     routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
         #Add  variables to routines and allocations to body
         routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
@@ -553,12 +591,27 @@ class TemporariesRawStackTransformation(Transformation):
             if not all(is_dimension_constant(d) for d in var.shape)
         ]
 
-        # # Filter out variables whose first dimension is not horizontal
+        # Filter out variables whose first dimension is not horizontal
         # temporary_arrays = [
         #     var for var in temporary_arrays if (
         #     isinstance(var.shape[0], Scalar) and
         #     var.shape[0].name.lower() == self.horizontal.size.lower())
         # ]
+
+        ##
+        single_variable_declaration(routine, variables=[var.name for var in temporary_arrays])
+        for var in temporary_arrays:
+            routine.symbol_attrs[var.name] = var.type.clone(pointer=True, contiguous=True)
+        declarations = FindNodes(VariableDeclaration).visit(routine.spec)
+        decl_map = {}
+        for decl in declarations: 
+            if decl.symbols[0] in temporary_arrays:
+                if decl.dimensions is not None:
+                    decl_map[decl] = decl.clone(dimensions=as_tuple(RangeIndex((None, None)) for _ in decl.dimensions), symbols=(decl.symbols[0].clone(dimensions=as_tuple(RangeIndex((None, None)) for _ in decl.symbols[0].dimensions)),))
+                else:
+                    decl_map[decl] = decl.clone(symbols=(decl.symbols[0].clone(dimensions=as_tuple(RangeIndex((None, None)) for _ in decl.symbols[0].dimensions)),))
+        routine.spec = Transformer(decl_map).visit(routine.spec)
+        ##
 
         return temporary_arrays
 
@@ -626,7 +679,8 @@ class TemporariesRawStackTransformation(Transformation):
         temp_arrays = [v for v in FindVariables().visit(routine.body) if v.name == temp_array.name]
 
         temp_map = {}
-        stack_dimensions = [None, None]
+        # stack_dimensions = [None, None]
+        stack_dimensions = [None]
 
         #Loop over instances of temp_array
         for t in temp_arrays:
@@ -639,7 +693,7 @@ class TemporariesRawStackTransformation(Transformation):
                 #taking each dimension into account
 
                 #First dimension is just horizontal
-                stack_dimensions[0] = t.dimensions[0]
+                # stack_dimensions[0] = t.dimensions[0]
 
                 #Check if lead dimension is contiguous
                 contiguous = (isinstance(t.dimensions[0], RangeIndex) and
@@ -647,7 +701,7 @@ class TemporariesRawStackTransformation(Transformation):
                              (t.dimensions[0].lower is None and t.dimensions[0].upper is None)))
 
                 s_offset = one
-                for d, s in zip(t.dimensions[1:], t.shape[1:]):
+                for d, s in zip(t.dimensions, t.shape):
 
                     #Check if there are range indices in shape to account for
                     if isinstance(s, RangeIndex):
@@ -702,9 +756,9 @@ class TemporariesRawStackTransformation(Transformation):
                 #we can just access (1:horizontal.size, 1:stack_size)
 
                 # stack_dimensions[0] = self._get_horizontal_range(routine)
-                stack_dimensions[0] = RangeIndex((None, None))
+                # stack_dimensions[0] = RangeIndex((None, None))
 
-                for s in t.shape[1:]:
+                for s in t.shape:
                     if isinstance(s, RangeIndex):
                         s_lower = s.lower
                         s_upper = s.upper
@@ -727,7 +781,7 @@ class TemporariesRawStackTransformation(Transformation):
 
             if stack_size == one:
                 #If a single element is accessed, we only need a number
-                stack_dimensions[1] = lower
+                stack_dimensions[0] = lower
 
             else:
                 #Else we'll  have to construct a range index
@@ -736,7 +790,7 @@ class TemporariesRawStackTransformation(Transformation):
                     upper = Sum((int_var,) + offset.children)
                 else:
                     upper = Sum((int_var, offset))
-                stack_dimensions[1] = RangeIndex((lower, upper))
+                stack_dimensions[0] = RangeIndex((lower, upper))
 
             #Finally add to the mapping
             # relevant_shape = (self._get_horizontal_variable(routine), self._get_horizontal_variable(routine))

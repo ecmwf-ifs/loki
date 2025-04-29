@@ -12,6 +12,7 @@ from loki.batch import Pipeline
 from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
 from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
+from loki.transformations.pool_allocator_ftr_ptr import PoolAllocatorFtrPtrTransformation 
 
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
@@ -27,6 +28,7 @@ __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
     'SCCHoistPipeline', 'SCCVHoistPipeline', 'SCCSHoistPipeline',
     'SCCStackPipeline', 'SCCVStackPipeline', 'SCCSStackPipeline',
+    'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
 ]
 
@@ -348,6 +350,38 @@ check_bounds : bool, optional
     Insert bounds-checks in the kernel to make sure the allocated
     stack size is not exceeded (default: `True`)
 """
+
+###
+SCCVStackFtrPtrPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        SCCAnnotateTransformation,
+        # TemporariesPoolAllocatorTransformation,
+        PoolAllocatorFtrPtrTransformation,
+        PragmaModelTransformation
+    )
+)
+
+SCCStackFtrPtrPipeline = SCCVStackFtrPtrPipeline
+
+SCCSStackFtrPtrPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        SCCAnnotateTransformation,
+        # TemporariesPoolAllocatorTransformation,
+        PoolAllocatorFtrPtrTransformation,
+        PragmaModelTransformation
+    )
+)
+####
 
 SCCVRawStackPipeline = partial(
     Pipeline, classes=(
