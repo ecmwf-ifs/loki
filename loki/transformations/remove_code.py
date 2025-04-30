@@ -16,6 +16,7 @@ from loki.tools import flatten, as_tuple
 from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
 from loki.analyse import dataflow_analysis_attached
+from loki.types import BasicType
 
 
 __all__ = [
@@ -137,6 +138,8 @@ def do_remove_unused_dummy_args(routine, unused_args):
 def do_remove_unused_call_args(routine, unused_args_map):
 
     for call in FindNodes(CallStatement).visit(routine.body):
+        if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
+            continue
 
         unused_args = [call.arguments[c] for c in unused_args_map[call.routine].values() if c < len(call.arguments)]
         unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_args_map[call.routine]]
