@@ -535,8 +535,7 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     config = {
         'default': {
             'role': 'kernel', 'expand': True, 'strict': False,
-            'disable': ['dr_hook', 'abor1'], 'enable_imports': True,
-            'block': ['an_unused_kernel']
+            'enable_imports': True, 'block': ['an_unused_kernel']
         },
         'routines': {
             'driver': {'role': 'driver'},
