@@ -675,8 +675,8 @@ class SubstitutePragmaStrings(Transformer):
         r')': r'\)'
     }
 
-    def __init__(self, str_map, **kwargs):
-        super().__init__(inplace=True, **kwargs)
+    def __init__(self, str_map):
+        super().__init__(inplace=True)
 
         self.str_map = {}
         for k, v in str_map.items():
@@ -689,4 +689,5 @@ class SubstitutePragmaStrings(Transformer):
         for k, v in self.str_map.items():
             _content = re.sub(k, v, _content, flags=re.IGNORECASE)
 
-        return o._update(content=_content)
+        o._update(content=_content)
+        return o
