@@ -14,7 +14,7 @@ from loki.ir import (
 from loki.logging import warning
 from loki.module import Module
 from loki.tools import as_tuple
-from loki.types import SymbolAttributes, BasicType
+from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.expression import (
     symbols as sym, Variable, Array, RangeIndex
 )
@@ -146,6 +146,11 @@ class BlockViewToFieldViewTransformation(Transformation):
             decls = (ir.VariableDeclaration(symbols=(pointer_var,)),)
             decls += (ir.VariableDeclaration(symbols=(contig_pointer_var,)),)
 
+            field_object_type = SymbolAttributes(DerivedType(name=_type.lower().replace('_array', '')),
+                                                 pointer=True, polymorphic=True)
+            field_object = Variable(name='F_P', type=field_object_type)
+            decls += (ir.VariableDeclaration(symbols=(field_object,)),)
+
             typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),) # pylint: disable=unexpected-keyword-arg
 
         return typedefs
@@ -188,7 +193,8 @@ class BlockViewToFieldViewTransformation(Transformation):
         if field_array_mod_imports:
             definitions += self._create_dummy_field_api_defs(field_array_mod_imports)
 
-        # propagate dummy field_api wrapper definitions to children
+        # propagate dummy field_api wrapper definitions to self and children
+        routine.enrich(definitions)
         self.propagate_defs_to_children(self._key, definitions, successors)
 
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
@@ -347,11 +353,13 @@ class InjectBlockIndexTransformation(Transformation):
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
 
         exclude_arrays = []
+        force_inject_arrays = []
         if (item := kwargs.get('item', None)):
             exclude_arrays = item.config.get('exclude_arrays', [])
+            force_inject_arrays = item.config.get('force_inject_arrays', [])
 
         if role == 'kernel':
-            self.process_kernel(routine, targets, exclude_arrays)
+            self.process_kernel(routine, targets, exclude_arrays, force_inject_arrays)
 
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
@@ -368,12 +376,11 @@ class InjectBlockIndexTransformation(Transformation):
 
         return rank
 
-    def get_block_index(self, routine):
+    def get_block_index(self, routine, variable_map):
         """
         Utility to retrieve the block-index loop induction variable.
         """
 
-        variable_map = routine.variable_map
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
         if (block_index := [i for i in self.block_dim.indices
@@ -381,7 +388,7 @@ class InjectBlockIndexTransformation(Transformation):
             return routine.resolve_typebound_var(block_index[0], variable_map)
         return None
 
-    def process_body(self, body, block_index, targets, exclude_arrays):
+    def process_body(self, body, block_index, targets, exclude_arrays, force_inject_arrays):
         # The logic for callstatement args differs from other variables in the body,
         # so we build a list to filter
         call_args = []
@@ -413,25 +420,33 @@ class InjectBlockIndexTransformation(Transformation):
                     dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (decl_rank - 1))
                     vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
 
+        for var in force_inject_arrays:
+            dimensions = getattr(var, 'dimensions', None) or ((RangeIndex((None, None)),) * (len(var.shape) - 1))
+            vmap.update({var: var.clone(dimensions=dimensions + as_tuple(block_index))})
+
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
 
-    def process_kernel(self, routine, targets, exclude_arrays):
+    def process_kernel(self, routine, targets, exclude_arrays, force_inject_arrays):
 
         # we skip routines that do not contain the block index or any known alias
-        if not (block_index := self.get_block_index(routine)):
+        variable_map = routine.variable_map
+        if not (block_index := self.get_block_index(routine, variable_map)):
             return
 
+        # replace strings with variables
+        force_inject_arrays = [routine.resolve_typebound_var(var, variable_map) for var in force_inject_arrays]
+
         # for kernels we process the entire subroutine body
-        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays)
+        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays, force_inject_arrays)
 
 
 class LowerBlockIndexTransformation(Transformation):
     """
-    Transformation to lower the block index via appending the block index 
+    Transformation to lower the block index via appending the block index
     to variable dimensions/shape. However, this only handles variable
     declarations/definitions. Therefore this transformation must always be followed by
     the :any:`InjectBlockIndexTransformation`.
@@ -512,7 +527,7 @@ class LowerBlockIndexTransformation(Transformation):
 
     def process(self, routine, targets, role):
         """
-        This method adds the blocking index and size as arguments (if not already 
+        This method adds the blocking index and size as arguments (if not already
         there yet) for calls and corresponding callees and updates the dimension
         and shape of arguments for calls and callees.
 
@@ -577,7 +592,7 @@ class LowerBlockIndexTransformation(Transformation):
 
 class LowerBlockLoopTransformation(Transformation):
     """
-    Lower the block loop to calls within this loop. 
+    Lower the block loop to calls within this loop.
 
     For example, the following code:
 
@@ -607,7 +622,7 @@ class LowerBlockLoopTransformation(Transformation):
         end subroutine kernel
 
     is transformed to:
-    
+
     .. code-block:: fortran
 
         subroutine driver(nblks, ...)
@@ -624,7 +639,7 @@ class LowerBlockLoopTransformation(Transformation):
             ...
             integer :: ibl
             real :: var(jlon,nlev,nblks)
-            
+
             do ibl=1,nblks
                 do jl=1,...
                     do jk=1,...

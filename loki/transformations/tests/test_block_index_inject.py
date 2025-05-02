@@ -17,6 +17,7 @@ from loki.transformations import (
         LowerBlockIndexTransformation, LowerBlockLoopTransformation
 )
 from loki.expression import symbols as sym
+from loki.types import DerivedType
 
 @pytest.fixture(scope='module', name='horizontal')
 def fixture_horizontal():
@@ -121,7 +122,7 @@ end module dims_type_mod
         #-------
 f"""
 subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if request.param else 'bnds'})
-   use field_array_module, only: field_3rb_array
+   use field_array_module, only: field_2rb_array, field_3rb_array
    use container_type_mod, only: container_type
    use field_variables_mod, only: field_variables
    {'use dims_type_mod, only: dims_type' if not request.param else ''}
@@ -136,13 +137,14 @@ subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if requ
    {'integer, intent(in) :: start, end, nb' if request.param else 'type(dims_type), intent(in) :: bnds'}
 
    integer :: ibl
+   type(field_2rb_array) :: yla_other
    type(field_3rb_array) :: yla_data
 
    call yla_data%init(data)
 
    do ibl=1,{'nb' if request.param else 'bnds%nb'}
       {'bnds%kbl = ibl' if not request.param else ''}
-      call kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yla_data)
+      call kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yla_data, yla_other)
    enddo
 
    call yla_data%final()
@@ -154,8 +156,8 @@ end subroutine driver
         'kernel': (
         #-------
 f"""
-subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yla_data)
-   use field_array_module, only: field_3rb_array
+subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yda_data, yda_other)
+   use field_array_module, only: field_2rb_array, field_3rb_array
    use container_type_mod, only: container_type
    use field_variables_mod, only: field_variables
    {'use dims_type_mod, only: dims_type' if not request.param else ''}
@@ -169,6 +171,7 @@ subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, 
    type(container_type), intent(inout) :: container
    {'integer, intent(in) :: start, end, ibl' if request.param else 'type(dims_type), intent(in) :: bnds'}
    type(field_3rb_array), intent(inout) :: yda_data
+   type(field_2rb_array), intent(in) :: yda_other
 
    integer :: jl, jfld
    {'associate(start=>bnds%start, end=>bnds%end, ibl=>bnds%kbl)' if not request.param else ''}
@@ -188,7 +191,7 @@ subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, 
       enddo
    enddo
 
-   call another_kernel(nlon, nlev, data=yda_data%p)
+   call another_kernel(nlon, nlev, data=yda_data%p, other=yda_other%p)
 
    {'end associate' if not request.param else ''}
 end subroutine kernel
@@ -198,13 +201,14 @@ end subroutine kernel
         'another_kernel': (
         #-------
 """
-subroutine another_kernel(nproma, nlev, data)
+subroutine another_kernel(nproma, nlev, data, other)
    implicit none
    !... not a sequential routine but still labelling it as one to test the
    !... bail-out mechanism
    !$loki routine seq
    integer, intent(in) :: nproma, nlev
    real, intent(inout) :: data(nproma, nlev)
+   real, intent(in) :: other(nproma, nlev)
 end subroutine another_kernel
 """
         ).strip()
@@ -224,11 +228,15 @@ end subroutine another_kernel
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
                          'OMNI fails to import undefined module.')]))
-def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code, tmp_path):
+@pytest.mark.parametrize('force_inject_arrays', [True, False])
+def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code,
+                                         force_inject_arrays, tmp_path):
 
     config['routines'] = {
         'driver': {'role': 'driver'}
     }
+    if force_inject_arrays:
+        config['routines'].update({'kernel': {'role': 'kernel', 'force_inject_arrays': ['yda_other%p_field']}})
 
     scheduler = Scheduler(
         paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend,
@@ -266,6 +274,12 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
     # check callstatement was updated correctly
     calls = FindNodes(CallStatement).visit(kernel.body)
     assert f'yda_data%p_field(:,:,{ibl_expr})' in calls[1].arg_map.values()
+
+    # check force injection of block index in sequence associated args (yay!)
+    if force_inject_arrays:
+        assert f'yda_other%p_field(:,{ibl_expr})' in calls[1].arg_map.values()
+    else:
+        assert 'yda_other%p_field' in calls[1].arg_map.values()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
@@ -320,6 +334,17 @@ def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blo
     # check callstatement was updated correctly
     calls = FindNodes(CallStatement).visit(kernel.body)
     assert 'yda_data%p_field' in calls[1].arg_map.values()
+
+    # check that the dummy definition for field_3rb_array also contains the field pointer
+    driver = scheduler['#driver'].ir
+    yla_data = driver.variable_map['yla_data']
+    _typedef = yla_data.type.dtype.typedef
+    field_ptr = [v for v in _typedef.variables if v.name == 'F_P']
+    assert field_ptr
+    assert isinstance(field_ptr[0].type.dtype, DerivedType)
+    assert field_ptr[0].type.dtype.name.lower() == 'field_3rb'
+    assert field_ptr[0].type.pointer
+    assert field_ptr[0].type.polymorphic
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
