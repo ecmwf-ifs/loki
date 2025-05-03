@@ -244,6 +244,8 @@ class FortranCodegen(Stringifier):
 
         return self.join_lines(header, docstring, spec, body, footer)
 
+    visit_Function = visit_Subroutine
+
     # Handler for AST base nodes
 
     def visit_Node(self, o, **kwargs):

@@ -9,7 +9,7 @@
 from pathlib import Path
 import pytest
 
-from loki import Sourcefile, Module, Subroutine, fgen, fexprgen
+from loki import Sourcefile, Module, Subroutine, Function, fgen, fexprgen
 from loki.jit_build import jit_compile, jit_compile_lib, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, REGEX
@@ -1553,10 +1553,10 @@ pure elemental real function f_elem(a)
 end function f_elem
     """.strip()
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Function.from_source(fcode, frontend=frontend)
     assert 'PURE' in routine.prefix
     assert 'ELEMENTAL' in routine.prefix
-    assert routine.is_function is True
+    assert isinstance(routine, Function)
     assert routine.return_type.dtype is BasicType.REAL
 
     assert routine.name in routine.symbol_map
@@ -2383,7 +2383,7 @@ subroutine member_functions
     end function
 end subroutine member_functions
     """.strip()
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Function.from_source(fcode, frontend=frontend)
     add_to_a = routine['add_to_a']
     return_type = add_to_a.procedure_type.return_type
     assert return_type.dtype == BasicType.REAL

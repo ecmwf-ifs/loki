@@ -32,6 +32,7 @@ from loki.lint import *  # noqa
 from loki.analyse import *  # noqa
 from loki.dimension import *  # noqa
 from loki.transformations import *  # noqa
+from loki.function import *  # noqa
 
 
 try:
