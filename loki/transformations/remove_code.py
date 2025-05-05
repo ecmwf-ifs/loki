@@ -10,12 +10,12 @@ Collection of utilities to automatically remove code elements or
 section and to perform Dead Code Elimination.
 """
 
+from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym
-from loki.tools import flatten, as_tuple
 from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
-from loki.analyse import dataflow_analysis_attached
+from loki.tools import flatten, as_tuple
 from loki.types import BasicType
 
 

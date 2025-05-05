@@ -131,7 +131,7 @@ end module types_mod
 """
 
     fcode_driver = """
-subroutine driver(dims, struct)
+subroutine driver(dims, StrUct)
     use types_mod, only : dims_type, some_unused_type
     implicit none
     type(dims_type), intent(in) :: dims
@@ -139,18 +139,18 @@ subroutine driver(dims, struct)
     real, dimension(dims%klon) :: a, b, c, d
 
 
-    call kernel(dims%kst, dims%kend, dims, struct, a, b, c, d)
+    call kernel(dims%kst, dims%kend, dIms, sTRucT, a, b, c, d)
 
 end subroutine driver
 """
 
     fcode_kernel = """
-subroutine kernel(kst, kend, dims, struct, a, b, c, d)
+subroutine kernel(kst, kend, diMs, stRUCt, a, b, c, d)
     use types_mod, only : dims_type, some_unused_type
     implicit none
     integer, intent(in) :: kst, kend
-    type(dims_type), intent(in) :: dims
-    type(some_unused_type), intent(in) :: struct
+    type(dims_type), intent(in) :: dIms
+    type(some_unused_type), intent(in) :: StrucT
     real, intent(out), dimension(dims%klon) :: a, b, c, d
     integer :: jrof
 
@@ -160,16 +160,16 @@ subroutine kernel(kst, kend, dims, struct, a, b, c, d)
     enddo
 
     !$loki remove
-    call an_unused_kernel(struct)
+    call an_unused_kernel(stRuCt)
     !$loki end remove
 
-    call another_kernel(kst, kend, d=c, e=d)
+    call another_kernel(kst, kend, d=C, e=D)
 
 end subroutine kernel
 """
 
     fcode_another_kernel = """
-subroutine another_kernel(kst, kend, d, e)
+subroutine another_kernel(kst, kend, D, E)
     implicit none
     integer, intent(in) :: kst, kend
     real, intent(out) :: d(:), e(:)
