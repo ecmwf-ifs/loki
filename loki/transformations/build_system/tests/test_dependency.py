@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import copy
 import pytest
 
 from loki import Sourcefile
@@ -388,7 +389,8 @@ END SUBROUTINE myfunc
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 @pytest.mark.parametrize('use_scheduler', [False, True])
-def test_dependency_transformation_module_wrap(frontend, use_scheduler, tmp_path, config):
+@pytest.mark.parametrize('replace_ignore_items', [False, True])
+def test_dependency_transformation_module_wrap(frontend, use_scheduler, replace_ignore_items, tmp_path, config):
     """
     Test injection of suffixed kernels into unchanged driver
     routines automatic module wrapping of the kernel.
@@ -400,8 +402,10 @@ SUBROUTINE driver(a, b, c)
 
 #include "kernel.func.h"
 #include "kernel.intfb.h"
+#include "other_kernel.intfb.h"
 
   CALL kernel(a, b ,c)
+  CALL other_kernel(a, b ,c)
 END SUBROUTINE driver
     """.strip()
 
@@ -415,40 +419,79 @@ SUBROUTINE kernel(a, b, c)
 END SUBROUTINE kernel
     """.strip()
 
+    other_kernel_fcode = """
+SUBROUTINE other_kernel(a, b, c)
+  INTEGER, INTENT(INOUT) :: a, b, c
+
+  a = 1
+  b = 2
+  c = 3
+END SUBROUTINE other_kernel
+    """.strip()
+
     transformations = (
-        ModuleWrapTransformation(module_suffix='_mod'),
-        DependencyTransformation(suffix='_test', module_suffix='_mod')
+        ModuleWrapTransformation(module_suffix='_mod', replace_ignore_items=replace_ignore_items),
+        DependencyTransformation(suffix='_test', module_suffix='_mod', replace_ignore_items=replace_ignore_items)
     )
 
     if use_scheduler:
         (tmp_path/'kernel.F90').write_text(kernel_fcode)
+        (tmp_path/'other_kernel.F90').write_text(other_kernel_fcode)
         (tmp_path/'driver.F90').write_text(driver_fcode)
+
+        _config = copy.deepcopy(config)
+        if not replace_ignore_items:
+            _config['default'].update({'block': ['kernel']})
+
         scheduler = Scheduler(
-            paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+            paths=[tmp_path], config=SchedulerConfig.from_dict(_config), frontend=frontend, xmods=[tmp_path]
         )
         for transformation in transformations:
             scheduler.process(transformation)
 
-        kernel = scheduler['kernel_test_mod#kernel_test'].source
+        if replace_ignore_items:
+            kernel = scheduler['kernel_test_mod#kernel_test'].source
+        else:
+            for item_name in ['#kernel', 'kernel_mod#kernel', 'kernel_test_mod#kernel_test']:
+                with pytest.raises(AttributeError):
+                    _ = scheduler[item_name].source
+            kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        other_kernel = scheduler['other_kernel_test_mod#other_kernel_test'].source
         driver = scheduler['#driver'].source
 
     else:
         kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
+        other_kernel = Sourcefile.from_source(other_kernel_fcode, frontend=frontend, xmods=[tmp_path])
         driver = Sourcefile.from_source(driver_fcode, frontend=frontend, xmods=[tmp_path])
 
         kernel.apply(transformations[0], role='kernel')
-        driver['driver'].apply(transformations[0], role='driver', targets=('kernel',))
+        other_kernel.apply(transformations[0], role='kernel')
+        driver['driver'].apply(transformations[0], role='driver', targets=('kernel', 'other_kernel'))
         kernel.apply(transformations[1], role='kernel')
-        driver['driver'].apply(transformations[1], role='driver', targets=('kernel_mod', 'kernel'))
+        other_kernel.apply(transformations[1], role='kernel')
+        driver['driver'].apply(transformations[1], role='driver', targets=('kernel_mod', 'kernel', 'other_kernel'))
 
-    # Check that the kernel has been wrapped
-    assert len(kernel.subroutines) == 0
-    assert len(kernel.all_subroutines) == 1
-    assert kernel.all_subroutines[0].name == 'kernel_test'
-    assert kernel['kernel_test'] == kernel.all_subroutines[0]
-    assert len(kernel.modules) == 1
-    assert kernel.modules[0].name == 'kernel_test_mod'
-    assert kernel['kernel_test_mod'] == kernel.modules[0]
+    # Check that the kernels have been wrapped
+    if use_scheduler and not replace_ignore_items:
+        assert len(kernel.subroutines) == 1
+        assert kernel.subroutines[0].name == 'kernel'
+        assert kernel['kernel'] == kernel.subroutines[0]
+    else:
+        assert len(kernel.subroutines) == 0
+        assert len(kernel.all_subroutines) == 1
+        assert kernel.all_subroutines[0].name == 'kernel_test'
+        assert kernel['kernel_test'] == kernel.all_subroutines[0]
+        assert len(kernel.modules) == 1
+        assert kernel.modules[0].name == 'kernel_test_mod'
+        assert kernel['kernel_test_mod'] == kernel.modules[0]
+
+    assert len(other_kernel.subroutines) == 0
+    assert len(other_kernel.all_subroutines) == 1
+    assert other_kernel.all_subroutines[0].name == 'other_kernel_test'
+    assert other_kernel['other_kernel_test'] == other_kernel.all_subroutines[0]
+    assert len(other_kernel.modules) == 1
+    assert other_kernel.modules[0].name == 'other_kernel_test_mod'
+    assert other_kernel['other_kernel_test_mod'] == other_kernel.modules[0]
 
     # Check that the driver name has not changed
     assert len(driver.modules) == 0
@@ -457,13 +500,25 @@ END SUBROUTINE kernel
 
     # Check that calls and imports have been diverted to the re-generated routine
     calls = FindNodes(CallStatement).visit(driver['driver'].body)
-    assert len(calls) == 1
-    assert calls[0].name == 'kernel_test'
+    assert len(calls) == 2
     imports = FindNodes(Import).visit(driver['driver'].ir)
-    assert len(imports) == 2
-    assert imports[0].module == 'kernel_test_mod'
-    assert 'kernel_test' in [str(s) for s in imports[0].symbols]
-    assert imports[1].module == 'kernel.func.h'
+    assert len(imports) == 3
+
+    _imported_symbols = driver['driver'].imported_symbols
+    _imported_modules = [str(i.module) for i in driver['driver'].imports]
+
+    if use_scheduler and not replace_ignore_items:
+        assert calls[0].name == 'kernel'
+        assert 'kernel.intfb.h' in _imported_modules
+    else:
+        assert calls[0].name == 'kernel_test'
+        assert 'kernel_test' in _imported_symbols
+        assert 'kernel_test_mod' in _imported_modules
+
+    assert calls[1].name == 'other_kernel_test'
+    assert 'kernel.func.h' in _imported_modules
+    assert 'other_kernel_test_mod' in _imported_modules
+    assert 'other_kernel_test' in _imported_symbols
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

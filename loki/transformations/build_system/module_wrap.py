@@ -110,7 +110,8 @@ class ModuleWrapTransformation(Transformation):
         """
 
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
-        if self.replace_ignore_items and (item := kwargs.get('item')):
+        item = kwargs.get('item')
+        if item and self.replace_ignore_items:
             targets += tuple(str(i).lower() for i in item.ignore)
 
         def _update_item(proc_name, module_name):
