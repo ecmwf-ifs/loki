@@ -452,10 +452,9 @@ END SUBROUTINE other_kernel
         if replace_ignore_items:
             kernel = scheduler['kernel_test_mod#kernel_test'].source
         else:
-            with pytest.raises(AttributeError):
-                kernel = scheduler['#kernel'].source
-                kernel = scheduler['kernel_mod#kernel'].source
-                kernel = scheduler['kernel_test_mod#kernel_test'].source
+            for item_name in ['#kernel', 'kernel_mod#kernel', 'kernel_test_mod#kernel_test']:
+                with pytest.raises(AttributeError):
+                    _ = scheduler[item_name].source
             kernel = Sourcefile.from_source(kernel_fcode, frontend=frontend, xmods=[tmp_path])
         other_kernel = scheduler['other_kernel_test_mod#other_kernel_test'].source
         driver = scheduler['#driver'].source
