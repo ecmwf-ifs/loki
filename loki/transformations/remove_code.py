@@ -10,11 +10,13 @@ Collection of utilities to automatically remove code elements or
 section and to perform Dead Code Elimination.
 """
 
+from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
-from loki.expression.symbolic import simplify
-from loki.tools import flatten, as_tuple
-from loki.ir import Conditional, Transformer, Comment
+from loki.expression import simplify, symbols as sym
+from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
+from loki.tools import flatten, as_tuple
+from loki.types import BasicType
 
 
 __all__ = [
@@ -65,14 +67,18 @@ class RemoveCodeTransformation(Transformation):
         "kernel"; default: ``False``
     """
 
+    _key = 'RemoveCodeTransformation'
+
     # Recurse to subroutines in ``contains`` clause
     recurse_to_internal_procedures = True
+    reverse_traversal = True
 
     def __init__(
             self, remove_marked_regions=True, mark_with_comment=True,
             remove_dead_code=False, use_simplify=True,
             call_names=None, intrinsic_names=None,
-            remove_imports=True, kernel_only=False
+            remove_imports=True, kernel_only=False,
+            remove_unused_args=False
     ):
         self.remove_marked_regions = remove_marked_regions
         self.mark_with_comment = mark_with_comment
@@ -85,29 +91,122 @@ class RemoveCodeTransformation(Transformation):
         self.remove_imports = remove_imports
 
         self.kernel_only = kernel_only
+        self.remove_unused_args = remove_unused_args
 
     def transform_subroutine(self, routine, **kwargs):
 
-        if self.kernel_only and not kwargs.get('role') == 'kernel':
-            return
+        if kwargs.get('role') == 'kernel' or not self.kernel_only:
+            # Apply named node removal to strip specific calls
+            if self.call_names or self.intrinsic_names:
+                do_remove_calls(
+                    routine, call_names=self.call_names,
+                    intrinsic_names=self.intrinsic_names,
+                    remove_imports=self.remove_imports
+                )
 
-        # Apply named node removal to strip specific calls
-        if self.call_names or self.intrinsic_names:
-            do_remove_calls(
-                routine, call_names=self.call_names,
-                intrinsic_names=self.intrinsic_names,
-                remove_imports=self.remove_imports
-            )
+            # Apply marked region removal
+            if self.remove_marked_regions:
+                do_remove_marked_regions(
+                    routine, mark_with_comment=self.mark_with_comment
+                )
 
-        # Apply marked region removal
-        if self.remove_marked_regions:
-            do_remove_marked_regions(
-                routine, mark_with_comment=self.mark_with_comment
-            )
+            # Apply Dead Code Elimination
+            if self.remove_dead_code:
+                do_remove_dead_code(routine, use_simplify=self.use_simplify)
 
-        # Apply Dead Code Elimination
-        if self.remove_dead_code:
-            do_remove_dead_code(routine, use_simplify=self.use_simplify)
+        if self.remove_unused_args and (item := kwargs['item']):
+            # collect unused args from successors
+            successors = kwargs['sub_sgraph'].successors(item=item)
+            unused_args_map = {successor.ir: successor.trafo_data.get(self._key, {}).get('unused_args', {})
+                               for successor in successors}
+            do_remove_unused_call_args(routine, unused_args_map)
+
+            if item.config.get('remove_unused_args', True) and kwargs['role'] == 'kernel':
+                # find unused args
+                unused_args = find_unused_dummy_args(routine)
+                do_remove_unused_dummy_args(routine, unused_args)
+                # store unused args
+                item.trafo_data[self._key] = {'unused_args': unused_args}
+
+
+def do_remove_unused_dummy_args(routine, unused_args):
+    """
+    Utility routine to remove unused dummy arguments from
+    a given routine.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        A :any:`Subroutine` whose unused dummy arguments will be removed.
+    unused_args : dict
+       A dict mapping the unused dummy argument symbol to its position in the
+       routine's argument list.This must be retrieved using the
+       :any:`find_unused_dummy_args` utility.
+    """
+
+    routine.variables = [a for a in routine.variables
+                         if not a.name.lower() in unused_args]
+
+
+def do_remove_unused_call_args(routine, unused_args_map):
+    """
+    Utility routine to remove unused arguments from all the
+    :any:`CallStatement`s in a given routine.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        A :any:`Subroutine` whose call statements will be updated.
+    unused_args_map : dict
+       A dict mapping the :any:`Subroutine` corresponding to the :any:`CallStatement`,
+       accessed via the `any:`CallStatement`.routine property, to its unused arguments.
+       The unused arguments must be retrieved using the :any:`find_unused_dummy_args`
+       utility.
+    """
+
+    for call in FindNodes(CallStatement).visit(routine.body):
+        if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
+            continue
+
+        unused_args = [call.arguments[c] for c in unused_args_map[call.routine].values() if c < len(call.arguments)]
+        unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_args_map[call.routine]]
+
+        new_args = [arg for arg in call.arguments if not arg in unused_args]
+        new_kwargs = [(kw, arg) for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs]
+
+        call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
+
+
+def find_unused_dummy_args(routine):
+    """
+    Utility routine to find all the unused arguments in a :any:`Subroutine`.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        A :any:`Subroutine` to search for unused dummy arguments.
+
+    Return
+    ------
+    unused_args : dict
+       A dict mapping the unused dummy argument symbol to its position in the
+       routine's argument list.
+    """
+
+    variable_map = routine.symbol_map
+    with dataflow_analysis_attached(routine):
+        used_or_defined_symbols = routine.body.uses_symbols | routine.body.defines_symbols
+
+        # we search for symbols used to define array sizes
+        used_or_defined_array_shapes = [s.shape for s in used_or_defined_symbols if isinstance(s, sym.Array)]
+        used_or_defined_symbols |= set(FindVariables().visit(used_or_defined_array_shapes))
+
+        used_or_defined_symbols |= set(variable_map.get(v.name_parts[0], v) for v in used_or_defined_symbols)
+
+        unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
+                       if not a.name.lower() in used_or_defined_symbols}
+
+    return unused_args
 
 
 def do_remove_dead_code(routine, use_simplify=True):
