@@ -22,7 +22,7 @@ from loki.ir import (
 )
 
 from loki.transformations.pragma_model import PragmaModelTransformation
-from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.temporaries.pool_allocator import TemporariesPoolAllocatorTransformation
 
 
 @pytest.fixture(scope='module', name='block_dim')

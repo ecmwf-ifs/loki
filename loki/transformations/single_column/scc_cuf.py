@@ -20,7 +20,7 @@ from loki.tools import CaseInsensitiveDict, as_tuple, flatten
 from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
-from loki.transformations.hoist_variables import HoistVariablesTransformation
+from loki.transformations.temporaries.hoist_variables import HoistVariablesTransformation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.devector import RemoveLoopTransformer

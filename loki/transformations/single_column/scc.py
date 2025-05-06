@@ -9,9 +9,10 @@ from functools import partial
 
 from loki.batch import Pipeline
 
-from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
-from loki.transformations.pool_allocator import TemporariesPoolAllocatorTransformation
-from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
+from loki.transformations.temporaries import (
+        HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
+        TemporariesRawStackTransformation
+)
 
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
