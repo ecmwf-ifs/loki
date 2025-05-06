@@ -305,7 +305,7 @@ class OMNI2IR(GenericVisitor):
         body = tuple(self.visit(c, **kwargs) for c in o)
         return ir.Interface(body=body, abstract=abstract, spec=spec, source=kwargs['source'])
 
-    def _create_Subroutine_object(self, o, scope, symbol_map):
+    def _create_Procedure_object(self, o, scope, symbol_map):
         """Helper method to instantiate a Subroutine object"""
         from loki.function import Function  # pylint: disable=import-outside-toplevel,cyclic-import
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
@@ -345,11 +345,16 @@ class OMNI2IR(GenericVisitor):
 
         # Instantiate the object
         if procedure is None:
-            PType = Function if is_function else Subroutine
-            procedure = PType(
-                name=name, args=args, prefix=prefix, bind=None,
-                result_name=result, parent=scope, ast=o, source=self.get_source(o)
-            )
+            if is_function:
+                procedure = Function(
+                    name=name, args=args, prefix=prefix, bind=None,
+                    result_name=result, parent=scope, ast=o, source=self.get_source(o)
+                )
+            else:
+                procedure = Subroutine(
+                    name=name, args=args, prefix=prefix, bind=None,
+                    result_name=result, parent=scope, ast=o, source=self.get_source(o)
+                )
         else:
             procedure.__initialize__(
                 name=name, args=args, docstring=procedure.docstring, spec=procedure.spec,
@@ -366,7 +371,7 @@ class OMNI2IR(GenericVisitor):
         kwargs['symbol_map'].update({s.attrib['type']: s for s in o.find('symbols')})
 
         # Instantiate the object
-        routine = self._create_Subroutine_object(o, kwargs['scope'], kwargs['symbol_map'])
+        routine = self._create_Procedure_object(o, kwargs['scope'], kwargs['symbol_map'])
         if routine is None:
             return None
         kwargs['scope'] = routine
@@ -485,7 +490,7 @@ class OMNI2IR(GenericVisitor):
             # I know, it's not pretty but alternatively we could hand down this array as part of
             # kwargs but that feels like carrying around a lot of bulk, too.
             contains = [
-                self._create_Subroutine_object(member_ast, kwargs['scope'], kwargs['symbol_map'])
+                self._create_Procedure_object(member_ast, kwargs['scope'], kwargs['symbol_map'])
                 for member_ast in contains_ast.findall('FfunctionDefinition')
             ]
 
