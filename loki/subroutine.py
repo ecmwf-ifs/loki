@@ -281,15 +281,6 @@ class Subroutine(ProgramUnit):
         """
         return ProcedureType(procedure=self)
 
-    @property
-    def return_type(self):
-        """
-        Return the return_type of this subroutine
-        """
-        if not self.is_function:
-            return None
-        return self.symbol_attrs.get(self.result_name)
-
     variables = ProgramUnit.variables
 
     @variables.setter

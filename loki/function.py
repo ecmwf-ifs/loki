@@ -78,3 +78,8 @@ class Function(Subroutine):
     def __repr__(self):
         """ String representation """
         return f'Function:: {self.name}'
+
+    @property
+    def return_type(self):
+        """ Return the return_type of this subroutine """
+        return self.symbol_attrs.get(self.result_name)

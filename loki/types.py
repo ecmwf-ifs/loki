@@ -200,7 +200,7 @@ class ProcedureType(DataType):
             assert is_function is None or is_function == self.procedure.is_function
             self._is_function = self.procedure.is_function
             # TODO: compare return type once type comparison is more robust
-            self._return_type = self.procedure.return_type
+            self._return_type = self.procedure.return_type if self.procedure.is_function else None
 
     @property
     def _canonical(self):
