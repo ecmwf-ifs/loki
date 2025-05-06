@@ -1225,11 +1225,24 @@ END INTERFACE
 """.strip()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails without dummy module provided')]))
-def test_subroutine_rescope_symbols(frontend):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_rescope_symbols(tmp_path, frontend):
+    """ Test the rescoping of variables. """
+
+    fcode_module = """
+module some_mod
+implicit none
+contains
+  subroutine ext1(a)
+    integer, intent(inout) :: a(:)
+  end subroutine ext1
+
+  subroutine ext2(a)
+    integer, intent(inout) :: a(:)
+  end subroutine ext2
+end module some_mod
     """
-    Test the rescoping of variables.
-    """
+
     fcode = """
 subroutine test_subroutine_rescope(a, b, n)
   use some_mod, only: ext1
@@ -1265,7 +1278,8 @@ contains
 end subroutine test_subroutine_rescope
     """.strip()
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     ref_fgen = fgen(routine)
 
     # Create a copy of the nested subroutine with rescoping and
@@ -1338,11 +1352,23 @@ end subroutine test_subroutine_rescope
         )
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails without dummy module provided')]))
-def test_subroutine_rescope_clone(frontend):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_rescope_clone(tmp_path, frontend):
+    """ Test the rescoping of variables in clone. """
+    fcode_module = """
+module some_mod
+implicit none
+contains
+  subroutine ext1(a)
+    integer, intent(inout) :: a(:)
+  end subroutine ext1
+
+  subroutine ext2(a)
+    integer, intent(inout) :: a(:)
+  end subroutine ext2
+end module some_mod
     """
-    Test the rescoping of variables in clone.
-    """
+
     fcode = """
 subroutine test_subroutine_rescope_clone(a, b, n)
   use some_mod, only: ext1
@@ -1377,7 +1403,8 @@ contains
 end subroutine test_subroutine_rescope_clone
     """.strip()
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     ref_fgen = fgen(routine)
 
     # Create a copy of the nested subroutine with rescoping and
@@ -2071,17 +2098,31 @@ end module field_array_module
     assert assigns[0].lhs.parent.type.dtype.typedef == field_3rb_tdef
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI cannot handle external type defs without source')]
-))
-def test_subroutine_deep_clone(frontend):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_deep_clone(frontend, tmp_path):
     """
     Test that deep-cloning a subroutine actually ensures clean scope separation.
     """
+    fcode_module = """
+module my_types
+  implicit none
+  integer, parameter :: jprb=4
+
+  type nothing
+    logical :: different
+  end type nothing
+
+  type that_thing
+    integer :: n
+    integer :: else
+    type(nothing) :: entirely
+  end type that_thing
+end module my_types
+"""
 
     fcode = """
 subroutine myroutine(something)
-  use parkind1, only : jpim, jprb
+  use my_types, only : jprb, that_thing
   implicit none
 
   type(that_thing), intent(inout) :: something
@@ -2098,7 +2139,8 @@ subroutine myroutine(something)
   end associate
 end subroutine myroutine
 """
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Create a deep-copy of the routine
     new_routine = routine.clone()
@@ -2260,14 +2302,29 @@ end subroutine
     assert not_tt_invalid.type.dtype == BasicType.DEFERRED
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Parsing fails with no header information available')]
-))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_typebound_var_missing_definition(frontend, tmp_path):
     """
     Test correct behaviour of :any:`Scope.resolve_typebound_var` utility
     in the absence of type information
     """
+    fcode_module = """
+module header_mod
+    implicit none
+    type some_type
+        integer :: ival
+    end type some_type
+
+    type other_type
+        type(some_type) :: other
+    end type other_type
+
+    type third_type
+        type(other_type) :: some
+    end type third_type
+end module header_mod
+"""
+
     fcode = """
 subroutine some_routine
     use header_mod, only: third_type
@@ -2276,6 +2333,7 @@ subroutine some_routine
 end subroutine
     """.strip()
 
+    Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['some_routine']
 
