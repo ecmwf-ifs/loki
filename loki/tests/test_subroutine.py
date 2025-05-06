@@ -1299,8 +1299,12 @@ end subroutine test_subroutine_rescope
             assert var.scope is nested_routine
 
     # Make sure the KIND parameter symbol in the variable's type is also correctly rescoped
-    assert routine.members[0].variable_map['j'].type.kind.scope is routine.members[0]
-    assert nested_routine.variable_map['j'].type.kind.scope is nested_routine
+    if frontend == OMNI:  # OMNI resolves paramter kind symbols
+        assert routine.members[0].variable_map['j'].type.kind == 4
+        assert nested_routine.variable_map['j'].type.kind == 4
+    else:
+        assert routine.members[0].variable_map['j'].type.kind.scope is routine.members[0]
+        assert nested_routine.variable_map['j'].type.kind.scope is nested_routine
 
     # Create another copy of the nested subroutine without rescoping
     nested_spec = Transformer().visit(routine.members[0].spec)
@@ -1310,7 +1314,10 @@ end subroutine test_subroutine_rescope
 
     # Save the kind symbol for later
     other_kind_var = other_routine.variable_map['j'].type.kind
-    assert other_kind_var.scope is routine.members[0]
+    if frontend == OMNI:
+        assert other_kind_var == 4
+    else:
+        assert other_kind_var.scope is routine.members[0]
 
     # Explicitly throw away type information from original nested routine
     routine.members[0]._parent = None
@@ -1332,11 +1339,14 @@ end subroutine test_subroutine_rescope
     assert all(var.scope is None or var.type is None for var in other_routine.variables)
 
     # Make sure changes apply also to the KIND attribute
-    assert routine.members[0].variable_map['j'].type.kind.scope is routine.members[0]
+    if frontend == OMNI:
+        assert routine.members[0].variable_map['j'].type.kind == 4
+    else:
+        assert routine.members[0].variable_map['j'].type.kind.scope is routine.members[0]
 
-    # This points (weakly) to an entry in routine.members[0].symbols which may or may not
-    # have been garbage collected at this point
-    assert other_kind_var.scope is not other_routine
+        # This points (weakly) to an entry in routine.members[0].symbols which may or may not
+        # have been garbage collected at this point
+        assert other_kind_var.scope is not other_routine
 
     # fgen of the not rescoped routine should lack some type information and thus either fail or
     # produce a different output, depending on whether GC has already happened
