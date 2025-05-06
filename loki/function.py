@@ -5,20 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.expression import symbols as sym
-from loki.frontend import (
-    parse_omni_ast, parse_fparser_ast, get_fparser_node,
-    parse_regex_source
-)
-from loki.ir import (
-    nodes as ir, FindNodes, Transformer, ExpressionTransformer,
-    pragmas_attached
-)
-from loki.logging import debug
-from loki.program_unit import ProgramUnit
 from loki.subroutine import Subroutine
-from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, ProcedureType, SymbolAttributes
 
 
 __all__ = ['Function']

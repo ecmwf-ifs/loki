@@ -513,8 +513,10 @@ class SubroutineFunctionPattern(Pattern):
         if routine is None:
             is_function = match['keyword'].lower() == 'function'
             source = reader.source_from_sanitized_span(match.span())
-            PType = Function if is_function else Subroutine
-            routine = PType(name=name, args=(), source=source, parent=scope)
+            if is_function:
+                routine = Function(name=name, args=(), source=source, parent=scope)
+            else:
+                routine = Subroutine(name=name, args=(), source=source, parent=scope)
 
         if match['spec']:
             statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern', 'PragmaPattern')
