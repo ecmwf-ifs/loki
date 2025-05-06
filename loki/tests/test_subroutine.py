@@ -453,13 +453,12 @@ subroutine routine_dim_shapes(v1, v2, v3, v4, v5)
 
 end subroutine routine_dim_shapes
 """
-    # TODO: Need a named subroutine lookup
     routine = Subroutine.from_source(fcode, frontend=frontend)
     assert routine.arguments == ('v1', 'v2', 'v3(:)', 'v4(v1, v2)', 'v5(0:v1, v2 - 1)')
 
     # Make sure variable/argument shapes on the routine work
     shapes = [fexprgen(v.shape) for v in routine.arguments if isinstance(v, sym.Array)]
-    assert shapes == ['(v1,)', '(v1, v2)', '(0:v1, v2 - 1)']
+    assert shapes == ['(:,)', '(v1, v2)', '(0:v1, v2 - 1)']
 
     # Ensure that all spec variables (including dimension symbols) are scoped correctly
     spec_vars = [v for v in FindVariables(unique=False).visit(routine.spec) if v.name.lower() != 'selected_real_kind']
@@ -469,7 +468,7 @@ end subroutine routine_dim_shapes
     # Ensure shapes of body variables are ok
     b_shapes = [fexprgen(v.shape) for v in FindVariables(unique=False).visit(routine.body)
                 if isinstance(v, sym.Array)]
-    assert b_shapes == ['(v1,)', '(v1,)', '(v1, v2)', '(0:v1, v2 - 1)']
+    assert b_shapes == ['(:,)', '(:,)', '(v1, v2)', '(0:v1, v2 - 1)']
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -430,10 +430,6 @@ class OMNI2IR(GenericVisitor):
             source=routine.source, incomplete=False
         )
 
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine._infer_allocatable_shapes()
-
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
             routine.spec = process_dimension_pragmas(routine.spec, scope=routine)
