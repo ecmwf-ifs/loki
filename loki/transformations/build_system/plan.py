@@ -145,6 +145,8 @@ class CMakePlanTransformation(Transformation):
         # write plan file for each key/target/library
         keys = set(self.sources_to_transform.keys()) | \
                 set(self.sources_to_append.keys()) | set(self.sources_to_remove.keys())
+        print(f"sources to transform for None: {self.sources_to_transform.get(None, ())}")
+        print(f"sources to append for None: {self.sources_to_append.get(None, ())}")
         for key in keys:
             if key is None:
                 continue

@@ -49,7 +49,8 @@ class RegexParserClass(Flag):
     TypeDefClass = auto()
     DeclarationClass = auto()
     CallClass = auto()
-    AllClasses = ProgramUnitClass | InterfaceClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
+    PragmaClass = auto()
+    AllClasses = ProgramUnitClass | InterfaceClass | ImportClass | TypeDefClass | DeclarationClass | CallClass | PragmaClass  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:
@@ -512,7 +513,7 @@ class SubroutineFunctionPattern(Pattern):
             )
 
         if match['spec']:
-            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
+            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern', 'PragmaPattern')
             block_candidates = ('InterfacePattern',)
             spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
@@ -1000,6 +1001,60 @@ class CallPattern(Pattern):
             ]
         return ir.CallStatement(name=name, arguments=(), source=source)
 
+class PragmaPattern(Pattern):
+    """
+    Pattern to match :any:`VariableDeclaration` nodes.
+    """
+
+    parser_class = RegexParserClass.PragmaClass
+
+    def __init__(self):
+        super().__init__(
+            # r'!\$[a-zA-Z]* ',
+            r'!\$[a-z]* ',
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`VariableDeclaration`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+
+        if match is not None:
+            keyword = line.line[2:match.span()[1]].strip() # .replace('!$', '')
+            content = line.line[match.span()[1]::].strip()
+            print(f"PragmaPattern match: {match} | match.span: {match.span()} | keyword = {keyword} | content: {content}")
+            return ir.Pragma(keyword=keyword, content=content)
+        # if not match:
+        #     return None
+
+        # if (_typename := match['typename']):
+        #     type_ = SymbolAttributes(DerivedType(_typename))
+        # else:
+        #     type_ = SymbolAttributes(BasicType.from_str(match['basic_type']))
+        # assert type_
+
+        # if match['param']:
+        #     param = match['param'].strip().strip('()').split('=')
+        #     if len(param) == 1 or param[0].lower() == 'kind':
+        #         type_ = type_.clone(kind=sym.Variable(name=param[-1], scope=scope))
+
+        # variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
+        # variables = re.sub(r'=(?:>)?[^,]*(?=,|$)', r'', variables) # Remove initialization
+        # variables = variables.replace(' ', '').split(',')  # Variable names without white space
+        # variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
+        # return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
 
 PATTERN_REGISTRY = {
     name: globals()[name]() for name in dir()

@@ -193,8 +193,10 @@ subroutine routine_b(
   integer b
   b = 4
 
+  !$loki inline
   call contained_c(i)
 
+  !$loki whatever test pragma lol
   call routine_a()
 contains
 !abc ^$^**
@@ -244,6 +246,12 @@ end module last_module
     """.strip()
 
     sourcefile = Sourcefile.from_source(fcode, frontend=REGEX)
+    from loki import pprint
+    # print(f"sourcefile: {pprint(sourcefile.ir)}")
+    # print(f"sourcefile.routines['routine_b']: {sourcefile.routines['routine_b']}")
+    # print(f"sourcefile.routines[1]: {sourcefile.routines[1]}")
+    routine_b = sourcefile.routines[1]
+    print(pprint(routine_b.ir))
     assert [m.name for m in sourcefile.modules] == ['some_module', 'other_module', 'last_module']
     assert [r.name for r in sourcefile.routines] == [
         'routine_a', 'routine_b', 'function_d'

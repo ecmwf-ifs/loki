@@ -5,9 +5,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
+
 from loki.batch import Transformation
 from loki.transformations.remove_code import do_remove_dead_code
+from loki.ir import pragmas_attached, CallStatement, FindNodes, is_loki_pragma
+from loki.types import BasicType
 
+from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict
 from loki.transformations.inline.constants import inline_constant_parameters
 from loki.transformations.inline.functions import (
     inline_elemental_functions, inline_statement_functions
@@ -125,3 +130,63 @@ class InlineTransformation(Transformation):
         # After inlining, attempt to trim unreachable code paths
         if self.remove_dead_code:
             do_remove_dead_code(routine)
+
+    def plan_subroutine(self, routine, **kwargs):
+        item = kwargs.get('item')
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        successor_map = CaseInsensitiveDict(
+            (successor.local_name, successor) for successor in successors
+        )
+        # from loki import pprint
+        # print('------------------------------')
+        # print(f"routine: {routine}")
+        # print(f"{pprint(routine.ir)}")
+        # print('------------------------------')
+        
+        # calls = FindNodes(CallStatement).visit(routine.ir)
+        # print(f"INLINE plan_subroutine routine {routine} | calls: {calls}")
+        with pragmas_attached(routine, node_type=CallStatement):
+            # Group the marked calls by callee routine
+            # call_sets = defaultdict(list)
+            # no_call_sets = defaultdict(list)
+            inline_calls = set()
+            calls = FindNodes(CallStatement).visit(routine.ir)
+            for call in calls: # FindNodes(CallStatement).visit(routine.body):
+                # if call.routine == BasicType.DEFERRED:
+                #     continue
+
+                if is_loki_pragma(call.pragma, starts_with='inline'):
+                    # call_sets[call.routine].append(call)
+                    inline_calls.add(call)
+                # else:
+                #     no_call_sets[call.routine].append(call)
+        # print(f"INLINE plan_subroutine routine {routine} | calls: {calls} | call_sets: {call_sets} | no_call_sets: {no_call_sets}")
+        # print(f"INLINE plan_subroutine routine {routine} | call_sets: {call_sets} | no_call_sets: {no_call_sets}")
+        # print(f"INLINE plan_subroutine routine {routine} | inline_calls: {inline_calls}")
+        # print(f"  successors: {successor_map}")
+        inline_items = [successor_map[call.name] for call in inline_calls]
+        # print(f"  inline_items: {inline_items}")
+        # new_item.plan_data.setdefault('additional_dependencies', ())
+
+        if inline_items:
+            item.plan_data.setdefault('removed_dependencies', ())
+            item.plan_data.setdefault('additional_dependencies', ())
+            item.plan_data['removed_dependencies'] += as_tuple(inline_items)
+            additional_dep = ()
+            for inline_item in inline_items:
+                print(f"[{item}] - inline_item: {inline_item} | removed dep {inline_item.plan_data.get('removed_dependencies', None)}")
+                inlined_successors = sub_sgraph.successors(inline_item) + inline_item.plan_data.get('additional_dependencies', ())
+                print(f"  successors: {inlined_successors}")
+                for inlined_successor in inlined_successors:
+                    # print(f"[{item}] inlined_successor: {inlined_successor}") #  | removed inlined successor: {inlined_successor.plan_data['removed_dependencies']}")
+                    # if 'removed_dependencies' in inlined_successor.plan_data:
+                    #     print(f"  removed inlined successor: {inlined_successor.plan_data['removed_dependencies']}")
+                    # if 'removed_dependencies' in inlined_successor.plan_data and inlined_successor not in inlined_successor.plan_data['removed_dependencies']:
+                    # print(f"ADDING ADDITIONAL DEP {inlined_successors}")
+                    if inlined_successor not in inline_item.plan_data.get('removed_dependencies', ()):
+                        additional_dep += (inlined_successor,)
+            print(f"  additional_dependencies: {as_tuple(set(additional_dep))}")
+            item.plan_data['additional_dependencies'] += as_tuple(set(additional_dep))
+            print(f"  item.plan_data['removed_dependencies']: {item.plan_data['removed_dependencies']}")
+

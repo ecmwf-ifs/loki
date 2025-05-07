@@ -106,8 +106,8 @@ def declare_fixed_value_scalars_as_constants(routine):
         if issubclass(type(expr), sym._Literal):
             return True
         # expr is a Product/Sum and all children are literals
-        if isinstance(expr, (sym.Product, sym.Sum)):
-            return all(issubclass(type(_expr), sym._Literal) for _expr in expr.children)
+        # if isinstance(expr, (sym.Product, sym.Sum)):
+        #     return all(issubclass(type(_expr), sym._Literal) for _expr in expr.children)
         return False
 
     assignments = FindNodes(ir.Assignment).visit(routine.body)
@@ -120,6 +120,7 @@ def declare_fixed_value_scalars_as_constants(routine):
         args |= set(call.arguments) | set(arg[1] for arg in call.kwarguments)
     if args:
         variables = [var for var in variables if var not in args]
+    variables = [var for var in variables if not str(var.name).lower() in ['jkk', 'jk', 'jl', 'kk', 'iter', 'jj', 'jt', 'jtile', 'jvt', 'jn', 'jm', 'itercstom']]
     assignments_dic = {}
     for assignment in assignments:
         if assignment.lhs in variables:

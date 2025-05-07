@@ -171,12 +171,19 @@ class FortranReader:
         Helper routine to create a sanitized Fortran source string
         with comments removed and whitespace stripped from line beginning and end
         """
+        # print(f"'_sanitize_raw_source' called!!!")
         if FortranStringReader is None:
             raise RuntimeError('FortranReader needs fparser2')
-        reader = FortranStringReader(raw_source)
+        # reader = FortranStringReader(raw_source, ignore_comments=True)
+        reader = FortranStringReader(raw_source, ignore_comments=False)
+
         self.sanitized_lines = tuple(item for item in reader)
+        self.sanitized_lines = tuple(line for line in self.sanitized_lines if len(line.line) > 1 and not (line.line[0] == '!' and not line.line[1] == '$')) 
         self.sanitized_spans = (0,) + tuple(accumulate(len(item.line)+1 for item in self.sanitized_lines))
         self.sanitized_string = '\n'.join(item.line for item in self.sanitized_lines)
+        # print(f"-------------------------------------------------")
+        # print(f"sanitized_string: {self.sanitized_string}")
+        # print(f"-------------------------------------------------")
 
     def get_line_index(self, line_number):
         """

@@ -577,7 +577,14 @@ class SimplifyMapper(LokiIdentityMapper):
 
         if self.enabled_simplifications & Simplification.LogicEvaluation:
             if is_constant(left) and is_constant(right):
-                if expr.operator == '==' and left == right:
+                # if expr.operator == '==' and left == right:
+                #     return sym.LogicLiteral('True')
+                if expr.operator == '==' and left == right or \
+                        expr.operator == '>' and left > right or \
+                        expr.operator == '>=' and left >= right or \
+                        expr.operator == '!=' and left != right or \
+                        expr.operator == '<' and left < right or \
+                        expr.operator == '<=' and left <= right:
                     return sym.LogicLiteral('True')
                 return sym.LogicLiteral('False')
 

@@ -38,6 +38,13 @@ def inline_constant_parameters(routine, external_only=True):
     external_only : bool, optional
         Do not replace variables declared in the local scope (default: True)
     """
+
+    # NEW TEST!
+    # from loki.transformations.parametrise import declare_fixed_value_scalars_as_constants
+    # declare_fixed_value_scalars_as_constants(routine)
+
+    # print(f"inline_constant_parameters for routine {routine}")
+
     # Find all variable instances in spec and body
     variables = FindVariables().visit(routine.ir)
 
@@ -49,7 +56,7 @@ def inline_constant_parameters(routine, external_only=True):
         return hasattr(v, 'type') and v.type.parameter and v.type.initial is not None
 
     # Create mapping for variables and imports
-    vmap = {v: v.type.initial for v in variables if is_inline_parameter(v)}
+    vmap = {v: v.type.initial for v in variables if is_inline_parameter(v)} #  and hasattr(v.type.initial, 'type')}
 
     # Replace kind parameters in variable types
     for variable in routine.variables:
