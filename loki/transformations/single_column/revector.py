@@ -109,7 +109,7 @@ class BaseRevectorTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
-    _reduction_match_pattern = r'reduction\([\+\w:0-9 \t]+\)'
+    _reduction_match_pattern = r'reduction\([\+\*\.\w \t]+:[\w\, \t]+\)'
 
     def __init__(self, horizontal):
         self.horizontal = horizontal

@@ -1049,7 +1049,7 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
        integer, dimension(nlon), intent(in) :: mij
        logical, intent(in) :: lcond
 
-       integer :: jl, maxij, sumij
+       integer :: jl, maxij, sumij, sum0
 
        maxij = -1
        !$loki vector-reduction( mAx:maXij )
@@ -1064,11 +1064,11 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
 
        if (lcond) then
           sumij = 0
-          !$loki vector-reduction( +:sumij )
+          !$loki vector-reduction( +: sUmij, sUm0 )
           do jl=start,end
              sumij = sumij + mij(jl)
           enddo
-          !$loki end vector-reduction( +:sumij )
+          !$loki end vector-reduction( +: sUmij, sUm0 )
        endif
 
        do jl=start,end
@@ -1107,13 +1107,13 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
             loops = FindNodes(Loop).visit(routine.body)
             assert len(loops) == 4
             assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
-            assert loops[2].pragma[0].content == 'loop vector reduction( +:sumij )'
+            assert loops[2].pragma[0].content == 'loop vector reduction( +: sUmij, sUm0 )'
 
             conds = FindNodes(Conditional).visit(routine.body)
             assert len(conds) == 1
             loops = FindNodes(Loop).visit(conds[0].body)
             assert len(loops) == 1
-            assert loops[0].pragma[0].content == 'loop vector reduction( +:sumij )'
+            assert loops[0].pragma[0].content == 'loop vector reduction( +: sUmij, sUm0 )'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
