@@ -17,7 +17,7 @@ from loki.sourcefile import Sourcefile
 from loki.types import BasicType
 
 from loki.transformations.pragma_model import PragmaModelTransformation
-from loki.transformations.raw_stack_allocator import TemporariesRawStackTransformation
+from loki.transformations.temporaries.raw_stack_allocator import TemporariesRawStackTransformation
 
 
 @pytest.fixture(scope='module', name='block_dim')

@@ -8,7 +8,7 @@
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir
 
-from loki.transformations.hoist_variables import HoistVariablesTransformation
+from loki.transformations.temporaries.hoist_variables import HoistVariablesTransformation
 from loki.transformations.utilities import get_integer_variable, substitute_variables_for_definitions
 
 

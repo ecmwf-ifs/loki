@@ -18,7 +18,7 @@ from loki.ir import (
 
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.parametrise import ParametriseTransformation
-from loki.transformations.hoist_variables import HoistTemporaryArraysAnalysis
+from loki.transformations.temporaries.hoist_variables import HoistTemporaryArraysAnalysis
 from loki.transformations.single_column import (
     HoistTemporaryArraysDeviceAllocatableTransformation,
     HoistTemporaryArraysPragmaOffloadTransformation, SCCLowLevelCuf

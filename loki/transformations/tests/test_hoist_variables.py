@@ -18,7 +18,7 @@ from loki import (
 from loki.jit_build import jit_compile_lib, Builder
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
-from loki.transformations.hoist_variables import (
+from loki.transformations.temporaries.hoist_variables import (
     HoistVariablesAnalysis, HoistVariablesTransformation,
     HoistTemporaryArraysAnalysis, HoistTemporaryArraysTransformationAllocatable
 )
