@@ -1350,3 +1350,51 @@ end module some_templated_mod
     decls = FindNodes(ir.VariableDeclaration).visit(module.spec)
 
     assert len(decls) == 5
+
+def test_regex_pragma():
+    """
+    Make sure the regex frontend can parse pragmas.
+    """
+    fcode = """
+SUBROUTINE FOO(A)
+
+INTEGER, INTENT(IN) :: A
+
+! make sure this won't end up as VariableDeclaration
+! INTEGER :: B
+! make sure this won't end up as VariableDeclaration
+!$loki INTEGER :: C
+! this is just a comment
+!$loki this-is-a-pragma
+!$acc this is another openacc pragma
+
+!$omp multiline &
+!$omp & pragma to be tested
+
+END SUBROUTINE FOO
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['FOO']
+
+    pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    var_decls = FindNodes(ir.VariableDeclaration).visit(routine.ir)
+
+    assert len(pragmas) == 4
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'INTEGER :: C'
+    assert pragmas[1].keyword == 'loki'
+    assert pragmas[1].content == 'this-is-a-pragma'
+    assert pragmas[2].keyword == 'acc'
+    assert pragmas[2].content == 'this is another openacc pragma'
+    assert pragmas[3].keyword == 'omp'
+    assert pragmas[3].content == 'multiline & pragma to be tested'
+
+    assert len(var_decls) == 1
+    assert var_decls[0].symbols == ('A',)
+
+    # compare with fully parsed source
+    source.make_complete()
+    compl_pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    for compl_pragma, pragma in zip(compl_pragmas, pragmas):
+        assert compl_pragma.keyword == pragma.keyword
+        assert compl_pragma.content == pragma.content
