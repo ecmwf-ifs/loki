@@ -125,13 +125,13 @@ class SCCAnnotateTransformation(Transformation):
         args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
         argnames = [str(a.name) for a in args]
 
-        if argnames:
-            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-            content = f'device-present vars({", ".join(argnames)})'
-            routine.body.prepend(ir.Pragma(keyword='loki', content=content))
-            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
-            content = 'end device-present'
-            routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='loki', content=content)))
+#        if argnames:
+#            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+#            content = f'device-present vars({", ".join(argnames)})'
+#            routine.body.prepend(ir.Pragma(keyword='loki', content=content))
+#            # Add comment to prevent false-attachment in case it is preceded by an "END DO" statement
+#            content = 'end device-present'
+#            routine.body.append((ir.Comment(text=''), ir.Pragma(keyword='loki', content=content)))
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -226,9 +226,10 @@ class SCCAnnotateTransformation(Transformation):
                                 _vars = [var.name.lower() for var in FindVariables(unique=True).visit(loop)]
                                 acc_vars[loop] += _vars
                     else:
+                        _clauses = ('present', 'copy', 'copyin', 'copyout', 'deviceptr', 'in', 'out', 'inout', 'create')
                         _vars = [
                             p.strip().lower()
-                            for category in ('present', 'copy', 'copyin', 'copyout', 'deviceptr')
+                            for category in _clauses
                             for p in parameters.get(category, '').split(',')
                         ]
 
