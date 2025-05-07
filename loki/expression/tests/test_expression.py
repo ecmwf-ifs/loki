@@ -1445,7 +1445,9 @@ end module some_mod
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['some_routine']
     assert 'levels%data' in routine.symbol_attrs
-    shape = routine.symbol_attrs['levels%data'].shape
+    alloc = FindNodes(ir.Allocation).visit(routine.body)[0]
+    assert len(alloc.variables) == 1
+    shape = alloc.variables[0].dimensions
     assert len(shape) == 2
     for i, dim in enumerate(shape):
         assert isinstance(dim, sym.InlineCall)
