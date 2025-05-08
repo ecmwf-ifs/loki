@@ -7,6 +7,7 @@
 
 # pylint: disable=too-many-lines
 import re
+from itertools import takewhile
 
 from codetiming import Timer
 
@@ -227,6 +228,19 @@ def rget_child(node, node_type):
         if isinstance(child, node_type):
             return child
     return None
+
+
+def _get_docstring_from_spec(spec):
+    """ Extract docstring as set comments from spec part """
+
+    def is_comment(n):
+        return isinstance(n, (ir.Comment, ir.CommentBlock))
+
+    # Pick out comments from the beginning of the spec and update in-place
+    docs = tuple(takewhile(is_comment, spec.body))
+    spec._update(body=tuple(filter(lambda n: n not in docs, spec.body)))
+
+    return docs
 
 
 class FParser2IR(GenericVisitor):
@@ -1825,18 +1839,12 @@ class FParser2IR(GenericVisitor):
             spec._update(body=spec.body + body.body[:idx])
             body._update(body=body.body[idx:])
 
-        # Another big hack: fparser allocates all comments before and after the
-        # spec to the spec. We remove them from the beginning to get the docstring.
-        comment_map = {}
-        docs = []
-        for node in spec.body:
-            if not isinstance(node, (ir.Comment, ir.CommentBlock)):
-                break
-            docs.append(node)
-            comment_map[node] = None
+        # Extract the leading comments of the specification as "docstring" section
+        docs = _get_docstring_from_spec(spec)
 
         # Now we move comments from the end to the beginning of the body as those
         # can potentially be pragmas.
+        comment_map = {}
         for node in reversed(spec.body):
             if not isinstance(node, (ir.Pragma, ir.Comment, ir.CommentBlock)):
                 break
@@ -2055,6 +2063,8 @@ class FParser2IR(GenericVisitor):
             ]
 
         # Build the spec
+        docs = ()
+        spec = None
         spec_ast = get_child(o, Fortran2003.Specification_Part)
         if spec_ast:
             spec = self.visit(spec_ast, **kwargs)
@@ -2065,19 +2075,8 @@ class FParser2IR(GenericVisitor):
             spec = process_dimension_pragmas(spec)
             spec = detach_pragmas(spec, ir.VariableDeclaration)
 
-            # Another big hack: fparser allocates all comments before and after the
-            # spec to the spec. We remove them from the beginning to get the docstring.
-            comment_map = {}
-            docs = []
-            for node in spec.body:
-                if not isinstance(node, (ir.Comment, ir.CommentBlock)):
-                    break
-                docs.append(node)
-                comment_map[node] = None
-            spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-        else:
-            docs = []
-            spec = None
+            # Extract the leading comments of the specification as "docstring" section
+            docs = _get_docstring_from_spec(spec)
 
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
