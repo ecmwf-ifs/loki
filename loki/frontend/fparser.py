@@ -1861,10 +1861,6 @@ class FParser2IR(GenericVisitor):
                 decl._update(symbols=tuple(s.clone() if routine.symbol_attrs[s.name].is_stmt_func else s
                                            for s in decl.symbols))
 
-        # For deferred array dimensions on allocatables, we infer the conceptual
-        # dimension by finding any `allocate(var(<dims>))` statements.
-        routine._infer_allocatable_shapes()
-
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
             routine.spec = process_dimension_pragmas(routine.spec, scope=routine)
@@ -2514,8 +2510,7 @@ class FParser2IR(GenericVisitor):
         """
         name = self.visit(o.children[0], **kwargs)
         shape = self.visit(o.children[1], **kwargs)
-        name = name.clone(dimensions=shape, type=name.type.clone(shape=shape))
-        return name
+        return name.clone(dimensions=shape)
 
     visit_Allocate_Shape_Spec = visit_Explicit_Shape_Spec
     visit_Allocate_Shape_Spec_List = visit_List

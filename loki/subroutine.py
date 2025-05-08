@@ -137,22 +137,6 @@ class Subroutine(ProgramUnit):
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
 
-
-    def _infer_allocatable_shapes(self):
-        """
-        Infer variable symbol shapes from allocations of ``allocatable`` arrays.
-        """
-        for alloc in FindNodes(ir.Allocation).visit(self.body):
-            for v in alloc.variables:
-                if isinstance(v, sym.Array):
-                    if alloc.data_source:
-                        new_shape = alloc.data_source.type.shape
-                    else:
-                        new_shape = v.dimensions
-
-                    # Update the type to inject shape info into symbol table
-                    v.type = v.type.clone(shape=new_shape)
-
     @classmethod
     def from_omni(cls, ast, raw_source, definitions=None, parent=None, type_map=None):
         """
