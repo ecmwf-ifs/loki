@@ -132,7 +132,9 @@ end subroutine transform_associates_simple
     call = FindNodes(ir.CallStatement).visit(routine.body)[0]
     assert call.kwarguments[0][1] == 'some_array(i)%n'
     assert call.kwarguments[0][1].type.dtype == BasicType.DEFERRED
-    assert routine.variable_map['local_arr'].type.shape == ('a%n',)
+    assert routine.variable_map['local_arr'].type.shape == (':',)
+    allocs = FindNodes(ir.Allocation).visit(routine.body)
+    assert allocs[0].variables[0].dimensions == ('a%n',)
 
     # Now apply the association resolver
     do_resolve_associates(routine)
@@ -144,8 +146,10 @@ end subroutine transform_associates_simple
     assert call.kwarguments[0][1].scope == routine
     assert call.kwarguments[0][1].type.dtype == BasicType.DEFERRED
 
-    # Test the special case of shapes derived from allocations
-    assert routine.variable_map['local_arr'].type.shape == ('some_obj%a%n',)
+    # Test that symbols in the allocation have been resolved
+    assert routine.variable_map['local_arr'].type.shape == (':',)
+    allocs = FindNodes(ir.Allocation).visit(routine.body)
+    assert allocs[0].variables[0].dimensions == ('some_obj%a%n',)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
