@@ -28,9 +28,8 @@ from loki.frontend.util import read_file, FP, sanitize_ir
 
 from loki import ir
 from loki.ir import (
-    GenericVisitor, Transformer, FindNodes, attach_pragmas,
-    process_dimension_pragmas, detach_pragmas, pragmas_attached,
-    AttachScopes
+    GenericVisitor, FindNodes, AttachScopes, attach_pragmas,
+    detach_pragmas, pragmas_attached, process_dimension_pragmas
 )
 import loki.expression.symbols as sym
 from loki.expression.operations import (
@@ -230,17 +229,39 @@ def rget_child(node, node_type):
     return None
 
 
-def _get_docstring_from_spec(spec):
-    """ Extract docstring as set comments from spec part """
+def _get_comments_from_section(sec, include_pragmas=False, reverse=False):
+    """
+    Extract leading or trailing :any:`Comment` or `:any:`CommentBlock`
+    nodes from a :any:`Section`.
+
+    Parameters
+    ----------
+    sec : :any:`Section`
+        Code section from which to extract comment nodes
+    include_pragmas : bool
+        Flag to enable matching :any:`Pragma` nodes
+    reverse : bool
+        Flag to enable matching trailing comment nodes
+
+    Returns
+    -------
+    tuple of :any:`Node`
+        Leading or trailing comment or pragma nodes
+    """
+
+    _matches = (ir.Comment, ir.CommentBlock)
+    if include_pragmas:
+        _matches += (ir.Pragma,)
 
     def is_comment(n):
-        return isinstance(n, (ir.Comment, ir.CommentBlock))
+        return isinstance(n, _matches)
 
-    # Pick out comments from the beginning of the spec and update in-place
-    docs = tuple(takewhile(is_comment, spec.body))
-    spec._update(body=tuple(filter(lambda n: n not in docs, spec.body)))
+    # Pick out comments from the beginning of the section and update in-place
+    nodes = reversed(sec.body) if reverse else sec.body
+    comments = tuple(takewhile(is_comment, nodes))
+    sec._update(body=tuple(filter(lambda n: n not in comments, sec.body)))
 
-    return docs
+    return reversed(comments) if reverse else comments
 
 
 class FParser2IR(GenericVisitor):
@@ -1840,17 +1861,10 @@ class FParser2IR(GenericVisitor):
             body._update(body=body.body[idx:])
 
         # Extract the leading comments of the specification as "docstring" section
-        docs = _get_docstring_from_spec(spec)
+        docs = _get_comments_from_section(spec) if spec else ()
 
-        # Now we move comments from the end to the beginning of the body as those
-        # can potentially be pragmas.
-        comment_map = {}
-        for node in reversed(spec.body):
-            if not isinstance(node, (ir.Pragma, ir.Comment, ir.CommentBlock)):
-                break
-            body.prepend(node)
-            comment_map[node] = None
-        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
+        # Move trailing comments from spec to the body as those can be pragmas.
+        body.prepend(_get_comments_from_section(spec, include_pragmas=True, reverse=True))
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
@@ -2076,7 +2090,7 @@ class FParser2IR(GenericVisitor):
             spec = detach_pragmas(spec, ir.VariableDeclaration)
 
             # Extract the leading comments of the specification as "docstring" section
-            docs = _get_docstring_from_spec(spec)
+            docs = _get_comments_from_section(spec)
 
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
