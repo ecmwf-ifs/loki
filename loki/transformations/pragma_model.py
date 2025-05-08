@@ -276,6 +276,13 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content='end target teams distribute')
         return self.default_retval()
 
+    def pmap_omp_update_global_vars(self, pragma, parameters, **kwargs):
+        # this shouldn't be necessary but is currently necessary because of a bug in OpenMP
+        if params_in := parameters.get('in'):
+            return Pragma(keyword='omp', content=f'target enter data map(to: {params_in})')
+        return self.default_retval()
+
+
 
 class OpenMPThreadingPragmaMapper(GenericPragmaMapper):
     """

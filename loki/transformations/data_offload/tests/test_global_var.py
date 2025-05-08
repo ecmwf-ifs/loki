@@ -336,7 +336,8 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transformation_global_var_import(here, config, frontend, tmp_path):
+@pytest.mark.parametrize('directive', ['openacc', 'omp-gpu'])
+def test_transformation_global_var_import(here, config, frontend, directive, tmp_path):
     """
     Test the generation of offload instructions of global variable imports.
     """
@@ -347,7 +348,7 @@ def test_transformation_global_var_import(here, config, frontend, tmp_path):
     scheduler = Scheduler(paths=here/'sources/projGlobalVarImports', config=config, frontend=frontend, xmods=[tmp_path])
     scheduler.process(transformation=GlobalVariableAnalysis())
     scheduler.process(transformation=GlobalVarOffloadTransformation())
-    scheduler.process(PragmaModelTransformation(directive='openacc'))
+    scheduler.process(PragmaModelTransformation(directive=directive))
 
     driver = scheduler['#driver'].ir
     moduleA = scheduler['modulea'].ir
@@ -366,38 +367,84 @@ def test_transformation_global_var_import(here, config, frontend, tmp_path):
 
     # check that existing acc pragmas have not been stripped and update device/update self added correctly
     pragmas = FindNodes(Pragma).visit(driver.body)
-    assert len(pragmas) == 4
-    assert all(p.keyword.lower() == 'acc' for p in pragmas)
+    assert len(pragmas) == 5
 
-    assert 'update device' in pragmas[0].content
-    assert 'var2' in pragmas[0].content
-    assert 'var3' in pragmas[0].content
+    if directive == 'openacc':
 
-    assert pragmas[1].content == 'serial'
-    assert pragmas[2].content == 'end serial'
+        assert pragmas[0].keyword.lower() == 'acc'
+        assert 'update device' in pragmas[0].content
+        assert 'var2' in pragmas[0].content
+        assert 'var3' in pragmas[0].content
 
-    assert 'update self' in pragmas[3].content
-    assert 'var4' in pragmas[3].content
-    assert 'var5' in pragmas[3].content
+        assert pragmas[1].keyword.lower() == 'loki'
+        assert 'omp-update-global-vars in(' in pragmas[1].content
+        assert 'var2' in pragmas[1].content
+        assert 'var3' in pragmas[1].content
 
-    # check that no declarations have been added for parameters
-    pragmas = FindNodes(Pragma).visit(moduleA.spec)
-    assert not pragmas
+        assert pragmas[2].keyword.lower() == 'acc'
+        assert pragmas[2].content == 'serial'
+        assert pragmas[3].keyword.lower() == 'acc'
+        assert pragmas[3].content == 'end serial'
 
-    # check for device-side declarations where appropriate
-    pragmas = FindNodes(Pragma).visit(moduleB.spec)
-    assert len(pragmas) == 1
-    assert pragmas[0].keyword == 'acc'
-    assert 'declare create' in pragmas[0].content
-    assert 'var2' in pragmas[0].content
-    assert 'var3' in pragmas[0].content
+        assert pragmas[4].keyword.lower() == 'acc'
+        assert 'update self' in pragmas[4].content
+        assert 'var4' in pragmas[4].content
+        assert 'var5' in pragmas[4].content
 
-    pragmas = FindNodes(Pragma).visit(moduleC.spec)
-    assert len(pragmas) == 1
-    assert pragmas[0].keyword == 'acc'
-    assert 'declare create' in pragmas[0].content
-    assert 'var4' in pragmas[0].content
-    assert 'var5' in pragmas[0].content
+        # check that no declarations have been added for parameters
+        pragmas = FindNodes(Pragma).visit(moduleA.spec)
+        assert not pragmas
+
+        # check for device-side declarations where appropriate
+        pragmas = FindNodes(Pragma).visit(moduleB.spec)
+        assert len(pragmas) == 1
+        assert pragmas[0].keyword.lower() == 'acc'
+        assert 'declare create' in pragmas[0].content
+        assert 'var2' in pragmas[0].content
+        assert 'var3' in pragmas[0].content
+
+        pragmas = FindNodes(Pragma).visit(moduleC.spec)
+        assert len(pragmas) == 1
+        assert pragmas[0].keyword.lower() == 'acc'
+        assert 'declare create' in pragmas[0].content
+        assert 'var4' in pragmas[0].content
+        assert 'var5' in pragmas[0].content
+
+    if directive == 'omp-gpu':
+
+        assert pragmas[0].keyword.lower() == 'omp'
+        assert 'update to' in pragmas[0].content
+        assert 'var2' in pragmas[0].content
+        assert 'var3' in pragmas[0].content
+
+        assert pragmas[1].keyword.lower() == 'omp'
+        assert 'target enter data map(to:' in pragmas[1].content
+        assert 'var2' in pragmas[1].content
+        assert 'var3' in pragmas[1].content
+
+        assert pragmas[4].keyword.lower() == 'omp'
+        assert 'target update from' in pragmas[4].content
+        assert 'var4' in pragmas[4].content
+        assert 'var5' in pragmas[4].content
+
+        # check that no declarations have been added for parameters
+        pragmas = FindNodes(Pragma).visit(moduleA.spec)
+        assert not pragmas
+
+        # check for device-side declarations where appropriate
+        pragmas = FindNodes(Pragma).visit(moduleB.spec)
+        assert len(pragmas) == 1
+        assert pragmas[0].keyword.lower() == 'omp'
+        assert 'declare target' in pragmas[0].content
+        assert 'var2' in pragmas[0].content
+        assert 'var3' in pragmas[0].content
+
+        pragmas = FindNodes(Pragma).visit(moduleC.spec)
+        assert len(pragmas) == 1
+        assert pragmas[0].keyword.lower() == 'omp'
+        assert 'declare target' in pragmas[0].content
+        assert 'var4' in pragmas[0].content
+        assert 'var5' in pragmas[0].content
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
