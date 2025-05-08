@@ -2077,30 +2077,23 @@ class FParser2IR(GenericVisitor):
             ]
 
         # Build the spec
-        docs = ()
-        spec = None
-        spec_ast = get_child(o, Fortran2003.Specification_Part)
-        if spec_ast:
-            spec = self.visit(spec_ast, **kwargs)
-            spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+        spec = self.visit(get_child(o, Fortran2003.Specification_Part), **kwargs)
+        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
-            # Infer any additional shape information from `!$loki dimension` pragmas
-            spec = attach_pragmas(spec, ir.VariableDeclaration)
-            spec = process_dimension_pragmas(spec)
-            spec = detach_pragmas(spec, ir.VariableDeclaration)
+        # Infer any additional shape information from `!$loki dimension` pragmas
+        spec = attach_pragmas(spec, ir.VariableDeclaration)
+        spec = process_dimension_pragmas(spec)
+        spec = detach_pragmas(spec, ir.VariableDeclaration)
 
-            # Extract the leading comments of the specification as "docstring" section
-            docs = _get_comments_from_section(spec)
+        # Extract the leading comments of the specification as "docstring" section
+        docs = _get_comments_from_section(spec) if spec else ()
 
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
         spec = AttachScopes().visit(spec, scope=module, recurse_to_declaration_attributes=True)
 
         # Now that all declarations are well-defined we can parse the member routines
-        if contains_ast is not None:
-            contains = self.visit(contains_ast, **kwargs)
-        else:
-            contains = None
+        contains = self.visit(contains_ast, **kwargs)
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
