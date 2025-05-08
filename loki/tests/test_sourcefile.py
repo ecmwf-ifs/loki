@@ -346,7 +346,10 @@ end subroutine myroutine
 
     assert isinstance(source.ir.body[0], Comment)
     assert isinstance(source.ir.body[2], Comment)
-    assert isinstance(myroutine.body.body[0], Comment)
+    if frontend == OMNI:
+        assert isinstance(myroutine.body.body[0], Comment)
+    else:
+        assert isinstance(myroutine.docstring[0], Comment)
 
     code = source.to_fortran()
     assert '! Comment outside' in code
