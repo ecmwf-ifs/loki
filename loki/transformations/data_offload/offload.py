@@ -161,11 +161,12 @@ class DataOffloadTransformation(Transformation):
                     else:
                         offload_args = inargs + outargs + inoutargs
                         if offload_args:
-                            present = f' vars({", ".join(offload_args)})'
+                            present = f' present({", ".join(offload_args)})'
                         else:
                             present = ''
-                        pragma = Pragma(keyword='loki', content=f'device-present{present}')
-                        pragma_post = Pragma(keyword='loki', content='end device-present')
+                        pragma = Pragma(keyword='loki', content=f'structured-data {present}')
+                        pragma_post = Pragma(keyword='loki', content='end structured-data')
+
                 else:
                     copyin = f'in({", ".join(inargs)})' if inargs else ''
                     copy = f'inout({", ".join(inoutargs)})' if inoutargs else ''

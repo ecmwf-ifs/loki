@@ -62,6 +62,10 @@ subroutine some_func(ret)
   !$loki unmapped-directive whatever(tmp1) foo(tmp2)
   ! misspelled by purpose
   !$loki create drvice(tmp1)
+  !$loki structured-data present(tmp3, tmp4)
+  !$loki end structured-data
+  !$loki structured-data in(tmp1) present(tmp3, tmp4)
+  !$loki end structured-data
 
 end subroutine some_func
     """.strip()
@@ -105,7 +109,11 @@ end subroutine some_func
                 ('acc', 'data deviceptr(tmp1, tmp2)'),
                 ('acc', 'end data'),
                 ('loki', 'unmapped-directive whatever(tmp1) foo(tmp2)'),
-                ('loki', 'create drvice(tmp1)'))
+                ('loki', 'create drvice(tmp1)'),
+                ('acc', 'data present(tmp3, tmp4)'),
+                ('acc', 'end data'),
+                ('acc', ('data', 'copyin(tmp1)', 'present(tmp3, tmp4)'), False),
+                ('acc', 'end data'))
     if directive == 'omp-gpu':
         args = (('omp', 'declare target(tmp1, tmp2)'),
                 ('omp', ('target update', 'to(tmp1)', 'from(tmp2)'), False),
@@ -127,7 +135,11 @@ end subroutine some_func
                 ('loki', ('device-ptr', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('end device-ptr', 'vars(tmp1, tmp2)'), False),
                 ('loki', 'unmapped-directive whatever(tmp1) foo(tmp2)'),
-                ('loki', 'create drvice(tmp1)'))
+                ('loki', 'create drvice(tmp1)'),
+                ('omp', 'target data map(to: tmp3, tmp4)'),
+                ('omp', 'end target data'),
+                ('omp', ('target data', 'map(to: tmp1, tmp3, tmp4)'), False),
+                ('omp', 'end target data'))
     if directive is None:
         args = (('loki', 'create device(tmp1, tmp2)'),
                 ('loki', ('update', 'device(tmp1)', 'host(tmp2)'), False),
@@ -148,7 +160,11 @@ end subroutine some_func
                 ('loki', ('device-ptr', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('end device-ptr', 'vars(tmp1, tmp2)'), False),
                 ('loki', 'unmapped-directive whatever(tmp1) foo(tmp2)'),
-                ('loki', 'create drvice(tmp1)'))
+                ('loki', 'create drvice(tmp1)'),
+                ('loki', 'structured-data present(tmp3, tmp4)'),
+                ('loki', 'end structured-data'),
+                ('loki', ('structured-data', 'in(tmp1)', 'present(tmp3, tmp4)'), False),
+                ('loki', 'end structured-data'))
 
     if not keep_loki_pragmas:
         args = tuple(arg for arg in args if arg[0] != 'loki')
