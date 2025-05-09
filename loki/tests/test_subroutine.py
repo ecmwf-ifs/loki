@@ -15,7 +15,7 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, REGEX
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
-    Transformer
+    FindInlineCalls, Transformer
 )
 from loki.types import (
     BasicType, DerivedType, ProcedureType, SymbolAttributes
@@ -885,7 +885,7 @@ contains
     integer, intent(in) :: in1
     integer, intent(out) :: out1
 
-    out1 = 5 * in1 + localvar
+    out1 = 5 * in1 + localvar + member_function(1)
   end subroutine member_procedure
 
   ! Below is disabled because f90wrap (wrongly) exhibits that
@@ -915,6 +915,12 @@ end subroutine routine_member_procedures
     assert routine.symbol_attrs.lookup('in1') is not None
     assert routine.members[0].get_symbol_scope('in1') is routine.members[0]
 
+    # Check that inline function is correctly identified
+    inline_calls = list(FindInlineCalls().visit(routine.members[0].body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].function.name == 'member_function'
+    assert inline_calls[0].function.type.dtype.procedure == routine.members[1]
+
     assert routine.members[1].name == 'member_function'
     assert routine.members[1].symbol_attrs.lookup('in2') is not None
     assert routine.members[1].get_symbol_scope('in2') is routine.members[1]
@@ -927,8 +933,8 @@ end subroutine routine_member_procedures
 
     # Test results of the generated and compiled code
     out1, out2 = function(1, 2)
-    assert out1 == 7
-    assert out2 == 23
+    assert out1 == 12
+    assert out2 == 38
     clean_test(filepath)
 
 
