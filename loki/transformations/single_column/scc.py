@@ -11,7 +11,8 @@ from loki.batch import Pipeline
 
 from loki.transformations.temporaries import (
         HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
-        TemporariesRawStackTransformation
+        TemporariesRawStackTransformation, PoolAllocatorFtrPtrTransformation,
+        PoolAllocatorRawTransformation
 )
 
 from loki.transformations.single_column.base import SCCBaseTransformation
@@ -29,6 +30,8 @@ __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
     'SCCHoistPipeline', 'SCCVHoistPipeline', 'SCCSHoistPipeline',
     'SCCStackPipeline', 'SCCVStackPipeline', 'SCCSStackPipeline',
+    'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
+    'SCCStackRawPipeline', 'SCCVStackRawPipeline', 'SCCSStackRawPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
 ]
 
@@ -350,6 +353,58 @@ check_bounds : bool, optional
     Insert bounds-checks in the kernel to make sure the allocated
     stack size is not exceeded (default: `True`)
 """
+
+SCCVStackFtrPtrPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        SCCAnnotateTransformation,
+        PoolAllocatorFtrPtrTransformation,
+        PragmaModelTransformation
+    )
+)
+SCCStackFtrPtrPipeline = SCCVStackPipeline
+SCCSStackFtrPtrPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        SCCAnnotateTransformation,
+        PoolAllocatorFtrPtrTransformation,
+        PragmaModelTransformation
+    )
+)
+
+SCCVStackRawPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        SCCAnnotateTransformation,
+        PoolAllocatorRawTransformation,
+        PragmaModelTransformation
+    )
+)
+SCCStackRawPipeline = SCCVStackRawPipeline
+SCCSStackRawPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        SCCAnnotateTransformation,
+        PoolAllocatorRawTransformation,
+        PragmaModelTransformation
+    )
+)
 
 SCCVRawStackPipeline = partial(
     Pipeline, classes=(
