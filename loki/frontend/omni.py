@@ -344,24 +344,32 @@ class OMNI2IR(GenericVisitor):
         result = ftype.attrib.get('result_name')
 
         # Instantiate the object
-        if procedure is None:
-            if is_function:
+        if is_function:
+            if procedure is None:
                 procedure = Function(
                     name=name, args=args, prefix=prefix, bind=None,
                     result_name=result, parent=scope, ast=o, source=self.get_source(o)
                 )
             else:
-                procedure = Subroutine(
-                    name=name, args=args, prefix=prefix, bind=None,
-                    result_name=result, parent=scope, ast=o, source=self.get_source(o)
+                procedure.__initialize__(
+                    name=name, args=args, docstring=procedure.docstring, spec=procedure.spec,
+                    body=procedure.body, contains=procedure.contains, prefix=prefix, bind=None,
+                    result_name=result, ast=o, source=self.get_source(o),
+                    incomplete=procedure._incomplete
                 )
         else:
-            procedure.__initialize__(
-                name=name, args=args, docstring=procedure.docstring, spec=procedure.spec,
-                body=procedure.body, contains=procedure.contains, prefix=prefix, bind=None,
-                result_name=result, ast=o, source=self.get_source(o),
-                incomplete=procedure._incomplete
-            )
+            if procedure is None:
+                procedure = Subroutine(
+                    name=name, args=args, prefix=prefix, bind=None,
+                    parent=scope, ast=o, source=self.get_source(o)
+                )
+            else:
+                procedure.__initialize__(
+                    name=name, args=args, docstring=procedure.docstring, spec=procedure.spec,
+                    body=procedure.body, contains=procedure.contains, prefix=prefix, bind=None,
+                    ast=o, source=self.get_source(o),
+                    incomplete=procedure._incomplete
+                )
 
         return procedure
 
@@ -429,12 +437,19 @@ class OMNI2IR(GenericVisitor):
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        routine.__initialize__(
-            name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
-            body=body, contains=contains, ast=o, prefix=routine.prefix,
-            bind=routine.bind, result_name=routine.result_name,
-            rescope_symbols=True, source=routine.source, incomplete=False
-        )
+        if routine.is_function:
+            routine.__initialize__(
+                name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
+                body=body, contains=contains, ast=o, prefix=routine.prefix,
+                bind=routine.bind, result_name=routine.result_name,
+                rescope_symbols=True, source=routine.source, incomplete=False
+            )
+        else:
+            routine.__initialize__(
+                name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
+                body=body, contains=contains, ast=o, prefix=routine.prefix,
+                bind=routine.bind, rescope_symbols=True, source=routine.source, incomplete=False
+            )
 
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
