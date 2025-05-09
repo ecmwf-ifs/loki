@@ -31,7 +31,7 @@ def fixture_here():
 
 @pytest.fixture(scope='module', name='testdir')
 def fixture_testdir(here):
-    return here.parent.parent/'tests'
+    return here.parent.parent.parent/'tests'
 
 
 @pytest.fixture(name='config')
