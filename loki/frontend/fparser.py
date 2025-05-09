@@ -1789,7 +1789,7 @@ class FParser2IR(GenericVisitor):
         assert end_subroutine_stmt_index + 1 == len(o.children)
 
         # Instantiate the object
-        (routine, return_type) = self.visit(subroutine_stmt, **kwargs)
+        routine, _ = self.visit(subroutine_stmt, **kwargs)
         kwargs['scope'] = routine
 
         # Extract source object for construct
@@ -1855,8 +1855,7 @@ class FParser2IR(GenericVisitor):
         routine.__initialize__(
             name=routine.name, args=routine._dummies, docstring=docs, spec=spec,
             body=body, contains=contains, ast=o, prefix=routine.prefix, bind=routine.bind,
-            result_name=routine.result_name, rescope_symbols=False, source=source,
-            incomplete=False
+            rescope_symbols=False, source=source, incomplete=False
         )
 
         # Once statement functions are in place, we need to update the original declaration so that it
@@ -2079,9 +2078,7 @@ class FParser2IR(GenericVisitor):
         else:
             function.__initialize__(
                 name=name, args=args, docstring=function.docstring, spec=function.spec,
-                body=function.body, contains=function.contains, prefix=prefix, bind=bind,
-                result_name=result, ast=function._ast, source=function._source,
-                incomplete=function._incomplete
+                prefix=prefix, bind=bind, result_name=result, incomplete=function._incomplete
             )
 
         return (function, return_type)
@@ -2126,24 +2123,21 @@ class FParser2IR(GenericVisitor):
 
         # Parse suffix, such as result name or language binding specs
         if isinstance(o.children[3], Fortran2003.Suffix):
-            result, bind = self.visit(o.children[3], **kwargs)
+            _, bind = self.visit(o.children[3], **kwargs)
         else:
             # Fparser inlines the language-binding spec directly if there is not other suffix
-            result = None
             bind = None if o.children[3] is None else self.visit(o.children[3], **kwargs)
 
         # Instantiate the object
         if routine is None:
             routine = Subroutine(
-                name=name, args=args, prefix=prefix, bind=bind,
-                result_name=result, parent=kwargs['scope']
+                name=name, args=args, prefix=prefix, bind=bind, parent=kwargs['scope']
             )
         else:
             routine.__initialize__(
                 name=name, args=args, docstring=routine.docstring, spec=routine.spec,
                 body=routine.body, contains=routine.contains, prefix=prefix, bind=bind,
-                result_name=result, ast=routine._ast, source=routine._source,
-                incomplete=routine._incomplete
+                ast=routine._ast, source=routine._source, incomplete=routine._incomplete
             )
 
         return (routine, None)

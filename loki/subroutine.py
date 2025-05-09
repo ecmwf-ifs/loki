@@ -47,8 +47,6 @@ class Subroutine(ProgramUnit):
         Prefix specifications for the procedure
     bind : optional
         Bind information (e.g., for Fortran ``BIND(C)`` annotation).
-    result_name : str, optional
-        The name of the result variable for functions.
     ast : optional
         Frontend node for this subroutine (from parse tree of the frontend).
     source : :any:`Source`
@@ -75,38 +73,23 @@ class Subroutine(ProgramUnit):
 
     is_function = False
 
-    def __init__(
-            self, name, args=None, docstring=None, spec=None, body=None,
-            contains=None, prefix=None, bind=None, result_name=None,
-            ast=None, source=None, parent=None,
-            symbol_attrs=None, rescope_symbols=False, incomplete=False, parser_classes=None
-    ):
+    def __init__(self, *args, parent=None, symbol_attrs=None, **kwargs):
         super().__init__(parent=parent)
 
         if symbol_attrs:
             self.symbol_attrs.update(symbol_attrs)
 
-        self.__initialize__(
-            name=name, args=args, docstring=docstring, spec=spec, body=body,
-            contains=contains,  prefix=prefix, bind=bind, result_name=result_name,
-            ast=ast, source=source,
-            rescope_symbols=rescope_symbols, incomplete=incomplete, parser_classes=parser_classes
-        )
+        self.__initialize__(*args, **kwargs)
 
     def __initialize__(
             self, name, docstring=None, spec=None, contains=None,
-            ast=None, source=None, rescope_symbols=False, incomplete=False, parser_classes=None,
-            body=None, args=None, prefix=None, bind=None, result_name=None
+            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            parser_classes=None, body=None, args=None, prefix=None, bind=None,
     ):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
         self.bind = bind
-        self.result_name = result_name
-
-        # Make sure 'result_name' is defined if it's a function
-        if self.result_name is None and self.is_function:
-            self.result_name = name
 
         # Additional IR components
         if body is not None and not isinstance(body, ir.Section):
@@ -238,8 +221,6 @@ class Subroutine(ProgramUnit):
             kwargs['prefix'] = self.prefix
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
-        if self.result_name and 'result_name' not in kwargs:
-            kwargs['result_name'] = self.result_name
 
         # Rebuild body (other IR components are taken care of in super class)
         if 'body' in kwargs:

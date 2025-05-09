@@ -62,6 +62,20 @@ class Function(Subroutine):
 
     is_function = True
 
+    def __init__(self, *args, parent=None, symbol_attrs=None, **kwargs):
+        super().__init__(*args, parent=parent, symbol_attrs=symbol_attrs, **kwargs)
+
+        self.__initialize__(*args, **kwargs)
+
+    def __initialize__(self, name, *args, result_name=None, **kwargs):
+        self.result_name = result_name
+
+        # Make sure 'result_name' is defined if it's a function
+        if self.result_name is None:
+            self.result_name = name
+
+        super().__initialize__(name, *args, **kwargs)
+
     def __repr__(self):
         """ String representation """
         return f'Function:: {self.name}'
@@ -70,3 +84,24 @@ class Function(Subroutine):
     def return_type(self):
         """ Return the return_type of this subroutine """
         return self.symbol_attrs.get(self.result_name)
+
+    def clone(self, **kwargs):
+        """
+        Create a copy of the function with the option to override
+        individual parameters.
+
+        Parameters
+        ----------
+        **kwargs :
+            Any parameters from the constructor of :any:`Function`.
+
+        Returns
+        -------
+        :any:`Function`
+            The cloned subroutine object.
+        """
+        if self.result_name and 'result_name' not in kwargs:
+            kwargs['result_name'] = self.result_name
+
+        # Escalate to parent class
+        return super().clone(**kwargs)

@@ -203,13 +203,55 @@ class FortranCodegen(Stringifier):
     def visit_Subroutine(self, o, **kwargs):
         """
         Format as
-          <ftype> [<prefix>] <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
+          [<prefix>] SUBROUTINE <name> ([<args>]) [BIND(c, name=<name>)]
             ...docstring...
             ...spec...
             ...body...
           [CONTAINS]
             [...member...]
-          END <ftype> <name>
+          END SUBROUTINE <name>
+        """
+        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        prefix = self.join_items(o.prefix, sep=' ')
+        if o.prefix:
+            prefix += ' '
+        arguments = self.join_items(o.argnames)
+        if isinstance(o.bind, str):
+            bind_c = f' BIND(c, name="{o.bind}")'
+        elif isinstance(o.bind, StringLiteral):
+            bind_c = f' BIND(c, name={o.bind})'
+        else:
+            bind_c = ''
+        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        footer = self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
+
+        self.depth += self.style.procedure_spec_indent
+        docstring = self.visit(o.docstring, **kwargs)
+        spec = self.visit(o.spec, **kwargs)
+        self.depth -= self.style.procedure_spec_indent
+
+        self.depth += self.style.procedure_body_indent
+        body = self.visit(o.body, **kwargs)
+        self.depth -= self.style.procedure_body_indent
+
+        self.depth += self.style.procedure_contains_indent
+        contains = self.visit(o.contains, **kwargs)
+        self.depth -= self.style.procedure_contains_indent
+        if contains:
+            return self.join_lines(header, docstring, spec, body, contains, footer)
+
+        return self.join_lines(header, docstring, spec, body, footer)
+
+    def visit_Function(self, o, **kwargs):
+        """
+        Format as
+          [<prefix>] FUNCTION <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
+            ...docstring...
+            ...spec...
+            ...body...
+          [CONTAINS]
+            [...member...]
+          END FUNCTION <name>
         """
         ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         prefix = self.join_items(o.prefix, sep=' ')
@@ -243,8 +285,6 @@ class FortranCodegen(Stringifier):
             return self.join_lines(header, docstring, spec, body, contains, footer)
 
         return self.join_lines(header, docstring, spec, body, footer)
-
-    visit_Function = visit_Subroutine
 
     # Handler for AST base nodes
 
