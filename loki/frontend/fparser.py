@@ -335,6 +335,35 @@ class FParser2IR(GenericVisitor):
     # Base blocks
     #
 
+    def create_contained_procedures(self, o, **kwargs):
+        """
+        Helper utility that creates :any:`Subroutine` objects before
+        the full parse to ensure the scope hierarchy is in place.
+
+        Notes
+        -----
+        We first make sure the procedure objects for all internal
+        procedures are instantiated before parsing the actual spec and
+        body of the parent routine.
+
+        This way, all procedure types should exist in the scope and
+        any use of their symbol (e.g. in a :any:`CallStatement` or
+        :any:`InlineCall`) can be matched against a type.
+        """
+        if not o:
+            return
+
+        member_asts = tuple(
+            c for c in o.children
+            if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
+        )
+
+        # Instantiate the procedure objects from their initial "stmt
+        # line" to fill the type cache of the scope. This is needed to
+        # get `ProcedureType` objecst and identify `InlineCall` objects.
+        for c in member_asts:
+            self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)
+
     def visit_Specification_Part(self, o, **kwargs):
         """
         The specification part of a program-unit
@@ -1772,25 +1801,8 @@ class FParser2IR(GenericVisitor):
         string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
         source = Source(lines=lines, string=string)
 
-        # We make sure the subroutine objects for all member routines are
-        # instantiated before parsing the actual spec and body of the parent routine.
-        # This way, all procedure types should exist and any use of their symbol
-        # (e.g. in a CallStatement) should have type.dtype.procedure initialized correctly
-        contains_ast = get_child(o, Fortran2003.Internal_Subprogram_Part)
-        if contains_ast is not None:
-            member_asts = [
-                c for c in contains_ast.children
-                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
-            ]
-            # Note that we overwrite this variable subsequently with the fully parsed subroutines
-            # where the visit-method for the subroutine/function statement will pick out the existing
-            # subroutine objects using the weakref pointers stored in the symbol table.
-            # I know, it's not pretty but alternatively we could hand down this array as part of
-            # kwargs but that feels like carrying around a lot of bulk, too.
-            contains = [
-                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
-                for c in member_asts
-            ]
+        # Pre-populate internal procedure scopes in the type hierarchy
+        self.create_contained_procedures(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
 
         # Hack: Collect all spec and body parts and use all but the
         # last body as spec. Reason is that Fparser misinterprets statement
@@ -1839,10 +1851,7 @@ class FParser2IR(GenericVisitor):
                 spec.insert(spec.body.index(decls[0]), return_var_decl)
 
         # Now all declarations are well-defined and we can parse the member routines
-        if contains_ast is not None:
-            contains = self.visit(contains_ast, **kwargs)
-        else:
-            contains = None
+        contains = self.visit(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
 
         # Finally, take care of the body
         if body_ast is None:
@@ -2056,25 +2065,8 @@ class FParser2IR(GenericVisitor):
         module = self.visit(module_stmt, **kwargs)
         kwargs['scope'] = module
 
-        # We make sure the subroutine objects for all member routines are
-        # instantiated before parsing the actual spec of the module.
-        # This way, all procedure types should exist and any use of their symbol
-        # (e.g. in a derived type procedure binding etc) should be initialized correctly
-        contains_ast = get_child(o, Fortran2003.Module_Subprogram_Part)
-        if contains_ast is not None:
-            member_asts = [
-                c for c in contains_ast.children
-                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
-            ]
-            # Note that we overwrite this variable subsequently with the fully parsed subroutines
-            # where the visit-method for the subroutine/function statement will pick out the existing
-            # subroutine objects using the weakref pointers stored in the symbol table.
-            # I know, it's not pretty but alternatively we could hand down this array as part of
-            # kwargs but that feels like carrying around a lot of bulk, too.
-            contains = [
-                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
-                for c in member_asts
-            ]
+        # Pre-populate internal procedure scopes in the type hierarchy
+        self.create_contained_procedures(get_child(o, Fortran2003.Module_Subprogram_Part), **kwargs)
 
         # Build the spec
         spec = self.visit(get_child(o, Fortran2003.Specification_Part), **kwargs)
@@ -2093,7 +2085,7 @@ class FParser2IR(GenericVisitor):
         spec = AttachScopes().visit(spec, scope=module, recurse_to_declaration_attributes=True)
 
         # Now that all declarations are well-defined we can parse the member routines
-        contains = self.visit(contains_ast, **kwargs)
+        contains = self.visit(get_child(o, Fortran2003.Module_Subprogram_Part), **kwargs)
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
