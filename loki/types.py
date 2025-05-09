@@ -274,6 +274,8 @@ class ProcedureType(DataType):
         """
         The return type of the function (or `None`)
         """
+        if not self.is_function:
+            return None
         if self.procedure is BasicType.DEFERRED:
             return self._return_type
         return self.procedure.return_type
