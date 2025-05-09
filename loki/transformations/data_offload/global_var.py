@@ -384,6 +384,9 @@ class GlobalVarOffloadTransformation(Transformation):
             if update_variables:
                 update_device += (
                     Pragma(keyword='loki', content=f'update device({", ".join(v.name for v in update_variables)})'),
+                    # this shouldn't be necessary but is currently necessary because of a bug in OpenMP
+                    Pragma(keyword='loki',
+                        content=f'omp-update-global-vars in({", ".join(v.name for v in update_variables)})'),
                 )
             if copyin_variables:
                 content = f'unstructured-data in({", ".join(v.name for v in copyin_variables)})'
