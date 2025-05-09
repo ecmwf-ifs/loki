@@ -173,8 +173,12 @@ class FortranReader:
         """
         if FortranStringReader is None:
             raise RuntimeError('FortranReader needs fparser2')
-        reader = FortranStringReader(raw_source)
+        # do not ignore comments as this would also ignore pragmas
+        reader = FortranStringReader(raw_source, ignore_comments=False)
         self.sanitized_lines = tuple(item for item in reader)
+        # remove comments but keep pragmas
+        self.sanitized_lines = tuple(l for l in self.sanitized_lines if
+                len(l.line) > 1 and not (l.line[0] == '!' and not l.line[1] == '$'))
         self.sanitized_spans = (0,) + tuple(accumulate(len(item.line)+1 for item in self.sanitized_lines))
         self.sanitized_string = '\n'.join(item.line for item in self.sanitized_lines)
 
