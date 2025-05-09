@@ -10,11 +10,11 @@ import pytest
 from loki import Subroutine, Sourcefile, Dimension, fgen
 from loki.batch import ProcedureItem
 from loki.expression import Scalar, Array, IntLiteral
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, HAVE_FP
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Conditional, Loop,
     Pragma, PragmaRegion, pragmas_attached, is_loki_pragma,
-    pragma_regions_attached
+    pragma_regions_attached, FindInlineCalls
 )
 
 from loki.transformations import (
@@ -236,6 +236,7 @@ def test_scc_demote_transformation(frontend, horizontal):
     assert fgen(assigns[10]).lower() == 'q(jl, nz) = q(jl, nz)*c + b(3)'
 
 
+@pytest.mark.xfail(not HAVE_FP, reason="Identification of array reduction intrinsics requires fparser.")
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('acc_data', ['default', 'copyin', None])
 def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
@@ -274,11 +275,13 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: d(nproma)
+    REAL :: tmp(nproma)
     REAL :: e(nlev)
     REAL :: b(nlon,psize)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
+    REAL :: tmp_sum
 
     c = 5.345
     DO jk = 2, nz
@@ -288,6 +291,12 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
       END DO
     END DO
 
+    DO jl = start, end
+      tmp(jl) = other_var(jl)
+    END DO
+
+    tmp_sum = sum(tmp(start:end))
+
     ! The scaling is purposefully upper-cased
     DO JL = START, END
       a(jl) = Q(JL, 1)
@@ -295,7 +304,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
       b(jl, 2) = Q(JL, 3)
       b(jl, 3) = a(jl) * (b(jl, 1) + b(jl, 2))
 
-      Q(JL, NZ) = Q(JL, NZ) * C
+      Q(JL, NZ) = Q(JL, NZ) * C + tmp
     END DO
   END SUBROUTINE compute_column
 """
@@ -315,7 +324,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
 
     # Ensure routine is anntoated at vector level
     pragmas = FindNodes(Pragma).visit(kernel.ir)
-    assert len(pragmas) == 5
+    assert len(pragmas) == 6
     assert pragmas[0].keyword == 'acc'
     assert pragmas[0].content == 'routine vector'
     assert pragmas[1].keyword == 'acc'
@@ -326,11 +335,17 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     # Ensure vector and seq loops are annotated, including privatized variable `b`
     with pragmas_attached(kernel, Loop):
         kernel_loops = FindNodes(Loop).visit(kernel.ir)
-        assert len(kernel_loops) == 2
+        assert len(kernel_loops) == 3
         assert kernel_loops[0].pragma[0].keyword == 'acc'
         assert kernel_loops[0].pragma[0].content == 'loop vector private(b)'
         assert kernel_loops[1].pragma[0].keyword == 'acc'
         assert kernel_loops[1].pragma[0].content == 'loop seq'
+        assert kernel_loops[2].pragma[0].keyword == 'acc'
+        assert kernel_loops[2].pragma[0].content == 'loop vector private(b)'
+
+    # Ensure array reduction intrinsic is still in the correct place
+    assert 'nproma' in kernel.variable_map['tmp'].dimensions
+    assert 'tmp(start:end)' in list(FindInlineCalls().visit(kernel.body))[0].parameters
 
     # Ensure a single outer parallel loop in driver
     with pragmas_attached(driver, Loop):
@@ -344,6 +359,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
                 'parallel loop gang private(other_var, more_var) vector_length(nlon)',
                 'parallel loop gang private(more_var, other_var) vector_length(nlon)'
             )
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [None, 'openacc', 'omp-gpu'])
@@ -362,11 +378,11 @@ def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
 
     start = 1
     end = nlon
-    
+
     do b=1, nb
       call compute_column(start, end, nlon, nproma, nz, q(:,:,b), other_var, more_var)
     end do
-  
+
   END SUBROUTINE column_driver
 """
 
@@ -874,22 +890,29 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
       !$loki data
       !$omp parallel do private(b) shared(work, nproma)
         do b=1, nb
-           call some_kernel(nlon, work(:,b))
+           call some_kernel(1, nlon, nlon, work(:,b))
         enddo
       !$omp end parallel do
       !$loki end data
 
     end subroutine test
 
-    subroutine some_kernel(nlon, work)
+    subroutine some_kernel(start, end, nlon, work)
     implicit none
 
-      integer, intent(in) :: nlon
-      real, dimension(nlon), intent(inout) :: work
+      integer, intent(in) :: start, end, nlon
+      real, dimension(nlon), target, intent(inout) :: work
+      real, pointer :: tmp(:) => null()
       integer :: jl
 
-      do jl=1,nlon
+      do jl=start,end
          work(jl) = work(jl) + 1.
+      enddo
+
+      tmp => work
+
+      do jl=start,end
+         tmp(jl) = tmp(jl) + 1.
       enddo
 
     end subroutine some_kernel
@@ -923,6 +946,13 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking):
     assert pragmas[1].content == 'parallel loop gang vector_length(nlon)'
     assert pragmas[2].content == 'end parallel loop'
     assert pragmas[3].content == 'end data'
+
+    # check that pointer association was correctly identified as a separator node
+    routine = source['some_kernel']
+    scc_pipeline.apply(routine, role='kernel')
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assert len(loops) == 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1014,11 +1044,12 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
     """
 
     fcode = """
-    subroutine some_kernel(start, end, nlon, mij)
+    subroutine some_kernel(start, end, nlon, mij, lcond)
        integer, intent(in) :: nlon, start, end
        integer, dimension(nlon), intent(in) :: mij
+       logical, intent(in) :: lcond
 
-       integer :: jl, maxij
+       integer :: jl, maxij, sumij, sum0
 
        maxij = -1
        !$loki vector-reduction( mAx:maXij )
@@ -1026,6 +1057,23 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
           maxij = max(maxij, mij(jl))
        enddo
        !$loki end vector-reduction( mAx:maXij )
+
+       do jl=start,end
+          mij(jl) = jl
+       enddo
+
+       if (lcond) then
+          sumij = 0
+          !$loki vector-reduction( +: sUmij, sUm0 )
+          do jl=start,end
+             sumij = sumij + mij(jl)
+          enddo
+          !$loki end vector-reduction( +: sUmij, sUm0 )
+       endif
+
+       do jl=start,end
+          mij(jl) = 0
+       enddo
 
     end subroutine some_kernel
     """
@@ -1038,31 +1086,34 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
     routine = source['some_kernel']
 
     with pragma_regions_attached(routine):
-        region = FindNodes(PragmaRegion).visit(routine.body)
-        assert is_loki_pragma(region[0].pragma, starts_with = 'vector-reduction')
+        regions = FindNodes(PragmaRegion).visit(routine.body)
+        for region in regions:
+            assert is_loki_pragma(region.pragma, starts_with = 'vector-reduction')
 
 
-    scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
+    if pipeline == SCCSVectorPipeline:
+        with pytest.raises(RuntimeError):
+            scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
+    else:
+        scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.body)
     if pipeline == SCCVVectorPipeline:
-        assert len(pragmas) == 3
+        assert len(pragmas) == 6
         assert all(p.keyword == 'acc' for p in pragmas)
 
         # Check OpenACC directives have been inserted
         with pragmas_attached(routine, Loop):
             loops = FindNodes(Loop).visit(routine.body)
-            assert len(loops) == 1
+            assert len(loops) == 4
             assert loops[0].pragma[0].content == 'loop vector reduction( mAx:maXij )'
+            assert loops[2].pragma[0].content == 'loop vector reduction( +: sUmij, sUm0 )'
 
-    if pipeline == SCCSVectorPipeline:
-        assert len(pragmas) == 4
-        assert pragmas[0].keyword == 'acc'
-        assert pragmas[1].keyword == 'loki'
-        assert 'vector-reduction' in pragmas[1].content
-        assert pragmas[2].keyword == 'loki'
-        assert 'vector-reduction' in pragmas[2].content
-        assert pragmas[3].keyword == 'acc'
+            conds = FindNodes(Conditional).visit(routine.body)
+            assert len(conds) == 1
+            loops = FindNodes(Loop).visit(conds[0].body)
+            assert len(loops) == 1
+            assert loops[0].pragma[0].content == 'loop vector reduction( +: sUmij, sUm0 )'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1269,3 +1320,39 @@ def test_scc_inline_and_sequence_association(
 
         assign = FindNodes(Assignment).visit(loop.body)[0]
         assert fgen(assign).lower() == 'work(jl) = 1.'
+
+
+@pytest.mark.xfail(not HAVE_FP, reason="Identification of array reduction intrinsics requires fparser.")
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_resolve_vector_dimension(frontend, horizontal):
+    """
+    Test SCC vector resolution utility.
+    """
+
+    fcode = """
+subroutine kernel(start, end, nlon, work)
+   integer, intent(in) :: start, end, nlon
+   real, intent(out) :: work(nlon)
+   integer :: jl
+   real :: work_maxval
+
+   work(start:end) = 0.
+   work_maxval = maxval(work(start:end))
+
+end subroutine kernel
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    SCCBaseTransformation.resolve_vector_dimension(routine, routine.variable_map[horizontal.index],
+                                                   horizontal.bounds)
+
+    loops = FindNodes(Loop).visit(routine.body)
+    assigns = FindNodes(Assignment).visit(routine.body)
+    assert len(assigns) == 2
+
+    assert len(loops) == 1
+    assert assigns[0] in loops[0].body
+    assert not assigns[1] in loops[0].body
+
+    assert 'maxval' == assigns[1].rhs.name.lower()
+    assert 'start:end' in assigns[1].rhs.parameters[0].dimensions

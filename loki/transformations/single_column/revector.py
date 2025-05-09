@@ -109,6 +109,8 @@ class BaseRevectorTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
+    _reduction_match_pattern = r'reduction\([\+\*\.\w \t]+:[\w\, \t]+\)'
+
     def __init__(self, horizontal):
         self.horizontal = horizontal
 
@@ -127,7 +129,7 @@ class BaseRevectorTransformation(Transformation):
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(section):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
-                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
+                    if (reduction_clause := re.search(self._reduction_match_pattern, region.pragma.content)):
 
                         loops = FindNodes(ir.Loop).visit(region)
                         assert len(loops) == 1
@@ -291,26 +293,15 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
 
     def mark_vector_reductions(self, routine, section):
         """
-        Mark vector-reduction loops in marked vector-reduction
-        regions.
-        If a region explicitly marked with
-        ``!$loki vector-reduction(<reduction clause>)``/
-        ``!$loki end vector-reduction`` is encountered, we replace
-        existing ``!$loki loop vector`` loop pragmas and add the
-        reduction keyword and clause. These will be turned into
-        OpenACC equivalents by :any:`SCCAnnotate`.
+        Vector reductions are not applicable to sequential routines
+        so we raise an axception here.
         """
+
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(section):
                 if is_loki_pragma(region.pragma, starts_with='vector-reduction'):
-                    if (reduction_clause := re.search(r'reduction\([\w:0-9 \t]+\)', region.pragma.content)):
-
-                        loops = FindNodes(ir.Loop).visit(region)
-                        if loops:
-                            pragma = ir.Pragma(keyword='loki', content=f'loop vector {reduction_clause[0]}')
-                            # Update loop and region in place to remove marker pragmas
-                            loops[0]._update(pragma=(pragma,))
-                            region._update(pragma=None, pragma_post=None)
+                    if re.search(self._reduction_match_pattern, region.pragma.content):
+                        raise RuntimeError(f'[Loki::SCCSeq] Vector reduction invalid in seq routine {routine.name}')
 
     @staticmethod
     def _get_loop_bound(bound, call_arg_map):

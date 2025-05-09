@@ -15,6 +15,7 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
+from loki.expression import symbols as sym
 
 from loki.transformations.utilities import (
     find_driver_loops, check_routine_sequential
@@ -66,9 +67,32 @@ class SCCDevectorTransformation(Transformation):
         nodes that are not assignments involving vector parallel arrays.
     """
 
+    _separator_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
+
     def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
         self.trim_vector_sections = trim_vector_sections
+
+    @classmethod
+    def _add_separator(cls, node, section, separator_nodes):
+        """
+        Add either the current node or its outermost parent node from the list of types
+        defining a vector region separator (:attr:`separator_node_types`) to the list of
+        separator nodes.
+        """
+
+        if node in section:
+            # If the node is at the current section's level, it's a separator
+            separator_nodes.append(node)
+
+        else:
+            # If the node is deeper in the IR tree, it's highest ancestor is used
+            ancestors = flatten(FindScopes(node).visit(section))
+            ancestor_scopes = [a for a in ancestors if isinstance(a, cls._separator_node_types)]
+            if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
+                separator_nodes.append(ancestor_scopes[0])
+
+        return separator_nodes
 
     @classmethod
     def extract_vector_sections(cls, section, horizontal):
@@ -85,13 +109,9 @@ class SCCDevectorTransformation(Transformation):
             The dimension specifying the horizontal vector dimension
         """
 
-        _scope_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
-
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         calls = FindNodes(ir.CallStatement).visit(section)
-        pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(section) if pragma.keyword.lower() == "loki" and
-                   pragma.content.lower() == "separator"]
-        separator_nodes = pragmas
+        separator_nodes = []
 
         for call in calls:
 
@@ -101,22 +121,32 @@ class SCCDevectorTransformation(Transformation):
                 if check_routine_sequential(routine=call.routine):
                     continue
 
-            if call in section:
-                # If the call is at the current section's level, it's a separator
-                separator_nodes.append(call)
-
-            else:
-                # If the call is deeper in the IR tree, it's highest ancestor is used
-                ancestors = flatten(FindScopes(call).visit(section))
-                ancestor_scopes = [a for a in ancestors if isinstance(a, _scope_node_types)]
-                if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
-                    separator_nodes.append(ancestor_scopes[0])
+            separator_nodes = cls._add_separator(call, section, separator_nodes)
 
         for pragma in FindNodes(ir.Pragma).visit(section):
             # Reductions over thread-parallel regions should be marked as a separator node
             if (is_loki_pragma(pragma, starts_with='vector-reduction') or
-                is_loki_pragma(pragma, starts_with='end vector-reduction')):
-                separator_nodes.append(pragma)
+                is_loki_pragma(pragma, starts_with='end vector-reduction') or
+                is_loki_pragma(pragma, starts_with='separator')):
+
+                separator_nodes = cls._add_separator(pragma, section, separator_nodes)
+
+        for assign in FindNodes(ir.Assignment).visit(section):
+            if assign.ptr and isinstance(assign.rhs, sym.Array):
+                if any(s in assign.rhs.shape for s in horizontal.size_expressions):
+                    separator_nodes = cls._add_separator(assign, section, separator_nodes)
+
+            if isinstance(assign.rhs, sym.InlineCall):
+                # filter out array arguments
+                # we can't use arg_map here because intrinsic functions are not enriched
+                _params = assign.rhs.parameters + as_tuple(assign.rhs.kw_parameters.values())
+                _params = [p for p in _params if isinstance(p, sym.Array)]
+
+                # check if a horizontal array is passed as an argument, meaning we have a vector
+                # InlineCall, e.g. an array reduction intrinsic
+                for p in _params:
+                    if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions):
+                        separator_nodes = cls._add_separator(assign, section, separator_nodes)
 
         # Extract contiguous node sections between separator nodes
         assert all(n in section for n in separator_nodes)

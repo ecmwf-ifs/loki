@@ -7,6 +7,7 @@
 
 from loki.batch import Transformation
 from loki.expression import symbols as sym
+from loki.frontend import HAVE_FP
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, FindExpressions,
     SubstituteExpressions
@@ -17,6 +18,8 @@ from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds, check_routine_sequential
 )
+if HAVE_FP:
+    from fparser.two import Fortran2003
 
 
 __all__ = ['SCCBaseTransformation']
@@ -112,6 +115,12 @@ class SCCBaseTransformation(Transformation):
 
         mapper = {}
         for stmt in FindNodes(ir.Assignment).visit(routine.body):
+            # We want to preserve vector notation for an array reduction intrinsic
+            if HAVE_FP:
+                if any(redux_op in FindExpressions().visit(stmt.rhs)
+                       for redux_op in Fortran2003.Intrinsic_Name.array_reduction_names):
+                    continue
+
             ranges = [e for e in FindExpressions().visit(stmt)
                       if isinstance(e, sym.RangeIndex) and e == bounds_str]
             if ranges:
