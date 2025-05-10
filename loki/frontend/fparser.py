@@ -1560,9 +1560,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:assoc_stmt_index])
 
         # Extract source object for construct
-        lines = (assoc_stmt.item.span[0], end_assoc_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(assoc_stmt, end_node=end_assoc_stmt)
 
         # Handle the associates
         associations = self.visit(assoc_stmt, **kwargs)
@@ -1645,9 +1643,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:interface_stmt_index])
 
         # Extract source object for construct
-        lines = (interface_stmt.item.span[0], end_interface_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(interface_stmt, end_node=end_interface_stmt)
 
         # The interface spec
         abstract = False
@@ -1797,9 +1793,7 @@ class FParser2IR(GenericVisitor):
         kwargs['scope'] = routine
 
         # Extract source object for construct
-        lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(subroutine_stmt, end_node=end_subroutine_stmt)
 
         # Pre-populate internal procedure scopes in the type hierarchy
         self.create_contained_procedures(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
@@ -2057,9 +2051,7 @@ class FParser2IR(GenericVisitor):
         assert end_module_stmt_index + 1 == len(o.children)
 
         # Extract source object for construct
-        lines = (module_stmt.item.span[0], end_module_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(module_stmt, end_node=end_module_stmt)
 
         # Instantiate the object
         module = self.visit(module_stmt, **kwargs)
@@ -2256,9 +2248,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:select_case_stmt_index])
 
         # Extract source object for construct
-        lines = (select_case_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(select_case_stmt, end_node=end_select_stmt)
 
         # Handle the SELECT CASE statement
         expr = self.visit(select_case_stmt, **kwargs)
@@ -2376,9 +2366,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:select_type_stmt_index])
 
         # Extract source object for construct
-        lines = (select_type_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(select_type_stmt, end_node=end_select_stmt)
 
         # Handle the SELECT TYPE statement
         expr = self.visit(select_type_stmt, **kwargs)
@@ -2901,9 +2889,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:where_stmt_index])
 
         # Extract source object for construct
-        lines = (where_stmt.item.span[0], end_where_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(where_stmt, end_node=end_where_stmt)
 
         # Find all ELSEWHERE statements
         where_stmts, where_stmts_index = zip(*(
