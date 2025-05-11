@@ -14,6 +14,64 @@ from loki.types import BasicType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_function_return_type(frontend):
+    """
+    Test various ways to define the return type of a function
+    """
+    fcode = """
+module my_funcs
+implicit none
+contains
+
+  real(kind=8) function funca(a)
+    real, intent(in) :: a
+
+    funca = a
+  end function funca
+
+  function funcb(a)
+    real(kind=8), intent(in) :: a
+    real(kind=8) :: funcb
+
+    funcb = a
+  end function funcb
+
+  function funcky(a) result(fun)
+    real, intent(in) :: a
+    real(kind=8) :: fun
+
+    fun = a
+  end function funcky
+end module my_funcs
+    """
+    module = Module.from_source(fcode, frontend=frontend)
+
+    # Implicit return type definition
+    assert isinstance(module['funca'], Function)
+    assert module['funca'].result_name == 'funca'
+    assert module['funca'].return_type.dtype == BasicType.REAL
+    assert module['funca'].return_type.kind == 8
+    assert len(FindNodes(ir.VariableDeclaration).visit(module['funca'].spec)) == 2 if frontend == OMNI else 1
+    assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funca'].spec)) == 0
+
+    # Explicit return type declaration
+    assert isinstance(module['funcb'], Function)
+    assert module['funcb'].result_name == 'funcb'
+    assert module['funcb'].return_type.dtype == BasicType.REAL
+    assert module['funcb'].return_type.kind == 8
+    assert len(FindNodes(ir.VariableDeclaration).visit(module['funcb'].spec)) == 2
+    assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funcb'].spec)) == 0
+
+    # Re-named return type declaration
+    assert isinstance(module['funcky'], Function)
+    assert module['funcky'].result_name == 'fun'
+    assert module['funcky'].return_type.dtype == BasicType.REAL
+    assert module['funcky'].return_type.kind == 8
+    assert len(FindNodes(ir.VariableDeclaration).visit(module['funcky'].spec)) == 2
+    assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funcky'].spec)) == 0
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_function_prefix(frontend):
     """
     Test various prefixes that can occur in function/subroutine definitions
