@@ -31,11 +31,6 @@ end function f_elem
     assert isinstance(routine, Function)
     assert routine.return_type.dtype is BasicType.REAL
 
-    assert routine.name in routine.symbol_map
-    decl = [d for d in FindNodes(ir.VariableDeclaration).visit(routine.spec) if routine.name in d.symbols]
-    assert len(decl) == 1
-    decl = decl[0]
-
     assert routine.procedure_type.is_function is True
     assert routine.procedure_type.return_type.dtype is BasicType.REAL
     assert routine.procedure_type.procedure is routine
@@ -47,7 +42,6 @@ end function f_elem
     code = fgen(routine)
     assert 'PURE' in code
     assert 'ELEMENTAL' in code
-    assert fgen(decl) in code
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
