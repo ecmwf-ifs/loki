@@ -1194,8 +1194,9 @@ END SUBROUTINE DOT_PROD_SP_2D
     } == {'dot_product_ecv', 'dot_prod_sp_2d'}
 
     source.make_complete()
-    routine = source['dot_product_ecv']
-    assert 'dot_product_ecv' in routine.variables
+    function = source['dot_product_ecv']
+    assert function.return_type.dtype == BasicType.REAL
+    assert function.return_type.kind == 'JPRB'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

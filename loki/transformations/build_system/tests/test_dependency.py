@@ -683,7 +683,7 @@ END FUNCTION kernel
     assert kernel['kernel_test_mod'] == kernel.modules[0]
 
     # Check that the return name hasn't changed
-    assert 'kernel' in kernel['kernel_test'].variables
+    assert 'kernel' in kernel['kernel_test'].symbol_attrs
     assert kernel['kernel_test'].result_name == 'kernel'
 
     # Check that the driver name has not changed
