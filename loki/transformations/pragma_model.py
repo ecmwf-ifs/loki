@@ -123,6 +123,8 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             content += f' create({params_create})'
         if params_default := parameters.get('default'):
             content += f' default({params_default})'
+        if params_default := parameters.get('present'):
+            content += f' present({params_default})'
         if content:
             return Pragma(keyword='acc', content=f'data{content}')
         return self.default_retval()
@@ -226,8 +228,16 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
 
     def pmap_structured_data(self, pragma, parameters, **kwargs):
         content = ''
-        if params_in := parameters.get('in'):
-            content += f' map(to: {params_in})'
+        params_in = parameters.get('in', None)
+        params_present = parameters.get('present', None)
+        # both 'in'/'copyin' and 'present' map to 'map(to: ...)'
+        if params_in is not None and params_present is not None:
+            content += f' map(to: {params_in}, {params_present})'
+        else:
+            if params_in is not None:
+                content += f' map(to: {params_in})'
+            if params_present is not None:
+                content += f' map(to: {params_present})'
         if params_inout := parameters.get('inout'):
             content += f' map(tofrom: {params_inout})'
         if params_out := parameters.get('out'):
