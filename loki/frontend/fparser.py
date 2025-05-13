@@ -7,6 +7,7 @@
 
 # pylint: disable=too-many-lines
 import re
+from itertools import takewhile
 
 from codetiming import Timer
 
@@ -27,9 +28,8 @@ from loki.frontend.util import read_file, FP, sanitize_ir
 
 from loki import ir
 from loki.ir import (
-    GenericVisitor, Transformer, FindNodes, attach_pragmas,
-    process_dimension_pragmas, detach_pragmas, pragmas_attached,
-    AttachScopes
+    GenericVisitor, FindNodes, AttachScopes, attach_pragmas,
+    detach_pragmas, pragmas_attached, process_dimension_pragmas
 )
 import loki.expression.symbols as sym
 from loki.expression.operations import (
@@ -229,6 +229,41 @@ def rget_child(node, node_type):
     return None
 
 
+def _get_comments_from_section(sec, include_pragmas=False, reverse=False):
+    """
+    Extract leading or trailing :any:`Comment` or `:any:`CommentBlock`
+    nodes from a :any:`Section`.
+
+    Parameters
+    ----------
+    sec : :any:`Section`
+        Code section from which to extract comment nodes
+    include_pragmas : bool
+        Flag to enable matching :any:`Pragma` nodes
+    reverse : bool
+        Flag to enable matching trailing comment nodes
+
+    Returns
+    -------
+    tuple of :any:`Node`
+        Leading or trailing comment or pragma nodes
+    """
+
+    _matches = (ir.Comment, ir.CommentBlock)
+    if include_pragmas:
+        _matches += (ir.Pragma,)
+
+    def is_comment(n):
+        return isinstance(n, _matches)
+
+    # Pick out comments from the beginning of the section and update in-place
+    nodes = reversed(sec.body) if reverse else sec.body
+    comments = tuple(takewhile(is_comment, nodes))
+    sec._update(body=tuple(filter(lambda n: n not in comments, sec.body)))
+
+    return reversed(comments) if reverse else comments
+
+
 class FParser2IR(GenericVisitor):
     # pylint: disable=unused-argument  # Stop warnings about unused arguments
 
@@ -299,6 +334,35 @@ class FParser2IR(GenericVisitor):
     #
     # Base blocks
     #
+
+    def create_contained_procedures(self, o, **kwargs):
+        """
+        Helper utility that creates :any:`Subroutine` objects before
+        the full parse to ensure the scope hierarchy is in place.
+
+        Notes
+        -----
+        We first make sure the procedure objects for all internal
+        procedures are instantiated before parsing the actual spec and
+        body of the parent routine.
+
+        This way, all procedure types should exist in the scope and
+        any use of their symbol (e.g. in a :any:`CallStatement` or
+        :any:`InlineCall`) can be matched against a type.
+        """
+        if not o:
+            return
+
+        member_asts = tuple(
+            c for c in o.children
+            if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
+        )
+
+        # Instantiate the procedure objects from their initial "stmt
+        # line" to fill the type cache of the scope. This is needed to
+        # get `ProcedureType` objecst and identify `InlineCall` objects.
+        for c in member_asts:
+            self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)
 
     def visit_Specification_Part(self, o, **kwargs):
         """
@@ -1496,9 +1560,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:assoc_stmt_index])
 
         # Extract source object for construct
-        lines = (assoc_stmt.item.span[0], end_assoc_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(assoc_stmt, end_node=end_assoc_stmt)
 
         # Handle the associates
         associations = self.visit(assoc_stmt, **kwargs)
@@ -1581,9 +1643,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:interface_stmt_index])
 
         # Extract source object for construct
-        lines = (interface_stmt.item.span[0], end_interface_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(interface_stmt, end_node=end_interface_stmt)
 
         # The interface spec
         abstract = False
@@ -1733,29 +1793,10 @@ class FParser2IR(GenericVisitor):
         kwargs['scope'] = routine
 
         # Extract source object for construct
-        lines = (subroutine_stmt.item.span[0], end_subroutine_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(subroutine_stmt, end_node=end_subroutine_stmt)
 
-        # We make sure the subroutine objects for all member routines are
-        # instantiated before parsing the actual spec and body of the parent routine.
-        # This way, all procedure types should exist and any use of their symbol
-        # (e.g. in a CallStatement) should have type.dtype.procedure initialized correctly
-        contains_ast = get_child(o, Fortran2003.Internal_Subprogram_Part)
-        if contains_ast is not None:
-            member_asts = [
-                c for c in contains_ast.children
-                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
-            ]
-            # Note that we overwrite this variable subsequently with the fully parsed subroutines
-            # where the visit-method for the subroutine/function statement will pick out the existing
-            # subroutine objects using the weakref pointers stored in the symbol table.
-            # I know, it's not pretty but alternatively we could hand down this array as part of
-            # kwargs but that feels like carrying around a lot of bulk, too.
-            contains = [
-                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
-                for c in member_asts
-            ]
+        # Pre-populate internal procedure scopes in the type hierarchy
+        self.create_contained_procedures(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
 
         # Hack: Collect all spec and body parts and use all but the
         # last body as spec. Reason is that Fparser misinterprets statement
@@ -1804,10 +1845,7 @@ class FParser2IR(GenericVisitor):
                 spec.insert(spec.body.index(decls[0]), return_var_decl)
 
         # Now all declarations are well-defined and we can parse the member routines
-        if contains_ast is not None:
-            contains = self.visit(contains_ast, **kwargs)
-        else:
-            contains = None
+        contains = self.visit(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
 
         # Finally, take care of the body
         if body_ast is None:
@@ -1825,24 +1863,11 @@ class FParser2IR(GenericVisitor):
             spec._update(body=spec.body + body.body[:idx])
             body._update(body=body.body[idx:])
 
-        # Another big hack: fparser allocates all comments before and after the
-        # spec to the spec. We remove them from the beginning to get the docstring.
-        comment_map = {}
-        docs = []
-        for node in spec.body:
-            if not isinstance(node, (ir.Comment, ir.CommentBlock)):
-                break
-            docs.append(node)
-            comment_map[node] = None
+        # Extract the leading comments of the specification as "docstring" section
+        docs = _get_comments_from_section(spec) if spec else ()
 
-        # Now we move comments from the end to the beginning of the body as those
-        # can potentially be pragmas.
-        for node in reversed(spec.body):
-            if not isinstance(node, (ir.Pragma, ir.Comment, ir.CommentBlock)):
-                break
-            body.prepend(node)
-            comment_map[node] = None
-        spec = Transformer(comment_map, invalidate_source=False).visit(spec)
+        # Move trailing comments from spec to the body as those can be pragmas.
+        body.prepend(_get_comments_from_section(spec, include_pragmas=True, reverse=True))
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
@@ -2026,68 +2051,33 @@ class FParser2IR(GenericVisitor):
         assert end_module_stmt_index + 1 == len(o.children)
 
         # Extract source object for construct
-        lines = (module_stmt.item.span[0], end_module_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(module_stmt, end_node=end_module_stmt)
 
         # Instantiate the object
         module = self.visit(module_stmt, **kwargs)
         kwargs['scope'] = module
 
-        # We make sure the subroutine objects for all member routines are
-        # instantiated before parsing the actual spec of the module.
-        # This way, all procedure types should exist and any use of their symbol
-        # (e.g. in a derived type procedure binding etc) should be initialized correctly
-        contains_ast = get_child(o, Fortran2003.Module_Subprogram_Part)
-        if contains_ast is not None:
-            member_asts = [
-                c for c in contains_ast.children
-                if isinstance(c, (Fortran2003.Subroutine_Subprogram, Fortran2003.Function_Subprogram))
-            ]
-            # Note that we overwrite this variable subsequently with the fully parsed subroutines
-            # where the visit-method for the subroutine/function statement will pick out the existing
-            # subroutine objects using the weakref pointers stored in the symbol table.
-            # I know, it's not pretty but alternatively we could hand down this array as part of
-            # kwargs but that feels like carrying around a lot of bulk, too.
-            contains = [
-                self.visit(get_child(c, (Fortran2003.Subroutine_Stmt, Fortran2003.Function_Stmt)), **kwargs)[0]
-                for c in member_asts
-            ]
+        # Pre-populate internal procedure scopes in the type hierarchy
+        self.create_contained_procedures(get_child(o, Fortran2003.Module_Subprogram_Part), **kwargs)
 
         # Build the spec
-        spec_ast = get_child(o, Fortran2003.Specification_Part)
-        if spec_ast:
-            spec = self.visit(spec_ast, **kwargs)
-            spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
+        spec = self.visit(get_child(o, Fortran2003.Specification_Part), **kwargs)
+        spec = sanitize_ir(spec, FP, pp_registry=sanitize_registry[FP], pp_info=self.pp_info)
 
-            # Infer any additional shape information from `!$loki dimension` pragmas
-            spec = attach_pragmas(spec, ir.VariableDeclaration)
-            spec = process_dimension_pragmas(spec)
-            spec = detach_pragmas(spec, ir.VariableDeclaration)
+        # Infer any additional shape information from `!$loki dimension` pragmas
+        spec = attach_pragmas(spec, ir.VariableDeclaration)
+        spec = process_dimension_pragmas(spec)
+        spec = detach_pragmas(spec, ir.VariableDeclaration)
 
-            # Another big hack: fparser allocates all comments before and after the
-            # spec to the spec. We remove them from the beginning to get the docstring.
-            comment_map = {}
-            docs = []
-            for node in spec.body:
-                if not isinstance(node, (ir.Comment, ir.CommentBlock)):
-                    break
-                docs.append(node)
-                comment_map[node] = None
-            spec = Transformer(comment_map, invalidate_source=False).visit(spec)
-        else:
-            docs = []
-            spec = None
+        # Extract the leading comments of the specification as "docstring" section
+        docs = _get_comments_from_section(spec) if spec else ()
 
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
         spec = AttachScopes().visit(spec, scope=module, recurse_to_declaration_attributes=True)
 
         # Now that all declarations are well-defined we can parse the member routines
-        if contains_ast is not None:
-            contains = self.visit(contains_ast, **kwargs)
-        else:
-            contains = None
+        contains = self.visit(get_child(o, Fortran2003.Module_Subprogram_Part), **kwargs)
 
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
@@ -2258,9 +2248,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:select_case_stmt_index])
 
         # Extract source object for construct
-        lines = (select_case_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(select_case_stmt, end_node=end_select_stmt)
 
         # Handle the SELECT CASE statement
         expr = self.visit(select_case_stmt, **kwargs)
@@ -2378,9 +2366,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:select_type_stmt_index])
 
         # Extract source object for construct
-        lines = (select_type_stmt.item.span[0], end_select_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(select_type_stmt, end_node=end_select_stmt)
 
         # Handle the SELECT TYPE statement
         expr = self.visit(select_type_stmt, **kwargs)
@@ -2903,9 +2889,7 @@ class FParser2IR(GenericVisitor):
         pre = as_tuple(self.visit(c, **kwargs) for c in o.children[:where_stmt_index])
 
         # Extract source object for construct
-        lines = (where_stmt.item.span[0], end_where_stmt.item.span[1])
-        string = ''.join(self.raw_source[lines[0]-1:lines[1]]).strip('\n')
-        source = Source(lines=lines, string=string)
+        source = self.get_source(where_stmt, end_node=end_where_stmt)
 
         # Find all ELSEWHERE statements
         where_stmts, where_stmts_index = zip(*(
