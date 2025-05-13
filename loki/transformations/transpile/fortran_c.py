@@ -7,7 +7,7 @@
 
 from pathlib import Path
 
-from loki.backend import cgen, cudagen, cppgen
+from loki.backend import cgen, cudagen, cppgen, hipgen
 from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, Variable, InlineCall, Scalar, Array,
@@ -117,7 +117,7 @@ class FortranCTransformation(Transformation):
     def __init__(self, inline_elementals=True, language='c', path=None):
         self.inline_elementals = inline_elementals
         self.language = language.lower()
-        self._supported_languages = ['c', 'cpp', 'cuda']
+        self._supported_languages = ['c', 'cpp', 'cuda', 'hip']
         self.path = Path(path) if path is not None else None
 
         if self.language == 'c':
@@ -126,6 +126,8 @@ class FortranCTransformation(Transformation):
             self.codegen = cppgen
         elif self.language == 'cuda':
             self.codegen = cudagen
+        elif self.language == 'hip':
+            self.codegen = hipgen
         else:
             raise ValueError(f'language "{self.language}" is not supported!'
                              f' (supported languages: "{self._supported_languages}")')

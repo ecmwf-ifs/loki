@@ -8,7 +8,7 @@
 from pathlib import Path
 from collections import OrderedDict
 
-from loki.backend import cgen, fgen, cudagen, cppgen
+from loki.backend import cgen, fgen, cudagen, cppgen, hipgen
 from loki.batch import Transformation, ProcedureItem, ModuleItem
 from loki.expression import symbols as sym
 from loki.ir import (
@@ -55,7 +55,7 @@ class FortranISOCWrapperTransformation(Transformation):
 
     item_filter = (ProcedureItem, ModuleItem)
 
-    _supported_languages = ['c', 'cpp', 'cuda']
+    _supported_languages = ['c', 'cpp', 'cuda', 'hip']
 
     def __init__(self, use_c_ptr=False, language='c'):
         self.use_c_ptr = use_c_ptr
@@ -67,6 +67,8 @@ class FortranISOCWrapperTransformation(Transformation):
             self.codegen = cppgen
         elif self.language == 'cuda':
             self.codegen = cudagen
+        elif self.language == 'hip':
+            self.codegen = hipgen
         else:
             raise ValueError(f'language "{self.language}" is not supported!'
                              f' (supported languages: "{self._supported_languages}")')
@@ -380,14 +382,18 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
 
     wrapper_body = casts_in
     if language in ['cuda', 'hip']:
+        # wrapper_body += [
+        #     ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')
+        # ]
         wrapper_body += [
-            ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')
+                ir.Pragma(keyword='omp', content=f'target data use_device_addr({", ".join(use_device_addr)})')
         ]
     wrapper_body += [
         ir.CallStatement(name=sym.Variable(name=interface.body[0].name), arguments=call_arguments)
     ]
     if language in ['cuda', 'hip']:
-        wrapper_body += [ir.Pragma(keyword='acc', content='end host_data')]
+        # wrapper_body += [ir.Pragma(keyword='acc', content='end host_data')]
+        wrapper_body += [ir.Pragma(keyword='omp', content='end target data')]
     wrapper_body += casts_out
     wrapper.body = ir.Section(body=as_tuple(wrapper_body))
 

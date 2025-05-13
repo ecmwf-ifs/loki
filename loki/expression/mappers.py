@@ -561,7 +561,7 @@ class LokiIdentityMapper(IdentityMapper):
         new_type = expr.type
         if recurse_to_declaration_attributes and expr.type is not None:
             old_type = expr.type
-            print(f"expr: {expr} | expr.type: {expr.type}")
+            # print(f"expr: {expr} | expr.type: {expr.type}")
             assert expr.type is not None
             kind = self.rec(old_type.kind, *args, **kwargs)
 

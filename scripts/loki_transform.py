@@ -334,10 +334,13 @@ def convert(
     #             dim_vars=(vertical.size,), as_kwarguments=True, dic2p=dic2p, remove_vector_section=True)
     #     scheduler.process( pipeline )
 
-    if mode in ['cuda-hoist']:
+    if mode in ['cuda-hoist', 'hip-hoist']:
         dic2p = {'nang': 24, 'nfre': 36}
-        pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive='openacc', trim_vector_sections=True, # trim_vector_sections,
-                transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode='cuda',
+        tmp_mode = 'cuda'
+        if 'hip' in mode:
+            tmp_mode = 'hip'
+        pipeline = SCCLowLevelHoist(horizontal=horizontal, vertical=vertical, directive='omp-gpu', trim_vector_sections=True, # trim_vector_sections,
+                transformation_type='hoist', derived_types = ['TECLDP'], block_dim=block_dim, mode=tmp_mode, # 'cuda',
                 # dim_vars=(vertical.size, horizontal.size),
                 demote_local_arrays=True,
                 as_kwarguments=True, hoist_parameters=True,
@@ -360,12 +363,16 @@ def convert(
         scheduler.process( pipeline )
 
     mode = mode.replace('-', '_')  # Sanitize mode string
-    if mode in ['c', 'cuda_parametrise', 'cuda_hoist']:
+    if mode in ['c', 'cuda_parametrise', 'cuda_hoist', 'hip_hoist']:
         if mode in ['c']:
             f2c_transformation = FortranCTransformation(path=build)
-        elif mode in ['cuda_parametrise', 'cuda_hoist']:
-            f2c_transformation = FortranCTransformation(path=build, language='cuda') # , use_c_ptr=True)
-            f2c_iso_wrapper_trafo = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
+        elif mode in ['cuda_parametrise', 'cuda_hoist', 'hip_hoist']:
+            if 'cuda' in mode:
+                f2c_transformation = FortranCTransformation(path=build, language='cuda') # , use_c_ptr=True)
+                f2c_iso_wrapper_trafo = FortranISOCWrapperTransformation(language='cuda', use_c_ptr=True)
+            else:
+                f2c_transformation = FortranCTransformation(path=build, language='hip') # , use_c_ptr=True)
+                f2c_iso_wrapper_trafo = FortranISOCWrapperTransformation(language='hip', use_c_ptr=True)
         else:
             assert False
         scheduler.process(f2c_transformation)

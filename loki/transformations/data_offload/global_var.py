@@ -436,22 +436,32 @@ class GlobalVarOffloadTransformation(Transformation):
             import_map.update(scope.import_map)
             scope = scope.parent
 
+        import_mod_map = CaseInsensitiveDict({_import.module: _import for _import in routine.imports})
+        # print(f"import_mod_map: {import_mod_map}")
         missing_imports_map = defaultdict(set)
         for module, variables in offload_map.items():
             missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
 
+        apply_import_map = {}
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarOffloadTransformation] ---------------------------------------'
             )))
             for module, variables in missing_imports_map.items():
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
-                routine.spec.prepend(Import(module=module, symbols=symbols))
+                if symbols:
+                    # print(f"  module {module} in ? {import_mod_map}")
+                    if module in import_mod_map:
+                        apply_import_map[import_mod_map[module]] = import_mod_map[module].clone(symbols=import_mod_map[module].symbols+symbols)
+                    else:
+                        routine.spec.prepend(Import(module=module, symbols=symbols))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarOffloadTransformation] '
                 '-------- Added global variable imports for offload directives -----------'
             )))
+        if apply_import_map:
+            routine.spec = Transformer(apply_import_map).visit(routine.spec)
 
 
 class GlobalVarHoistTransformation(Transformation):
@@ -595,6 +605,10 @@ class GlobalVarHoistTransformation(Transformation):
         while scope:
             import_map.update(scope.import_map)
             scope = scope.parent
+        import_mod_map = CaseInsensitiveDict({_import.module: _import for _import in routine.imports})
+        print(f"import_mod_map: {import_mod_map}")
+
+        apply_import_map = {}
         missing_imports_map = defaultdict(set)
         for module, variables in symbol_map.items():
             missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
@@ -604,12 +618,21 @@ class GlobalVarHoistTransformation(Transformation):
             )))
             for module, variables in missing_imports_map.items():
                 symbols = tuple(var.clone(dimensions=None, scope=routine) for var in variables)
-                routine.spec.prepend(Import(module=module, symbols=symbols))
+                print(f"  module {module} in ? {module in import_mod_map} | {import_mod_map}")
+                if symbols:
+                    if module in import_mod_map:
+                        print(f"  cloning ...")
+                        apply_import_map[import_mod_map[module]] = import_mod_map[module].clone(symbols=import_mod_map[module].symbols+symbols)
+                    else:
+                        print(f"  prepending spec ...")
+                        routine.spec.prepend(Import(module=module, symbols=symbols))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarHoistTransformation] '
                 '-------- Added global variable imports for offload directives -----------'
             )))
+        if apply_import_map:
+            routine.spec = Transformer(apply_import_map).visit(routine.spec)
 
     def process_kernel(self, routine, successors, item):
         """
