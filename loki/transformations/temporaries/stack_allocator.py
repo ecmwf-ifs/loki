@@ -28,14 +28,31 @@ from loki.types import BasicType, SymbolAttributes
 from loki.transformations.utilities import recursive_expression_map_update, single_variable_declaration
 
 
-__all__ = ['PoolAllocatorFtrPtrTransformation', 'PoolAllocatorRawTransformation']
+__all__ = ['FtrPtrStackTransformation', 'DirectIdxStackTransformation']
 
+class BaseStackTransformation(Transformation):
+    """
+    Base Transformation to inject a stack that allocates large scratch spaces per block
+    and per datatype on the driver and maps temporary arrays in kernels to this scratch space.
 
-class PoolAllocatorBaseTransformation(Transformation):
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object to define the blocking dimension.
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object to define the horizontal dimension.
+    stack_name : str, optional
+        Name of the stack (default: 'STACK')
+    local_int_var_name_pattern : str, optional
+        Local integer variable names pattern
+        (default: 'JD_{name}')
+    int_kind : str, optional
+        Integer kind (default: 'JWIM')
+    """
 
     _key = 'PoolAllocatorBaseTransformation'
+
     reverse_traversal = True
-    process_ignored_items = True # TODO: remove?
 
     type_name_dict = {
         BasicType.REAL: {'kernel': 'P', 'driver': 'Z'},
@@ -75,7 +92,7 @@ class PoolAllocatorBaseTransformation(Transformation):
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
-        # TODO: shouldn't happen here ...
+        # TODO: probably shouldn't happen here ...
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.routine is not BasicType.DEFERRED:
                 call.convert_kwargs_to_args()
@@ -199,14 +216,6 @@ class PoolAllocatorBaseTransformation(Transformation):
         for a in arrays:
             type_dict.setdefault(a.type.dtype, {})
             type_dict[a.type.dtype].setdefault(a.type.kind, []).append(a)
-        # for a in arrays:
-        #     if a.type.dtype in type_dict:
-        #         if a.type.kind in type_dict[a.type.dtype]:
-        #             type_dict[a.type.dtype][a.type.kind] += [a]
-        #         else:
-        #             type_dict[a.type.dtype][a.type.kind] = [a]
-        #     else:
-        #         type_dict[a.type.dtype] = {a.type.kind: [a]}
 
         return type_dict
 
@@ -230,27 +239,27 @@ class PoolAllocatorBaseTransformation(Transformation):
         }
         call_map = {}
 
-        #Loop over calls and check if they call a successor routine and if the
-        #transformation data is available
+        # loop over calls and check if they call a successor routine and if the
+        # transformation data is available
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_dict = successor_map[call.name].trafo_data[self._key]['stack_dict']
 
                 call_stack_args = []
 
-                #Loop over dtypes and kinds in successor arguments stacks
-                #and construct list of stack arguments
+                # loop over dtypes and kinds in successor arguments stacks
+                # and construct list of stack arguments
                 for dtype in successor_stack_dict:
                     for kind in successor_stack_dict[dtype]:
                         call_stack_args += list(stack_arg_dict[dtype][kind])
 
-                #Get position of optional arguments so we can place the stacks in front
+                # get position of optional arguments so we can place the stacks in front
                 arg_pos = [call.routine.arguments.index(arg) for arg in call.routine.arguments if arg.type.optional]
 
                 arguments = call.arguments
                 if arg_pos:
-                    #Stack arguments have already been added to the routine call signature
-                    #so we have to subtract the number of stack arguments from the optional position
+                    # stack arguments have already been added to the routine call signature
+                    # so we have to subtract the number of stack arguments from the optional position
                     arg_pos = min(arg_pos) - len(call_stack_args)
                     arguments = arguments[:arg_pos] + as_tuple(call_stack_args) + arguments[arg_pos:]
                 else:
@@ -278,7 +287,7 @@ class PoolAllocatorBaseTransformation(Transformation):
             The items corresponding to successor routines called from :data:`routine`
         """
 
-        #Block variables
+        # block variables
         kgpblock = self._get_int_var(name=self.block_dim.size, scope=routine)
         jgpblock = self._get_int_var(name=self.block_dim.index, scope=routine)
 
@@ -290,22 +299,15 @@ class PoolAllocatorBaseTransformation(Transformation):
         pragma_data_start = None
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
-
-                #Start integer names in the driver with 'J'
+                # start integer names in the driver with 'J'
                 stack_size_name = self._get_stack_int_name('J', dtype, kind, 'STACK_SIZE')
                 stack_size_var = self._get_int_var(name=stack_size_name, scope=routine)
 
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = self._get_int_var(name=stack_used_name, scope=routine)
 
-                #Create the stack variable and its type with the correct shape
+                # create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
-                # horizontal_size = self._get_horizontal_variable(routine)
-                # if self.driver_horizontal:
-                #     # If override is specified, use a separate horizontal in the driver
-                #     horizontal_size = Variable(
-                #         name=self.driver_horizontal, scope=routine, type=self.int_type
-                #     )
 
                 stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None))),
                                                   allocatable=True)
@@ -314,7 +316,7 @@ class PoolAllocatorBaseTransformation(Transformation):
                 stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(stack_dict[dtype][kind], kgpblock)),))
                 stack_dealloc = Deallocation(variables=(stack_var.clone(dimensions=None),))
 
-                #Add the variables to the stack_arg_dict with dimensions (:,j_block)
+                # add the variables to the stack_arg_dict with dimensions (:,j_block)
                 stack_arg_dict.setdefault(dtype, {})
                 stack_arg_dict[dtype][kind] = (stack_size_var,
                                                stack_var.clone(dimensions=(RangeIndex((None,None)), jgpblock,)),
@@ -322,14 +324,14 @@ class PoolAllocatorBaseTransformation(Transformation):
                 stack_var = stack_var.clone(dimensions=stack_type.shape)
 
                 stack_used_var_init = Assignment(lhs=stack_used_var, rhs=IntLiteral(1))
-                #Create stack_vars pair and assignment of the size variable
+                # create stack_vars pair and assignment of the size variable
                 stack_vars += [stack_size_var, stack_var, stack_used_var]
                 assignments += [Assignment(lhs=stack_size_var,
                                            rhs=stack_dict[dtype][kind]), stack_alloc, stack_used_var_init]
                 deallocs += [stack_dealloc]
                 pragma_string += f'{stack_var.name}, '
 
-        #Add to routine
+        # add to routine
         routine.variables = routine.variables + as_tuple(stack_vars)
         nodes_to_add = assignments
 
@@ -348,7 +350,7 @@ class PoolAllocatorBaseTransformation(Transformation):
         if deallocs:
             routine.body.append(deallocs)
 
-        #Insert variables in successor calls
+        # insert variables in successor calls
         self.insert_stack_in_calls(routine, stack_arg_dict, successors)
 
 
@@ -376,12 +378,12 @@ class PoolAllocatorBaseTransformation(Transformation):
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
 
-                #Start arguments integer names in kernels with 'K'
+                # start arguments integer names in kernels with 'K'
                 stack_size_name = self._get_stack_int_name('K', dtype, kind, 'STACK_SIZE')
                 stack_size_var = self._get_int_var(name=stack_size_name, scope=routine,
                                                    type=self._get_int_type(intent='IN'))
 
-                #Local variables start with 'J'
+                # local variables start with 'J'
                 stack_used_arg_name = self._get_stack_int_name('JD', dtype, kind, 'STACK_USED')
                 stack_used_arg = self._get_int_var(name=stack_used_arg_name, scope=routine,
                                                    type=self._get_int_type(intent='INOUT'))
@@ -389,19 +391,19 @@ class PoolAllocatorBaseTransformation(Transformation):
                 stack_used_var = self._get_int_var(name=stack_used_name, scope=routine)
                 assignments += [Assignment(lhs=stack_used_var, rhs=stack_used_arg)]
 
-                #Create the stack variable and its type with the correct shape
+                # create the stack variable and its type with the correct shape
                 shape = (stack_size_var,)
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 stack_type = stack_var.type.clone(shape=as_tuple(shape), target=True)
                 stack_var = stack_var.clone(type=stack_type)
 
-                #Pass on the stack variable from stack_used + 1 to stack_size
-                #Pass stack_size - stack_used to stack size in called kernel
+                # pass on the stack variable from stack_used + 1 to stack_size
+                # pass stack_size - stack_used to stack size in called kernel
                 arg_dims = (RangeIndex((None, None)),)
                 stack_arg_dict.setdefault(dtype, {})
                 stack_arg_dict[dtype][kind] = (stack_size_var, stack_var.clone(dimensions=arg_dims), stack_used_var)
 
-                #Create stack_vars pair
+                # create stack_vars pair
                 stack_args += [stack_size_var,
                                stack_var.clone(dimensions=stack_type.shape, type=stack_var.type.clone(contiguous=True)),
                                stack_used_arg]
@@ -433,7 +435,7 @@ class PoolAllocatorBaseTransformation(Transformation):
         routine.body.prepend(as_tuple(assignments))
         routine.variables += as_tuple(stack_vars)
 
-        # Keep optional arguments last; a workaround for the fact that keyword arguments are not supported
+        # keep optional arguments last; a workaround for the fact that keyword arguments are not supported
         # in device code
         arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
         if arg_pos:
@@ -589,7 +591,7 @@ class PoolAllocatorBaseTransformation(Transformation):
                         new_list += [stack_size]
                 stack_sizes = new_list
 
-        #Simplify the local stack sizes and add them to the stack_dict
+        # simplify the local stack sizes and add them to the stack_dict
         if local_stack_dict:
             for dtype in local_stack_dict:
                 for kind in local_stack_dict[dtype]:
@@ -604,7 +606,7 @@ class PoolAllocatorBaseTransformation(Transformation):
                     else:
                         stack_dict[dtype] = {kind: [local_stack_dict[dtype][kind]]}
 
-        #If several expressions, return MAX, else just add the expression
+        # if several expressions, return MAX, else just add the expression
         for (dtype, kind_dict) in stack_dict.items():
             for (kind, stacks) in kind_dict.items():
                 if len(stacks) == 1:
@@ -614,7 +616,201 @@ class PoolAllocatorBaseTransformation(Transformation):
 
         return stack_dict
 
-class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
+class FtrPtrStackTransformation(BaseStackTransformation):
+    """         
+    Transformation to inject a stack that allocates large scratch spaces per block
+    and per datatype on the driver and maps temporary arrays in kernels to this scratch space.
+
+    Starting from:
+
+    .. code-block:: fortran
+        SUBROUTINE driver (nlon, klev, nb, ydml_phy_mf)
+
+          USE kernel_mod, ONLY: kernel
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+          INTEGER, INTENT(IN) :: nb
+
+          INTEGER :: jstart
+          INTEGER :: jend
+
+          INTEGER :: b
+
+          REAL(KIND=jprb), DIMENSION(nlon, klev) :: zzz
+
+          jstart = 1
+          jend = nlon
+
+          DO b=1,nb
+            CALL kernel(nlon, klev, jstart, jend, zzz)
+          END DO
+
+        END SUBROUTINE driver
+
+        SUBROUTINE kernel (nlon, klev, jstart, jend, pzz)
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+
+          INTEGER, INTENT(IN) :: jstart
+          INTEGER, INTENT(IN) :: jend
+
+          REAL, INTENT(IN), DIMENSION(nlon, klev) :: pzz
+
+          REAL, DIMENSION(nlon, klev) :: zzx
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), DIMENSION(nlon, klev) :: zzy
+          LOGICAL, DIMENSION(nlon, klev) :: zzl
+
+          INTEGER :: testint
+          INTEGER :: jl, jlev
+
+          zzl = .false.
+          DO jl=1,nlon
+            DO jlev=1,klev
+              zzx(jl, jlev) = pzz(jl, jlev)
+              zzy(jl, jlev) = pzz(jl, jlev)
+            END DO
+          END DO
+
+        END SUBROUTINE kernel
+
+    This transformation generates:
+
+    .. code-block:: fortran
+        SUBROUTINE driver (nlon, klev, nb)
+
+          USE kernel_mod, ONLY: kernel
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+          INTEGER(KIND=JWIM) :: nb
+
+          INTEGER :: jstart
+          INTEGER :: jend
+
+          INTEGER(KIND=JWIM) :: b
+
+          REAL(KIND=jprb), DIMENSION(nlon, klev) :: zzz
+          INTEGER(KIND=JWIM) :: J_Z_STACK_SIZE
+          REAL, ALLOCATABLE :: Z_STACK(:, :)
+          INTEGER(KIND=JWIM) :: J_Z_STACK_USED
+          INTEGER(KIND=JWIM) :: J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), ALLOCATABLE :: Z_SELECTED_REAL_KIND_13_300_STACK(:, :)
+          INTEGER(KIND=JWIM) :: J_Z_SELECTED_REAL_KIND_13_300_STACK_USED
+          INTEGER(KIND=JWIM) :: J_LL_STACK_SIZE
+          LOGICAL, ALLOCATABLE :: LL_STACK(:, :)
+          INTEGER(KIND=JWIM) :: J_LL_STACK_USED
+          J_Z_STACK_SIZE = klev*nlon
+          ALLOCATE (Z_STACK(klev*nlon, nb))
+          J_Z_STACK_USED = 1
+          J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE = klev*nlon
+          ALLOCATE (Z_SELECTED_REAL_KIND_13_300_STACK(klev*nlon, nb))
+          J_Z_SELECTED_REAL_KIND_13_300_STACK_USED = 1
+          J_LL_STACK_SIZE = klev*nlon
+          ALLOCATE (LL_STACK(klev*nlon, nb))
+          J_LL_STACK_USED = 1
+        !$loki unstructured-data create( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
+
+          jstart = 1
+          jend = nlon
+
+          DO b=1,nb
+            CALL kernel(nlon, klev, jstart, jend, zzz, J_Z_STACK_SIZE, Z_STACK(:, b), J_Z_STACK_USED,  &
+            & J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE, Z_SELECTED_REAL_KIND_13_300_STACK(:, b),  &
+            & J_Z_SELECTED_REAL_KIND_13_300_STACK_USED, J_LL_STACK_SIZE, LL_STACK(:, b), J_LL_STACK_USED)
+          END DO
+
+        !$loki end unstructured-data delete( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
+          DEALLOCATE (Z_STACK)
+          DEALLOCATE (Z_SELECTED_REAL_KIND_13_300_STACK)
+          DEALLOCATE (LL_STACK)
+        END SUBROUTINE driver
+
+        SUBROUTINE kernel (nlon, klev, jstart, jend, pzz, K_P_STACK_SIZE, P_STACK, JD_P_STACK_USED,  &
+        & K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE, P_SELECTED_REAL_KIND_13_300_STACK, & 
+        & JD_P_SELECTED_REAL_KIND_13_300_STACK_USED,  &
+        & K_LD_STACK_SIZE, LD_STACK, JD_LD_STACK_USED)
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+
+          INTEGER, INTENT(IN) :: jstart
+          INTEGER, INTENT(IN) :: jend
+
+          REAL, INTENT(IN), DIMENSION(nlon, klev) :: pzz
+
+          REAL, POINTER, CONTIGUOUS, DIMENSION(:, :) :: zzx
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), POINTER, CONTIGUOUS, DIMENSION(:, :) :: zzy
+          LOGICAL, POINTER, CONTIGUOUS, DIMENSION(:, :) :: zzl
+
+          INTEGER :: testint
+          INTEGER :: jl, jlev
+          INTEGER(KIND=JWIM) :: JD_incr
+          INTEGER(KIND=JWIM) :: JD_incr_SELECTED_REAL_KIND_13_300
+          INTEGER(KIND=JWIM) :: JD_incr
+          INTEGER(KIND=JWIM) :: J_P_STACK_USED
+          INTEGER(KIND=JWIM) :: J_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          INTEGER(KIND=JWIM) :: J_LD_STACK_USED
+          INTEGER(KIND=JWIM), INTENT(IN) :: K_P_STACK_SIZE
+          REAL, TARGET, CONTIGUOUS, INTENT(INOUT) :: P_STACK(K_P_STACK_SIZE)
+          INTEGER(KIND=JWIM), INTENT(INOUT) :: JD_P_STACK_USED
+          INTEGER(KIND=JWIM), INTENT(IN) :: K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), TARGET, CONTIGUOUS, INTENT(INOUT) ::  &
+          & P_SELECTED_REAL_KIND_13_300_STACK(K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)
+          INTEGER(KIND=JWIM), INTENT(INOUT) :: JD_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          INTEGER(KIND=JWIM), INTENT(IN) :: K_LD_STACK_SIZE
+          LOGICAL, TARGET, CONTIGUOUS, INTENT(INOUT) :: LD_STACK(K_LD_STACK_SIZE)
+          INTEGER(KIND=JWIM), INTENT(INOUT) :: JD_LD_STACK_USED
+          J_P_STACK_USED = JD_P_STACK_USED
+          J_P_SELECTED_REAL_KIND_13_300_STACK_USED = JD_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          J_LD_STACK_USED = JD_LD_STACK_USED
+        !$loki device-present vars( p_stack, p_selected_real_kind_13_300_stack, ld_stack )
+          JD_incr = J_P_STACK_USED
+          zzx(1:nlon, 1:klev) => P_STACK(JD_incr:JD_incr + nlon*klev)
+          J_P_STACK_USED = JD_incr + klev*nlon
+          JD_incr_SELECTED_REAL_KIND_13_300 = J_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          zzy(1:nlon, 1:klev) =>  &
+          & P_SELECTED_REAL_KIND_13_300_STACK(JD_incr_SELECTED_REAL_KIND_13_300: &
+              & JD_incr_SELECTED_REAL_KIND_13_300 + nlon*klev)
+          J_P_SELECTED_REAL_KIND_13_300_STACK_USED = JD_incr_SELECTED_REAL_KIND_13_300 + klev*nlon
+          JD_incr = J_LD_STACK_USED
+          zzl(1:nlon, 1:klev) => LD_STACK(JD_incr:JD_incr + nlon*klev)
+          J_LD_STACK_USED = JD_incr + klev*nlon
+
+          zzl = .false.
+          DO jl=1,nlon
+            DO jlev=1,klev
+              zzx(jl, jlev) = pzz(jl, jlev)
+              zzy(jl, jlev) = pzz(jl, jlev)
+            END DO
+          END DO
+
+        !$loki end device-present
+        END SUBROUTINE kernel
+
+    Parameters  
+    ----------  
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object to define the blocking dimension.
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object to define the horizontal dimension.
+    stack_name : str, optional
+        Name of the stack (default: 'STACK')
+    local_int_var_name_pattern : str, optional    
+        Local integer variable names pattern
+        (default: 'JD_{name}')
+    int_kind : str, optional
+        Integer kind (default: 'JWIM')
+    """
 
     def adapt_temp_declarations(self, routine, temporary_arrays):
         # make sure relevant variables are declared in their own statement
@@ -658,7 +854,7 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
             dict with required stack size mapped to type and kind
         """
 
-        #Get all temporary dicts and sort them according to dtype and kind
+        # get all temporary dicts and sort them according to dtype and kind
         temporary_arrays = self._filter_temporary_arrays(routine)
 
         self.adapt_temp_declarations(routine, temporary_arrays)
@@ -668,7 +864,6 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
         allocations = []
 
         stack_dict = {}
-        # stack_set = set()
 
         for (dtype, kind_dict) in temporary_array_dict.items():
 
@@ -680,12 +875,11 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = self._get_int_var(name=stack_used_name, scope=routine)
 
-                #Initialize stack_used to 0
                 stack_used = IntLiteral(1)
                 if kind not in stack_dict[dtype]:
                     stack_dict[dtype][kind] = Literal(0)
 
-                # Store type information of temporary allocation
+                # store type information of temporary allocation
                 if item:
                     if kind in routine.imported_symbols:
                         item.trafo_data[self._key]['kind_imports'][kind] = routine.import_map[kind.name].module.lower()
@@ -694,7 +888,7 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
                         for d in dims:
                             item.trafo_data[self._key]['kind_imports'][d] = routine.import_map[d.name].module.lower()
 
-                #Get the stack variable
+                # get the stack variable
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 old_int_var = stack_used_var
                 old_array_size = ()
@@ -707,10 +901,10 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
                                             scope=routine)
                 integers += [int_var]
 
-                #Loop over arrays
+                # loop over arrays
                 for array in arrays:
 
-                    #Computer array size
+                    # compute array size
                     array_size = IntLiteral(1)
                     for d in array.shape:
                         if isinstance(d, RangeIndex):
@@ -719,11 +913,11 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
                             d_extent = d
                         array_size = simplify(Product((array_size, d_extent)))
 
-                    #Add to stack dict and list of allocations
+                    # add to stack dict and list of allocations
                     stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], array_size)))
                     allocations += [Assignment(lhs=int_var, rhs=Sum((old_int_var,) + old_array_size))]
 
-                    #Store the old int variable to calculate offset for next array
+                    # store the old int variable to calculate offset for next array
                     old_int_var = int_var
                     if isinstance(array_size, Sum):
                         old_array_size = array_size.children
@@ -733,15 +927,15 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
                     ptr_assignment = self._get_ptr_assignment(array, int_var, stack_var)
                     allocations += [ptr_assignment]
 
-                #Compute stack used
+                # compute stack used
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = self._get_int_var(name=stack_used_name, scope=routine)
 
-                #List up integers and allocations generated
+                # list up integers and allocations generated
                 allocations += [Assignment(lhs=stack_used_var, rhs=stack_used)]
 
-        #Add  variables to routines and allocations to body
+        # add variables to routines and allocations to body
         routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
         routine.body.prepend(allocations)
 
@@ -767,7 +961,195 @@ class PoolAllocatorFtrPtrTransformation(PoolAllocatorBaseTransformation):
                                     ptr=True)
         return ptr_assignment
 
-class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
+class DirectIdxStackTransformation(BaseStackTransformation):
+    """         
+    Transformation to inject a stack that allocates large scratch spaces per block
+    and per datatype on the driver and maps temporary arrays in kernels to this scratch space.
+                
+    Starting from:
+
+    .. code-block:: fortran
+        SUBROUTINE driver (nlon, klev, nb, ydml_phy_mf)
+
+          USE kernel_mod, ONLY: kernel
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+          INTEGER, INTENT(IN) :: nb
+
+          INTEGER :: jstart
+          INTEGER :: jend
+
+          INTEGER :: b
+
+          REAL(KIND=jprb), DIMENSION(nlon, klev) :: zzz
+
+          jstart = 1
+          jend = nlon
+
+          DO b=1,nb
+            CALL kernel(nlon, klev, jstart, jend, zzz)
+          END DO
+
+        END SUBROUTINE driver
+
+        SUBROUTINE kernel (nlon, klev, jstart, jend, pzz)
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+
+          INTEGER, INTENT(IN) :: jstart
+          INTEGER, INTENT(IN) :: jend
+
+          REAL, INTENT(IN), DIMENSION(nlon, klev) :: pzz
+
+          REAL, DIMENSION(nlon, klev) :: zzx
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), DIMENSION(nlon, klev) :: zzy
+          LOGICAL, DIMENSION(nlon, klev) :: zzl
+
+          INTEGER :: testint
+          INTEGER :: jl, jlev
+
+          zzl = .false.
+          DO jl=1,nlon
+            DO jlev=1,klev
+              zzx(jl, jlev) = pzz(jl, jlev)
+              zzy(jl, jlev) = pzz(jl, jlev)
+            END DO
+          END DO
+
+        END SUBROUTINE kernel
+
+    This transformation generates:
+
+    .. code-block:: fortran
+        SUBROUTINE driver (nlon, klev, nb)
+
+          USE kernel_mod, ONLY: kernel
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+          INTEGER(KIND=JWIM) :: nb
+
+          INTEGER :: jstart
+          INTEGER :: jend
+
+          INTEGER(KIND=JWIM) :: b
+
+          REAL(KIND=jprb), DIMENSION(nlon, klev) :: zzz
+          INTEGER(KIND=JWIM) :: J_Z_STACK_SIZE
+          REAL, ALLOCATABLE :: Z_STACK(:, :)
+          INTEGER(KIND=JWIM) :: J_Z_STACK_USED
+          INTEGER(KIND=JWIM) :: J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), ALLOCATABLE :: Z_SELECTED_REAL_KIND_13_300_STACK(:, :)
+          INTEGER(KIND=JWIM) :: J_Z_SELECTED_REAL_KIND_13_300_STACK_USED
+          INTEGER(KIND=JWIM) :: J_LL_STACK_SIZE
+          LOGICAL, ALLOCATABLE :: LL_STACK(:, :)
+          INTEGER(KIND=JWIM) :: J_LL_STACK_USED
+          J_Z_STACK_SIZE = klev*nlon
+          ALLOCATE (Z_STACK(klev*nlon, nb))
+          J_Z_STACK_USED = 1
+          J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE = klev*nlon
+          ALLOCATE (Z_SELECTED_REAL_KIND_13_300_STACK(klev*nlon, nb))
+          J_Z_SELECTED_REAL_KIND_13_300_STACK_USED = 1
+          J_LL_STACK_SIZE = klev*nlon
+          ALLOCATE (LL_STACK(klev*nlon, nb))
+          J_LL_STACK_USED = 1
+        !$loki unstructured-data create( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
+
+          jstart = 1
+          jend = nlon
+
+          DO b=1,nb
+            CALL kernel(nlon, klev, jstart, jend, zzz, J_Z_STACK_SIZE, Z_STACK(:, b), J_Z_STACK_USED,  &
+            & J_Z_SELECTED_REAL_KIND_13_300_STACK_SIZE, Z_SELECTED_REAL_KIND_13_300_STACK(:, b),  &
+            & J_Z_SELECTED_REAL_KIND_13_300_STACK_USED, J_LL_STACK_SIZE, LL_STACK(:, b), J_LL_STACK_USED)
+          END DO
+
+        !$loki end unstructured-data delete( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
+          DEALLOCATE (Z_STACK)
+          DEALLOCATE (Z_SELECTED_REAL_KIND_13_300_STACK)
+          DEALLOCATE (LL_STACK)
+        END SUBROUTINE driver
+
+        SUBROUTINE kernel (nlon, klev, jstart, jend, pzz, K_P_STACK_SIZE, P_STACK, JD_P_STACK_USED,  &
+        & K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE, P_SELECTED_REAL_KIND_13_300_STACK, & 
+        & JD_P_SELECTED_REAL_KIND_13_300_STACK_USED,  &
+        & K_LD_STACK_SIZE, LD_STACK, JD_LD_STACK_USED)
+
+          IMPLICIT NONE
+
+          INTEGER, INTENT(IN) :: nlon
+          INTEGER, INTENT(IN) :: klev
+
+          INTEGER, INTENT(IN) :: jstart
+          INTEGER, INTENT(IN) :: jend
+
+          REAL, INTENT(IN), DIMENSION(nlon, klev) :: pzz
+
+
+          INTEGER :: testint
+          INTEGER :: jl, jlev
+          INTEGER(KIND=JWIM) :: JD_zzx
+          INTEGER(KIND=JWIM) :: JD_zzy
+          INTEGER(KIND=JWIM) :: JD_zzl
+          INTEGER(KIND=JWIM) :: J_P_STACK_USED
+          INTEGER(KIND=JWIM) :: J_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          INTEGER(KIND=JWIM) :: J_LD_STACK_USED
+          INTEGER(KIND=JWIM), INTENT(IN) :: K_P_STACK_SIZE
+          REAL, TARGET, CONTIGUOUS, INTENT(INOUT) :: P_STACK(K_P_STACK_SIZE)
+          INTEGER(KIND=JWIM), INTENT(INOUT) :: JD_P_STACK_USED
+          INTEGER(KIND=JWIM), INTENT(IN) :: K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE
+          REAL(KIND=SELECTED_REAL_KIND(13, 300)), TARGET, CONTIGUOUS, INTENT(INOUT) ::  &
+          & P_SELECTED_REAL_KIND_13_300_STACK(K_P_SELECTED_REAL_KIND_13_300_STACK_SIZE)
+          INTEGER(KIND=JWIM), INTENT(INOUT) :: JD_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          INTEGER(KIND=JWIM), INTENT(IN) :: K_LD_STACK_SIZE
+          LOGICAL, TARGET, CONTIGUOUS, INTENT(INOUT) :: LD_STACK(K_LD_STACK_SIZE)
+          INTEGER(KIND=JWIM), INTENT(INOUT) :: JD_LD_STACK_USED
+          J_P_STACK_USED = JD_P_STACK_USED
+          J_P_SELECTED_REAL_KIND_13_300_STACK_USED = JD_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          J_LD_STACK_USED = JD_LD_STACK_USED
+        !$loki device-present vars( p_stack, p_selected_real_kind_13_300_stack, ld_stack )
+          JD_zzx = J_P_STACK_USED
+          J_P_STACK_USED = JD_zzx + klev*nlon
+          JD_zzy = J_P_SELECTED_REAL_KIND_13_300_STACK_USED
+          J_P_SELECTED_REAL_KIND_13_300_STACK_USED = JD_zzy + klev*nlon
+          JD_zzl = J_LD_STACK_USED
+          J_LD_STACK_USED = JD_zzl + klev*nlon
+
+          LD_STACK(1:klev*nlon) = .false.
+          DO jl=1,nlon
+            DO jlev=1,klev
+              P_STACK(JD_zzx + jl - nlon + jlev*nlon) = pzz(jl, jlev)
+              P_SELECTED_REAL_KIND_13_300_STACK(JD_zzy + jl - nlon + jlev*nlon) = pzz(jl, jlev)
+            END DO
+          END DO
+
+        !$loki end device-present
+        END SUBROUTINE kernel
+
+
+
+    Parameters  
+    ----------  
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object to define the blocking dimension.
+    horizontal : :any:`Dimension`
+        :any:`Dimension` object to define the horizontal dimension.
+    stack_name : str, optional
+        Name of the stack (default: 'STACK')
+    local_int_var_name_pattern : str, optional    
+        Local integer variable names pattern
+        (default: 'JD_{name}')
+    int_kind : str, optional
+        Integer kind (default: 'JWIM')
+    """
 
     def apply_pool_allocator_to_temporaries(self, routine, item=None):
         """
@@ -791,7 +1173,7 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
             dict with required stack size mapped to type and kind
         """
 
-        #Get all temporary dicts and sort them according to dtype and kind
+        # get all temporary dicts and sort them according to dtype and kind
         temporary_arrays = self._filter_temporary_arrays(routine)
         temporary_array_dict = self._sort_arrays_by_type(temporary_arrays)
 
@@ -813,12 +1195,12 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = self._get_int_var(name=stack_used_name, scope=routine)
 
-                #Initialize stack_used to 0
+                # initialize stack_used to 0
                 stack_used = IntLiteral(1)
                 if kind not in stack_dict[dtype]:
                     stack_dict[dtype][kind] = Literal(0)
 
-                # Store type information of temporary allocation
+                # store type information of temporary allocation
                 if item:
                     if kind in routine.imported_symbols:
                         item.trafo_data[self._key]['kind_imports'][kind] = routine.import_map[kind.name].module.lower()
@@ -827,19 +1209,19 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                         for d in dims:
                             item.trafo_data[self._key]['kind_imports'][d] = routine.import_map[d.name].module.lower()
 
-                #Get the stack variable
+                # get the stack variable
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 old_int_var = stack_used_var
                 old_array_size = ()
 
-                #Loop over arrays
+                # loop over arrays
                 for array in arrays:
 
                     int_var_name = self.local_int_var_name_pattern.format(name=array.name)
                     int_var = self._get_int_var(name=int_var_name, scope=routine)
                     integers += [int_var]
 
-                    #Computer array size
+                    # compute array size
                     array_size = IntLiteral(1)
                     for d in array.shape:
                         if isinstance(d, RangeIndex):
@@ -848,11 +1230,11 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                             d_extent = d
                         array_size = simplify(Product((array_size, d_extent)))
 
-                    #Add to stack dict and list of allocations
+                    # add to stack dict and list of allocations
                     stack_dict[dtype][kind] = simplify(Sum((stack_dict[dtype][kind], array_size)))
                     allocations += [Assignment(lhs=int_var, rhs=Sum((old_int_var,) + old_array_size))]
 
-                    #Store the old int variable to calculate offset for next array
+                    # store the old int variable to calculate offset for next array
                     old_int_var = int_var
                     if isinstance(array_size, Sum):
                         old_array_size = array_size.children
@@ -862,12 +1244,12 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                     # save for later usage
                     temp_array_map[array.name] = (array, stack_var, int_var)
 
-                #Compute stack used
+                # compute stack used
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
                 stack_used_var = self._get_int_var(name=stack_used_name, scope=routine)
 
-                #List up integers and allocations generated
+                # list up integers and allocations generated
                 allocations += [Assignment(lhs=stack_used_var, rhs=stack_used)]
 
         var_map = self._map_temporary_array(temp_array_map, routine)
@@ -875,7 +1257,7 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
             var_map = recursive_expression_map_update(var_map)
             routine.body = SubstituteExpressions(var_map).visit(routine.body)
 
-        #Add  variables to routines and allocations to body
+        # add variables to routines and allocations to body
         routine.variables = as_tuple(v for v in routine.variables if v not in temporary_arrays) + as_tuple(integers)
         routine.body.prepend(allocations)
 
@@ -883,35 +1265,17 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
 
     def _map_temporary_array(self, temp_array_map, routine):
         """
-        TODO: adapt ...
-        Find all instances of temporary array, temp_array, in routine and
-        map them to to the corresponding position in stack stack_var.
-        Position in stack is stored in int_var.
-        Returns a dict mapping all instances of temp_array to corresponding stack position.
-
-        Parameters
-        ----------
-        temp_array : :any:`Variable`
-            Array to be mapped into stack array
-        int_var : :any:`Variable`
-            Integer variable corresponding to the position in of the array in the stack
-        routine : :any:`Subroutine`
-            The subroutine object to transform
-        stack_var : :any:`Variable`
-            The stack array variable
-
-        Returns
-        -------
-        temp_map : :any:`dict`
-            dict mapping variable instances to positions in the stack array
+        Find all instances of temporary arrays and
+        map them to to the corresponding stack_var and position in stack stack_var.
+        Position in stack is stored in the relevant int_var.
         """
 
-        #List instances of temp_array
+        # list instances of temp_array
         temp_arrays = [v for v in FindVariables().visit(routine.body) if v.name.lower() in temp_array_map.keys()]
         temp_map = {}
         stack_dimensions = [None]
 
-        #Loop over instances of temp_array
+        # loop over instances of temp_array
         for t in temp_arrays:
 
             stack_var = temp_array_map[t.name][1]
@@ -921,10 +1285,10 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
             stack_size = IntLiteral(1)
 
             if t.dimensions:
-                #If t has dimensions, we must compute the offsets in the stack
-                #taking each dimension into account
+                # if t has dimensions, we must compute the offsets in the stack
+                # taking each dimension into account
 
-                #Check if lead dimension is contiguous
+                # check if lead dimension is contiguous
                 contiguous = (isinstance(t.dimensions[0], RangeIndex) and
                              (t.dimensions[0] == self._get_horizontal_range(routine) or
                              (t.dimensions[0].lower is None and t.dimensions[0].upper is None)))
@@ -932,7 +1296,7 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                 s_offset = IntLiteral(1)
                 for d, s in zip(t.dimensions, t.shape):
 
-                    #Check if there are range indices in shape to account for
+                    # check if there are range indices in shape to account for
                     if isinstance(s, RangeIndex):
                         s_lower = s.lower
                         s_upper = s.upper
@@ -945,8 +1309,8 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                     if isinstance(d, RangeIndex):
 
                         # TODO: introduce warning here
-                        #If dimension is a rangeindex, compute the indices
-                        #Stop if there is any non contiguous access to the array
+                        # if dimension is a rangeindex, compute the indices
+                        # stop if there is any non contiguous access to the array
                         if not contiguous:
                             # raise RuntimeError(f'Discontiguous access of array {t}')
                             print(f'Discontiguous access of array {t} within {routine}')
@@ -954,25 +1318,25 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
                         d_lower = d.lower or s_lower
                         d_upper = d.upper or s_upper
 
-                        #Store if this dimension was contiguous
+                        # store if this dimension was contiguous
                         contiguous = (d_upper == s_upper) and (d_lower == s_lower)
 
-                        #Multiply stack_size by current dimension
+                        # multiply stack_size by current dimension
                         stack_size = Product((stack_size, Sum((d_upper, Product((-1, d_lower)), IntLiteral(1)))))
 
                     else:
 
-                        #Only need a single index to compute offset
+                        # only need a single index to compute offset
                         d_lower = d
 
-                    #Compute dimension and shape offsets
+                    # compute dimension and shape offsets
                     d_offset =  Sum((d_lower, Product((-1, s_lower))))
                     offset = Sum((offset, Product((d_offset, s_offset))))
                     s_offset = Product((s_offset, s_extent))
 
             else:
-                #If t does not have dimensions,
-                #we can just access (1:horizontal.size, 1:stack_size)
+                # if t does not have dimensions,
+                # we can just access (1:horizontal.size, 1:stack_size)
 
                 for s in t.shape:
                     if isinstance(s, RangeIndex):
@@ -989,20 +1353,20 @@ class PoolAllocatorRawTransformation(PoolAllocatorBaseTransformation):
             offset = simplify(offset)
             stack_size = simplify(stack_size)
 
-            #Add offset to int_var
+            # add offset to int_var
             lower = Sum((int_var,) + offset.children if isinstance(offset, Sum) else (offset,))
 
             if stack_size == IntLiteral(1):
-                #If a single element is accessed, we only need a number
+                # if a single element is accessed, we only need a number
                 stack_dimensions[0] = lower
 
             else:
-                #Else we'll  have to construct a range index
+                # else we'll  have to construct a range index
                 offset = simplify(Sum((offset, stack_size, Product((-1, IntLiteral(1))))))
                 upper = Sum((int_var,) + offset.children if isinstance(offset, Sum) else (offset,))
                 stack_dimensions[0] = RangeIndex((lower, upper))
 
-            #Finally add to the mapping
+            # finally add to the mapping
             temp_map[t] = stack_var.clone(dimensions=as_tuple(stack_dimensions))
 
         return temp_map
