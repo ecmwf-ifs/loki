@@ -30,7 +30,7 @@ jobs:
             os: ubuntu-24.04
             install-options: --with-omni --with-tests --without-dace
             env: JAVA_HOME=${JAVA_HOME_11_X64}
-            pkg-dependencies: graphviz gfortran byacc flex openjdk-11-jdk ant cmake meson ninja-build libhdf5-dev libopenmpi-dev
+            pkg-dependencies: graphviz gfortran byacc flex cmake meson ninja-build libhdf5-dev libopenmpi-dev
             pip-dependencies: pyyaml fypp
 
     runs-on: ${{ matrix.os }}
@@ -66,6 +66,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
 
       - name: Install dependencies
         run: |
