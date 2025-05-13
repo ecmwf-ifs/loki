@@ -27,7 +27,7 @@ def fixture_horizontal():
 
 @pytest.mark.parametrize('directive', ['openacc', 'omp-gpu'])
 @pytest.mark.parametrize('stack_trafo', [FtrPtrStackTransformation, DirectIdxStackTransformation])
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Inlines kind parameters.')]))
 def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive, stack_trafo, tmp_path):
 
     fcode_parkind_mod = """
