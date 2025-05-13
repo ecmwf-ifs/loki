@@ -32,7 +32,7 @@ jobs:
               # Enable --with-dace as soon as DaCe supports 3.13 and Numpy>2.0
             install-options: --with-omni --with-examples --with-tests --without-dace
             env: JAVA_HOME=${JAVA_HOME_11_X64}
-            pkg-dependencies: graphviz gfortran byacc flex openjdk-11-jdk ant cmake meson ninja-build
+            pkg-dependencies: graphviz gfortran byacc flex cmake meson ninja-build
 
           # - name: macos
           #   os: macos-14
@@ -54,6 +54,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
 
       - name: Install dependencies
         run: |
