@@ -11,8 +11,8 @@ from loki.batch import Pipeline
 
 from loki.transformations.temporaries import (
         HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
-        TemporariesRawStackTransformation, PoolAllocatorFtrPtrTransformation,
-        PoolAllocatorRawTransformation
+        TemporariesRawStackTransformation,
+        FtrPtrStackTransformation, DirectIdxStackTransformation
 )
 
 from loki.transformations.single_column.base import SCCBaseTransformation
@@ -31,7 +31,7 @@ __all__ = [
     'SCCHoistPipeline', 'SCCVHoistPipeline', 'SCCSHoistPipeline',
     'SCCStackPipeline', 'SCCVStackPipeline', 'SCCSStackPipeline',
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
-    'SCCStackRawPipeline', 'SCCVStackRawPipeline', 'SCCSStackRawPipeline',
+    'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
 ]
 
@@ -362,11 +362,47 @@ SCCVStackFtrPtrPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
-        PoolAllocatorFtrPtrTransformation,
+        FtrPtrStackTransformation,
         PragmaModelTransformation
     )
 )
+"""
+SCC-style transformation with "vector-parallel" kernels
+that additionally pre-allocates a "stack"
+pool allocator and associates local arrays with preallocated memory.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`FtrPtrStackTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that is
+pre-allocated in the driver routine and passed down via arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+"""
+
+# alias for backwards compability
 SCCStackFtrPtrPipeline = SCCVStackPipeline
+
 SCCSStackFtrPtrPipeline = partial(
     Pipeline, classes=(
         SCCFuseVerticalLoops,
@@ -375,12 +411,45 @@ SCCSStackFtrPtrPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
-        PoolAllocatorFtrPtrTransformation,
+        FtrPtrStackTransformation,
         PragmaModelTransformation
     )
 )
+"""
+SCC-style transformation with sequential kernels
+that additionally pre-allocates a "stack"
+pool allocator and associates local arrays with preallocated memory.
 
-SCCVStackRawPipeline = partial(
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCSVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`FtrPtrStackTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that is
+pre-allocated in the driver routine and passed down via arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+"""
+
+SCCVStackDirectIdxPipeline = partial(
     Pipeline, classes=(
         SCCFuseVerticalLoops,
         SCCBaseTransformation,
@@ -388,12 +457,52 @@ SCCVStackRawPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
-        PoolAllocatorRawTransformation,
+        DirectIdxStackTransformation,
         PragmaModelTransformation
     )
 )
-SCCStackRawPipeline = SCCVStackRawPipeline
-SCCSStackRawPipeline = partial(
+"""
+SCC-style transformation with "vector-parallel" kernels
+that additionally pre-allocates a "stack"
+pool allocator and replaces local temporaries with indexed sub-arrays
+of this preallocated array.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`DirectIdxStackTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that is
+pre-allocated in the driver routine and passed down via arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+driver_horizontal : str, optional
+    Override string if a separate variable name should be used for the
+    horizontal when allocating the stack in the driver.
+"""
+
+# alias for backwards compability
+SCCStackDirectIdxPipeline = SCCVStackDirectIdxPipeline
+
+SCCSStackDirectIdxPipeline = partial(
     Pipeline, classes=(
         SCCFuseVerticalLoops,
         SCCBaseTransformation,
@@ -401,10 +510,47 @@ SCCSStackRawPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
-        PoolAllocatorRawTransformation,
+        DirectIdxStackTransformation,
         PragmaModelTransformation
     )
 )
+"""
+SCC-style transformation with sequential kernels
+that additionally pre-allocates a "stack"
+pool allocator and replaces local temporaries with indexed sub-arrays
+of this preallocated array.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`DirectIdxStackTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that is
+pre-allocated in the driver routine and passed down via arguments.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+driver_horizontal : str, optional
+    Override string if a separate variable name should be used for the
+    horizontal when allocating the stack in the driver.
+"""
 
 SCCVRawStackPipeline = partial(
     Pipeline, classes=(

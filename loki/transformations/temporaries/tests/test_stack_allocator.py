@@ -15,7 +15,7 @@ from loki.ir import FindNodes, nodes as ir
 from loki.sourcefile import Sourcefile
 from loki.transformations.pragma_model import PragmaModelTransformation
 
-from loki.transformations.temporaries import PoolAllocatorFtrPtrTransformation, PoolAllocatorRawTransformation
+from loki.transformations.temporaries import FtrPtrStackTransformation, DirectIdxStackTransformation
 
 @pytest.fixture(scope='module', name='block_dim')
 def fixture_block_dim():
@@ -26,7 +26,7 @@ def fixture_horizontal():
     return Dimension(name='horizontal', size='nlon', index='jl', bounds=('jstart', 'jend'))
 
 @pytest.mark.parametrize('directive', ['openacc', 'omp-gpu'])
-@pytest.mark.parametrize('stack_trafo', [PoolAllocatorFtrPtrTransformation, PoolAllocatorRawTransformation])
+@pytest.mark.parametrize('stack_trafo', [FtrPtrStackTransformation, DirectIdxStackTransformation])
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive, stack_trafo, tmp_path):
 
@@ -352,12 +352,12 @@ end module kernel3_mod
         assert var not in kernel2_args
         assert var not in kernel3_args
 
-    if stack_trafo == PoolAllocatorFtrPtrTransformation:
+    if stack_trafo == FtrPtrStackTransformation:
         kernel1_incr_vars = {'jprb': ('jd_incr_jprb',),
                              'selected_real': ('jd_incr_selected_real_kind_13_300',), 'l': ('jd_incr',)}
         kernel2_incr_vars = {'jprb': ('jd_incr_jprb',)}
         kernel3_incr_vars = {'jprb': ('jd_incr_jprb',)}
-    else: # PoolAllocatorRawTransformation
+    else: # DirectIdxStackTransformation
         kernel1_incr_vars = {'jprb': ('jd_zzx',), 'selected_real': ('jd_zzy',), 'l': ('jd_zzl',)}
         kernel2_incr_vars = {'jprb': ('jd_zde1', 'jd_zde2')}
         kernel3_incr_vars = {'jprb': ('jd_zde1', 'jd_zde2', 'jd_zde3')}
