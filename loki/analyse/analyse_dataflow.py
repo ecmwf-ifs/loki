@@ -96,7 +96,7 @@ class DataflowAnalysisAttacher(Transformer):
         (defines, uses) : (set, set)
             The sets of defined and used symbols (in that order).
         """
-        defines = {expr.clone(dimensions=None)}
+        defines = cls._symbols_from_expr(expr.clone(dimensions=None))
         uses = cls._symbols_from_expr(getattr(expr, 'dimensions', ()))
         return defines, uses
 
