@@ -1014,7 +1014,7 @@ class PragmaPattern(Pattern):
 
     def __init__(self):
         super().__init__(
-            r'!\$[a-z]* ',
+            r'^!\$[a-z]+ ',
             re.IGNORECASE
         )
 
