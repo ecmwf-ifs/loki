@@ -61,14 +61,25 @@ class DataflowAnalysisAttacher(Transformer):
             defines |= visited[-1].defines_symbols.copy()
         return as_tuple(visited), defines, uses
 
-    @staticmethod
-    def _symbols_from_expr(expr, condition=None):
+    @classmethod
+    def _strip_nested_dimensions(cls, expr):
+        """
+        Strip dimensions from array expressions of arbitrary nesting depth.
+        """
+
+        parent = expr.parent
+        if parent:
+            parent = cls._strip_nested_dimensions(parent)
+        return expr.clone(dimensions=None, parent=parent)
+
+    @classmethod
+    def _symbols_from_expr(cls, expr, condition=None):
         """
         Return set of symbols found in an expression.
         """
         if condition is not None:
-            return {v.clone(dimensions=None) for v in FindVariables().visit(expr) if condition(v)}
-        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+            return {cls._strip_nested_dimensions(v) for v in FindVariables().visit(expr) if condition(v)}
+        return {cls._strip_nested_dimensions(v) for v in FindVariables().visit(expr)}
 
     @classmethod
     def _symbols_from_lhs_expr(cls, expr):
