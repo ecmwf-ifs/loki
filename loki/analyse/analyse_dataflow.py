@@ -153,7 +153,10 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Loop(self, o, **kwargs):
         # A loop defines the induction variable for its body before entering it
         live = kwargs.pop('live_symbols', set())
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.bounds) if i.function in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         uses = self._symbols_from_expr(o.bounds)
+        uses = {v for v in uses if not v in query_args}
         body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
         o._update(body=body)
         # Make sure the induction variable is not considered outside the loop
