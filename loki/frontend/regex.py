@@ -16,15 +16,15 @@ from abc import abstractmethod
 from enum import Flag, auto
 import re
 from codetiming import Timer
-from more_itertools import split_after
 
 from loki import ir
 from loki.config import config
 from loki.expression import symbols as sym
-from loki.frontend.source import Source, FortranReader, join_source_list
+from loki.frontend.source import Source, FortranReader
+from loki.frontend.util import combine_multiline_pragmas
 from loki.logging import debug
 from loki.scope import SymbolAttributes
-from loki.tools import as_tuple, timeout, group_by_class, replace_windowed
+from loki.tools import as_tuple, timeout
 from loki.types import BasicType, ProcedureType, DerivedType
 
 __all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
@@ -494,21 +494,6 @@ class SubroutineFunctionPattern(Pattern):
         scope : :any:`Scope`
             The parent scope for the current source fragment
         """
-
-        def combine_multiline_pragmas(nodes):
-            # same logic as implemented in "CombineMultilinePragmasTransformer"
-            pgroups = group_by_class(nodes, ir.Pragma)
-            for group in pgroups:
-                # Separate sets of consecutive multi-line pragmas
-                pred = lambda p: not p.content.rstrip().endswith('&')  # pylint: disable=unnecessary-lambda-assignment
-                for pragmaset in split_after(group, pred=pred):
-                    source = join_source_list(tuple(p.source for p in pragmaset))
-                    content = ' '.join(p.content.rstrip(' &') for p in pragmaset)
-                    new_pragma = ir.Pragma(
-                        keyword=pragmaset[0].keyword, content=content, source=source
-                    )
-                    nodes = replace_windowed(nodes, pragmaset, subs=(new_pragma,))
-            return nodes
 
         from loki import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         match = self.pattern.search(reader.sanitized_string)

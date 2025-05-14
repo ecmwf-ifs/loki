@@ -29,7 +29,7 @@ __all__ = [
     'Frontend', 'OMNI', 'FP', 'REGEX', 'available_frontends',
     'read_file', 'InlineCommentTransformer',
     'ClusterCommentTransformer', 'CombineMultilinePragmasTransformer',
-    'sanitize_ir'
+    'sanitize_ir', 'combine_multiline_pragmas'
 ]
 
 
@@ -239,6 +239,24 @@ def read_file(file_path):
     return source
 
 
+def combine_multiline_pragmas(nodes):
+    """
+    Finds multi-line pragmas and combines them.
+    """
+    pgroups = group_by_class(nodes, Pragma)
+    for group in pgroups:
+        # Separate sets of consecutive multi-line pragmas
+        pred = lambda p: not p.content.rstrip().endswith('&')  # pylint: disable=unnecessary-lambda-assignment
+        for pragmaset in split_after(group, pred=pred):
+            source = join_source_list(tuple(p.source for p in pragmaset))
+            content = ' '.join(p.content.rstrip(' &') for p in pragmaset)
+            new_pragma = Pragma(
+                keyword=pragmaset[0].keyword, content=content, source=source
+            )
+            nodes = replace_windowed(nodes, pragmaset, subs=(new_pragma,))
+    return nodes
+
+
 class CombineMultilinePragmasTransformer(Transformer):
     """
     Combine multiline :any:`Pragma` nodes into single ones.
@@ -248,20 +266,7 @@ class CombineMultilinePragmasTransformer(Transformer):
         """
         Finds multi-line pragmas and combines them in-place.
         """
-        pgroups = group_by_class(o, Pragma)
-
-        for group in pgroups:
-            # Separate sets of consecutive multi-line pragmas
-            pred = lambda p: not p.content.rstrip().endswith('&')  # pylint: disable=unnecessary-lambda-assignment
-            for pragmaset in split_after(group, pred=pred):
-                # Combine into a single pragma and add to map
-                source = join_source_list(tuple(p.source for p in pragmaset))
-                content = ' '.join(p.content.rstrip(' &') for p in pragmaset)
-                new_pragma = Pragma(
-                    keyword=pragmaset[0].keyword, content=content, source=source
-                )
-                o = replace_windowed(o, pragmaset, subs=(new_pragma,))
-
+        o = combine_multiline_pragmas(o)
         visited = tuple(self.visit(i, **kwargs) for i in o)
 
         # Strip empty sublists/subtuples or None entries
