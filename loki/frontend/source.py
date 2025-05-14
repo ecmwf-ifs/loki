@@ -9,13 +9,14 @@
 Implementation of :any:`Source` and adjacent utilities
 """
 from bisect import bisect_left
-from itertools import accumulate
+from itertools import accumulate, takewhile
 import re
 from codetiming import Timer
 
 try:
-    from fparser.common.readfortran import FortranStringReader
+    from fparser.common.readfortran import Comment as ReadComment, FortranStringReader
 except ImportError:
+    ReadComment = None
     FortranStringReader = None
 
 from loki.logging import debug, warning
@@ -173,12 +174,18 @@ class FortranReader:
         """
         if FortranStringReader is None:
             raise RuntimeError('FortranReader needs fparser2')
-        # do not ignore comments as this would also ignore pragmas
+        # do not ignore comments during reading as this would also ignore pragmas ...
         reader = FortranStringReader(raw_source, ignore_comments=False)
-        self.sanitized_lines = tuple(item for item in reader)
-        # remove comments but keep pragmas
-        self.sanitized_lines = tuple(l for l in self.sanitized_lines if
-                len(l.line) > 1 and not (l.line[0] == '!' and not l.line[1] == '$'))
+        lines = tuple(l for l in reader)
+        # ...but remove all comments that do not look like pragmas and are not inline comments
+        def is_not_comment(line, prev=None):
+            prev_end = prev.span[1] if prev else 0
+            return not isinstance(line, ReadComment) or (
+                line.span[0] > prev_end and line.line[:2] == '!$'
+            )
+        self.sanitized_lines = tuple(takewhile(is_not_comment, lines[:1])) + tuple(
+            l for l, prev in zip(lines[1:], lines) if is_not_comment(l, prev)
+        )
         self.sanitized_spans = (0,) + tuple(accumulate(len(item.line)+1 for item in self.sanitized_lines))
         self.sanitized_string = '\n'.join(item.line for item in self.sanitized_lines)
 
