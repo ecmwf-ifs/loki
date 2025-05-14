@@ -21,6 +21,7 @@ from loki import ir
 from loki.config import config
 from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
+from loki.frontend.util import combine_multiline_pragmas
 from loki.logging import debug
 from loki.scope import SymbolAttributes
 from loki.tools import as_tuple, timeout
@@ -49,7 +50,9 @@ class RegexParserClass(Flag):
     TypeDefClass = auto()
     DeclarationClass = auto()
     CallClass = auto()
-    AllClasses = ProgramUnitClass | InterfaceClass | ImportClass | TypeDefClass | DeclarationClass | CallClass  # pylint: disable=unsupported-binary-operation
+    PragmaClass = auto()
+    AllClasses = ProgramUnitClass | InterfaceClass | ImportClass | TypeDefClass | \
+            DeclarationClass | CallClass | PragmaClass  # pylint: disable=unsupported-binary-operation
 
 
 class Pattern:
@@ -491,6 +494,7 @@ class SubroutineFunctionPattern(Pattern):
         scope : :any:`Scope`
             The parent scope for the current source fragment
         """
+
         from loki import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
         match = self.pattern.search(reader.sanitized_string)
         if not match:
@@ -512,12 +516,13 @@ class SubroutineFunctionPattern(Pattern):
             )
 
         if match['spec']:
-            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern')
+            statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern', 'PragmaPattern')
             block_candidates = ('InterfacePattern',)
             spec = self.match_block_statement_candidates(
                 reader.reader_from_sanitized_span(match.span('spec'), include_padding=True),
                 block_candidates, statement_candidates, parser_classes=parser_classes, scope=routine
             )
+            spec = combine_multiline_pragmas(spec)
         else:
             spec = None
 
@@ -999,6 +1004,42 @@ class CallPattern(Pattern):
                 ir.CallStatement(name=name, arguments=(), source=source.clone_with_span((span[1], None)))
             ]
         return ir.CallStatement(name=name, arguments=(), source=source)
+
+class PragmaPattern(Pattern):
+    """
+    Pattern to match :any:`VariableDeclaration` nodes.
+    """
+
+    parser_class = RegexParserClass.PragmaClass
+
+    def __init__(self):
+        super().__init__(
+            r'^!\$[a-z]+ ',
+            re.IGNORECASE
+        )
+
+    def match(self, reader, parser_classes, scope):
+        """
+        Match the provided source string against the pattern for a :any:`Pragma`
+
+        Parameters
+        ----------
+        reader : :any:`FortranReader`
+            The reader object containing a sanitized Fortran source
+        parser_classes : RegexParserClass
+            Active parser classes for matching
+        scope : :any:`Scope`
+            The parent scope for the current source fragment
+        """
+        line = reader.current_line
+        match = self.pattern.search(line.line)
+        if not match:
+            return None
+
+        keyword = line.line[2:match.span()[1]].strip()
+        content = line.line[match.span()[1]::].strip()
+        source = reader.source_from_current_line()
+        return ir.Pragma(keyword=keyword, content=content, source=source)
 
 
 PATTERN_REGISTRY = {

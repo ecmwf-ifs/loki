@@ -1350,3 +1350,92 @@ end module some_templated_mod
     decls = FindNodes(ir.VariableDeclaration).visit(module.spec)
 
     assert len(decls) == 5
+
+def test_regex_pragma():
+    """
+    Make sure the regex frontend can parse pragmas.
+    """
+    fcode = """
+SUBROUTINE FOO(A)
+
+INTEGER, INTENT(IN) :: A
+
+! make sure this won't end up as VariableDeclaration
+! INTEGER :: B
+! make sure this won't end up as VariableDeclaration
+!$loki INTEGER :: C
+! this is just a comment
+!$loki this-is-a-pragma
+!$acc this is another openacc pragma
+
+!$omp multiline &
+!$omp & pragma to be tested
+
+END SUBROUTINE FOO
+    """.strip()
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['FOO']
+
+    pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    var_decls = FindNodes(ir.VariableDeclaration).visit(routine.ir)
+
+    assert len(pragmas) == 4
+    assert pragmas[0].keyword == 'loki'
+    assert pragmas[0].content == 'INTEGER :: C'
+    assert pragmas[1].keyword == 'loki'
+    assert pragmas[1].content == 'this-is-a-pragma'
+    assert pragmas[2].keyword == 'acc'
+    assert pragmas[2].content == 'this is another openacc pragma'
+    assert pragmas[3].keyword == 'omp'
+    assert pragmas[3].content == 'multiline & pragma to be tested'
+
+    assert len(var_decls) == 1
+    assert var_decls[0].symbols == ('A',)
+
+    # compare with fully parsed source
+    source.make_complete()
+    compl_pragmas = FindNodes(ir.Pragma).visit(routine.ir)
+    for compl_pragma, pragma in zip(compl_pragmas, pragmas):
+        assert compl_pragma.keyword == pragma.keyword
+        assert compl_pragma.content == pragma.content
+
+def test_regex_comments():
+    """
+    Make sure the REGEX frontend doesn't match any comments
+    """
+    fcode = """
+SUBROUTINE my_routine
+! use my_mod
+use other_mod, only: foo
+use third_mod ! use fourth_mod
+use fifth_mod! , only: bar
+implicit none
+
+! type my_type
+type other_type
+end type
+
+integer :: var !, val
+
+! $acc not an acc pragma
+!$ acc also not an acc pragma
+var = 1 !$acc definitely not a pragma
+!!$acc not a pragma either
+!$$acc no pragma
+
+var = 1 &
+    &+1!$acc again no pragma
+
+call some_routine(var)
+var = var ! + function(val)
+var = var + 1 ! call other_routine(val)
+!call third routine(val)
+END SUBROUTINE my_routine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['my_routine']
+    assert len(routine.imports) == 3
+    assert [imprt.module for imprt in routine.imports] == ['other_mod', 'third_mod', 'fifth_mod']
+    assert len(calls := FindNodes(ir.CallStatement).visit(routine.ir)) == 1 and calls[0].name == 'some_routine'
+    assert not FindNodes(ir.Pragma).visit(routine.ir)
