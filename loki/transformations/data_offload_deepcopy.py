@@ -14,7 +14,7 @@ from loki.backend import fgen
 from loki.batch import Transformation, TypeDefItem, ProcedureItem
 from loki.ir import (
     nodes as ir, FindNodes, pragma_regions_attached, get_pragma_parameters, Transformer,
-    SubstitutePragmaStrings, SubstituteExpressions, FindLiterals
+    SubstitutePragmaStrings, SubstituteExpressions
 )
 from loki.expression import symbols as sym
 from loki.types import BasicType, DerivedType, SymbolAttributes
@@ -25,7 +25,23 @@ from loki.logging import warning
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
-def _sanitise_args(arg_map):
+
+def strip_nested_dimensions(expr):
+    """
+    Strip dimensions from array expressions of arbitrary derived-type
+    nesting depth.
+    """
+
+    parent = expr.parent
+    if parent:
+        parent = strip_nested_dimensions(parent)
+    return expr.clone(dimensions=None, parent=parent)
+
+
+def get_sanitised_arg_map(arg_map):
+    """
+    Return sanitised mapping of dummy argument names to arguments.
+    """
 
     _arg_map = {}
     for dummy, arg in arg_map.items():
@@ -34,17 +50,47 @@ def _sanitise_args(arg_map):
         if isinstance(arg, sym.LogicalNot):
             arg = arg.child
 
-        _arg_map.update({dummy.name.lower(): arg.name.lower()})
+        _arg_map[dummy.clone(dimensions=None)] = strip_nested_dimensions(arg)
 
     return _arg_map
+
+
+def get_root_var(var):
+    """Get the root variable of a derived-type expression."""
+
+    if var.parent:
+        root = get_root_var(var.parent)
+        return root
+    else:
+        return var
+
+
+def map_derived_type_arguments(arg_map, analysis):
+    """
+    Map the root variable of derived-type dummy argument components
+    to the corresponding argument.
+    """
+
+    _analysis = {}
+    for k, v in analysis.items():
+
+        dummy_root = get_root_var(k)
+        if not (arg := arg_map.get(dummy_root, None)):
+            continue
+
+        expr_map = {dummy_root: arg}
+        var = SubstituteExpressions(expr_map).visit(k)
+
+        _analysis[var] = v
+
+    return _analysis
+
 
 class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
 
     def visit_CallStatement(self, o, **kwargs):
 
         successors = kwargs['successors']
-        dummies = kwargs['dummies']
-        variable_map = kwargs['variable_map']
         routine = kwargs['routine']
 
         if not o.routine:
@@ -56,25 +102,18 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
 
         child = child[0]
 
-        _arg_map = _sanitise_args(o.arg_map)
-
-        _child_analysis = {'%'.join([_arg_map.get(n, n) for n in k.split('%')]): v
-                           for k, v in child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis'].items()}
-        _child_analysis = {k: v for k, v in _child_analysis.items()
-                           if k.split('%')[0].lower() in dummies}
+        # remap root variable names to current scope
+        arg_map = get_sanitised_arg_map(o.arg_map)
+        child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis']
+        child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
         defines, uses = set(), set()
-        for k, v in _child_analysis.items():
-
-            if '%' in k:
-                _var = routine.resolve_typebound_var(k, variable_map)
-            else:
-                _var = variable_map[k]
+        for k, v in child_analysis.items():
 
             if 'read' in v:
-                uses |= {_var}
+                uses |= {k}
             if 'write' in v:
-                defines |= {_var}
+                defines |= {k}
 
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
@@ -89,6 +128,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
     """Traversal from the leaves upwards"""
 
     item_filter = (ProcedureItem, TypeDefItem)
+    # Modules (correctly) placed in the ignore list contain type definitions and must
+    # therefore be processed.
     process_ignored_items = True
 
     def __init__(self, debug=False, **kwargs):
@@ -109,12 +150,17 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             self.process_kernel(routine, item, successors)
 
     @classmethod
-    def _resolve_nesting(cls, k, v):
-        name_parts = k.split('%')
+    def _resolve_nesting(cls, k, v, variable_map):
+        name_parts = k.name.split('%', maxsplit=1)
+        parent = variable_map[name_parts[0]].clone(dimensions=None)
         if len(name_parts) > 1:
-            v = cls._resolve_nesting('%'.join(name_parts[1:]), v)
+            child_name_parts = name_parts[1].split('%', maxsplit=1)
+            child = parent.type.dtype.typedef.variable_map[child_name_parts[0]]
+            if len(child_name_parts) > 1:
+                child = child.get_derived_type_member(child_name_parts[1])
+            v = cls._resolve_nesting(child, v, parent.type.dtype.typedef.variable_map)
 
-        return {name_parts[0]: v}
+        return {parent: v}
 
     @classmethod
     def _nested_merge(cls, ref_dict, temp_dict, force=False):
@@ -123,13 +169,30 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 if isinstance(temp_dict[key], dict) and isinstance(ref_dict[key], dict):
                     ref_dict[key] = cls._nested_merge(ref_dict[key], temp_dict[key], force=force)
                 elif not isinstance(ref_dict[key], dict) and not isinstance(temp_dict[key], dict) and not force:
-                    ref_dict[key] += temp_dict[key]
+                    if ref_dict[key] == temp_dict[key]:
+                        continue
+                    else:
+                        raise RuntimeError(f'[Loki::DataOffloadDeepcopyAnalysis] conflicting dataflow analysis for {key}')
                 elif not isinstance(ref_dict[key], dict):
                     ref_dict[key] = temp_dict[key]
             else:
                 ref_dict.update({key: temp_dict[key]})
 
         return ref_dict
+
+    def stringify_dict(self, _dict):
+        """
+        Stringify expression keys of a nested dict.
+        """
+
+        stringified_dict = {}
+        for k, v in _dict.items():
+            if isinstance(v, dict):
+                stringified_dict[k.name.lower()] = self.stringify_dict(v)
+            else:
+                stringified_dict[k.name.lower()] = v
+
+        return stringified_dict
 
     def process_driver(self, routine, item, successors, targets):
 
@@ -148,8 +211,12 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
             layered_dict = {}
             for k, v in analysis.items():
-                _temp_dict = self._resolve_nesting(k, v)
+                _temp_dict = self._resolve_nesting(k, v, routine.symbol_map)
                 layered_dict = self._nested_merge(layered_dict, _temp_dict)
+
+            # FIX ME: this can be dropped once transformation is updated to use expressions
+            # rather than strings
+            layered_dict = self.stringify_dict(layered_dict)
             item.trafo_data[self._key]['analysis'][loop] = layered_dict
 
             # filter out explicitly exlucded vars
@@ -183,30 +250,19 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         #gather used symbols in specification
         for v in routine.spec.uses_symbols:
             if v.name_parts[0].lower() in routine._dummies:
-                stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
-                if stat == 'write':
-                    stat = 'readwrite'
-                item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
+                item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
 
         #gather used and defined symbols in body
         for v in routine.body.uses_symbols:
             if v.name_parts[0].lower() in routine._dummies:
-                stat = item.trafo_data[self._key]['analysis'].get(v.name.lower(), 'read')
-                if stat == 'write':
-                    stat = 'readwrite'
-                item.trafo_data[self._key]['analysis'].update({v.name.lower(): stat})
+                item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
 
         for v in routine.body.defines_symbols:
             if v.name_parts[0].lower() in routine._dummies:
-                if v in routine.body.uses_symbols:
-                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'readwrite'})
+                if v in (routine.spec.uses_symbols | routine.body.uses_symbols):
+                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
                 else:
-                    item.trafo_data[self._key]['analysis'].update({v.name.lower(): 'write'})
-
-        item.trafo_data[self._key]['analysis'] = {k: v
-            for k, v in item.trafo_data[self._key]['analysis'].items()
-            if not isinstance(getattr(getattr(variable_map.get(k, k), 'type', None), 'dtype', None), DerivedType)
-        }
+                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
 
         DataflowAnalysisDetacher().visit(routine.spec)
         DataflowAnalysisDetacher().visit(routine.body)
@@ -214,11 +270,12 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if self.debug:
             layered_dict = {}
             for k, v in item.trafo_data[self._key]['analysis'].items():
-                _temp_dict = self._resolve_nesting(k, v)
+                _temp_dict = self._resolve_nesting(k, v, routine.symbol_map)
                 layered_dict = self._nested_merge(layered_dict, _temp_dict)
 
             with open(f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
-                yaml.dump(layered_dict, file)
+                str_layered_dict = self.stringify_dict(layered_dict)
+                yaml.dump(str_layered_dict, file)
 
     def _gather_from_children(self, routine, item, analysis, successors):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
@@ -229,12 +286,11 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 if call.routine is BasicType.DEFERRED:
                     raise RuntimeError('Cannot apply DataOffloadAnalysis without enriching calls.')
 
-                _arg_map = _sanitise_args(call.arg_map)
+                arg_map = get_sanitised_arg_map(call.arg_map)
+                child_analysis = child.trafo_data[self._key]['analysis']
+                child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
-                _child_analysis = {'%'.join([_arg_map.get(n, n) for n in k.split('%')]): v
-                                   for k, v in child.trafo_data[self._key]['analysis'].items()}
-
-                for k, v in _child_analysis.items():
+                for k, v in child_analysis.items():
                     _v = analysis.get(k, v)
                     if _v != v:
                         if _v == 'write':
