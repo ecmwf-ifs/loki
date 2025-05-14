@@ -18,3 +18,4 @@ Loki,OpenACC,OMP-GPU
 ``end device-present vars(...)``,``end data``,
 ``device-ptr vars (...)``,``data deviceptr(...)``,
 ``end device-ptr vars(...)``,``end data``,
+``omp-update-global-vars in(...)``,,``target enter data map(to: ...)``
