@@ -1398,3 +1398,44 @@ END SUBROUTINE FOO
     for compl_pragma, pragma in zip(compl_pragmas, pragmas):
         assert compl_pragma.keyword == pragma.keyword
         assert compl_pragma.content == pragma.content
+
+def test_regex_comments():
+    """
+    Make sure the REGEX frontend doesn't match any comments
+    """
+    fcode = """
+SUBROUTINE my_routine
+! use my_mod
+use other_mod, only: foo
+use third_mod ! use fourth_mod
+use fifth_mod! , only: bar
+implicit none
+
+! type my_type
+type other_type
+end type
+
+integer :: var !, val
+
+! $acc not an acc pragma
+!$ acc also not an acc pragma
+var = 1 !$acc definitely not a pragma
+!!$acc not a pragma either
+!$$acc no pragma
+
+var = 1 &
+    &+1!$acc again no pragma
+
+call some_routine(var)
+var = var ! + function(val)
+var = var + 1 ! call other_routine(val)
+!call third routine(val)
+END SUBROUTINE my_routine
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['my_routine']
+    assert len(routine.imports) == 3
+    assert [imprt.module for imprt in routine.imports] == ['other_mod', 'third_mod', 'fifth_mod']
+    assert len(calls := FindNodes(ir.CallStatement).visit(routine.ir)) == 1 and calls[0].name == 'some_routine'
+    assert not FindNodes(ir.Pragma).visit(routine.ir)
