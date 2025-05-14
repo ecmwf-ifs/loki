@@ -277,6 +277,9 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not v.type.pointer]
         arrays = [v for v in arrays if not v.name_parts[0].lower() in acc_vars]
 
+        # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
+        # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
+        # scalars must also be privatised.
         structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
         structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
         structs = [v for v in structs if not v.type.intent]
