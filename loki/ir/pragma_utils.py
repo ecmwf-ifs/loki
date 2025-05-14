@@ -10,6 +10,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from codetiming import Timer
 
+#from loki.backend.fgen import fgen
 from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
@@ -23,7 +24,7 @@ __all__ = [
     'attach_pragmas', 'detach_pragmas',
     'pragmas_attached', 'attach_pragma_regions', 'detach_pragma_regions',
     'pragma_regions_attached', 'PragmaAttacher', 'PragmaDetacher',
-    'get_pragma_command_and_parameters'
+    'get_pragma_command_and_parameters', 'SubstitutePragmaStrings'
 ]
 
 
@@ -694,3 +695,50 @@ def pragma_regions_attached(module_or_routine):
             module_or_routine.spec = detach_pragma_regions(module_or_routine.spec)
         if hasattr(module_or_routine, 'body'):
             module_or_routine.body = detach_pragma_regions(module_or_routine.body)
+
+
+class SubstitutePragmaStrings(Transformer):
+    """
+    A :any:`Transformer` that updates the content of a :any:`Pragma`
+    using the provided string map. The string search and replace is
+    based on literal matching and does not support regex patterns.
+    """
+
+    _sanitise_map = {
+        r'(': r'\(',
+        r')': r'\)',
+        r']': r'\]',
+        r'[': r'\[',
+        r'.': r'\.',
+        r'+': r'\+',
+        r'?': r'\?',
+        r'*': r'\*',
+        r':': r'\:',
+        r'%': r'\%'
+    }
+
+    def __init__(self, str_map):
+        super().__init__(inplace=True)
+
+        # Remove continuation markers for substitutions across lines
+        self.str_map = {re.compile(r'\&', flags=re.IGNORECASE): ''}
+
+        # Sanitise str_map so that regex performs a literal search rather
+        # than pattern matching
+        for k, v in str_map.items():
+            for _k, _v, in self._sanitise_map.items():
+                k = k.replace(_k, _v)
+            self.str_map.update({re.compile(k, flags=re.IGNORECASE): v})
+
+    def visit_Pragma(self, o, **kwargs):
+        """
+        Update the content of a pragma using the given str map.
+        """
+        #pylint: disable=unused-argument
+
+        _content = o.content
+        for k, v in self.str_map.items():
+            _content = k.sub(v, _content)
+
+        o._update(content=_content)
+        return o

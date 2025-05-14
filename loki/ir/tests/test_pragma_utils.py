@@ -2,11 +2,11 @@ from io import StringIO
 import pytest
 
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, FP
 from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
 from loki.ir.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
-    pragmas_attached, pragma_regions_attached
+    pragmas_attached, pragma_regions_attached, SubstitutePragmaStrings
 )
 
 
@@ -679,3 +679,73 @@ END SUBROUTINE TEST
     routine.spec.prepend(pragma)
     fgen_code = routine.to_fortran()
     assert f'!$acc routine( {routine.name} ) seq' in fgen_code
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_pragma_strings(frontend):
+    """
+    Test pragma string mapping using the :any:`SubstitutePragmaStrings` transformer.
+    """
+
+    fcode = """
+subroutine test()
+integer :: i
+
+!$loki region sOMe(stupIdly rIDICULOusly) long(: .OK. :) /we aRe stIll g01Ng ... m*AY+b3% &
+!$loki &lEt's sT0P
+
+if (.true.) then
+   !$loki sOMe(stupIdly rIDICULOusly) long(: .OK. :) /we aRe stIll g01Ng ... m*AY+b3% &
+   !$loki &lEt's sT0P
+   if (.not. .false.) then
+      !$loki sOMe(stupIdly rIDICULOusly) long(: .OK. :) /we aRe stIll g01Ng ... m*AY+b3% &
+      !$loki &lEt's sT0P
+      do i = 1,10
+        !$loki sOMe(stupIdly rIDICULOusly) long(: .OK. :) /we aRe stIll g01Ng ... m*AY+b3% &
+        !$loki &lEt's sT0P
+      enddo
+   endif
+endif
+
+!$loki end region
+
+end subroutine test
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    str_map = {
+        'stupIdly': 'A bIt lESs stUPid nOW',
+        'rIDICULOusly': ', eVeN bEttEr Now!',
+        'long(: .OK. :)': 'take care TO ONLY PUT COLONS in a parameter',
+        '/we': 'foRWARDslash test pASSEd',
+        'aRe stIll g01Ng': 'and we insERTed (01)'
+        }
+
+    # OMNI adds the keyword for continued lines to the
+    # pragma content, so pragma string substitutions across
+    # lines only work for FP
+    fp_only_str_map = {
+        "... m*AY+b3% lEt's sT0P": "thanks I'm tired now"
+    }
+
+    if frontend == FP:
+        str_map.update(fp_only_str_map)
+
+    transform = SubstitutePragmaStrings(str_map)
+    #in-place transformer
+    transform.visit(routine.body)
+    pragmas = FindNodes(Pragma).visit(routine.body)
+
+    assert len(pragmas) == 5
+
+    for pragma in pragmas:
+        if pragma.content == 'end region':
+            continue
+        for k, v in str_map.items():
+            assert not k in pragma.content
+            assert v in pragma.content
+
+    # double check that the pragma region was also updated
+    with pragma_regions_attached(routine):
+        pragma_region = FindNodes(PragmaRegion).visit(routine.body)
+        assert 'sOMe(A bIt lESs stUPid nOW , eVeN bEttEr Now!)' in pragma_region[0].pragma.content
