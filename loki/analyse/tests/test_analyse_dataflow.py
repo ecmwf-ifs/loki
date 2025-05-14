@@ -436,10 +436,14 @@ implicit none
 
   real,intent(out) :: a(:,:)
   real             :: b(10)
-  integer                     :: bsize
+  integer          :: bsize, i
 
   if(size(a) > 0) a(:,:) = 0.
   bsize = size(b)
+
+  do i=1,size(b)
+    print *, i
+  enddo
 
 end subroutine test
     """.strip()
