@@ -57,14 +57,25 @@ class DataflowAnalysisAttacher(Transformer):
             defines |= visited[-1].defines_symbols.copy()
         return as_tuple(visited), defines, uses
 
-    @staticmethod
-    def _symbols_from_expr(expr, condition=None):
+    @classmethod
+    def _strip_nested_dimensions(cls, expr):
+        """
+        Strip dimensions from array expressions of arbitrary nesting depth.
+        """
+
+        parent = expr.parent
+        if parent:
+            parent = cls._strip_nested_dimensions(parent)
+        return expr.clone(dimensions=None, parent=parent)
+
+    @classmethod
+    def _symbols_from_expr(cls, expr, condition=None):
         """
         Return set of symbols found in an expression.
         """
         if condition is not None:
-            return {v.clone(dimensions=None) for v in FindVariables().visit(expr) if condition(v)}
-        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
+            return {cls._strip_nested_dimensions(v) for v in FindVariables().visit(expr) if condition(v)}
+        return {cls._strip_nested_dimensions(v) for v in FindVariables().visit(expr)}
 
     @classmethod
     def _symbols_from_lhs_expr(cls, expr):
@@ -81,7 +92,7 @@ class DataflowAnalysisAttacher(Transformer):
         (defines, uses) : (set, set)
             The sets of defined and used symbols (in that order).
         """
-        defines = {expr.clone(dimensions=None)}
+        defines = cls._symbols_from_expr(expr.clone(dimensions=None))
         uses = cls._symbols_from_expr(getattr(expr, 'dimensions', ()))
         return defines, uses
 
@@ -134,7 +145,10 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Loop(self, o, **kwargs):
         # A loop defines the induction variable for its body before entering it
         live = kwargs.pop('live_symbols', set())
+        mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.bounds) if i.function in self._mem_property_queries)
+        query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         uses = self._symbols_from_expr(o.bounds)
+        uses = {v for v in uses if not v in query_args}
         body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
         o._update(body=body)
         # Make sure the induction variable is not considered outside the loop
