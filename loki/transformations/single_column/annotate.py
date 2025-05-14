@@ -13,7 +13,7 @@ from loki.ir import (
     pragmas_attached, is_loki_pragma, get_pragma_parameters,
     pragma_regions_attached
 )
-from loki.logging import info
+from loki.logging import info, warning
 from loki.tools import as_tuple, flatten
 from loki.types import DerivedType
 
@@ -271,16 +271,29 @@ class SCCAnnotateTransformation(Transformation):
         """
 
         # Mark driver loop as "gang parallel".
-        arrays = FindVariables(unique=True).visit(loop)
-        arrays = [v for v in arrays if isinstance(v, sym.Array)]
+        loop_vars = FindVariables(unique=True).visit(loop)
+        arrays = [v for v in loop_vars if isinstance(v, sym.Array)]
         arrays = [v for v in arrays if not v.type.intent]
         arrays = [v for v in arrays if not v.type.pointer]
+        arrays = [v for v in arrays if not v.name_parts[0].lower() in acc_vars]
+
+        # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
+        # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
+        # scalars must also be privatised.
+        structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
+        structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
+        structs = [v for v in structs if not v.type.intent]
+        structs = [v for v in structs if not v in arrays]
+        if (dynamic_structs := [v.name for v in structs if (v.type.pointer or v.type.allocatable)]):
+            warning(f'[Loki-SCC::Annotate] dynamically allocated structs are being privatised: {dynamic_structs}')
+
 
         # Filter out arrays that are explicitly allocated with block dimension
         sizes = self.block_dim.size_expressions
-        arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
-        private_arrays = ', '.join(set(v.name for v in arrays if not v.name_parts[0].lower() in acc_vars))
-        private_clause = '' if not private_arrays else f' private({private_arrays})'
+        aggregate_vars = [v for v in arrays + structs
+                          if not any(d in sizes for d in as_tuple(getattr(v, 'shape', [])))]
+        private_vars = ', '.join(set(v.name for v in aggregate_vars))
+        private_clause = '' if not private_vars else f' private({private_vars})'
 
         for pragma in as_tuple(loop.pragma):
             if is_loki_pragma(pragma, starts_with='loop driver'):
