@@ -676,3 +676,45 @@ end subroutine associate_test
         assert assigns[0].defines_symbols == {'e'}
         assert assigns[1].defines_symbols == {'f'}
         assert assigns[2].defines_symbols == {'d0'}
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_analyse_derived_types(frontend, tmp_path):
+    """
+    Test dataflow analysis on nested derived-types.
+    """
+
+    fcode = r"""
+module my_mod
+   implicit none
+
+   type :: my_sub_type
+      real, allocatable :: c(:)
+   end type
+
+   type :: my_type
+      type(my_sub_type), allocatable :: b(:)
+   end type
+
+contains
+
+subroutine kernel(a, d)
+   type(my_type), intent(inout) :: a
+   type(my_type), intent(in) :: d
+   integer :: i
+
+   do i=1,10
+     A%B(i)%C(:) = D%B(i)%C(:)
+   enddo
+
+end subroutine
+
+end module
+"""
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['kernel']
+
+    with dataflow_analysis_attached(routine):
+        assert routine.body.defines_symbols == {'a%b%c'}
+        assert routine.body.uses_symbols == {'d%b%c'}
