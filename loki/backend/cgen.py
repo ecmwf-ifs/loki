@@ -257,7 +257,7 @@ class CCodegen(Stringifier):
         body += [self.visit(o.body, **kwargs)]
 
         # if something to be returned, add 'return <var>' statement
-        if o.result_name is not None:
+        if o.is_function and o.result_name is not None:
             body += [self.format_line(f'return {o.result_name.lower()};')]
 
         # Close everything off
@@ -299,6 +299,8 @@ class CCodegen(Stringifier):
             footer += ['\n#endif']
 
         return self.join_lines(*header, '\n', *declaration, *body, *footer)
+
+    visit_Function = visit_Subroutine
 
     # Handler for AST base nodes
 

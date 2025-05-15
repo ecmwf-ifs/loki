@@ -305,23 +305,25 @@ class OMNI2IR(GenericVisitor):
         body = tuple(self.visit(c, **kwargs) for c in o)
         return ir.Interface(body=body, abstract=abstract, spec=spec, source=kwargs['source'])
 
-    def _create_Subroutine_object(self, o, scope, symbol_map):
+    def _create_Procedure_object(self, o, scope, symbol_map):
         """Helper method to instantiate a Subroutine object"""
+        from loki.function import Function  # pylint: disable=import-outside-toplevel,cyclic-import
         from loki.subroutine import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
+
         assert o.tag in ('FfunctionDefinition', 'FfunctionDecl')
         name = o.find('name').text
 
         # Check if the Subroutine node has been created before by looking it up in the scope
-        routine = None
+        procedure = None
         if scope is not None and name in scope.symbol_attrs:
             proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
             if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
-                routine = proc_type.dtype.procedure
-                if not routine._incomplete:
+                procedure = proc_type.dtype.procedure
+                if not procedure._incomplete:
                     # We return the existing object right away, unless it exists from a
                     # previous incomplete parse for which we have to make sure we get a
                     # full parse first
-                    return routine
+                    return procedure
 
         # Return type and dummy args
         ftype = self.type_map[o.find('name').attrib['type']]
@@ -342,21 +344,34 @@ class OMNI2IR(GenericVisitor):
         result = ftype.attrib.get('result_name')
 
         # Instantiate the object
-        if routine is None:
-            routine = Subroutine(
-                name=name, args=args, prefix=prefix, bind=None,
-                result_name=result, is_function=is_function, parent=scope,
-                ast=o, source=self.get_source(o)
-            )
+        if is_function:
+            if procedure is None:
+                procedure = Function(
+                    name=name, args=args, prefix=prefix, bind=None,
+                    result_name=result, parent=scope, ast=o, source=self.get_source(o)
+                )
+            else:
+                procedure.__initialize__(
+                    name=name, args=args, docstring=procedure.docstring, spec=procedure.spec,
+                    body=procedure.body, contains=procedure.contains, prefix=prefix, bind=None,
+                    result_name=result, ast=o, source=self.get_source(o),
+                    incomplete=procedure._incomplete
+                )
         else:
-            routine.__initialize__(
-                name=name, args=args, docstring=routine.docstring, spec=routine.spec,
-                body=routine.body, contains=routine.contains, prefix=prefix, bind=None,
-                result_name=result, is_function=is_function, ast=o,
-                source=self.get_source(o), incomplete=routine._incomplete
-            )
+            if procedure is None:
+                procedure = Subroutine(
+                    name=name, args=args, prefix=prefix, bind=None,
+                    parent=scope, ast=o, source=self.get_source(o)
+                )
+            else:
+                procedure.__initialize__(
+                    name=name, args=args, docstring=procedure.docstring, spec=procedure.spec,
+                    body=procedure.body, contains=procedure.contains, prefix=prefix, bind=None,
+                    ast=o, source=self.get_source(o),
+                    incomplete=procedure._incomplete
+                )
 
-        return routine
+        return procedure
 
     def visit_FfunctionDefinition(self, o, **kwargs):
         # Update the symbol map with local entries
@@ -364,7 +379,7 @@ class OMNI2IR(GenericVisitor):
         kwargs['symbol_map'].update({s.attrib['type']: s for s in o.find('symbols')})
 
         # Instantiate the object
-        routine = self._create_Subroutine_object(o, kwargs['scope'], kwargs['symbol_map'])
+        routine = self._create_Procedure_object(o, kwargs['scope'], kwargs['symbol_map'])
         if routine is None:
             return None
         kwargs['scope'] = routine
@@ -422,13 +437,19 @@ class OMNI2IR(GenericVisitor):
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
-        routine.__initialize__(
-            name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
-            body=body, contains=contains, ast=o, prefix=routine.prefix,
-            bind=routine.bind, result_name=routine.result_name,
-            is_function=routine.is_function, rescope_symbols=True,
-            source=routine.source, incomplete=False
-        )
+        if routine.is_function:
+            routine.__initialize__(
+                name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
+                body=body, contains=contains, ast=o, prefix=routine.prefix,
+                bind=routine.bind, result_name=routine.result_name,
+                rescope_symbols=True, source=routine.source, incomplete=False
+            )
+        else:
+            routine.__initialize__(
+                name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
+                body=body, contains=contains, ast=o, prefix=routine.prefix,
+                bind=routine.bind, rescope_symbols=True, source=routine.source, incomplete=False
+            )
 
         # Update array shapes with Loki dimension pragmas
         with pragmas_attached(routine, ir.VariableDeclaration):
@@ -484,7 +505,7 @@ class OMNI2IR(GenericVisitor):
             # I know, it's not pretty but alternatively we could hand down this array as part of
             # kwargs but that feels like carrying around a lot of bulk, too.
             contains = [
-                self._create_Subroutine_object(member_ast, kwargs['scope'], kwargs['symbol_map'])
+                self._create_Procedure_object(member_ast, kwargs['scope'], kwargs['symbol_map'])
                 for member_ast in contains_ast.findall('FfunctionDefinition')
             ]
 

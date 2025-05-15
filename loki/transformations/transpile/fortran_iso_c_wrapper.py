@@ -14,6 +14,7 @@ from loki.expression import symbols as sym
 from loki.ir import (
     nodes as ir, FindNodes, SubstituteExpressions, Transformer
 )
+from loki.function import Function
 from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
@@ -434,7 +435,7 @@ def generate_iso_c_wrapper_module(module, use_c_ptr=False, language='c'):
                 if isinstance(v.type.dtype, DerivedType) or v.type.pointer or v.type.allocatable:
                     continue
                 gettername = f'{module.name.lower()}__get__{v.name.lower()}'
-                getter = Subroutine(name=gettername, bind=gettername, is_function=True, parent=wrapper_module)
+                getter = Function(name=gettername, bind=gettername, parent=wrapper_module)
 
                 getter.spec = ir.Section(
                     body=(ir.Import(module=module.name, symbols=(v.clone(scope=getter), )), )
