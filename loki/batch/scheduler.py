@@ -211,7 +211,7 @@ class Scheduler:
             'preprocess': self.build_args['preprocess'],
             'includes': self.build_args['includes'],
             'defines': self.build_args['defines'],
-            'parser_classes': RegexParserClass.ProgramUnitClass,
+            'parser_classes': RegexParserClass.AllClasses,
             'frontend': REGEX
         }
 
