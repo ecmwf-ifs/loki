@@ -8,6 +8,8 @@
 from loki.batch import Transformation
 from loki.transformations.remove_code import do_remove_dead_code
 
+from loki.ir import pragmas_attached, CallStatement, FindNodes, is_loki_pragma
+from loki.tools.util import as_tuple, CaseInsensitiveDict
 from loki.transformations.inline.constants import inline_constant_parameters
 from loki.transformations.inline.functions import (
     inline_elemental_functions, inline_statement_functions
@@ -125,3 +127,42 @@ class InlineTransformation(Transformation):
         # After inlining, attempt to trim unreachable code paths
         if self.remove_dead_code:
             do_remove_dead_code(routine)
+
+    def plan_subroutine(self, routine, **kwargs):
+
+        if not self.inline_marked:
+            return
+
+        item = kwargs.get('item')
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        successor_map = CaseInsensitiveDict(
+            (successor.local_name, successor) for successor in successors
+        )
+        # look for call statements with pragmas attached
+        with pragmas_attached(routine, node_type=CallStatement):
+            inline_calls = set()
+            not_inline_calls = set()
+            calls = FindNodes(CallStatement).visit(routine.ir)
+            # for all calls sort those having '!$loki inline' and those not having it
+            for call in calls:
+                if is_loki_pragma(call.pragma, starts_with='inline'):
+                    inline_calls.add(str(call.name).lower())
+                else:
+                    not_inline_calls.add(str(call.name).lower())
+        # removed/inlined calls, making sure all calls to the same routine are inlined
+        removed_calls = inline_calls - not_inline_calls
+        inline_items = [successor_map[call] for call in removed_calls]
+        # adapt 'removed_dependencies' and 'additional_dependencies' accordingly
+        if inline_items:
+            item.plan_data.setdefault('removed_dependencies', ())
+            item.plan_data.setdefault('additional_dependencies', ())
+            item.plan_data['removed_dependencies'] += as_tuple(inline_items)
+            additional_dep = ()
+            for inline_item in inline_items:
+                inlined_successors = sub_sgraph.successors(inline_item) + \
+                        inline_item.plan_data.get('additional_dependencies', ())
+                for inlined_successor in inlined_successors:
+                    if inlined_successor not in inline_item.plan_data.get('removed_dependencies', ()):
+                        additional_dep += (inlined_successor,)
+            item.plan_data['additional_dependencies'] += as_tuple(set(additional_dep))
