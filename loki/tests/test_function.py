@@ -14,7 +14,7 @@ from loki.types import BasicType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_function_return_type(frontend):
+def test_function_return_type(tmp_path, frontend):
     """
     Test various ways to define the return type of a function
     """
@@ -44,7 +44,7 @@ contains
   end function funcky
 end module my_funcs
     """
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     # Implicit return type definition
     assert isinstance(module['funca'], Function)
@@ -53,6 +53,20 @@ end module my_funcs
     assert module['funca'].return_type.kind == 8
     assert len(FindNodes(ir.VariableDeclaration).visit(module['funca'].spec)) == 2 if frontend == OMNI else 1
     assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funca'].spec)) == 0
+
+    if frontend == OMNI:
+        # Ensure return type is declared (OMNI alwas inserts declaration)
+        fdecl = tuple(
+            d for d in FindNodes(ir.VariableDeclaration).visit(module['funca'].spec)
+            if 'funca' in d.symbols
+        )
+        assert len(fdecl) == 1 and fdecl[0].symbols[0] == 'funca'
+        assert fdecl[0].symbols[0].type.dtype == BasicType.REAL
+        assert fdecl[0].symbols[0].type.kind == 8
+    else:
+        # Check for implicit return value in `fgen`
+        fstr_header = fgen(module['funca']).splitlines()[0]
+        assert 'real(kind=8) function funca (a)' == fstr_header.lower()
 
     # Explicit return type declaration
     assert isinstance(module['funcb'], Function)

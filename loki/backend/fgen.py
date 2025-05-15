@@ -257,6 +257,8 @@ class FortranCodegen(Stringifier):
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
+        if not o.result_name in o.variable_map:
+            prefix += f'{self.visit(o.return_type)} '
         arguments = self.join_items(o.argnames)
         result = f' RESULT({o.result_name})' if o.result_name\
                 and o.result_name.lower() != o.name.lower() else ''
