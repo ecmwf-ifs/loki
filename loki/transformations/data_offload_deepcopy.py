@@ -214,9 +214,6 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 _temp_dict = self._resolve_nesting(k, v, routine.symbol_map)
                 layered_dict = self._nested_merge(layered_dict, _temp_dict)
 
-            # FIX ME: this can be dropped once transformation is updated to use expressions
-            # rather than strings
-            layered_dict = self.stringify_dict(layered_dict)
             item.trafo_data[self._key]['analysis'][loop] = layered_dict
 
             # filter out explicitly exlucded vars
@@ -228,8 +225,9 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
             if self.debug:
                 _successors = [s for s in _successors if isinstance(s, ProcedureItem)]
+                str_layered_dict = self.stringify_dict(layered_dict)
                 with open(f'driver_{_successors[0].ir.name}_dataoffload_analysis.yaml', 'w') as file:
-                    yaml.dump(item.trafo_data[self._key]['analysis'][loop], file)
+                    yaml.dump(str_layered_dict, file)
 
     def process_kernel(self, routine, item, successors):
 
@@ -368,13 +366,18 @@ class DataOffloadDeepcopyTransformation(Transformation):
         }
 
     @staticmethod
-    def _update_with_manual_overrides(key, parameters, analysis):
+    def _update_with_manual_overrides(key, parameters, analysis, routine):
         override_vars = parameters.get(key, [])
         if override_vars:
             override_vars = [p.strip().lower() for p in override_vars.split(',')]
 
+        variable_map = routine.variable_map
         for v in override_vars:
-            _temp_dict = DataOffloadDeepcopyAnalysis._resolve_nesting(v, key)
+            name_parts = v.split('%', maxsplit=1)
+            var = variable_map[name_parts[0]]
+            if len(name_parts) > 1:
+                var = var.get_derived_type_member(name_parts[1])
+            _temp_dict = DataOffloadDeepcopyAnalysis._resolve_nesting(var, key, variable_map)
             analysis = DataOffloadDeepcopyAnalysis._nested_merge(analysis, _temp_dict, force=True)
 
         return analysis
@@ -403,9 +406,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     _analysis = analysis[loop]
 
                     #update analysis with manual overrides
-                    _analysis = self._update_with_manual_overrides('read', parameters, _analysis)
-                    _analysis = self._update_with_manual_overrides('write', parameters, _analysis)
-                    _analysis = self._update_with_manual_overrides('readwrite', parameters, _analysis)
+                    _analysis = self._update_with_manual_overrides('read', parameters, _analysis, routine)
+                    _analysis = self._update_with_manual_overrides('write', parameters, _analysis, routine)
+                    _analysis = self._update_with_manual_overrides('readwrite', parameters, _analysis, routine)
 
                     kwargs = self._init_kwargs(mode, _analysis, typedef_configs, parameters)
                     _copy, _host, _wipe = self.generate_deepcopy(routine, symbol_map, **kwargs)
@@ -422,8 +425,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
 #                            pragma = ir.Pragma(keyword='loki', content=f"loop driver private({','.join(private_vars)})")
 #                            loop._update(pragma=as_tuple(pragma))
 
-                    present_vars = [v.upper() for v in _analysis if not v in kwargs['private'] and not
-                            (isinstance(symbol_map[v], sym.Scalar) and isinstance(symbol_map[v].type.dtype, BasicType))]
+                    present_vars = [v.name for v in _analysis if not v in kwargs['private'] and not
+                            (isinstance(v, sym.Scalar) and isinstance(v.type.dtype, BasicType))]
 
                     # add create directives for unused arguments
                     arguments = [arg for call in FindNodes(ir.CallStatement).visit(loop.body) for arg in call.arguments]
@@ -466,19 +469,19 @@ class DataOffloadDeepcopyTransformation(Transformation):
             dimensions=as_tuple([sym.RangeIndex(children=(d, None)) for d in dims]))
         return ir.Assignment(lhs=lhs, rhs=ptr, ptr=True)
 
-    def _set_field_api_ptrs(self, var, stat, symbol_map, typedef_config, parent, mode):
+    def _set_field_api_ptrs(self, var, stat, typedef_config, parent, mode):
 
-        _var = var
+        _var = var.name.lower()
         if (view_prefix := typedef_config.get('view_prefix', None)):
-            _var = re.sub(f'^{view_prefix}', '', var.lower())
+            _var = re.sub(f'^{view_prefix}', '', _var)
 
         aliased_ptrs = typedef_config.get('aliased_ptrs', {})
         reverse_alias_map = dict((v, k) for k, v in aliased_ptrs.items())
 
         field_object = typedef_config['field_prefix'].lower()
-        field_object += reverse_alias_map.get(_var.lower(), _var.lower()).replace('_field', '')
-        field_object = symbol_map[field_object].clone(parent=parent)
-        field_ptr = symbol_map[var].clone(dimensions=None, parent=parent)
+        field_object += reverse_alias_map.get(_var, _var).replace('_field', '')
+        field_object = parent.type.dtype.typedef.variable_map[field_object].clone(parent=parent)
+        field_ptr = var.clone(dimensions=None, parent=parent)
 
         if stat == 'read':
             access = 'RDONLY'
@@ -491,7 +494,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                                                      field_ptr))
         device += as_tuple(ir.Pragma(keyword='acc', content=f'enter data attach({field_ptr})'))
         if (alias := aliased_ptrs.get(field_ptr.name_parts[-1].lower(), None)):
-            alias_var = symbol_map[alias].clone(parent=parent, dimensions=None)
+            alias_var = parent.type.dtype.typedef.variable_map[alias].clone(parent=parent, dimensions=None)
             device += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
             device += as_tuple(ir.Pragma(keyword='acc', content=f'enter data attach({alias_var})'))
 
@@ -565,38 +568,38 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 delete = not parent.name_parts[0].lower() in kwargs['device_resident']
                 temporary = parent.name_parts[0].lower() in kwargs['temporary']
 
-            if isinstance(symbol_map[var].type.dtype, DerivedType):
+            if isinstance(var.type.dtype, DerivedType):
 
                 _parent = kwargs.pop('parent')
-                parent = symbol_map[var].clone(parent=_parent)
+                parent = var.clone(parent=_parent)
 
                 _copy, _host, _wipe = None, None, None
                 if not analysis[var] in ['read', 'readwrite', 'write']:
-                    _copy, _host, _wipe = self.generate_deepcopy(routine, symbol_map[var].type.dtype.typedef.variable_map,
+                    _copy, _host, _wipe = self.generate_deepcopy(routine, var.type.dtype.typedef.variable_map,
                                                                  analysis=analysis[var], parent=parent, **kwargs)
 
                 #wrap in loop
-                if symbol_map[var].type.shape:
-                    _copy = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _copy)
-                    _host = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _host)
-                    _wipe = self._wrap_in_loopnest(routine, symbol_map[var], _parent, _wipe)
+                if var.type.shape:
+                    _copy = self._wrap_in_loopnest(routine, var, _parent, _copy)
+                    _host = self._wrap_in_loopnest(routine, var, _parent, _host)
+                    _wipe = self._wrap_in_loopnest(routine, var, _parent, _wipe)
 
                 if kwargs['mode'] == 'offload':
                     if (not _parent and not var in kwargs['parent_present']) or \
-                        (symbol_map[var].type.allocatable or symbol_map[var].type.pointer):
+                        (var.type.allocatable or var.type.pointer):
                         _copy = as_tuple(ir.Pragma(keyword='acc',
-                        content=f'enter data copyin({symbol_map[var].clone(parent=_parent, dimensions=None)})')) + _copy
+                        content=f'enter data copyin({var.clone(parent=_parent, dimensions=None)})')) + _copy
                         if delete:
                             _wipe += as_tuple(ir.Pragma(keyword='acc',
-                            content=f'exit data delete({symbol_map[var].clone(parent=_parent, dimensions=None)}) finalize'))
+                            content=f'exit data delete({var.clone(parent=_parent, dimensions=None)}) finalize'))
 
                 #wrap in memory status check
-                check = 'ASSOCIATED' if symbol_map[var].type.pointer else None
-                check = 'ALLOCATED' if symbol_map[var].type.allocatable else None
+                check = 'ASSOCIATED' if var.type.pointer else None
+                check = 'ALLOCATED' if var.type.allocatable else None
                 if check:
-                    _copy = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _copy)
-                    _host = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _host)
-                    _wipe = self.create_memory_status_test(check, symbol_map[var].clone(parent=_parent), _wipe)
+                    _copy = self.create_memory_status_test(check, var.clone(parent=_parent), _copy)
+                    _host = self.create_memory_status_test(check, var.clone(parent=_parent), _host)
+                    _wipe = self.create_memory_status_test(check, var.clone(parent=_parent), _wipe)
 
                 kwargs['parent'] = _parent
             else:
@@ -618,23 +621,23 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     field = True
 
                 # check for FIELD_API pointer
-                if re.search('_field$', var, re.IGNORECASE) or field:
-                    _copy, _host, _wipe = self._set_field_api_ptrs(var, stat, symbol_map, typedef_config, parent, mode)
+                if re.search('_field$', var.name, re.IGNORECASE) or field:
+                    _copy, _host, _wipe = self._set_field_api_ptrs(var, stat, typedef_config, parent, mode)
 
                 elif mode == 'offload':
                 # if not we have a regular variable
-                    check = 'ASSOCIATED' if symbol_map[var].type.pointer else None
-                    check = 'ALLOCATED' if symbol_map[var].type.allocatable else None
+                    check = 'ASSOCIATED' if var.type.pointer else None
+                    check = 'ALLOCATED' if var.type.allocatable else None
                     if check:
                         _copy = as_tuple(ir.Pragma(keyword='acc',
-                                    content=f'enter data copyin({symbol_map[var].clone(parent=parent)})'))
+                                    content=f'enter data copyin({var.clone(parent=parent)})'))
 
                     if stat != 'read':
                         _host = as_tuple(ir.Pragma(keyword='acc',
-                                    content=f'update self({symbol_map[var].clone(parent=parent)})'))
+                                    content=f'update self({var.clone(parent=parent)})'))
                     if check:
                         _wipe = as_tuple(ir.Pragma(keyword='acc',
-                        content=f'exit data delete finalize({symbol_map[var].clone(parent=parent, dimensions=None)})'))
+                        content=f'exit data delete finalize({var.clone(parent=parent, dimensions=None)})'))
 
             copy += as_tuple(_copy)
             if delete and not temporary:
