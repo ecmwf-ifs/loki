@@ -955,7 +955,8 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
     pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
 
     scc_pipeline = SCCVectorPipeline(
-        horizontal=horizontal, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking, directive='openacc',
+        privatise_derived_types=True
     )
 
     if dims_type in ['pointer', 'allocatable']:
