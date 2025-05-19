@@ -35,10 +35,13 @@ class SCCAnnotateTransformation(Transformation):
     block_dim : :any:`Dimension`
         Optional ``Dimension`` object to define the blocking dimension
         to use for hoisted column arrays if hoisting is enabled.
+    privatise_derived_types : bool, default: False
+        Flag to enable privatising derived-type objects in driver loops.
     """
 
-    def __init__(self, block_dim):
+    def __init__(self, block_dim, privatise_derived_types=False):
         self.block_dim = block_dim
+        self.privatise_derived_types = privatise_derived_types
 
     def annotate_vector_loops(self, routine):
         """
@@ -269,6 +272,7 @@ class SCCAnnotateTransformation(Transformation):
         acc_vars : list
             Variables already declared in generic Loki data directives.
         """
+        sizes = self.block_dim.size_expressions
 
         # Mark driver loop as "gang parallel".
         loop_vars = FindVariables(unique=True).visit(loop)
@@ -276,23 +280,27 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not v.type.intent]
         arrays = [v for v in arrays if not v.type.pointer]
         arrays = [v for v in arrays if not v.name_parts[0].lower() in acc_vars]
+        arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
+        private_sym = arrays
 
-        # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
-        # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
-        # scalars must also be privatised.
-        structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
-        structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
-        structs = [v for v in structs if not v.type.intent]
-        structs = [v for v in structs if not v in arrays]
-        if (dynamic_structs := [v.name for v in structs if (v.type.pointer or v.type.allocatable)]):
-            warning(f'[Loki-SCC::Annotate] dynamically allocated structs are being privatised: {dynamic_structs}')
+        if self.privatise_derived_types:
+            # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
+            # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
+            # scalars must also be privatised.
+            structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
+            structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
+            structs = [v for v in structs if not v.type.intent]
+            structs = [v for v in structs if not v in arrays]
+            if (dynamic_structs := [v.name for v in structs if (v.type.pointer or v.type.allocatable)]):
+                warning(f'[Loki-SCC::Annotate] dynamically allocated structs are being privatised: {dynamic_structs}')
 
+            # Filter out arrays that are explicitly allocated with block dimension
+            private_sym +=  [
+                v for v in structs
+                if not any(d in sizes for d in as_tuple(getattr(v, 'shape', [])))
+            ]
 
-        # Filter out arrays that are explicitly allocated with block dimension
-        sizes = self.block_dim.size_expressions
-        aggregate_vars = [v for v in arrays + structs
-                          if not any(d in sizes for d in as_tuple(getattr(v, 'shape', [])))]
-        private_vars = ', '.join(set(v.name for v in aggregate_vars))
+        private_vars = ', '.join(dict.fromkeys(v.name for v in private_sym))
         private_clause = '' if not private_vars else f' private({private_vars})'
 
         for pragma in as_tuple(loop.pragma):
