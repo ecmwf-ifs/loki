@@ -1004,6 +1004,77 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_driver_loop_async(frontend, horizontal, blocking):
+    """
+    Test that an annotated async driver loop will be mapped to an async acc pragma
+    """
+
+    fcode = """
+    subroutine test(work, nlon, nb)
+    implicit none
+
+      integer, intent(in) :: nb, nlon
+      real, dimension(nlon, nb), intent(inout) :: work
+      integer :: b, queue
+
+      queue = 0
+
+      !$loki data async(queue)
+      !$loki driver-loop async(queue)
+        do b=1, nb
+           call some_kernel(nlon, work(:,b))
+        enddo
+      !$loki end data
+
+    end subroutine test
+
+    subroutine some_kernel(nlon, work)
+    implicit none
+
+      integer, intent(in) :: nlon
+      real, dimension(nlon), intent(inout) :: work
+      integer :: jl
+
+      do jl=1,nlon
+         work(jl) = work(jl) + 1.
+      enddo
+
+    end subroutine some_kernel
+    """
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test']
+    routine.enrich(source.all_subroutines)
+
+    data_offload = DataOffloadTransformation(remove_openmp=True)
+    data_offload.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+    pragma_model = PragmaModelTransformation(directive='openacc')
+    pragma_model.transform_subroutine(routine, role='driver', targets=['some_kernel',])
+
+    scc_pipeline = SCCVectorPipeline(
+        horizontal=horizontal, block_dim=blocking, directive='openacc'
+    )
+    scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
+
+    # Check that both acc pragmas are created
+    pragmas = FindNodes(Pragma).visit(routine.ir)
+    assert len(pragmas) == 4
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[1].keyword == 'acc'
+    assert pragmas[2].keyword == 'acc'
+    assert pragmas[3].keyword == 'acc'
+
+    assert 'data' in pragmas[0].content
+    assert 'copy' in pragmas[0].content
+    assert '(work)' in pragmas[0].content
+    assert 'async(queue)' in pragmas[0].content
+
+    assert pragmas[1].content == 'parallel loop gang vector_length(nlon) async(queue)'
+    assert pragmas[2].content == 'end parallel loop'
+    assert pragmas[3].content == 'end data'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_annotate_routine_seq_pragma(frontend, blocking):
     """
     Test that `!$loki routine seq` pragmas are replaced correctly by
