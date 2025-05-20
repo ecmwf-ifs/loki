@@ -585,6 +585,29 @@ def get_loop_bounds(routine, dimension):
     return bounds
 
 
+def is_driver_loop(loop, targets):
+    """
+    Test/check whether a given loop is a *driver loop*.
+
+    Parameters
+    ----------
+    loop : :any: `Loop`
+        The loop to test if it is a *driver loop*.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+    if loop.pragma:
+        for pragma in loop.pragma:
+            if is_loki_pragma(pragma, starts_with='driver-loop') or \
+               is_loki_pragma(pragma, starts_with='loop driver'):
+                return True
+    for call in FindNodes(ir.CallStatement).visit(loop.body):
+        if call.name in targets:
+            return True
+    return False
+
+
 def is_pragma_driver_loop(loop):
     if loop.pragma:
         for pragma in loop.pragma:
