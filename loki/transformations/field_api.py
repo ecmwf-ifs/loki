@@ -21,7 +21,7 @@ from loki.scope import Scope
 __all__ = [
     'FieldAPITransferType', 'FieldPointerMap', 'get_field_type', 'field_get_device_data',
     'field_get_host_data', 'field_sync_device', 'field_sync_host', 'field_create_device_data',
-    'field_delete_device_data'
+    'field_delete_device_data', 'field_wait_for_async_queue'
 ]
 
 
@@ -396,6 +396,11 @@ def field_delete_device_data(field_ptr, scope):
 
     procedure_name = 'DELETE_DEVICE_DATA'
     return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())
+
+
+def field_wait_for_async_queue(queue, scope: Scope):
+    return ir.CallStatement(name=sym.ProcedureSymbol('WAIT_FOR_ASYNC_QUEUE', scope=scope),
+                            arguments=(queue))
 
 
 def find_field_offload_calls(ir_section):
