@@ -376,3 +376,9 @@ def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope
 def field_create_device_data(field_ptr, scope: Scope, blk_bounds=None):
     return ir.CallStatement(name=sym.ProcedureSymbol('CREATE_DEVICE_DATA', parent=field_ptr, scope=scope),
                             kwarguments=(('blk_bounds', blk_bounds),))
+
+
+def field_wait_for_async_queue(queue, scope: Scope):
+    return ir.CallStatement(name=sym.ProcedureSymbol('WAIT_FOR_ASYNC_QUEUE', scope=scope),
+                            arguments=(queue))
+

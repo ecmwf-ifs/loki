@@ -17,7 +17,9 @@ from loki.logging import warning
 
 from loki.transformations.loop_blocking import split_loop
 from loki.transformations.utilities import find_driver_loops
-from loki.transformations.field_api import FieldPointerMap, field_create_device_data
+from loki.transformations.field_api import (
+    FieldPointerMap, field_create_device_data, field_wait_for_async_queue
+)
 from loki.transformations.parallel import remove_field_api_view_updates
 
 
@@ -170,11 +172,11 @@ class FieldOffloadBlockedTransformation(Transformation):
                                                      self.block_size, self.num_queues)
                         queue, offset = add_async_blocking_vars(driver, block_loop, self.num_queues, splitting_vars)
                         add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars, queue, offset)
-
+                        add_wait_calls(driver, block_loop, queue, self.num_queues)
                     else:
                         add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars)
                     replace_kernel_args(driver, offload_map, self.offload_index)
-        if self.asynchronous:
+        if self.asynchronous and self.num_queues >1:
             add_async_queue_to_pragmas(block_loop, queue)
 
 
@@ -364,3 +366,12 @@ def add_async_queue_to_pragmas(section, queue):
     for pragma in pragmas:
         if is_loki_pragma(pragma, starts_with='data') or is_loki_pragma(pragma, starts_with='driver-loop'):
             pragma._update(content=pragma.content+async_content)
+
+
+def add_wait_calls(driver, block_loop, queue, num_queues):
+    wait_loop = ir.Loop(variable=queue,
+                        body=field_wait_for_async_queue(queue, driver),
+                        bounds=sym.LoopRange((sym.IntLiteral(1), sym.IntLiteral(num_queues)))
+                        )
+    change_map = {block_loop: (block_loop, wait_loop)}
+    Transformer(change_map, inplace=True).visit(driver.body)
