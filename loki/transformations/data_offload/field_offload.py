@@ -296,7 +296,9 @@ def add_device_field_allocations(driver, block_loop, offload_map, block_size, nu
 def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
     queue = sym.Variable(name='loki_block_queue', type=SymbolAttributes(BasicType.INTEGER),
                          scope=routine)
-    nqueues = sym.Variable(name='loki_block_nqueues', type=SymbolAttributes(BasicType.INTEGER),
+    nqueues = sym.Variable(name='loki_block_nqueues', type=SymbolAttributes(BasicType.INTEGER,
+                                                                            parameter=True,
+                                                                            initial=sym.IntLiteral(num_queues)),
                            scope=routine)
     offset = sym.Variable(name='loki_block_offset', type=SymbolAttributes(BasicType.INTEGER),
                           scope=routine)
@@ -305,7 +307,6 @@ def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
 
     # set queue and offset in loop
     async_blocking_body = (
-        ir.Assignment(nqueues, sym.IntLiteral(num_queues)),   # TODO: Make a parameter
         ir.Assignment(queue,
                       sym.Sum(children=(sym.InlineCall(sym.DeferredTypeSymbol('MODULO', scope=routine),
                                                        parameters=(splitting_vars.block_idx,
