@@ -14,6 +14,7 @@ from loki.module import Module
 from loki.sourcefile import Sourcefile
 from loki.subroutine import Subroutine
 from loki.batch.item import ProcedureItem, ModuleItem
+from loki.ir.nodes import TypeDef
 
 
 __all__ = ['Transformation']
@@ -128,6 +129,39 @@ class Transformation:
             Keyword arguments for the transformation.
         """
 
+    def transform_typedef(self, typedef, **kwargs):
+        """
+        Defines the transformation to apply to :any:`TypeDef` items.
+
+        For transformations that modify :any:`TypeDef` objects, this method
+        should be implemented. It gets called via the dispatch method
+        :meth:`apply`.
+
+        Parameters
+        ----------
+        typedef : :any:`TypeDef`
+            The typedef to be transformed.
+        **kwargs : optional
+            Keyword arguments for the transformation.
+        """
+
+    def plan_typedef(self, typedef, **kwargs):
+        """
+        Defines the planning steps to apply to :any:`TypeDef` items.
+
+        For transformations that modify the dependencies of :data:`typedef`
+        (e.g., updating derived-type members) this should be implemented.
+        It gets called via the dispatch method :meth:`apply` if the optional
+        ``plan_mode`` argument is set to `True`.
+
+        Parameters
+        ----------
+        typedef : :any:`TypeDef`
+            The typedef to be transformed.
+        **kwargs : optional
+            Keyword arguments for the transformation.
+        """
+
     def plan_subroutine(self, routine, **kwargs):
         """
         Define the planning steps to apply for :any:`Subroutine` items.
@@ -237,6 +271,9 @@ class Transformation:
         if isinstance(source, Module):
             self.apply_module(source, plan_mode=plan_mode, **kwargs)
 
+        if isinstance(source, TypeDef):
+            self.apply_typedef(source, plan_mode=plan_mode, **kwargs)
+
         if not plan_mode:
             self.post_apply(source, rescope_symbols=post_apply_rescope_symbols)
 
@@ -336,6 +373,29 @@ class Transformation:
                     else:
                         self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
 
+    def apply_typedef(self, typedef, plan_mode=False, **kwargs):
+        """
+        Apply transformation to a given :any:`TypeDef` object.
+
+        This calls :meth:`transform_typedef`.  or, if :data:`plan_mode` is enabled,
+        calls :meth:`plan_typedef`.
+
+        Parameters
+        ----------
+        typedef : :any:`TypeDef`
+            The typedef to transform.
+        plan_mode : bool, optional
+            If enabled, apply planning mode.
+        **kwargs : optional
+            Keyword arguments that are passed on to transformation methods.
+        """
+
+        # Apply the actual transformation for typedefs
+        if plan_mode:
+            self.plan_typedef(typedef, **kwargs)
+        else:
+            self.transform_typedef(typedef, **kwargs)
+
     def apply_subroutine(self, subroutine, plan_mode=False, **kwargs):
         """
         Apply transformation to a given :any:`Subroutine` object and its members.
@@ -368,6 +428,10 @@ class Transformation:
                 raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
 
             self.transform_subroutine(subroutine, **kwargs)
+
+        # Recurse to typedefs defined in this subroutine
+        for typedef in subroutine.typedefs:
+            self.apply_typedef(typedef, plan_mode=plan_mode, **kwargs)
 
         # Recurse to internal procedures
         if self.recurse_to_internal_procedures:
@@ -405,6 +469,10 @@ class Transformation:
                 raise RuntimeError('Transformation.apply_module requires Module to be complete')
 
             self.transform_module(module, **kwargs)
+
+        # Recurse to typedefs defined in this module
+        for typedef in module.typedefs:
+            self.apply_typedef(typedef, plan_mode=plan_mode, **kwargs)
 
         # Recurse to procedures contained in this module
         if self.recurse_to_procedures:
