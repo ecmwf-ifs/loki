@@ -164,8 +164,6 @@ def test_field_offload(frontend, state_module, tmp_path):
         assert len(devptr.shape) == 3
         assert devptr.name in (arg.name for arg in kernel_call.arguments)
     from loki import fgen
-    print("\nIR:")
-    print(fgen(driver_mod))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -667,12 +665,6 @@ def test_field_offload_blocked(frontend, state_module, tmp_path):
                  role='driver',
                  targets=['kernel_routine'])
 
-    from loki import fgen, pprint
-    print('\n')
-    print(pprint(driver.ir))
-    print('\n')
-    print(fgen(driver.ir))
-
     calls = FindNodes(CallStatement).visit(driver.body)
     kernel_call = next(c for c in calls if c.name=='kernel_routine')
 
@@ -752,12 +744,6 @@ def test_field_offload_blocked_async(frontend, state_module, tmp_path):
                                                    num_queues=3),
                  role='driver',
                  targets=['kernel_routine'])
-
-    from loki import fgen, pprint
-    print('\n')
-    print(pprint(driver.ir))
-    print('\n')
-    print(fgen(driver.ir))
 
     calls = FindNodes(CallStatement).visit(driver.body)
     kernel_call = next(c for c in calls if c.name=='kernel_routine')
