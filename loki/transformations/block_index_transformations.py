@@ -153,6 +153,10 @@ class BlockViewToFieldViewTransformation(Transformation):
 
             typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),) # pylint: disable=unexpected-keyword-arg
 
+        # attach a scope to the symbols in the newly created typedefs
+        for typedef in typedefs:
+            typedef.rescope_symbols()
+
         return typedefs
 
     def _create_dummy_field_api_defs(self, field_array_mod_imports):
