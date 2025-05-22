@@ -551,7 +551,10 @@ class Scheduler:
 
             for _item in traversal:
                 if isinstance(_item, ExternalItem):
-                    raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    if kwargs['plan_mode']:
+                        warning(f'Skipping plan_mode transformation for external item: {_item.name}')
+                    else:
+                        raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
 
                 transformation.apply(
                     _item.scope_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
