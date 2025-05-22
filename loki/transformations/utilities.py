@@ -608,6 +608,32 @@ def is_driver_loop(loop, targets):
     return False
 
 
+def is_pragma_driver_loop(loop):
+    if loop.pragma:
+        for pragma in loop.pragma:
+            if is_loki_pragma(pragma, starts_with='driver-loop') or \
+               is_loki_pragma(pragma, starts_with='loop driver'):
+                return True
+    return False
+
+
+def is_target_driver_loop(loop, targets):
+    """
+    Test/check whether a given loop is a *driver loop*.
+
+    Parameters
+    ----------
+    loop : :any: `Loop`
+        The loop to test if it is a *driver loop*.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+    for call in FindNodes(ir.CallStatement).visit(loop.body):
+        if call.name in targets:
+            return True
+    return False
+
 def find_driver_loops(section, targets):
     """
     Find and return all driver loops in a given `section`.
@@ -623,20 +649,23 @@ def find_driver_loops(section, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
-
-    driver_loops = []
+    pragma_driver_loops = []
+    target_driver_loops = []
     nested_driver_loops = []
     for loop in FindNodes(ir.Loop).visit(section):
+        if is_pragma_driver_loop(loop):
+            pragma_driver_loops.append(loop)
         if loop in nested_driver_loops:
             continue
-
-        if not is_driver_loop(loop, targets):
+        if targets and not is_target_driver_loop(loop, targets):
             continue
-
-        driver_loops.append(loop)
+        target_driver_loops.append(loop)
         loops = FindNodes(ir.Loop).visit(loop.body)
         nested_driver_loops.extend(loops)
-    return driver_loops
+    
+    if pragma_driver_loops:
+        return pragma_driver_loops
+    return target_driver_loops
 
 
 def get_local_arrays(routine, section, unique=True):
