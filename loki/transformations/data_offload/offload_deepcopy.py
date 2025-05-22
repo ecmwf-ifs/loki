@@ -223,7 +223,6 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         #gather analysis from children
         item.trafo_data[self._key] = defaultdict(dict)
-        print("========got here process_kernel=======", item)
         self._gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
         variable_map = routine.variable_map
 
@@ -289,7 +288,6 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                     else:
                         analysis.update({k: _v})
 
-        print("========got here gather_from_children=======", item)
         self._gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
 
     def _gather_typedefs_from_children(self, successors, typedef_configs):
