@@ -101,7 +101,7 @@ class CudaCodegen(CppCodegen):
         if opt_extern:
             body += [self.format_line('cudaDeviceSynchronize();')]
         # if something to be returned, add 'return <var>' statement
-        if o.result_name is not None:
+        if o.is_function and o.result_name is not None:
             body += [self.format_line(f'return {o.result_name.lower()};')]
         # Close everything off
         self.depth -= 1

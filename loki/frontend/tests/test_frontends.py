@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from loki import (
-    Module, Subroutine, Sourcefile, BasicType, config, config_override
+    Function, Module, Subroutine, Sourcefile, BasicType, config,
+    config_override
 )
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
@@ -876,25 +877,25 @@ end module test_intrinsics_mod
 def test_function_symbol_scoping(frontend):
     """ Check that the return symbol of a function has the right scope """
     fcode = """
-real function double_real(i)
+real(kind=8) function double_real(i)
   implicit none
   integer, intent(in) :: i
 
   double_real =  dble(i*2)
 end function double_real
 """
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Function.from_source(fcode, frontend=frontend)
 
-    rsym = routine.variable_map['double_real']
-    assert isinstance(rsym, sym.Scalar)
-    assert rsym.type.dtype == BasicType.REAL
-    assert rsym.scope == routine
+    rtyp = routine.symbol_attrs['double_real']
+    assert rtyp.dtype == BasicType.REAL
+    assert rtyp.kind == 8
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 1
     assert assigns[0].lhs == 'double_real'
     assert isinstance(assigns[0].lhs, sym.Scalar)
     assert assigns[0].lhs.type.dtype == BasicType.REAL
+    assert assigns[0].lhs.type.kind == 8
     assert assigns[0].lhs.scope == routine
 
 
