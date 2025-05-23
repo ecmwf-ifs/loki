@@ -208,8 +208,8 @@ def test_global_variable_analysis(frontend, key, config, global_variable_analysi
         'global_var_analysis_kernel_mod#kernel_b': {
             'defines_symbols': {('rdata(:, :, :)', 'global_var_analysis_data_mod')},
             'uses_symbols': nfld_data | {
-                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt', 'global_var_analysis_data_mod'),
-                ('tt%vals', 'global_var_analysis_data_mod'), (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
+                ('rdata(:, :, :)', 'global_var_analysis_data_mod'), ('tt%vals', 'global_var_analysis_data_mod'),
+                (f'iarr({nfld_dim})', 'global_var_analysis_header_mod')
             }
         },
         '#driver': {
@@ -272,7 +272,7 @@ def test_global_variable_offload(frontend, key, config, global_variable_analysis
         },
         'global_var_analysis_data_mod': {
             'declares': {'rdata(:, :, :)', 'tt'},
-            'offload': {'rdata(:, :, :)', 'tt', 'tt%vals'}
+            'offload': {'rdata(:, :, :)', 'tt%vals'}
         },
     }
 
