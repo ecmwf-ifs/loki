@@ -73,7 +73,6 @@ from loki.frontend import (
 from loki.ir import (
     nodes as ir, FindNodes, FindInlineCalls, FindVariables
 )
-from loki.logging import WARNING
 from loki.transformations import (
     DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
 )
@@ -3150,7 +3149,7 @@ end module c_mod
 
 @pytest.mark.parametrize('frontend', available_frontends(skip={OMNI: "OMNI fails on missing module"}))
 @pytest.mark.parametrize('external_kernel', [True, False])
-def test_scheduler_ignore_external_item(frontend, tmp_path, external_kernel, caplog):
+def test_scheduler_ignore_external_item(frontend, tmp_path, external_kernel):
     fcode_driver = f"""
 module driver_mod
   contains
@@ -3200,6 +3199,9 @@ end module kernel1_mod
         }
     }
 
+    if external_kernel:
+        config['default']['generated'] = ['kernel2*']
+
     class Trafo(Transformation):
 
         item_filter = (ProcedureItem, ModuleItem)
@@ -3228,13 +3230,11 @@ end module kernel1_mod
         if item.name == 'kernel2_mod#kernel2':
             assert not item.is_ignored
             assert isinstance(item, ExternalItem)
+            assert item.is_generated
 
     if external_kernel:
-        # this shouldn't fail but should produce a warning
-        with caplog.at_level(WARNING):
-            scheduler.process(transformation=Trafo(), proc_strategy=ProcessingStrategy.PLAN)
-            messages = [record.message for record in caplog.records]
-            assert 'Skipping plan_mode transformation for external item: kernel2_mod#kernel2' in messages
+        # this shouldn't fail because we marked the item as build-time generated
+        scheduler.process(transformation=Trafo(), proc_strategy=ProcessingStrategy.PLAN)
         # this should fail
         with pytest.raises(RuntimeError):
             scheduler.process(transformation=Trafo())
