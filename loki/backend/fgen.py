@@ -211,7 +211,6 @@ class FortranCodegen(Stringifier):
             [...member...]
           END SUBROUTINE <name>
         """
-        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
@@ -222,8 +221,8 @@ class FortranCodegen(Stringifier):
             bind_c = f' BIND(c, name={o.bind})'
         else:
             bind_c = ''
-        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
-        footer = self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
+        header = self.format_line(prefix, 'SUBROUTINE ', o.name, ' (', arguments, ')', bind_c)
+        footer = self.format_line('END SUBROUTINE ', o.name if self.style.procedure_end_named else '')
 
         self.depth += self.style.procedure_spec_indent
         docstring = self.visit(o.docstring, **kwargs)
@@ -253,7 +252,6 @@ class FortranCodegen(Stringifier):
             [...member...]
           END FUNCTION <name>
         """
-        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
@@ -268,8 +266,8 @@ class FortranCodegen(Stringifier):
             bind_c = f' BIND(c, name={o.bind})'
         else:
             bind_c = ''
-        header = self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', result, bind_c)
-        footer = self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
+        header = self.format_line(prefix, 'FUNCTION ', o.name, ' (', arguments, ')', result, bind_c)
+        footer = self.format_line('END FUNCTION ', o.name if self.style.procedure_end_named else '')
 
         self.depth += self.style.procedure_spec_indent
         docstring = self.visit(o.docstring, **kwargs)

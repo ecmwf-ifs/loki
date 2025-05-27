@@ -485,7 +485,7 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
         """
 
         # Determine function result variable name
-        result_name = routine.result_name if routine.is_function else routine.name
+        result_name = routine.result_name if routine.is_function else ''
 
         variables = [var for var in routine.variables if isinstance(var, sym.Array)]
         return [var for var in variables

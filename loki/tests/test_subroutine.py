@@ -172,6 +172,7 @@ end module my_module
     # The bind attribute is named, check the name
     assert isinstance(intf_routine.bind, sym.StringLiteral)
     assert intf_routine.bind == 'my_routine_c'
+    assert "BIND(c, name='my_routine_c')" in fgen(intf_routine)
     # TODO: bind(C) is not honoured atm
 
     # TODO: Interface definition and module routine alias, is that intended?
