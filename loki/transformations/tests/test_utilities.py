@@ -21,7 +21,7 @@ from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
     find_driver_loops, get_local_arrays, check_routine_sequential,
-    substitute_variables_for_definitions
+    substitute_variables_for_definitions, get_loop_tree, LoopTree
 )
 
 
@@ -604,3 +604,67 @@ end subroutine test_substitute_variables_for_definitions
     remap_vars = [var_map[var] for var in ['n', 'a', 'i', 'j', 'b']]
     remapped_2 = substitute_variables_for_definitions(routine, variables=remap_vars)
     assert remapped_2 == ['derived_var%n', parse_expr('derived_var%a + 1'), '2', 'i', 'b']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_loop_tree_builder(frontend):
+    fcode = """
+subroutine driver(a, b, c, m, n, p)
+  real, intent(inout) :: a(:,:,:), b(:,:,:), c(:,:,:)
+  integer, intent(in) :: m, n, p
+  integer             :: i,j,k
+
+  do i=1,m
+
+    do j=1,n
+      do k=1,p
+        b(k,j,i) = k
+      end do
+    end do
+
+    do j=2,n
+      a(:,j,i) = j
+    end do
+  end do
+
+  do i=2,m
+    c(:,:,i) = i
+  end do
+
+  do i=3,m
+    do j=3,m
+      do k=2,p
+        c(k,j,i) = i+j+k
+      end do
+    end do
+  end do
+end subroutine driver
+"""
+    driver = Subroutine.from_source(fcode, frontend=frontend)
+
+    loops = FindNodes(ir.Loop).visit(driver.ir)
+    assert len(loops) == 8
+
+    loop_tree = get_loop_tree(driver.ir)
+    assert len(loop_tree.roots) == 3
+
+    for tree_node, loop in zip(loop_tree.walk_depth_first(), loops):
+        assert tree_node.loop == loop, "pre order dfs walk should be the same sequence as FindNodes"
+
+    depths = [0, 1, 2, 1, 0, 0, 1, 2]
+    for tree_node, depth in zip(loop_tree.walk_depth_first(), depths):
+        assert tree_node.depth == depth
+
+    post_order_indices = [2, 1, 3, 0, 4, 7, 6, 5]
+    post_order_loops = [loops[i] for i in post_order_indices]
+    for tree_node, loop in zip(loop_tree.walk_depth_first(pre_order=False), post_order_loops):
+        assert tree_node.loop == loop
+
+    bfs_indices = [0, 4, 5, 1, 3, 6, 2, 7]
+    bfs_loops = [loops[i] for i in bfs_indices]
+    for tree_node, loop in zip(loop_tree.walk_breadth_first(), bfs_loops):
+        assert tree_node.loop == loop
+
+    bfs_depths = [0, 0, 0, 1, 1, 1, 2, 2]
+    for tree_node, depth in zip(loop_tree.walk_breadth_first(), bfs_depths):
+        assert tree_node.depth == depth

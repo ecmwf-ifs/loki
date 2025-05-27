@@ -10,7 +10,7 @@ Collection of utility routines to deal with general language conversion.
 """
 
 import platform
-from collections import defaultdict
+from collections import defaultdict, deque
 from pymbolic.primitives import Expression
 from loki.expression import (
     symbols as sym, SubstituteExpressionsMapper, ExpressionRetriever,
@@ -20,14 +20,13 @@ from loki.ir import (
     nodes as ir, Import, TypeDef, VariableDeclaration, is_loki_pragma,
     StatementFunction, Transformer, FindNodes, FindVariables,
     FindInlineCalls, FindLiterals, SubstituteExpressions,
-    ExpressionFinder
+    ExpressionFinder, Visitor
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 from loki.config import config_override
-
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
@@ -583,6 +582,100 @@ def get_loop_bounds(routine, dimension):
             )
 
     return bounds
+
+
+class LoopTree:
+    """
+    A data structure that stores nested loops in a tree structure
+    """
+
+    class TreeNode:
+        """
+        Internal node class for nodes in the LoopTree
+        """
+
+        def __init__(self, loop: ir.Loop, parent=None):
+            self.loop = loop
+            self.parent = parent
+            self.children = []
+            self.depth = 0 if parent is None else parent.depth+1
+
+            if parent:
+                parent.children.append(self)
+
+    def __init__(self):
+        self.roots = []
+        self.loop_map = {}
+
+    def add_node(self, loop: ir.Loop, parent: ir.Loop = None):
+        tree_node = self.TreeNode(loop, parent)
+        if parent is None:
+            self.roots.append(tree_node)
+        self.loop_map[loop] = tree_node
+        return tree_node
+
+    def get_tree_node(self, loop: ir.Loop):
+        """
+        Get LoopTree node corresponding to Loki IR Loop node.
+        """
+        return self.loop_map.get(loop)
+
+    def walk_depth_first(self, pre_order=True):
+        """
+        Generator for depth first traversal of the loop tree.
+
+        Parameters
+        ----------
+        pre_order : `bool`
+            Order of depth first traversal, if `True` parent nodes are visited before children.
+            default: True
+        """
+        def visit(tree_node):
+            if pre_order:
+                yield tree_node
+
+            for child in tree_node.children:
+                yield from visit(child)
+
+            if not pre_order:
+                yield tree_node
+
+        for root in self.roots:
+            yield from visit(root)
+
+    def walk_breadth_first(self):
+        """
+        Generator for depth first traversal of the loop tree.
+        """
+        queue = deque(self.roots)
+        while queue:
+            tree_node = queue.popleft()
+            yield tree_node
+            queue.extend(tree_node.children)
+
+
+def get_loop_tree(ir: ir.Node):
+    """
+    Function that construct a loop tree with all loops in a region
+    """
+    class LoopTreeBuilder(Visitor):
+        def __init__(self):
+            super().__init__()
+            self.loop_tree = LoopTree()
+            self.loop_stack = []
+
+        def visit_Loop(self, loop, **kwargs):
+            parent = self.loop_stack[-1] if self.loop_stack else None
+            tree_node = self.loop_tree.add_node(loop, parent)
+
+            self.loop_stack.append(tree_node)
+            for o in loop.children:
+                self.visit(o)
+            self.loop_stack.pop()
+
+    tree_builder = LoopTreeBuilder()
+    tree_builder.visit(ir)
+    return tree_builder.loop_tree
 
 
 def is_driver_loop(loop, targets):
