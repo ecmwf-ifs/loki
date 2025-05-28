@@ -139,7 +139,7 @@ class FieldPointerMap:
         return tuple(dict.fromkeys(host_to_device))
 
 
-    def sync_host_force_calls(self, force=False, queue=None, blk_bounds=None, offset=None):
+    def sync_host_force_calls(self, queue=None, blk_bounds=None, offset=None):
         """
         Returns a tuple of :any:`CallStatement` for host-synchronization transfers on fields.
         """
@@ -375,7 +375,6 @@ def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope
                        scope, queue=queue, blk_bounds=blk_bounds, offset=offset)
 
 
-
 def field_create_device_data(field_ptr, scope: Scope, blk_bounds=None):
     return ir.CallStatement(name=sym.ProcedureSymbol('CREATE_DEVICE_DATA', parent=field_ptr, scope=scope),
                             kwarguments=(('blk_bounds', blk_bounds),))
@@ -400,7 +399,7 @@ def field_delete_device_data(field_ptr, scope):
 
 def field_wait_for_async_queue(queue, scope: Scope):
     return ir.CallStatement(name=sym.ProcedureSymbol('WAIT_FOR_ASYNC_QUEUE', scope=scope),
-                            arguments=(queue))
+                            arguments=(queue,))
 
 
 def find_field_offload_calls(ir_section):

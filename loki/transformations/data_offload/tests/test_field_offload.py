@@ -166,7 +166,6 @@ def test_field_offload(frontend, state_module, tmp_path):
         assert isinstance(devptr, sym.Array)
         assert len(devptr.shape) == 3
         assert devptr.name in (arg.name for arg in kernel_call.arguments)
-    from loki import fgen
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
