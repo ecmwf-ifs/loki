@@ -7,7 +7,7 @@
 
 
 from loki.ir import (
-    nodes as ir, Transformer, FindVariables, SubstituteExpressions, is_loki_pragma
+    nodes as ir, Transformer, FindVariables, SubstituteExpressions
 )
 from loki.subroutine import Subroutine
 from loki.expression import (
@@ -26,18 +26,17 @@ class LoopSplittingVariables:
 
     def __init__(self, loop_var: sym.Variable, block_size):
         self._loop_var = loop_var
-        # self._splitting_vars = splitting_vars
+
         if isinstance(block_size, int):
             blk_size = sym.IntLiteral(block_size)
-        elif (isinstance(block_size, sym.Scalar) or
-              isinstance(block_size, sym.IntLiteral)):
+        elif isinstance(block_size, (sym.Scalar, sym.IntLiteral)):
             blk_size = block_size
         else:
             error("Block size must a be a an integer constant or a scalar variable")
 
         self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
                                                type=loop_var.type.clone(parameter=True,
-                                                                        initial=blk_size)),
+                                                                        initial=blk_size)),  # pylint: disable=possibly-used-before-assignment
                                 loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
                                 loop_var.clone(name=loop_var.name + "_loop_block_idx"),
                                 loop_var.clone(name=loop_var.name + "_loop_local"),
@@ -148,9 +147,10 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
     else:
         outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (data_region,),
                                 bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+
         # Transformer to place block loop outside data region
         class BlockDataRegionTransformer(Transformer):
-            def visit_PragmaRegion(self, pragma_region, **kwargs):
+            def visit_PragmaRegion(self, pragma_region):
                 if not pragma_region is data_region:
                     return pragma_region
                 change_map = {loop: (inner_loop,)}

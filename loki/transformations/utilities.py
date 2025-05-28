@@ -662,7 +662,7 @@ def find_driver_loops(section, targets):
         target_driver_loops.append(loop)
         loops = FindNodes(ir.Loop).visit(loop.body)
         nested_driver_loops.extend(loops)
-    
+
     if pragma_driver_loops:
         return pragma_driver_loops
     return target_driver_loops

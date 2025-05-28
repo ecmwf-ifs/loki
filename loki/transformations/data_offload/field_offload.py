@@ -13,7 +13,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, pragma_regions_attached, is_loki_pragma, pragmas_attached
 )
-from loki.logging import warning
+from loki.logging import warning, error
 
 from loki.transformations.loop_blocking import split_loop
 from loki.transformations.utilities import find_driver_loops
@@ -124,13 +124,12 @@ class FieldOffloadBlockedTransformation(Transformation):
     """
 
     def __init__(self, block_size, devptr_prefix=None, field_group_types=None,
-                 offload_index=None, blocking_index=None, asynchronous=False, num_queues=1):
+                 offload_index=None, asynchronous=False, num_queues=1):
         self.block_size = block_size
         self.deviceptr_prefix = 'loki_devptr_' if devptr_prefix is None else devptr_prefix
         field_group_types = [''] if field_group_types is None else field_group_types
         self.field_group_types = tuple(typename.lower() for typename in field_group_types)
         self.offload_index = 'IBL' if offload_index is None else offload_index
-        self.blocking_index = offload_index
 
         if not isinstance(asynchronous, bool):
             warning('[Loki] FieldOffloadBlockedTransformation: asynchronous kwarg must be a bool' +
@@ -164,14 +163,14 @@ class FieldOffloadBlockedTransformation(Transformation):
                     # inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
-                    splitting_vars, inner_loop, block_loop = block_driver_loops(driver, region,
-                                                                                self.block_size)
+                    splitting_vars, _, block_loop = block_driver_loops(driver, region, self.block_size)
 
                     if self.asynchronous and self.num_queues > 1:
                         add_device_field_allocations(driver, block_loop, offload_map,
                                                      self.block_size, self.num_queues)
                         queue, offset = add_async_blocking_vars(driver, block_loop, self.num_queues, splitting_vars)
-                        add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars, queue, offset)
+                        add_blocked_field_offload_calls(driver, block_loop, region, offload_map,
+                                                        splitting_vars, queue, offset)
                         add_wait_calls(driver, block_loop, queue, self.num_queues)
                     else:
                         add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars)
@@ -256,7 +255,8 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables, queue=None, offset=None):
+def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables,
+                                    queue=None, offset=None):
     host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
                                                                 splitting_variables.block_start,
                                                                 splitting_variables.block_end)
@@ -346,10 +346,10 @@ def block_driver_loops(driver, region, block_size):
             loop = driver_loops[0]
         elif len(driver_loops) > 1:
             warning(f'[Loki] Data offload (field blocking): Multiple driver loops found in {driver.name}')
+            loop = driver_loops[0]
         else:
-            warning(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
-            return
-        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)
+            error(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
+        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=possibly-used-before-assignment
         # move loop pragmas to inner loop
         if outer_loop.pragma is not None:
             pragmas = []
