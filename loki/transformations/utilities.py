@@ -707,6 +707,13 @@ def is_target_driver_loop(loop, targets):
     return False
 
 
+def has_target_call(loop, targets):
+    for o in loop.body:
+        if isinstance(o, ir.CallStatement) and o.name in targets:
+            return True
+    return False
+
+
 def is_driver_loop(loop, targets):
     """
     Test/check whether a given loop is a *driver loop*.
@@ -745,8 +752,8 @@ def find_driver_loops(section, targets):
             for root in loop_tree.roots:
                 target_driver_loops = []
                 has_pragma_driver = self.__visit(root, targets, target_driver_loops)
-            if not has_pragma_driver:
-                self.driver_loops.extend(target_driver_loops)
+                if not has_pragma_driver:
+                    self.driver_loops.extend(target_driver_loops)
 
             return [node.loop for node in self.driver_loops]
 
@@ -755,13 +762,13 @@ def find_driver_loops(section, targets):
             if is_pragma_driver_loop(node.loop):
                 self.driver_loops.append(node)
                 return True
-            is_target_driver = is_target_driver_loop(node.loop, targets)
+            is_target_driver = has_target_call(node.loop, targets)
 
 
             nested_pragma_driver = False
             nested_target_driver_loops = []
             for child in node.children:
-                nested_pragma_driver |= self.__visit(node, targets, nested_target_driver_loops)
+                nested_pragma_driver |= self.__visit(child, targets, nested_target_driver_loops)
 
             if is_target_driver:
                 if nested_pragma_driver:
