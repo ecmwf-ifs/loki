@@ -50,7 +50,7 @@ class FieldOffloadTransformation(Transformation):
 
     Parameters
     ----------
-    devptr_prefix: str, optional
+    deviceptr_prefix: str, optional
         The prefix of device pointers added by this transformation (defaults to ``'loki_devptr_'``).
     field_group_types: list or tuple of str, optional
         Names of the field group types with members that may be offloaded (defaults to ``['']``).
@@ -96,7 +96,7 @@ class FieldOffloadTransformation(Transformation):
 class FieldOffloadBlockedTransformation(Transformation):
     """
 
-    Transformation to block offload of arrays owned by Field API fields to the device.
+    Transformation to perform blocked offload of arrays owned by Field API fields to the device.
 
     **This transformation is IFS specific.**
 
@@ -114,13 +114,20 @@ class FieldOffloadBlockedTransformation(Transformation):
 
     Parameters
     ----------
-    devptr_prefix: str, optional
+    block_size: int
+        Number of blocks per chunk (specified in the final dimension of the field).
+    deviceptr_prefix: str, optional
         The prefix of device pointers added by this transformation (defaults to ``'loki_devptr_'``).
     field_group_types: list or tuple of str, optional
         Names of the field group types with members that may be offloaded (defaults to ``['']``).
     offload_index: str, optional
         Names of index variable to inject in the outmost dimension of offloaded arrays in the kernel
         calls (defaults to ``'IBL'``).
+    asynchronous: bool, optional
+        Perform asynchronous blocked offload (defaults to ``False``)
+    num_queues: int, optional
+        Number of queues for asynchronous offload should be set to 2 or higher for asynchronous
+        offload (defaults to 1).
     """
 
     def __init__(self, block_size, devptr_prefix=None, field_group_types=None,
