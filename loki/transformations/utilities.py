@@ -589,11 +589,30 @@ def get_loop_bounds(routine, dimension):
 class LoopTree:
     """
     A data structure that stores nested loops in a forest of trees.
+
+    Parameters
+    ----------
+    roots : list of :any:`LoopTree.TreeNode`
+        top level loops in the ir section of the LoopTree
+    loop_map : dict of (:any:`ir.Loop`, :any:`TreeNode`)
+        dictionary with key-value pairs of :any:`ir.Loop` nodes in the tree
+        and corresponding :any:`TreeNode` nodes
     """
 
     class TreeNode:
         """
         Internal node class for nodes in the LoopTree
+
+        Parameters
+        ----------
+        loop : :any:`ir.Loop`
+            :any:`ir.Loop` of the tree node
+        parent : :any:`LoopTree.Treenode` or None
+            parent node in the LoopTree
+        parent : list of :any:`LoopTree.Treenode`
+            child nodes in the LoopTree
+        depth : int
+            nesting depth of the node (0 if root)
         """
 
         def __init__(self, loop: ir.Loop, parent=None):
@@ -609,7 +628,10 @@ class LoopTree:
         self.roots = []
         self.loop_map = {}
 
-    def add_node(self, loop: ir.Loop, parent: ir.Loop = None):
+    def add_node(self, loop: ir.Loop, parent: TreeNode = None):
+        """
+        Helper function to add a loop to the LoopTree
+        """
         tree_node = self.TreeNode(loop, parent)
         if parent is None:
             self.roots.append(tree_node)
@@ -647,7 +669,7 @@ class LoopTree:
 
     def walk_breadth_first(self):
         """
-        Generator for depth first traversal of the loop tree.
+        Generator for breadth first traversal of the loop tree.
         """
         queue = deque(self.roots)
         while queue:
@@ -656,7 +678,7 @@ class LoopTree:
             queue.extend(tree_node.children)
 
 
-def get_loop_tree(ir: ir.Node):
+def get_loop_tree(region: ir.Node):
     """
     Function that construct a loop tree with all loops in an IR region
     """
@@ -666,7 +688,7 @@ def get_loop_tree(ir: ir.Node):
             self.loop_tree = LoopTree()
             self.loop_stack = []
 
-        def visit_Loop(self, loop, **kwargs):
+        def visit_Loop(self, loop, **kwargs):  # pylint: disable=unused-argument
             parent = self.loop_stack[-1] if self.loop_stack else None
             tree_node = self.loop_tree.add_node(loop, parent)
 
@@ -676,7 +698,7 @@ def get_loop_tree(ir: ir.Node):
             self.loop_stack.pop()
 
     tree_builder = LoopTreeBuilder()
-    tree_builder.visit(ir)
+    tree_builder.visit(region)
     return tree_builder.loop_tree
 
 
@@ -775,17 +797,17 @@ def find_driver_loops(section, targets):
                     warning("[find_driver_loops] Nested pragma marked driver loop inside loop \
                             with target call (skipping f{node.loop}")
                     return True
-                else:
-                    target_driver_loops.append(node)
-                    return False
+
+                target_driver_loops.append(node)
+                return False
 
             if nested_target_driver_loops:
                 if nested_pragma_driver:
                     self.driver_loops.extend(nested_target_driver_loops)
                     return True
-                else:
-                    target_driver_loops.append(node)
-                    return False
+
+                target_driver_loops.append(node)
+                return False
 
             return nested_pragma_driver
 
