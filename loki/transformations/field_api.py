@@ -20,7 +20,8 @@ from loki.scope import Scope
 
 __all__ = [
     'FieldAPITransferType', 'FieldPointerMap', 'get_field_type',
-    'field_get_device_data', 'field_sync_host'
+    'field_get_device_data', 'field_sync_host', 'field_get_host_data',
+    'field_delete_device_data'
 ]
 
 
@@ -174,6 +175,35 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
                             arguments=(dev_ptr.clone(dimensions=None),), )
 
 
+def field_get_host_data(field_ptr, host_ptr, transfer_type: FieldAPITransferType, scope: Scope):
+    """
+    Utility function to generate a :any:`CallStatement` corresponding to a Field API
+    ``GET_HOST_DATA`` call.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``GET_HOST_DATA`` from.
+    host_ptr: :any:`Array`
+        Host pointer array
+    transfer_type: :any:`FieldAPITransferType`
+        Field API transfer type to determine which ``GET_HOST_DATA`` method to call.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    """
+    if not isinstance(transfer_type, FieldAPITransferType):
+        raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
+    if transfer_type == FieldAPITransferType.READ_ONLY:
+        suffix = 'RDONLY'
+    elif transfer_type == FieldAPITransferType.READ_WRITE:
+        suffix = 'RDWR'
+    else:
+        suffix = ''
+    procedure_name = 'GET_HOST_DATA_' + suffix
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                            arguments=(host_ptr.clone(dimensions=None),), )
+
+
 def field_sync_host(field_ptr, scope):
     """
     Utility function to generate a :any:`CallStatement` corresponding to a Field API
@@ -188,4 +218,21 @@ def field_sync_host(field_ptr, scope):
     """
 
     procedure_name = 'SYNC_HOST_RDWR'
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())
+
+
+def field_delete_device_data(field_ptr, scope):
+    """
+    Utility unction to generate a :any:`CallStatement` corresponding to a Field API
+    `DELETE_DEVICE_DATA` call.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``DELETE_DEVICE_DATA`` from.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    """
+
+    procedure_name = 'DELETE_DEVICE_DATA'
     return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope), arguments=())

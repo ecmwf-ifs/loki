@@ -7,13 +7,16 @@
 
 import pytest
 
-from loki import Sourcefile, Module
+from loki import Sourcefile, Module, Subroutine
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, Pragma, CallStatement
 from loki.logging import log_levels
 
-from loki.transformations import FieldOffloadTransformation
+from loki.transformations import (
+        FieldOffloadTransformation, FieldAPITransferType,
+        field_delete_device_data, field_get_device_data, field_get_host_data
+)
 
 
 @pytest.fixture(name="parkind_mod")
@@ -607,3 +610,45 @@ def test_field_offload_driver_compute(frontend, state_module, tmp_path):
     assert assigns[0].rhs == 'state_b(i,1,ibl) + 0.1'
     assert assigns[1].lhs == 'state_a(i,2,ibl)'
     assert assigns[1].rhs == 'state_a(i,1,ibl)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('access_mode', list(FieldAPITransferType))
+def test_field_api_call_gen(frontend, field_module, parkind_mod, access_mode, tmp_path): # pylint: disable=unused-argument
+    """
+    Test the correct generation of FIELD_API calls.
+    """
+
+    fcode = """
+subroutine kernel(field)
+  use field_module, only : field_3rb
+  use parkind1, only : jprb
+  implicit none
+  type(field_3rb), intent(inout) :: field
+  real(kind=jprb) :: ptr
+
+end subroutine kernel
+    """.strip()
+
+    def _check_call(call, target, mode, arguments):
+        mode_str = {
+            'READ_ONLY': 'rdonly',
+            'READ_WRITE': 'rdwr',
+            'WRITE_ONLY': 'wronly',
+        }
+        assert call.name.name.lower() == f'field%get_{target}_data_{mode_str[mode.name]}'
+        assert all(arg in call.arguments for arg in arguments)
+
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    field_object = routine.variable_map['field']
+    access_ptr = routine.variable_map['ptr']
+
+    get_device_data = field_get_device_data(field_object, access_ptr, access_mode, scope=routine)
+    _check_call(get_device_data, 'device', access_mode, [access_ptr])
+    if access_mode != FieldAPITransferType.WRITE_ONLY:
+        get_host_data = field_get_host_data(field_object, access_ptr, access_mode, scope=routine)
+        _check_call(get_host_data, 'host', access_mode, [access_ptr])
+
+    delete_device_data = field_delete_device_data(field_object, scope=routine)
+    assert delete_device_data.name.name.lower() == 'field%delete_device_data'
+    assert not delete_device_data.arguments
