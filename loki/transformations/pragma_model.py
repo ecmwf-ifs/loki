@@ -108,7 +108,8 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
         if params_delete := parameters.get('delete'):
             content += f' delete({params_delete})'
         if content:
-            return Pragma(keyword='acc', content=f'exit data{content}')
+            final = ' finalize' if 'finalize' in parameters else ''
+            return Pragma(keyword='acc', content=f'exit data{content}{final}')
         return self.default_retval()
 
     def pmap_structured_data(self, pragma, parameters, **kwargs):
