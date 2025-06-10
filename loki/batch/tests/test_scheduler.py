@@ -3148,13 +3148,15 @@ end module c_mod
         assert b_dtype.typedef is BasicType.DEFERRED
 
 @pytest.mark.parametrize('frontend', available_frontends(skip={OMNI: "OMNI fails on missing module"}))
-def test_scheduler_ignore_external_item(frontend, tmp_path):
-    fcode_driver = """
+@pytest.mark.parametrize('external_kernel', [True, False])
+def test_scheduler_ignore_external_item(frontend, tmp_path, external_kernel):
+    fcode_driver = f"""
 module driver_mod
   contains
   subroutine driver(nlon, klev, nb, ydml_phy_mf)
     use parkind1, only: jpim, jprb
     use kernel1_mod, only: kernel1
+    {'use kernel2_mod, only: kernel2' if external_kernel else ''}
     implicit none
     type(model_physics_mf_type), intent(in) :: ydml_phy_mf
     integer(kind=jpim), intent(in) :: nlon
@@ -3167,6 +3169,7 @@ module driver_mod
     jend = nlon
     do b = 1, nb
         call kernel1()
+        {'call kernel2()' if external_kernel else ''}
     enddo
   end subroutine driver
 end module driver_mod
@@ -3196,6 +3199,9 @@ end module kernel1_mod
         }
     }
 
+    if external_kernel:
+        config['default']['generated'] = ['kernel2*']
+
     class Trafo(Transformation):
 
         item_filter = (ProcedureItem, ModuleItem)
@@ -3212,10 +3218,26 @@ end module kernel1_mod
                           definitions=definitions, xmods=[tmp_path], frontend=frontend)
 
     expected_items = {'driver_mod#driver', 'parkind1', 'kernel1_mod#kernel1'}
+    if external_kernel:
+        expected_items.add('kernel2_mod#kernel2')
+        expected_items.add('kernel2_mod')
+
     assert expected_items == {item.name for item in scheduler.items}
     for item in scheduler.items:
         if item.name == 'parkind1':
             assert item.is_ignored
             assert isinstance(item, ExternalItem)
-    # check whether this works without any error
-    scheduler.process(transformation=Trafo())
+        if item.name == 'kernel2_mod#kernel2':
+            assert not item.is_ignored
+            assert isinstance(item, ExternalItem)
+            assert item.is_generated
+
+    if external_kernel:
+        # this shouldn't fail because we marked the item as build-time generated
+        scheduler.process(transformation=Trafo(), proc_strategy=ProcessingStrategy.PLAN)
+        # this should fail
+        with pytest.raises(RuntimeError):
+            scheduler.process(transformation=Trafo())
+    else:
+        # check whether this works without any error
+        scheduler.process(transformation=Trafo())

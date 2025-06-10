@@ -209,7 +209,9 @@ class ItemFactory:
         scope_item = self.item_cache.get(scope_name)
         if scope_item is None or isinstance(scope_item, ExternalItem):
             warning(f'Module {scope_name} not found in self.item_cache. Marking {item_name} as an external dependency')
-            item = ExternalItem(item_name, source=None, config=item_conf, origin_cls=item_cls)
+            generated = item_conf.get('generated', []) if item_conf else []
+            item = ExternalItem(item_name, source=None, config=item_conf, origin_cls=item_cls,
+                                is_generated=self._is_generated(item_name, generated=generated))
         else:
             source = scope_item.source
             item = item_cls(item_name, source=source, config=item_conf)
@@ -634,6 +636,31 @@ class ItemFactory:
             otherwise ``False``
         """
         keys = as_tuple(config.disable if config else ()) + as_tuple(ignore)
+        return keys and SchedulerConfig.match_item_keys(
+            name, keys, use_pattern_matching=True, match_item_parents=True
+        )
+
+    @staticmethod
+    def _is_generated(name, generated):
+        """
+        Utility method to check if a given :data:`name` is build-time generated.
+
+        Parameters
+        ----------
+        name : str
+            The name to check
+        generated : list of str, optional
+            An optional list of names, as typically provided in a config value.
+            These are matched via :any:`SchedulerConfig.match_item_keys` with
+            pattern matching enabled.
+
+        Returns
+        -------
+        bool
+            ``True`` if matched successfully via :data:`config` otherwise ``False``
+        """
+
+        keys = generated if generated else []
         return keys and SchedulerConfig.match_item_keys(
             name, keys, use_pattern_matching=True, match_item_parents=True
         )
