@@ -15,7 +15,7 @@ import platform
 from time import perf_counter
 import pytest
 
-from loki import Module, Subroutine, Sourcefile, RawSource, config
+from loki import Function, Module, Subroutine, Sourcefile, RawSource, config
 from loki.frontend import (
     available_frontends, OMNI, FP, REGEX, RegexParserClass
 )
@@ -1192,10 +1192,13 @@ END SUBROUTINE DOT_PROD_SP_2D
     assert {
         routine.name.lower() for routine in source.subroutines
     } == {'dot_product_ecv', 'dot_prod_sp_2d'}
+    assert isinstance(source['dot_product_ecv'], Function)
+    assert isinstance(source['dot_prod_sp_2d'], Subroutine)
 
     source.make_complete()
-    routine = source['dot_product_ecv']
-    assert 'dot_product_ecv' in routine.variables
+    function = source['dot_product_ecv']
+    assert function.return_type.dtype == BasicType.REAL
+    assert function.return_type.kind == 'JPRB'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

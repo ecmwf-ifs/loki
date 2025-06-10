@@ -12,9 +12,9 @@ from pymbolic.primitives import Expression
 from pydantic import ValidationError
 
 from loki.expression import symbols as sym, parse_expr
+from loki.function import Function
 from loki.ir import nodes as ir
 from loki.scope import Scope
-from loki.subroutine import Subroutine
 
 
 @pytest.fixture(name='scope')
@@ -219,9 +219,7 @@ def test_section(n, a_n, a_i):
     """
     assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     decl = ir.VariableDeclaration(symbols=(a_n,))
-    func = Subroutine(
-        name='F', is_function=True, spec=(decl,), body=(assign,)
-    )
+    func = Function(name='F', spec=(decl,), body=(assign,))
 
     # Test constructor for nodes and subroutine objects
     sec = ir.Section(body=(assign, assign))

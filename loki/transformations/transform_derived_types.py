@@ -795,10 +795,7 @@ class TypeboundProcedureCallTransformation(Transformation):
                         (not var.type.bind_names and var == routine.name)
                     ):
                         # Create a duplicate routine
-                        new_routine = routine.clone(
-                            name=f'{routine.name}_', rescope_symbols=True,
-                            result_name=routine.name if routine.is_function and not routine.result_name else None
-                        )
+                        new_routine = routine.clone(name=f'{routine.name}_', rescope_symbols=True)
                         # Update result name if this is a function
                         routine.parent.contains.append(new_routine)
                         # Update the procedure binding

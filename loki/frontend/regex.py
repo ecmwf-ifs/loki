@@ -496,6 +496,8 @@ class SubroutineFunctionPattern(Pattern):
         """
 
         from loki import Subroutine  # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.function import Function  # pylint: disable=import-outside-toplevel,cyclic-import
+
         match = self.pattern.search(reader.sanitized_string)
         if not match:
             return None, None, reader
@@ -511,9 +513,10 @@ class SubroutineFunctionPattern(Pattern):
         if routine is None:
             is_function = match['keyword'].lower() == 'function'
             source = reader.source_from_sanitized_span(match.span())
-            routine = Subroutine(
-                name=name, args=(), is_function=is_function, source=source, parent=scope
-            )
+            if is_function:
+                routine = Function(name=name, args=(), source=source, parent=scope)
+            else:
+                routine = Subroutine(name=name, args=(), source=source, parent=scope)
 
         if match['spec']:
             statement_candidates = ('ImportPattern', 'VariableDeclarationPattern', 'CallPattern', 'PragmaPattern')
@@ -543,9 +546,9 @@ class SubroutineFunctionPattern(Pattern):
             prefix=None
 
         routine.__initialize__(  # pylint: disable=unnecessary-dunder-call
-            name=routine.name, args=routine._dummies, is_function=routine.is_function,
-            prefix=prefix, spec=spec, contains=contains, source=routine.source,
-            incomplete=True, parser_classes=parser_classes
+            name=routine.name, args=routine._dummies, prefix=prefix, spec=spec,
+            contains=contains, source=routine.source, incomplete=True,
+            parser_classes=parser_classes
         )
 
         if match.span()[0] > 0:

@@ -9,7 +9,7 @@
 from pathlib import Path
 import pytest
 
-from loki import Sourcefile, Module, Subroutine, fgen, fexprgen
+from loki import Sourcefile, Module, Subroutine, Function, fgen, fexprgen
 from loki.jit_build import jit_compile, jit_compile_lib, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, REGEX
@@ -112,6 +112,76 @@ end subroutine routine_simple
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 2
     assert assigns[0] in loops[0].body and assigns[1] in loops[0].body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_routine_prefix(frontend):
+    """ Test matching of prefix attributes for subroutines """
+    fcode = """
+pure elemental subroutine my_routine(x, y)
+  implicit none
+  integer(kind=8), intent(inout) :: x, y
+
+  x = x + y
+end subroutine my_routine
+"""
+    # Note that Fparser fails here if the legal 'recursive' prefix is used!
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert routine.name == 'my_routine'
+    assert len(routine.prefix) == 2
+    assert routine.prefix == ('PURE', 'ELEMENTAL')
+
+    # Check that routine was parsed completely
+    assert isinstance(routine.body.body[-1], ir.Assignment)
+    assert routine.body.body[-1].lhs == 'x'
+    assert routine.body.body[-1].rhs == 'x + y'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI frontend interface does not provide interfaces')]
+))
+def test_routine_bind(frontend):
+    """ Test matching of 'bind" suffix for subroutines in interfaces """
+    fcode = """
+module my_module
+  implicit none
+
+  interface
+    subroutine my_routine(x, y) bind(C, name='my_routine_c')
+      use, intrinsic :: iso_c_binding
+      integer(kind=c_int), intent(inout) :: x, y
+    end subroutine my_routine
+  end interface
+
+contains
+
+  subroutine my_routine(x, y)
+    integer(kind=4), intent(inout) :: x, y
+
+    x = x + y
+  end subroutine my_routine
+end module my_module
+"""
+    # Note that Fparser fails here if the legal 'recursive' prefix is used!
+    module = Module.from_source(fcode, frontend=frontend)
+
+    routine = module['my_routine']
+
+    intf_routine = module.interface_map['my_routine'].body[0]
+    # The bind attribute is named, check the name
+    assert isinstance(intf_routine.bind, sym.StringLiteral)
+    assert intf_routine.bind == 'my_routine_c'
+    assert "BIND(c, name='my_routine_c')" in fgen(intf_routine)
+    # TODO: bind(C) is not honoured atm
+
+    # TODO: Interface definition and module routine alias, is that intended?
+    assert intf_routine == routine
+
+    # Check that module routine was parsed completely
+    assert isinstance(routine.body.body[-1], ir.Assignment)
+    assert routine.body.body[-1].lhs == 'x'
+    assert routine.body.body[-1].rhs == 'x + y'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1542,116 +1612,6 @@ end subroutine valid_fortran
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_prefix(frontend):
-    """
-    Test various prefixes that can occur in function/subroutine definitions
-    """
-    fcode = """
-pure elemental real function f_elem(a)
-    real, intent(in) :: a
-    f_elem = a
-end function f_elem
-    """.strip()
-
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert 'PURE' in routine.prefix
-    assert 'ELEMENTAL' in routine.prefix
-    assert routine.is_function is True
-    assert routine.return_type.dtype is BasicType.REAL
-
-    assert routine.name in routine.symbol_map
-    decl = [d for d in FindNodes(ir.VariableDeclaration).visit(routine.spec) if routine.name in d.symbols]
-    assert len(decl) == 1
-    decl = decl[0]
-
-    assert routine.procedure_type.is_function is True
-    assert routine.procedure_type.return_type.dtype is BasicType.REAL
-    assert routine.procedure_type.procedure is routine
-
-    assert routine.procedure_symbol.type.dtype.is_function is True
-    assert routine.procedure_symbol.type.dtype.return_type.dtype is BasicType.REAL
-    assert routine.procedure_symbol.type.dtype.procedure is routine
-
-    code = fgen(routine)
-    assert 'PURE' in code
-    assert 'ELEMENTAL' in code
-    assert fgen(decl) in code
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_suffix(frontend, tmp_path):
-    """
-    Test that subroutine suffixes are supported and correctly reproduced
-    """
-    fcode = """
-module subroutine_suffix_mod
-    implicit none
-
-    interface
-        function check_value(value) bind(C, name='check_value')
-            use, intrinsic :: iso_c_binding
-            real(c_float), value :: value
-            integer(c_int) :: check_value
-        end function check_value
-    end interface
-
-    interface
-        function fix_value(value) result(fixed) bind(C, name='fix_value')
-            use, intrinsic :: iso_c_binding
-            real(c_float), value :: value
-            real(c_float) :: fixed
-        end function fix_value
-    end interface
-contains
-    function out_of_physical_bounds(field, istartcol, iendcol, do_fix) result(is_bad)
-        real, intent(inout) :: field(:)
-        integer, intent(in) :: istartcol, iendcol
-        logical, intent(in) :: do_fix
-        logical :: is_bad
-
-        integer :: jcol
-        logical :: bad_value
-
-        is_bad = .false.
-        do jcol=istartcol,iendcol
-            bad_value = check_value(field(jcol)) > 0
-            is_bad = is_bad .or. bad_value
-            if (do_fix .and. bad_value) field(jcol) = fix_value(field(jcol))
-        end do
-    end function out_of_physical_bounds
-end module subroutine_suffix_mod
-    """.strip()
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-
-    check_value = module.interface_map['check_value'].body[0]
-    assert check_value.is_function
-    assert check_value.result_name == 'check_value'
-    assert check_value.return_type.dtype is BasicType.INTEGER
-    assert check_value.return_type.kind == 'c_int'
-    if frontend != OMNI:
-        assert check_value.bind == 'check_value'
-        assert "bind(c, name='check_value')" in fgen(check_value).lower()
-
-    fix_value = module.interface_map['fix_value'].body[0]
-    assert fix_value.is_function
-    assert fix_value.result_name == 'fixed'
-    assert fix_value.return_type.dtype is BasicType.REAL
-    assert fix_value.return_type.kind == 'c_float'
-    if frontend == OMNI:
-        assert "result(fixed)" in fgen(fix_value).lower()
-    else:
-        assert fix_value.bind == 'fix_value'
-        assert "result(fixed) bind(c, name='fix_value')" in fgen(fix_value).lower()
-
-    routine = module['out_of_physical_bounds']
-    assert routine.is_function
-    assert routine.result_name == 'is_bad'
-    assert routine.bind is None
-    assert routine.return_type.dtype is BasicType.LOGICAL
-    assert "result(is_bad)" in fgen(routine).lower()
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_comparison(frontend):
     """
     Test that string-equivalence works on relevant components.
@@ -1854,42 +1814,6 @@ END SUBROUTINE CLOUDSC
     assert routine._dummies == argnames
     assert all(isinstance(arg, sym.Scalar) for arg in routine.arguments[:4])
     assert all(isinstance(arg, sym.Array) for arg in routine.arguments[4:])
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_lazy_prefix(frontend):
-    """
-    Test that prefixes for functions are correctly captured when the object is made
-    complete.
-
-    This test represents a case where the REGEX frontend fails to capture these attributes correctly.
-
-    The rationale for this test is that we don't currently need these attributes
-    in the incomplete REGEX-parsed IR and we accept that this information is incomplete initially.
-    tmp_path, we make sure this information is captured correctly after completing the full frontend
-    parse.
-    """
-    fcode = """
-pure elemental real function f_elem(a)
-    real, intent(in) :: a
-    f_elem = a
-end function f_elem
-    """.strip()
-
-    routine = Subroutine.from_source(fcode, frontend=REGEX)
-    assert routine._incomplete
-    assert routine.prefix == ('pure elemental real',)
-    assert routine.arguments == ()
-    assert routine.is_function is True
-    assert routine.return_type is None
-
-    routine.make_complete(frontend=frontend)
-    assert not routine._incomplete
-    assert 'PURE' in routine.prefix
-    assert 'ELEMENTAL' in routine.prefix
-    assert routine.arguments == ('a',)
-    assert routine.is_function is True
-    assert routine.return_type.dtype is BasicType.REAL
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -2383,7 +2307,7 @@ subroutine member_functions
     end function
 end subroutine member_functions
     """.strip()
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Function.from_source(fcode, frontend=frontend)
     add_to_a = routine['add_to_a']
     return_type = add_to_a.procedure_type.return_type
     assert return_type.dtype == BasicType.REAL

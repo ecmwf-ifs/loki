@@ -47,11 +47,6 @@ class Subroutine(ProgramUnit):
         Prefix specifications for the procedure
     bind : optional
         Bind information (e.g., for Fortran ``BIND(C)`` annotation).
-    result_name : str, optional
-        The name of the result variable for functions.
-    is_function : bool, optional
-        Flag to indicate this is a function instead of subroutine
-        (in the Fortran sense). Defaults to `False`.
     ast : optional
         Frontend node for this subroutine (from parse tree of the frontend).
     source : :any:`Source`
@@ -76,39 +71,25 @@ class Subroutine(ProgramUnit):
         Provide the list of parser classes used during incomplete regex parsing
     """
 
-    def __init__(
-            self, name, args=None, docstring=None, spec=None, body=None,
-            contains=None, prefix=None, bind=None, result_name=None,
-            is_function=False, ast=None, source=None, parent=None,
-            symbol_attrs=None, rescope_symbols=False, incomplete=False, parser_classes=None
-    ):
+    is_function = False
+
+    def __init__(self, *args, parent=None, symbol_attrs=None, **kwargs):
         super().__init__(parent=parent)
 
         if symbol_attrs:
             self.symbol_attrs.update(symbol_attrs)
 
-        self.__initialize__(
-            name=name, args=args, docstring=docstring, spec=spec, body=body,
-            contains=contains,  prefix=prefix, bind=bind, result_name=result_name,
-            is_function=is_function, ast=ast, source=source,
-            rescope_symbols=rescope_symbols, incomplete=incomplete, parser_classes=parser_classes
-        )
+        self.__initialize__(*args, **kwargs)
 
     def __initialize__(
             self, name, docstring=None, spec=None, contains=None,
-            ast=None, source=None, rescope_symbols=False, incomplete=False, parser_classes=None,
-            body=None, args=None, prefix=None, bind=None, result_name=None, is_function=False
+            ast=None, source=None, rescope_symbols=False, incomplete=False,
+            parser_classes=None, body=None, args=None, prefix=None, bind=None,
     ):
         # First, store additional Subroutine-specific properties
         self._dummies = as_tuple(a.lower() for a in as_tuple(args))  # Order of dummy arguments
         self.prefix = as_tuple(prefix)
         self.bind = bind
-        self.result_name = result_name
-        self.is_function = is_function
-
-        # Make sure 'result_name' is defined if it's a function
-        if self.result_name is None and self.is_function:
-            self.result_name = name
 
         # Additional IR components
         if body is not None and not isinstance(body, ir.Section):
@@ -240,10 +221,6 @@ class Subroutine(ProgramUnit):
             kwargs['prefix'] = self.prefix
         if self.bind and 'bind' not in kwargs:
             kwargs['bind'] = self.bind
-        if self.result_name and 'result_name' not in kwargs:
-            kwargs['result_name'] = self.result_name
-        if self.is_function and 'is_function' not in kwargs:
-            kwargs['is_function'] = self.is_function
 
         # Rebuild body (other IR components are taken care of in super class)
         if 'body' in kwargs:
@@ -258,9 +235,9 @@ class Subroutine(ProgramUnit):
         Base definition for comparing :any:`Subroutine` objects.
         """
         return (
-            self.name, self.is_function, self._dummies, self.prefix,
-            self.bind, self.docstring, self.spec, self.body,
-            self.contains, self.symbol_attrs
+            self.name, self._dummies, self.prefix, self.bind,
+            self.docstring, self.spec, self.body, self.contains,
+            self.symbol_attrs
         )
 
     def __eq__(self, other):
@@ -285,15 +262,6 @@ class Subroutine(ProgramUnit):
         """
         return ProcedureType(procedure=self)
 
-    @property
-    def return_type(self):
-        """
-        Return the return_type of this subroutine
-        """
-        if not self.is_function:
-            return None
-        return self.symbol_attrs.get(self.result_name)
-
     variables = ProgramUnit.variables
 
     @variables.setter
@@ -305,7 +273,7 @@ class Subroutine(ProgramUnit):
         removal from this list will also remove arguments from the subroutine signature.
         """
         # Use the parent's property setter
-        super(self.__class__, self.__class__).variables.__set__(self, variables)
+        ProgramUnit.variables.__set__(self, variables)
 
         # Filter the dummy list in case we removed an argument
         varnames = [str(v.name).lower() for v in variables]
@@ -452,7 +420,5 @@ class Subroutine(ProgramUnit):
         self.body = ExpressionTransformer(inplace=True).visit(self.body)
 
     def __repr__(self):
-        """
-        String representation.
-        """
-        return f'{"Function" if self.is_function else "Subroutine"}:: {self.name}'
+        """ String representation """
+        return f'Subroutine:: {self.name}'
