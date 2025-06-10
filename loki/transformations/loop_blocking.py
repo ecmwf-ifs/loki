@@ -13,6 +13,7 @@ from loki.subroutine import Subroutine
 from loki.expression import (
     symbols as sym, parse_expr, ceil_division, iteration_index
 )
+from loki.logging import error
 
 __all__ = ['split_loop', 'block_loop_arrays']
 
@@ -25,11 +26,17 @@ class LoopSplittingVariables:
 
     def __init__(self, loop_var: sym.Variable, block_size):
         self._loop_var = loop_var
-        # self._splitting_vars = splitting_vars
+
+        if isinstance(block_size, int):
+            blk_size = sym.IntLiteral(block_size)
+        elif isinstance(block_size, (sym.Scalar, sym.IntLiteral)):
+            blk_size = block_size
+        else:
+            error("Block size must a be a an integer constant or a scalar variable")
+
         self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
                                                type=loop_var.type.clone(parameter=True,
-                                                                        initial=sym.IntLiteral(
-                                                                            block_size))),
+                                                                        initial=blk_size)),  # pylint: disable=possibly-used-before-assignment
                                 loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
                                 loop_var.clone(name=loop_var.name + "_loop_block_idx"),
                                 loop_var.clone(name=loop_var.name + "_loop_local"),
@@ -75,7 +82,7 @@ class LoopSplittingVariables:
         return self._splitting_vars
 
 
-def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
+def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=None):
     """
     Blocks a loop by splitting it into an outer loop and inner loop of size `block_size`.
 
@@ -105,7 +112,7 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
                       sym.InlineCall(sym.DeferredTypeSymbol('MIN', scope=routine),
                                      parameters=(sym.Product(children=(
                                          splitting_vars.block_idx, splitting_vars.block_size)),
-                                                 loop.bounds.upper))
+                                                 loop.bounds.num_iterations))
                       ))
 
     # Outer loop blocking variable assignments
@@ -132,10 +139,26 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
                                  scope=routine))))
 
     #  Outer loop bounds + body
-    outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
-                         bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
-    change_map = {loop: block_loop_inits + (outer_loop,)}
-    Transformer(change_map, inplace=True).visit(routine.body)
+    if data_region is None:
+        outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
+                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+        change_map = {loop: block_loop_inits + (outer_loop,)}
+        Transformer(change_map, inplace=True).visit(routine.body)
+    else:
+        outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (data_region,),
+                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+
+        # Transformer to place block loop outside data region
+        class BlockDataRegionTransformer(Transformer):
+            def visit_PragmaRegion(self, pragma_region):
+                if not pragma_region is data_region:
+                    return pragma_region
+                change_map = {loop: (inner_loop,)}
+                Transformer(change_map, inplace=True).visit(data_region)
+                return block_loop_inits + (outer_loop,)
+
+        BlockDataRegionTransformer(inplace=True).visit(routine.body)
+
     return splitting_vars, inner_loop, outer_loop
 
 
@@ -156,9 +179,7 @@ def blocked_type(a: sym.Array):
 
 def replace_indices(dimensions, indices: list, replacement_index):
     """
-    Returns a new dimension object with all occurences of indices changed to replacement_index.
-
-    Parameters
+    Returns a new dimension object with all occurences of indices changed to replacement_index.  Parameters
     ----------
     dimensions:
         Symbolic representation of dimensions or indices.
