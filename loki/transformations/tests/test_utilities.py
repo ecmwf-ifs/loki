@@ -10,6 +10,7 @@ import pytest
 from loki import Module, Subroutine, Dimension, fgen
 from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends, OMNI
+from loki.logging import WARNING
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls,
     SubstituteExpressions, pragmas_attached
@@ -21,8 +22,8 @@ from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
     find_driver_loops, get_local_arrays, check_routine_sequential,
-    substitute_variables_for_definitions, get_loop_tree,
-    is_pragma_driver_loop, is_target_driver_loop
+    substitute_variables_for_definitions, is_pragma_driver_loop,
+    is_target_driver_loop
 )
 
 
@@ -471,7 +472,7 @@ end subroutine test_find_driver_loops
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilities_find_driver_loops_multiple_nested(frontend):
+def test_transform_utilities_find_driver_loops_multiple_nested(frontend, caplog):
     """ Test :any:`find_driver_loops` utility. """
 
     fcode = """
@@ -526,19 +527,29 @@ subroutine test_find_driver_loops(n, start, end, arr)
 
   end do
 
-  !$loki driver-loop
-  do i=start,end       ! driver loop 6 (loop 11)
-    arr(i) = 2. * arr(i)
+  do j=start,end
+    do i=start,end       ! skipped loop
+      call target_kernel(arr(i))
+    end do
+
+    !$loki driver-loop
+    do i=start,end       ! driver loop 6 (loop 13)
+      arr(i) = 2. * arr(i)
+    end do
+
+    call target_kernel(arr(j))
   end do
+
 
 end subroutine test_find_driver_loops
 """
+    caplog.set_level(WARNING)
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     with pragmas_attached(routine, node_type=ir.Loop):
         # Test is_driver_loop utility
         loops = FindNodes(ir.Loop).visit(routine.body)
-        assert len(loops) == 12
+        assert len(loops) == 14
 
         assert is_pragma_driver_loop(loops[0])
         assert is_driver_loop(loops[0], targets=())
@@ -552,10 +563,12 @@ end subroutine test_find_driver_loops
         assert is_driver_loop(loops[4], targets=('target_kernel', ))
         assert is_target_driver_loop(loops[4], targets=('target_kernel', ))
 
-        # Test find_driver_loops utility
         driver_loops = find_driver_loops(routine.body, targets=('target_kernel',))
+        assert len(caplog.records) == 1
+        assert "Nested pragma marked driver loop inside loop" in caplog.records[0].message
+
         assert len(driver_loops) == 7
-        for i in [0, 3, 4, 6, 8, 9, 11]:
+        for i in [0, 3, 4, 6, 8, 9, 13]:
             assert loops[i] in driver_loops
 
 
@@ -694,67 +707,3 @@ end subroutine test_substitute_variables_for_definitions
     remap_vars = [var_map[var] for var in ['n', 'a', 'i', 'j', 'b']]
     remapped_2 = substitute_variables_for_definitions(routine, variables=remap_vars)
     assert remapped_2 == ['derived_var%n', parse_expr('derived_var%a + 1'), '2', 'i', 'b']
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_loop_tree_builder(frontend):
-    fcode = """
-subroutine driver(a, b, c, m, n, p)
-  real, intent(inout) :: a(:,:,:), b(:,:,:), c(:,:,:)
-  integer, intent(in) :: m, n, p
-  integer             :: i,j,k
-
-  do i=1,m
-
-    do j=1,n
-      do k=1,p
-        b(k,j,i) = k
-      end do
-    end do
-
-    do j=2,n
-      a(:,j,i) = j
-    end do
-  end do
-
-  do i=2,m
-    c(:,:,i) = i
-  end do
-
-  do i=3,m
-    do j=3,m
-      do k=2,p
-        c(k,j,i) = i+j+k
-      end do
-    end do
-  end do
-end subroutine driver
-"""
-    driver = Subroutine.from_source(fcode, frontend=frontend)
-
-    loops = FindNodes(ir.Loop).visit(driver.ir)
-    assert len(loops) == 8
-
-    loop_tree = get_loop_tree(driver.ir)
-    assert len(loop_tree.roots) == 3
-
-    for tree_node, loop in zip(loop_tree.walk_depth_first(), loops):
-        assert tree_node.loop == loop, "pre order dfs walk should be the same sequence as FindNodes"
-
-    depths = [0, 1, 2, 1, 0, 0, 1, 2]
-    for tree_node, depth in zip(loop_tree.walk_depth_first(), depths):
-        assert tree_node.depth == depth
-
-    post_order_indices = [2, 1, 3, 0, 4, 7, 6, 5]
-    post_order_loops = [loops[i] for i in post_order_indices]
-    for tree_node, loop in zip(loop_tree.walk_depth_first(pre_order=False), post_order_loops):
-        assert tree_node.loop == loop
-
-    bfs_indices = [0, 4, 5, 1, 3, 6, 2, 7]
-    bfs_loops = [loops[i] for i in bfs_indices]
-    for tree_node, loop in zip(loop_tree.walk_breadth_first(), bfs_loops):
-        assert tree_node.loop == loop
-
-    bfs_depths = [0, 0, 0, 1, 1, 1, 2, 2]
-    for tree_node, depth in zip(loop_tree.walk_breadth_first(), bfs_depths):
-        assert tree_node.depth == depth
