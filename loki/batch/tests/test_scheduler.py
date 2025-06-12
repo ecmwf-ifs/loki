@@ -3247,7 +3247,8 @@ end module kernel1_mod
 
 
 @pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.PLAN, ProcessingStrategy.DEFAULT])
-def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_strategy):
+@pytest.mark.parametrize('with_filegraph', [True, False])
+def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_strategy, with_filegraph):
     """
     Create a simple task graph from a single sub-project:
 
@@ -3266,6 +3267,10 @@ def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_
     )
 
     class RuntimeErrorTransformation(Transformation):
+
+        traverse_file_graph = with_filegraph
+        recurse_to_modules = with_filegraph
+        recurse_to_procedures = with_filegraph
 
         item_filter = (ProcedureItem, ModuleItem)
 
@@ -3291,10 +3296,14 @@ def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_
 
         plan_subroutine = transform_subroutine
 
-    for fail_cls, fail_name in (
-            (Subroutine, 'compute_l1'),
-            (Module, 'header_mod')
-    ):
+    fail_list = [
+        (Subroutine, 'compute_l1'),
+        (Module, 'header_mod')
+    ]
+    if with_filegraph:
+        fail_list += [(Sourcefile, '')]
+
+    for fail_cls, fail_name in fail_list:
         message_pattern = f'RuntimeErrorTransformation.*?{fail_cls.__name__}.*?{fail_name.lower()}'
 
         with pytest.raises(TransformationError, match=message_pattern):
