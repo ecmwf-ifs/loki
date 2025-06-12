@@ -97,6 +97,8 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             content += f' copyin({param_in})'
         if param_create := parameters.get('create'):
             content += f' create({param_create})'
+        if param_attach := parameters.get('attach'):
+            content += f' attach({param_attach})'
         if content:
             return Pragma(keyword='acc', content=f'enter data{content}')
         return self.default_retval()
@@ -107,8 +109,11 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             content += f' copyout({params_out})'
         if params_delete := parameters.get('delete'):
             content += f' delete({params_delete})'
+        if param_detach := parameters.get('detach'):
+            content += f' detach({param_detach})'
         if content:
-            return Pragma(keyword='acc', content=f'exit data{content}')
+            final = ' finalize' if 'finalize' in parameters else ''
+            return Pragma(keyword='acc', content=f'exit data{content}{final}')
         return self.default_retval()
 
     def pmap_structured_data(self, pragma, parameters, **kwargs):

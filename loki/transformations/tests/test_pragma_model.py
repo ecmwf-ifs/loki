@@ -43,8 +43,8 @@ subroutine some_func(ret)
 
   !$loki create device(tmp1, tmp2)
   !$loki update device(tmp1) host(tmp2)
-  !$loki unstructured-data in(tmp1, tmp2) create(tmp3, tmp4)
-  !$loki end unstructured-data out(tmp2, tmp3, tmp4) delete(tmp1)
+  !$loki unstructured-data in(tmp1, tmp2) create(tmp3, tmp4) attach(tmp1)
+  !$loki end unstructured-data out(tmp2, tmp3, tmp4) detach(tmp1) delete(tmp1) finalize
   !$loki structured-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
   !$loki end structured-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
   !$loki loop gang private(tmp1) vlength(128)
@@ -92,8 +92,8 @@ end subroutine some_func
     if directive == 'openacc':
         args = (('acc', 'declare create(tmp1, tmp2)'),
                 ('acc', ('update', 'device(tmp1)', 'self(tmp2)'), False),
-                ('acc', ('enter data', 'copyin(tmp1, tmp2)', 'create(tmp3, tmp4)'), False),
-                ('acc', ('exit data', 'copyout(tmp2, tmp3, tmp4)', 'delete(tmp1)'), False),
+                ('acc', ('enter data', 'copyin(tmp1, tmp2)', 'create(tmp3, tmp4)', 'attach(tmp1)'), False),
+                ('acc', ('exit data', 'copyout(tmp2, tmp3, tmp4)', 'detach(tmp1)', 'delete(tmp1)', 'finalize'), False),
                 ('acc', ('data', 'copyin(tmp1)', 'copy(tmp3)', 'copyout(tmp2)', 'create(tmp4)'), False),
                 ('acc', 'end data'),
                 ('acc', ('parallel loop gang', 'private(tmp1)', 'vector_length(128)'), False),
@@ -143,8 +143,9 @@ end subroutine some_func
     if directive is None:
         args = (('loki', 'create device(tmp1, tmp2)'),
                 ('loki', ('update', 'device(tmp1)', 'host(tmp2)'), False),
-                ('loki', ('unstructured-data', 'in(tmp1, tmp2)', 'create(tmp3, tmp4)'), False),
-                ('loki', ('end unstructured-data', 'out(tmp2, tmp3, tmp4)', 'delete(tmp1)'), False),
+                ('loki', ('unstructured-data', 'in(tmp1, tmp2)', 'create(tmp3, tmp4)', 'attach(tmp1)', ), False),
+                ('loki', ('end unstructured-data', 'out(tmp2, tmp3, tmp4)', 'detach(tmp1)', 'delete(tmp1)', 'finalize'),
+                          False),
                 ('loki', ('structured-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
                 ('loki', ('end structured-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
                 ('loki', ('loop gang', 'private(tmp1)', 'vlength(128)'), False),
