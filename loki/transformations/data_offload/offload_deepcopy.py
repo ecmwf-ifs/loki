@@ -137,9 +137,11 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
 
 class DataOffloadDeepcopyAnalysis(Transformation):
     """
-    A transformation pass to analyse the usage of subroutine arguments in a call-tree. The resulting analysis is a
-    nested dict, of nesting depth equal to the longest derived-type expression, containing the access
-    mode of all the arguments used in a call-tree. For example, the following assignments:
+    A transformation pass to analyse the usage of subroutine arguments in a call-tree.
+
+    The resulting analysis is a nested dict, of nesting depth equal to the longest 
+    derived-type expression, containing the access mode of all the arguments used 
+    in a call-tree. For example, the following assignments:
 
     .. code-block:: fortran
        a%b%c = a%b%c + 1
@@ -160,7 +162,9 @@ class DataOffloadDeepcopyAnalysis(Transformation):
        }
 
     The analysis is stored in the :any:`Item.trafo_data` of the :any:`Item` corresponding to the driver layer
-    :any:`Subroutine`. It should be noted that the analysis is stored per driver-layer loop.
+    :any:`Subroutine`. It should be noted that the analysis is stored per driver-layer loop. The driver's
+    :any:`Item.trafo_data` also contains :any:`Scheduler` config entries corresponding to the derived-types
+    used throughout the call-tree in a :data:`typedef_configs` dict.
 
     Parameters
     ----------
@@ -259,6 +263,10 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         # gather typedef configs from callees
         self.gather_typedef_configs_from_callees(successors, item.trafo_data[self._key]['typedef_configs'])
 
+        # Pointer indirection completely breaks the dataflow analysis, as the target
+        # simply appears as if its being "read", regardless of how the pointer is used.
+        # Since resolving pointer association is (super) hard, we just warn the user
+        # here to double check the dataflow and provide overrides if necessary.
         pointers = any(a.ptr for a in FindNodes(ir.Assignment).visit(routine.body))
         if pointers:
             warning(f'[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in {routine.name}')
