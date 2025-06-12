@@ -210,7 +210,7 @@ def fixture_expected_analysis():
                 'p': 'readwrite'
             },
             'c': {
-                'p': 'readwrite'
+                'p': 'read'
             },
             'd': {
                 'p': 'write'
@@ -257,7 +257,7 @@ def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_ana
             if isinstance(v, dict):
                 sorted_dict[k] = _nested_sort(v)
             else:
-                sorted_dict[k] = k
+                sorted_dict[k] = v
 
         return dict(sorted(sorted_dict.items()))
 
