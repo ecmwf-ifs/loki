@@ -61,13 +61,13 @@ end subroutine myroutine
     assert source._incomplete is lazy
     if method == 'source':
         if lazy:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(TransformationError):
                 source.apply(rename_transform)
             source.make_complete(frontend=frontend, xmods=[tmp_path])
         source.apply(rename_transform)
     elif method == 'transformation':
         if lazy:
-            with pytest.raises(RuntimeError):
+            with pytest.raises(TransformationError):
                 rename_transform.apply(source)
             source.make_complete(frontend=frontend, xmods=[tmp_path])
         rename_transform.apply(source)
@@ -135,7 +135,7 @@ end subroutine myroutine
     assert source[target]._incomplete is lazy
 
     if lazy:
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TransformationError):
             apply_method(rename_transform, source[target])
         source[target].make_complete(frontend=frontend, xmods=[tmp_path])
     apply_method(rename_transform, source[target])
@@ -198,7 +198,7 @@ end subroutine myroutine
     assert source['myroutine']._incomplete is lazy
 
     if lazy:
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TransformationError):
             apply_method(rename_transform, source['mymodule'])
         source['mymodule'].make_complete(frontend=frontend, xmods=[tmp_path])
     apply_method(rename_transform, source['mymodule'])
@@ -443,7 +443,7 @@ end subroutine rick
     ricks_path.unlink()
 
     # Check error behaviour if no item provided
-    with pytest.raises(ValueError):
+    with pytest.raises(TransformationError):
         FileWriteTransformation().apply(source=source)
 
 
