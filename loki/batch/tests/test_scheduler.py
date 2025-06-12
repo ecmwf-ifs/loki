@@ -59,12 +59,13 @@ import pytest
 from loki import (
     Sourcefile, Subroutine, Dimension, fexprgen, BasicType,
     ProcedureType, DerivedType, flatten, as_tuple,
-    CaseInsensitiveDict, graphviz_present
+    CaseInsensitiveDict, graphviz_present, Module, Function
 )
 from loki.batch import (
     Scheduler, SchedulerConfig, Item, ProcedureItem, ModuleItem,
     ProcedureBindingItem, InterfaceItem, TypeDefItem, SFilter,
-    ExternalItem, Transformation, Pipeline, ProcessingStrategy
+    ExternalItem, Transformation, Pipeline, ProcessingStrategy,
+    TransformationError
 )
 from loki.expression import Scalar, Array, Literal, ProcedureSymbol
 from loki.frontend import (
@@ -3047,6 +3048,7 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[3].trim_vector_sections is True
     assert pipeline.transformations[8].replace_ignore_items is True
 
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('enable_imports', [False, True])
 @pytest.mark.parametrize('import_level', ['module', 'subroutine'])
@@ -3147,6 +3149,7 @@ end module c_mod
         assert global_a.type.initial is None
         assert b_dtype.typedef is BasicType.DEFERRED
 
+
 @pytest.mark.parametrize('frontend', available_frontends(skip={OMNI: "OMNI fails on missing module"}))
 @pytest.mark.parametrize('external_kernel', [True, False])
 def test_scheduler_ignore_external_item(frontend, tmp_path, external_kernel):
@@ -3241,3 +3244,61 @@ end module kernel1_mod
     else:
         # check whether this works without any error
         scheduler.process(transformation=Trafo())
+
+
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.PLAN, ProcessingStrategy.DEFAULT])
+def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_strategy):
+    """
+    Create a simple task graph from a single sub-project:
+
+    projA: driverA -> kernelA -> compute_l1 -> compute_l2
+                           |
+                           | --> another_l1 -> another_l2
+    """
+
+    # Combine directory globbing and explicit file paths for lookup
+    projA = testdir/'sources/projA'
+    paths = [projA/'module', projA/'source/another_l1.F90', projA/'source/another_l2.F90']
+
+    scheduler = Scheduler(
+        paths=paths, includes=projA/'include', config=config,
+        seed_routines='driverA', frontend=frontend, xmods=[tmp_path]
+    )
+
+    class RuntimeErrorTransformation(Transformation):
+
+        item_filter = (ProcedureItem, ModuleItem)
+
+        def __init__(self, fail_cls, fail_name):
+            self.fail_cls = fail_cls
+            self.fail_name = fail_name
+
+        def transform_file(self, sourcefile, **kwargs):
+            if self.fail_cls == Sourcefile:
+                raise RuntimeError
+
+        plan_file = transform_file
+
+        def transform_module(self, module, **kwargs):
+            if self.fail_cls == Module and self.fail_name == module.name.lower():
+                raise RuntimeError
+
+        plan_module = transform_module
+
+        def transform_subroutine(self, routine, **kwargs):
+            if self.fail_cls in (Subroutine, Function) and self.fail_name == routine.name.lower():
+                raise RuntimeError
+
+        plan_subroutine = transform_subroutine
+
+    for fail_cls, fail_name in (
+            (Subroutine, 'compute_l1'),
+            (Module, 'header_mod')
+    ):
+        message_pattern = f'RuntimeErrorTransformation.*?{fail_cls.__name__}.*?{fail_name.lower()}'
+
+        with pytest.raises(TransformationError, match=message_pattern):
+            scheduler.process(
+                RuntimeErrorTransformation(fail_cls=fail_cls, fail_name=fail_name),
+                proc_strategy=proc_strategy
+            )
