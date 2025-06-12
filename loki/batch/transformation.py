@@ -16,7 +16,31 @@ from loki.subroutine import Subroutine
 from loki.batch.item import ProcedureItem, ModuleItem
 
 
-__all__ = ['Transformation']
+__all__ = ['Transformation', 'TransformationError']
+
+
+class TransformationError(Exception):
+    """
+    Exception raised when a :any:`Transformation` encounters an
+    error while processing an IR node
+
+    Parameters
+    ----------
+    message : str
+        Description of the error
+    transformation : subclass of :any:`Transformation`
+        The class of the transformation in which the error occured
+    source : :any:`Sourcefile` or :any:`ProgramUnit`
+        The object that was processed when the error occured
+    """
+
+    def __init__(self, message, transformation, source):
+        self.message = message
+        self.transformation = transformation
+        self.source = source
+
+    def __str__(self):
+        return f"Applying {self.transformation.__name__} to {self.source} failed: {self.message}"
 
 
 class Transformation:
@@ -272,13 +296,19 @@ class Transformation:
         targets = kwargs.pop('targets', None)
 
         # Apply file-level transformations
-        if plan_mode:
-            self.plan_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
-        else:
-            if sourcefile._incomplete:
-                raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
+        try:
+            if plan_mode:
+                self.plan_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+            else:
+                if sourcefile._incomplete:
+                    raise RuntimeError('Transformation.apply_file requires Sourcefile to be complete')
 
-            self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+                self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
+        except Exception as e:
+            raise TransformationError(
+                message=f'Error in Sourcefile {sourcefile.path!s}',
+                transformation=type(self), source=sourcefile
+            ) from e
 
         # Recurse to modules, if configured
         if self.recurse_to_modules:
@@ -300,20 +330,32 @@ class Transformation:
                         # Provide the list of items that belong to this module
                         item_items = tuple(_it for _it in items if _it.scope is item.ir)
 
-                        if plan_mode:
-                            self.plan_module(
-                                item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
-                            )
-                        else:
-                            self.transform_module(
-                                item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
-                            )
+                        try:
+                            if plan_mode:
+                                self.plan_module(
+                                    item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                                )
+                            else:
+                                self.transform_module(
+                                    item.ir, item=item, role=item_role, targets=item.targets, items=item_items, **kwargs
+                                )
+                        except Exception as e:
+                            raise TransformationError(
+                                message=f'Error in Module {item.ir.name}',
+                                transformation=type(self), source=item.ir
+                            ) from e
             else:
                 for module in sourcefile.modules:
-                    if plan_mode:
-                        self.plan_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
-                    else:
-                        self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                    try:
+                        if plan_mode:
+                            self.plan_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                        else:
+                            self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
+                    except Exception as e:
+                        raise TransformationError(
+                            message=f'Error in Module {module.name}',
+                            transformation=type(self), source=module
+                        ) from e
 
         # Recurse into procedures, if configured
         if self.recurse_to_procedures:
@@ -321,20 +363,32 @@ class Transformation:
                 # Recursion into all subroutine items in the current file
                 for item in items:
                     if isinstance(item, ProcedureItem):
-                        if plan_mode:
-                            self.plan_subroutine(
-                                item.ir, item=item, role=item.role, targets=item.targets, **kwargs
-                            )
-                        else:
-                            self.transform_subroutine(
-                                item.ir, item=item, role=item.role, targets=item.targets, **kwargs
-                            )
+                        try:
+                            if plan_mode:
+                                self.plan_subroutine(
+                                    item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                                )
+                            else:
+                                self.transform_subroutine(
+                                    item.ir, item=item, role=item.role, targets=item.targets, **kwargs
+                                )
+                        except Exception as e:
+                            raise TransformationError(
+                                message=f'Error in Procedure {item.ir.name}',
+                                transformation=type(self), source=item.ir
+                            ) from e
             else:
                 for routine in sourcefile.all_subroutines:
-                    if plan_mode:
-                        self.plan_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
-                    else:
-                        self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                    try:
+                        if plan_mode:
+                            self.plan_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                        else:
+                            self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
+                    except Exception as e:
+                        raise TransformationError(
+                            message=f'Error in Procedure {routine.name}',
+                            transformation=type(self), source=routine
+                        ) from e
 
     def apply_subroutine(self, subroutine, plan_mode=False, **kwargs):
         """
@@ -361,13 +415,19 @@ class Transformation:
             raise TypeError('Transformation.apply_subroutine can only be applied to Subroutine object')
 
         # Apply the actual transformation for subroutines
-        if plan_mode:
-            self.plan_subroutine(subroutine, **kwargs)
-        else:
-            if subroutine._incomplete:
-                raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
+        try:
+            if plan_mode:
+                self.plan_subroutine(subroutine, **kwargs)
+            else:
+                if subroutine._incomplete:
+                    raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
 
-            self.transform_subroutine(subroutine, **kwargs)
+                self.transform_subroutine(subroutine, **kwargs)
+        except Exception as e:
+            raise TransformationError(
+                message=f'Error in Procedure {subroutine.name}',
+                transformation=type(self), source=subroutine
+            ) from e
 
         # Recurse to internal procedures
         if self.recurse_to_internal_procedures:
@@ -398,13 +458,19 @@ class Transformation:
             raise TypeError('Transformation.apply_module can only be applied to Module object')
 
         # Apply the actual transformation for modules
-        if plan_mode:
-            self.plan_module(module, **kwargs)
-        else:
-            if module._incomplete:
-                raise RuntimeError('Transformation.apply_module requires Module to be complete')
+        try:
+            if plan_mode:
+                self.plan_module(module, **kwargs)
+            else:
+                if module._incomplete:
+                    raise RuntimeError('Transformation.apply_module requires Module to be complete')
 
-            self.transform_module(module, **kwargs)
+                self.transform_module(module, **kwargs)
+        except Exception as e:
+            raise TransformationError(
+                message=f'Error in Module {module.name}',
+                transformation=type(self), source=module
+            ) from e
 
         # Recurse to procedures contained in this module
         if self.recurse_to_procedures:

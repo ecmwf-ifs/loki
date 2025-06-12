@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from loki import (
-    Sourcefile, Subroutine, FindInlineCalls, fgen, IntLiteral, Module
+    Sourcefile, Subroutine, FindInlineCalls, fgen, IntLiteral, Module, Function
 )
-from loki.batch import Transformation, Pipeline, ProcedureItem
+from loki.batch import Transformation, Pipeline, ProcedureItem, TransformationError
 from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI, REGEX
 from loki.ir import nodes as ir, FindNodes
@@ -634,3 +634,80 @@ end subroutine test_pipeline_compose
     assert '<MaybeNotTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
     assert '<YesTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
     assert '<NoTrafo  [loki.batch.tests.test_transformation]' in str(pipe)
+
+
+@pytest.mark.parametrize('plan_mode', [True, False])
+def test_transformation_exception_handling(plan_mode):
+    fcode = """
+module some_mod
+    implicit none
+    integer :: mod_var
+contains
+    subroutine some_routine(arg)
+        integer, intent(inout) :: arg
+    end subroutine some_routine
+
+    real function func()
+        func = 0.0
+    end function func
+end module some_mod
+
+subroutine free_routine(val)
+    implicit none
+    integer, intent(in) :: val
+end subroutine free_routine
+    """.strip()
+
+    class RuntimeErrorTransformation(Transformation):
+
+        recurse_to_modules = True
+        recurse_to_procedures = True
+
+        def __init__(self, fail_cls, fail_name):
+            self.fail_cls = fail_cls
+            self.fail_name = fail_name
+
+        def transform_file(self, sourcefile, **kwargs):
+            if self.fail_cls == Sourcefile:
+                raise RuntimeError
+
+        plan_file = transform_file
+
+        def transform_module(self, module, **kwargs):
+            if self.fail_cls == Module and self.fail_name == module.name.lower():
+                raise RuntimeError
+
+        plan_module = transform_module
+
+        def transform_subroutine(self, routine, **kwargs):
+            if self.fail_cls in (Subroutine, Function) and self.fail_name == routine.name.lower():
+                raise RuntimeError
+
+        plan_subroutine = transform_subroutine
+
+    # Dummy run without triggering
+    source = Sourcefile.from_source(fcode)
+    RuntimeErrorTransformation(fail_cls=None, fail_name=None).apply(source, plan_mode=plan_mode)
+
+    for fail_cls, fail_name in (
+            (Sourcefile, ''),
+            (Subroutine, 'some_routine'),
+            (Function, 'func'),
+            (Subroutine, 'free_routine'),
+            (Module, 'some_mod')
+    ):
+        message_pattern = f'RuntimeErrorTransformation.*?{fail_cls.__name__}.*?{fail_name.lower()}'
+
+        with pytest.raises(TransformationError, match=message_pattern):
+            RuntimeErrorTransformation(fail_cls=fail_cls, fail_name=fail_name).apply(source, plan_mode=plan_mode)
+
+        # Validate direct call with ir node
+        if fail_name:
+            with pytest.raises(TransformationError, match=message_pattern):
+                RuntimeErrorTransformation(
+                    fail_cls=fail_cls,
+                    fail_name=fail_name
+                ).apply(
+                    source[fail_name],
+                    plan_mode=plan_mode
+                )
