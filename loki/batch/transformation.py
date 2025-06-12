@@ -306,7 +306,7 @@ class Transformation:
                 self.transform_file(sourcefile, item=item, role=role, targets=targets, items=items, **kwargs)
         except Exception as e:
             raise TransformationError(
-                message=f'Error in Sourcefile {sourcefile.path!s}',
+                message=f'Error in Sourcefile {sourcefile.path!s} -- {e!s}',
                 transformation=type(self), source=sourcefile
             ) from e
 
@@ -341,7 +341,7 @@ class Transformation:
                                 )
                         except Exception as e:
                             raise TransformationError(
-                                message=f'Error in Module {item.ir.name}',
+                                message=f'Error in Module {item.ir.name} -- {e!s}',
                                 transformation=type(self), source=item.ir
                             ) from e
             else:
@@ -353,7 +353,7 @@ class Transformation:
                             self.transform_module(module, item=item, role=role, targets=targets, items=items, **kwargs)
                     except Exception as e:
                         raise TransformationError(
-                            message=f'Error in Module {module.name}',
+                            message=f'Error in Module {module.name} -- {e!s}',
                             transformation=type(self), source=module
                         ) from e
 
@@ -374,7 +374,7 @@ class Transformation:
                                 )
                         except Exception as e:
                             raise TransformationError(
-                                message=f'Error in Procedure {item.ir.name}',
+                                message=f'Error in Procedure {item.ir.name} -- {e!s}',
                                 transformation=type(self), source=item.ir
                             ) from e
             else:
@@ -386,7 +386,7 @@ class Transformation:
                             self.transform_subroutine(routine, item=item, role=role, targets=targets, **kwargs)
                     except Exception as e:
                         raise TransformationError(
-                            message=f'Error in Procedure {routine.name}',
+                            message=f'Error in Procedure {routine.name} -- {e!s}',
                             transformation=type(self), source=routine
                         ) from e
 
@@ -425,7 +425,7 @@ class Transformation:
                 self.transform_subroutine(subroutine, **kwargs)
         except Exception as e:
             raise TransformationError(
-                message=f'Error in Procedure {subroutine.name}',
+                message=f'Error in Procedure {subroutine.name} -- {e!s}',
                 transformation=type(self), source=subroutine
             ) from e
 
@@ -468,7 +468,7 @@ class Transformation:
                 self.transform_module(module, **kwargs)
         except Exception as e:
             raise TransformationError(
-                message=f'Error in Module {module.name}',
+                message=f'Error in Module {module.name} -- {e!s}',
                 transformation=type(self), source=module
             ) from e
 
