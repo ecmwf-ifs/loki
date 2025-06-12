@@ -192,13 +192,14 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         role = kwargs.pop('role')
         targets = kwargs.pop('targets')
-        successors = kwargs.pop('sub_sgraph').successors(item=item)
+        sgraph = kwargs.pop('sub_sgraph')
+        successors = sgraph.successors(item=item)
 
 
         if role == 'driver':
             self.process_driver(routine, item, successors, targets, **kwargs)
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, **kwargs)
+            self.process_kernel(routine, item, successors, sgraph, **kwargs)
 
     def stringify_dict(self, _dict):
         """
@@ -228,9 +229,10 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 if (successor := [s for s in successors if call.routine == s.ir]):
                     successor_map[call] = successor[0]
 
-            #gather analysis from children
+            # gather analysis from children
             analysis = self.gather_analysis_from_children(successor_map)
-            self.gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
+            # gather typedef configs from children
+            self.gather_typedef_configs_from_callees(successors, item.trafo_data[self._key]['typedef_configs'])
 
             layered_dict = {}
             for k, v in analysis.items():
@@ -245,11 +247,17 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 with open(base_dir/f'driver_{list(successor_map.keys())[0].name}_dataoffload_analysis.yaml', 'w') as f:
                     yaml.dump(str_layered_dict, f)
 
-    def process_kernel(self, routine, item, successors, **kwargs):
+    def process_kernel(self, routine, item, successors, sgraph, **kwargs):
 
-        #gather analysis from children
         item.trafo_data[self._key] = defaultdict(dict)
-        self.gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
+
+        # gather typedef config overrides
+        for child in successors:
+            if isinstance(child, TypeDefItem):
+                self.gather_typedef_configs(child, sgraph, item.trafo_data[self._key]['typedef_configs'])
+
+        # gather typedef configs from callees
+        self.gather_typedef_configs_from_callees(successors, item.trafo_data[self._key]['typedef_configs'])
 
         pointers = any(a.ptr for a in FindNodes(ir.Assignment).visit(routine.body))
         if pointers:
@@ -262,7 +270,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             if (successor := [s for s in successors if call.routine == s.ir]):
                 successor_map[call] = successor[0]
 
-        # We make do here (lazily) without a context manager, as this override of the
+        # We make do here (lazily) without a context manager, as this override of the
         # DataflowAnalysisAttacher is not meant for use outside of the current module.
         DeepcopyDataflowAnalysisAttacher().visit(routine.spec, successor_map=successor_map)
         DeepcopyDataflowAnalysisAttacher().visit(routine.body, successor_map=successor_map)
@@ -319,20 +327,17 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         return analysis
 
-    def gather_typedefs_from_children(self, successors, typedef_configs):
-        """Gather type definitions imported in children."""
+    def gather_typedef_configs_from_callees(self, successors, typedef_configs):
+        """Gather typedef configs from children."""
 
         for child in successors:
-            if isinstance(child, TypeDefItem) and child.trafo_data.get(self._key, None):
-                for k, v in child.trafo_data[self._key]['typedef_configs'].items():
-                    typedef_configs[k] = v
+            if isinstance(child, ProcedureItem) and child.trafo_data.get(self._key, None):
+                typedef_configs.update(child.trafo_data[self._key]['typedef_configs'])
 
-    def transform_typedef(self, typedef, **kwargs):
-        """Cache the current type definition for later reuse."""
+    def gather_typedef_configs(self, item, sgraph, typedef_configs):
+        """Gather typdef configs."""
 
-        item = kwargs['item']
-        successors = kwargs['sub_sgraph'].successors(item=item)
-
-        item.trafo_data[self._key] = defaultdict(dict)
-        item.trafo_data[self._key]['typedef_configs'][typedef.name.lower()] = item.config
-        self.gather_typedefs_from_children(successors, item.trafo_data[self._key]['typedef_configs'])
+        typedef_configs.update({item.ir.name.lower(): item.config})
+        for child in sgraph.successors(item=item):
+            if isinstance(child, TypeDefItem):
+                self.gather_typedef_configs(child, sgraph, typedef_configs)
