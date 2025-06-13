@@ -7,7 +7,6 @@
 
 from collections import defaultdict
 from pathlib import Path
-import pdb
 
 import re
 import yaml
@@ -435,9 +434,19 @@ class DataOffloadDeepcopyTransformation(Transformation):
             pragma_map = {region.pragma: (copy, acc_data_pragma),
                           region.pragma_post: (acc_data_pragma_post, host, wipe)}
         else:
-            # We remove any offload instructions first
+            # We remove all offload instructions first and non F-API related boiler plate
+            pragma_map = {}
+            conds = FindNodes((ir.Conditional, ir.Loop), greedy=True).visit(host)
+
+            for cond in conds:
+                calls = FindNodes(ir.CallStatement).visit(cond.body)
+                get_host_call = any('get_host_data_rdwr' in v.name.name.lower() for v in calls)
+
+                if not get_host_call:
+                    pragma_map[cond] = None
+
             host_pragmas = FindNodes(ir.Pragma).visit(host)
-            pragma_map = {p: None for p in host_pragmas}
+            pragma_map.update({p: None for p in host_pragmas})
             host = Transformer(pragma_map).visit(host)
 
             pragma_map = {region.pragma: host, region.pragma_post: None}
@@ -450,7 +459,6 @@ class DataOffloadDeepcopyTransformation(Transformation):
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 
-                #pdb.set_trace()
                 # Only work on active `!$loki data` regions
                 if not (mode := self._is_active_loki_data_region(region)):
                     continue
@@ -462,10 +470,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 present = self.get_pragma_vars(parameters, 'present')
                 private = self.get_pragma_vars(parameters, 'private')
 
-                # temporary variables are not copied back to host and are wiped from device memory
+                # temporary variables are not copied back to host and are wiped from device memory
                 temporary = self.get_pragma_vars(parameters, 'temporary')
 
-                # device_resident variables are left on device (i.e. neither copied back to host nor deleted)
+                # device_resident variables are left on device (i.e. neither copied back to host nor deleted)
                 device_resident = self.get_pragma_vars(parameters, 'device_resident')
 
                 copy, host, wipe = (), (), () 
@@ -474,7 +482,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                     analysis = analyses[loop]
 
-                    #update analysis with manual overrides
+                    # update analysis with manual overrides
                     analysis = self.update_with_manual_overrides(parameters, analysis, routine.symbol_map)
 
                     # recursively traverse analysis and generate deepcopy
@@ -489,7 +497,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                     present_vars += as_tuple(v.name for v in analysis if not v in private)
 
-                # replace the `!$loki data` PragmaRegion with the generated deepcopy instructions
+                # replace the `!$loki data` PragmaRegion with the generated deepcopy instructions
                 pragma_map.update(self.insert_deepcopy_instructions(region, mode, copy, host, wipe, present_vars))
 
         routine.body = Transformer(pragma_map).visit(routine.body)
@@ -509,7 +517,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                                            scope=routine)]
                 routine.variables += as_tuple(loop_vars[-1])
 
-            # Create loop bounds
+            # Create loop bounds
             lstart = sym.InlineCall(function=sym.ProcedureSymbol('LBOUND', scope=routine),
                                     parameters=(var, sym.IntLiteral(dim+1)))
             lend = sym.InlineCall(function=sym.ProcedureSymbol('UBOUND', scope=routine),
@@ -521,15 +529,15 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 vmap = {var: var.clone(dimensions=as_tuple(loop_vars[-1]))}
                 str_map = {str(k): str(v) for k, v in vmap.items()}
 
-                loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(body))
-                loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
+                SubstitutePragmaStrings(str_map).visit(body)
+                loopbody = as_tuple(SubstituteExpressions(vmap).visit(body))
             else:
                 # Add subsequent layers
                 vmap = {loop_vars[-2]: (loop_vars[-2], loop_vars[-1])}
                 str_map = {str(k): str(v) for k, v in vmap.items()}
 
+                SubstitutePragmaStrings(str_map).visit(loopbody)
                 loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
-                loopbody = as_tuple(SubstitutePragmaStrings(str_map).visit(loopbody))
 
             loop = ir.Loop(variable=loop_vars[-1], bounds=bounds, body=loopbody)
             loopbody = loop
@@ -654,7 +662,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
         for var in analysis:
 
-            # Don't generate a deepcopy for variables marked as present or private
+            # Don't generate a deepcopy for variables marked as present or private
             if var in kwargs['present'] or var in kwargs['private']:
                 continue
 
@@ -720,9 +728,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                     # wrap in memory status check
                     if check:
-                        _copy = self.create_memory_status_test(check, var, _copy, routine)
-                        _host = self.create_memory_status_test(check, var, _host, routine)
-                        _wipe = self.create_memory_status_test(check, var, _wipe, routine)
+                        _copy = self.create_memory_status_test(check, var.clone(parent=parent), _copy, routine)
+                        _host = self.create_memory_status_test(check, var.clone(parent=parent), _host, routine)
+                        _wipe = self.create_memory_status_test(check, var.clone(parent=parent), _wipe, routine)
 
             copy += as_tuple(_copy)
             if delete and not temporary:
