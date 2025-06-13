@@ -236,6 +236,24 @@ def inline_statement_functions(routine):
     routine.spec = Transformer(spec_map).visit(routine.spec)
 
 
+def _get_callee_result_var(routine):
+    """
+    Get or create the result variable for a function, necessary/useful
+    since there are multiple ways of specifying the return variable/type.
+    
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The function for which to get the result variable.
+    """
+    if routine.result_name.lower() in routine.variable_map:
+        callee_result_var = routine.variable_map[routine.result_name]
+    else:
+        callee_result_var_type = routine.symbol_attrs[routine.result_name]
+        callee_result_var = sym.Variable(name=routine.result_name, type=callee_result_var_type, scope=routine)
+    return callee_result_var
+
+
 def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
     """
     Inline a set of call to an individual :any:`Subroutine` being functions
@@ -266,7 +284,7 @@ def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
     def rename_result_name(routine, rename):
         callee = routine.clone()
         var_map = {}
-        callee_result_var = callee.variable_map[callee.result_name.lower()]
+        callee_result_var = _get_callee_result_var(callee)
         new_callee_result_var = callee_result_var.clone(name=rename)
         var_map[callee_result_var] = new_callee_result_var
         callee_vars = [var for var in FindVariables().visit(callee.body)
@@ -329,7 +347,7 @@ def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
     adapted_calls = []
     rename_result_var = not len(nodes) == len(set(nodes))
     for i_call, call in enumerate(calls):
-        callee_result_var = callee.variable_map[callee.result_name.lower()]
+        callee_result_var = _get_callee_result_var(callee)
         prefix = ''
         new_callee_result_var_name = f'{prefix}result_{callee.result_name.lower()}_{i_call}'\
                 if rename_result_var else f'{prefix}result_{callee.result_name.lower()}'

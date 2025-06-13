@@ -29,18 +29,19 @@ def fixture_builder(tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_inline_elemental_functions(tmp_path, builder, frontend):
+@pytest.mark.parametrize('return_type_via_var', (True, False))
+def test_transform_inline_elemental_functions(tmp_path, builder, frontend, return_type_via_var):
     """
     Test correct inlining of elemental functions.
     """
-    fcode_module = """
+    fcode_module = f"""
 module multiply_mod
   use iso_fortran_env, only: real64
   implicit none
 contains
 
-  elemental function multiply(a, b)
-    real(kind=real64) :: multiply
+  elemental {'real(kind=real64)' if not return_type_via_var else ''} function multiply(a, b)
+    {'real(kind=real64) :: multiply' if return_type_via_var else ''}
     real(kind=real64), intent(in) :: a, b
     real(kind=real64) :: temp
     !$loki routine seq
@@ -68,7 +69,7 @@ end subroutine transform_inline_elemental_functions
     module = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    refname = f'ref_{routine.name}_{frontend}'
+    refname = f'ref_{routine.name}_{"return_var" if return_type_via_var else ""}_{frontend}'
     reference = jit_compile_lib([module, routine], path=tmp_path, name=refname, builder=builder)
 
     v2, v3 = reference.transform_inline_elemental_functions(11.)
