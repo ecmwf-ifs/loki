@@ -428,7 +428,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
         if mode == 'offload':
             # wrap in acc data present pragma
-            content = f'structured-data present({', '.join(present_vars)})'
+            content = f"structured-data present({', '.join(present_vars)})"
             acc_data_pragma = ir.Pragma(keyword='loki', content=content)
             acc_data_pragma_post = ir.Pragma(keyword='loki', content='end structured-data')
 
@@ -556,12 +556,12 @@ class DataOffloadDeepcopyTransformation(Transformation):
     @staticmethod
     def exit_data_detach(var):
         """Generate unstructured data detach instruction."""
-        return as_tuple(ir.Pragma(keyword='loki', content=f'unstructured-data detach({var}) finalize'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'end unstructured-data detach({var}) finalize'))
 
     @staticmethod
     def exit_data_delete(var):
         """Generate unstructured data delete instruction."""
-        return as_tuple(ir.Pragma(keyword='loki', content=f'unstructured-data delete({var}) finalize'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'end unstructured-data delete({var}) finalize'))
 
     @staticmethod
     def update_self(var):
