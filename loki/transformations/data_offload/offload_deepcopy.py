@@ -424,9 +424,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
         if mode == 'offload':
             # wrap in acc data present pragma
-            content = f"data present({', '.join(present_vars)})"
-            acc_data_pragma = ir.Pragma(keyword='acc', content=content)
-            acc_data_pragma_post = ir.Pragma(keyword='acc', content="end data")
+            content = f"structured-data present({', '.join(present_vars)})"
+            acc_data_pragma = ir.Pragma(keyword='loki', content=content)
+            acc_data_pragma_post = ir.Pragma(keyword='loki', content='end structured-data')
 
             pragma_map = {region.pragma: (copy, acc_data_pragma)}
             pragma_map.update({region.pragma_post: (acc_data_pragma_post, host, wipe)})
@@ -561,7 +561,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
     @staticmethod
     def enter_data_copyin(var):
         """Generate unstructured data copyin instruction."""
-        return as_tuple(ir.Pragma(keyword='acc', content=f'enter data copyin({var})'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'unstructured-data in({var})'))
 
     @staticmethod
     def enter_data_create(var):
@@ -571,22 +571,22 @@ class DataOffloadDeepcopyTransformation(Transformation):
     @staticmethod
     def enter_data_attach(var):
         """Generate unstructured data attach instruction."""
-        return as_tuple(ir.Pragma(keyword='acc', content=f'enter data attach({var})'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'unstructured-data attach({var})'))
 
     @staticmethod
     def exit_data_detach(var):
         """Generate unstructured data detach instruction."""
-        return as_tuple(ir.Pragma(keyword='acc', content=f'exit data detach({var}) finalize'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'end unstructured-data detach({var}) finalize'))
 
     @staticmethod
     def exit_data_delete(var):
         """Generate unstructured data delete instruction."""
-        return as_tuple(ir.Pragma(keyword='acc', content=f'exit data delete({var}) finalize'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'end unstructured-data delete({var}) finalize'))
 
     @staticmethod
     def update_self(var):
         """Pull back data to host."""
-        return as_tuple(ir.Pragma(keyword='acc', content=f'update self({var})'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'update host({var})'))
 
     @staticmethod
     def create_aliased_ptr_assignment(ptr, alias):
