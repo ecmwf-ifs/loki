@@ -12,6 +12,7 @@ from loki import (
     Dimension, gettempdir, Scheduler, OMNI, FindNodes, Assignment, FindVariables, CallStatement, Subroutine,
     Item, available_frontends, Module, ir, get_pragma_parameters
 )
+from loki.batch import TransformationError
 from loki.transformations import (
         BlockViewToFieldViewTransformation, InjectBlockIndexTransformation,
         LowerBlockIndexTransformation, LowerBlockLoopTransformation
@@ -411,11 +412,11 @@ end subroutine kernel
     kernel = Subroutine.from_source(fcode, frontend=frontend)
     item = Item(name='#kernel', source=kernel)
     item.trafo_data['BlockViewToFieldViewTransformation'] = {'definitions': []}
-    with pytest.raises(KeyError):
+    with pytest.raises(TransformationError):
         BlockViewToFieldViewTransformation(horizontal).apply(kernel, item=item, role='kernel',
                                            targets=('compute',))
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TransformationError):
         BlockViewToFieldViewTransformation(horizontal).apply(kernel, role='kernel',
                                            targets=('compute',))
 

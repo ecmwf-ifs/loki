@@ -10,7 +10,7 @@ import pytest
 from loki import Module, Subroutine
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
-from loki.batch import Scheduler, SchedulerConfig
+from loki.batch import Scheduler, SchedulerConfig, TransformationError
 
 from loki.transformations.inline import InlineTransformation
 
@@ -194,7 +194,7 @@ end module somemod
         inline_marked=True, inline_internals=True, resolve_sequence_association=False
     )
     outer = module["outer"]
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TransformationError):
         trafo.apply(outer)
     callnames = [call.name for call in FindNodes(ir.CallStatement).visit(outer.body)]
 
@@ -258,7 +258,7 @@ end module somemod
         inline_marked=True, inline_internals=False, resolve_sequence_association=False
     )
     outer = module["outer"]
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TransformationError):
         trafo.apply(outer)
 
     # Test case that crash is avoided by activating sequence association.
@@ -297,7 +297,7 @@ end module somemod
         inline_marked=True, inline_internals=False, resolve_sequence_association=True
     )
     outer = module["outer"]
-    with pytest.raises(ValueError):
+    with pytest.raises(TransformationError):
         trafo.apply(outer)
 
 

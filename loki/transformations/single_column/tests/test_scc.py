@@ -8,7 +8,7 @@
 import pytest
 
 from loki import Subroutine, Sourcefile, Dimension, fgen
-from loki.batch import ProcedureItem
+from loki.batch import ProcedureItem, TransformationError
 from loki.expression import Scalar, Array, IntLiteral
 from loki.frontend import available_frontends, OMNI, HAVE_FP
 from loki.ir import (
@@ -1140,7 +1140,7 @@ def test_scc_vector_reduction(frontend, pipeline, horizontal, blocking):
 
 
     if pipeline == SCCSVectorPipeline:
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TransformationError):
             scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
     else:
         scc_pipeline.apply(routine, role='kernel', targets=['some_kernel',])
@@ -1265,9 +1265,9 @@ end subroutine kernel
     alias = Sourcefile.from_source(fcode_alias, frontend=frontend, xmods=[tmp_path]).subroutines[0]
 
     transform = SCCBaseTransformation(horizontal=horizontal)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TransformationError):
         transform.apply(no_start, role='kernel')
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TransformationError):
         transform.apply(no_end, role='kernel')
 
     transform = SCCBaseTransformation(horizontal=horizontal_bounds_aliases)
@@ -1340,11 +1340,14 @@ def test_scc_inline_and_sequence_association(
 
     #Should fail because it can't resolve sequence association
     elif (inline_internals and not resolve_sequence_association):
-        with pytest.raises(RuntimeError) as e_info:
+        with pytest.raises(TransformationError) as e_info:
             inline_transform.apply(routine, role='kernel')
             scc_transform.apply(routine, role='kernel')
-        assert(e_info.exconly() ==
-               'RuntimeError: [Loki::TransformInline] Cannot resolve procedure call to contained_kernel')
+        assert(
+            (
+                '[Loki::TransformInline] Cannot resolve procedure call to contained_kernel'
+            ) in e_info.exconly()
+        )
 
     #Check that the call is properly modified
     elif (not inline_internals and resolve_sequence_association):
