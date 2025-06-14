@@ -523,9 +523,8 @@ function( loki_install_python_package )
         set( INSTALL_OPTS --disable-pip-version-check )
     endif()
 
-    set( _EDITABLE_OPT "" )
     if( _PAR_EDITABLE )
-        set( _EDITABLE_OPT "-e" )
+        set( INSTALL_OPTS ${INSTALL_OPTS} -e )
     endif()
 
     message( STATUS "Installing Python package ${_PAR_REQUIREMENT_SPEC}" )
@@ -543,7 +542,7 @@ function( loki_install_python_package )
 
     # Install package
     execute_process(
-        COMMAND ${Python3_EXECUTABLE} -m pip install ${INSTALL_OPTS} ${_EDITABLE_OPT} ${_PAR_REQUIREMENT_SPEC}
+        COMMAND ${Python3_EXECUTABLE} -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC}
         COMMAND_ERROR_IS_FATAL ANY
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         ${OUTPUT_OPTIONS}
