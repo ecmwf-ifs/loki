@@ -141,13 +141,17 @@ class HoistVariablesAnalysis(Transformation):
             variables = self.find_variables(routine)
             item.trafo_data[self._key]["to_hoist"] = variables
             dims = flatten([getattr(v, 'shape', []) for v in variables])
+            kinds = [v.type.kind for v in variables]
             import_map = routine.import_map
             item.trafo_data[self._key]["imported_sizes"] = [(d.type.module, d) for d in dims
                                                             if str(d) in import_map]
+            item.trafo_data[self._key]["imported_kinds"] = [(import_map[k].module, k) for k in kinds
+                                                             if k.name in import_map]
             item.trafo_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
                                                              for var in variables]
         else:
             item.trafo_data[self._key]["imported_sizes"] = []
+            item.trafo_data[self._key]["imported_kinds"] = []
             item.trafo_data[self._key]["to_hoist"] = []
             item.trafo_data[self._key]["hoist_variables"] = []
 
@@ -173,6 +177,7 @@ class HoistVariablesAnalysis(Transformation):
             item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
                 item.trafo_data[self._key]["hoist_variables"]))
             item.trafo_data[self._key]["imported_sizes"] += child.trafo_data[self._key]["imported_sizes"]
+            item.trafo_data[self._key]["imported_kinds"] += child.trafo_data[self._key]["imported_kinds"]
 
     def find_variables(self, routine):
         """
@@ -298,17 +303,20 @@ class HoistVariablesTransformation(Transformation):
         for module, var in item.trafo_data[self._key]["imported_sizes"]:
             if not var.name in import_map:
                 missing_imports_map[module] |= {var}
+        for module, var in item.trafo_data[self._key]["imported_kinds"]:
+            if not var.name in import_map:
+                missing_imports_map[module] |= {var}
 
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
                 '![Loki::HoistVariablesTransformation] ---------------------------------------'
             )))
             for module, variables in missing_imports_map.items():
-                routine.spec.prepend(Import(module=module.name, symbols=variables))
+                routine.spec.prepend(Import(module=str(module), symbols=variables))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::HoistVariablesTransformation] '
-                '-------- Added hoisted temporary size imports -------------------------------'
+                '-------- Added hoisted temporary size and kind imports -------------------------------'
             )))
 
         routine.body = Transformer(call_map).visit(routine.body)
