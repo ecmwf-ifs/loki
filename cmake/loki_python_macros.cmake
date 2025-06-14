@@ -464,7 +464,7 @@ endfunction()
 #
 # Install a Python package using the provided ``REQUIREMENT_SPEC``.
 #
-#   loki_install_python_package( REQUIREMENT_SPEC <spec> [ WHEELS_DIR <path> ] [ INSTALL ] )
+#   loki_install_python_package( REQUIREMENT_SPEC <spec> [ WHEELS_DIR <path> ] [ EDITABLE ] )
 #
 # This assumes that the ``Python3_EXECUTABLE`` has been made available to use, e.g.,
 # via a ``find_package( Python3 )``, ``loki_find_python_venv()`` or ``loki_setup_python_venv()``.
@@ -498,7 +498,7 @@ endfunction()
 ##############################################################################
 function( loki_install_python_package )
 
-    set( options "" )
+    set( options EDITABLE )
     set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR )
     set( multiValueArgs "" )
 
@@ -523,6 +523,11 @@ function( loki_install_python_package )
         set( INSTALL_OPTS --disable-pip-version-check )
     endif()
 
+    set( _EDITABLE_OPT "" )
+    if( _PAR_EDITABLE )
+        set( _EDITABLE_OPT "-e" )
+    endif()
+
     message( STATUS "Installing Python package ${_PAR_REQUIREMENT_SPEC}" )
 
     set( OUTPUT_OPTIONS OUTPUT_VARIABLE _OUTPUT ERROR_VARIABLE _OUTPUT )
@@ -538,7 +543,7 @@ function( loki_install_python_package )
 
     # Install package
     execute_process(
-        COMMAND ${Python3_EXECUTABLE} -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC}
+        COMMAND ${Python3_EXECUTABLE} -m pip install ${INSTALL_OPTS} ${_EDITABLE_OPT} ${_PAR_REQUIREMENT_SPEC}
         COMMAND_ERROR_IS_FATAL ANY
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         ${OUTPUT_OPTIONS}

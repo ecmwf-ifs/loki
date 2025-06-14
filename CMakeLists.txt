@@ -154,11 +154,6 @@ if( NOT HAVE_NO_INSTALL )
     endif()
 
     # Install Loki python package with dependencies
-    if( HAVE_EDITABLE )
-        # Use checked-out source instead of installing into venv
-        list( APPEND PIP_OPTIONS "-e" )
-    endif()
-
     set( _INSTALL_OPTIONS "" )
     if( LOKI_INSTALL_OPTIONS )
         list( JOIN LOKI_INSTALL_OPTIONS "," _INSTALL_OPT_STR )
@@ -172,16 +167,24 @@ if( NOT HAVE_NO_INSTALL )
         set( WHEELS_DIR_OPTION "" )
     endif()
 
+    if( HAVE_EDITABLE )
+       set( EDITABLE_OPTION "EDITABLE" )
+    else()
+       set( EDITABLE_OPTION "" )
+    endif()
+
     # We install Loki at configure time (for now), since bulk-transformation planning
     # requires configure time execution to allow injection with CMake targets.
 
     ecbuild_info( "Install Loki in virtual environment" )
     loki_install_python_package(
         REQUIREMENT_SPEC ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS}
+        ${EDITABLE_OPTION}
         ${WHEELS_DIR_OPTION}
     )
     loki_install_python_package(
         REQUIREMENT_SPEC ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules
+        ${EDITABLE_OPTION}
         ${WHEELS_DIR_OPTION}
     )
     ecbuild_info( "Install Loki in virtual environment - done" )
