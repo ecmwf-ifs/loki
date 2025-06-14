@@ -464,7 +464,7 @@ endfunction()
 #
 # Install a Python package using the provided ``REQUIREMENT_SPEC``.
 #
-#   loki_install_python_package( REQUIREMENT_SPEC <spec> [ WHEELS_DIR <path> ] [ INSTALL ] )
+#   loki_install_python_package( REQUIREMENT_SPEC <spec> [ WHEELS_DIR <path> ] [ EDITABLE ] )
 #
 # This assumes that the ``Python3_EXECUTABLE`` has been made available to use, e.g.,
 # via a ``find_package( Python3 )``, ``loki_find_python_venv()`` or ``loki_setup_python_venv()``.
@@ -498,7 +498,7 @@ endfunction()
 ##############################################################################
 function( loki_install_python_package )
 
-    set( options "" )
+    set( options EDITABLE )
     set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR )
     set( multiValueArgs "" )
 
@@ -521,6 +521,10 @@ function( loki_install_python_package )
     else()
         # Default pip install
         set( INSTALL_OPTS --disable-pip-version-check )
+    endif()
+
+    if( _PAR_EDITABLE )
+        set( INSTALL_OPTS ${INSTALL_OPTS} -e )
     endif()
 
     message( STATUS "Installing Python package ${_PAR_REQUIREMENT_SPEC}" )
