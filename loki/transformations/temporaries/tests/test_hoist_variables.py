@@ -668,10 +668,12 @@ end subroutine another_kernel
     imports = FindNodes(ir.Import).visit(scheduler['kernel_mod#kernel'].ir.spec)
     assert len(imports) == 2
     assert 'n' in scheduler['kernel_mod#kernel'].ir.imported_symbols
+    assert imports[0].module.lower() == 'size_mod'
 
     imports = FindNodes(ir.Import).visit(scheduler['#driver'].ir.spec)
     assert len(imports) == 2
     assert 'n' in scheduler['#driver'].ir.imported_symbols
+    assert imports[0].module.lower() == 'size_mod'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

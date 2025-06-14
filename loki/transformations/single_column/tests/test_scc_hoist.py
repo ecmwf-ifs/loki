@@ -14,7 +14,7 @@ from loki.batch import (
 from loki.frontend import available_frontends
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Loop, Pragma,
-    pragmas_attached
+    pragmas_attached, Import
 )
 
 from loki.transformations import (
@@ -557,11 +557,12 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
 
     fcode_inner_kernel = """
   SUBROUTINE update_q(start, end, nlon, nz, q, c)
+    use, intrinsic :: iso_fortran_env, only : real64
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
     REAL, INTENT(INOUT) :: q(nlon,nz)
     REAL, INTENT(IN)    :: c
-    REAL :: t(nlon,nz)
+    REAL(kind=real64)   :: t(nlon,nz)
     INTEGER :: jl, jk
 
     DO jk = 2, nz
@@ -691,6 +692,13 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
         assert outer_kernel_pragmas[1].content == 'data present(q, update_q_t)'
         assert outer_kernel_pragmas[2].keyword == 'acc'
         assert outer_kernel_pragmas[2].content == 'end data'
+
+    # check that kind import was added to driver
+    imports = FindNodes(Import).visit(driver.spec)
+    assert imports
+    assert imports[0].module.lower() == 'iso_fortran_env'
+    assert 'real64' in imports[0].symbols
+    assert driver.variable_map['update_q_t'].type.kind.name.lower() == 'real64'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
