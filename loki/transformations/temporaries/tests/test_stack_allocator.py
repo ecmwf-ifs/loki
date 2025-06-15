@@ -360,6 +360,16 @@ end module kernel3_mod
         assert var not in kernel2_args
         assert var not in kernel3_args
 
+    kernel1_pragmas = FindNodes(ir.Pragma).visit(kernel1.body)
+    assert len(kernel1_pragmas) == 2
+    if directive == 'openacc':
+        assert kernel1_pragmas[0].keyword == 'acc'
+        assert 'data present(' in kernel1_pragmas[0].content
+    else:
+        assert kernel1_pragmas[0].keyword == 'loki'
+        assert 'device-present vars(' in kernel1_pragmas[0].content
+        assert 'p_jprb_stack, p_selected_real_kind_13_300_stack, ld_stack' in kernel1_pragmas[0].content
+
     if stack_trafo == FtrPtrStackTransformation:
         kernel1_incr_vars = {'jprb': ('jd_incr_jprb',),
                              'selected_real': ('jd_incr_selected_real_kind_13_300',), 'l': ('jd_incr',)}

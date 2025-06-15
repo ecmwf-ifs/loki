@@ -412,14 +412,12 @@ class BaseStackTransformation(Transformation):
         if pragma_string:
             # remove ', '
             pragma_string = pragma_string[:-2].lower()
-
-            present_pragma = None
-            acc_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'loki'] # acc
-            for pragma in acc_pragmas:
-                if pragma.content.lower().startswith('device-present'):
-                    present_pragma = pragma
-                    break
-            if present_pragma:
+            present_pragmas = [
+                p for p in FindNodes(Pragma).visit(routine.body)
+                if p.keyword.lower() == 'loki' and p.content.lower().startswith('device-present')
+            ]
+            if present_pragmas:
+                present_pragma = present_pragmas[0]
                 pragma_map = {present_pragma: None}
                 routine.body = Transformer(pragma_map).visit(routine.body)
                 content = re.sub(r'\bvars\(', f'vars({pragma_string}, ', present_pragma.content.lower())
@@ -428,7 +426,6 @@ class BaseStackTransformation(Transformation):
             else:
                 present_pragma = Pragma(keyword='loki', content=f'device-present vars({pragma_string})')
                 pragma_data_end = Pragma(keyword='loki', content='end device-present')
-
             routine.body.prepend(present_pragma)
             routine.body.append(pragma_data_end)
         routine.body.prepend(as_tuple(assignments))
