@@ -55,6 +55,7 @@ end module yomphy
 module model_physics_mf_mod
   use yomphy, only: tphy
   implicit none
+  integer, parameter :: tlen = 2
   type model_physics_mf_type
     type(tphy) :: yrphy
   end type model_physics_mf_type
@@ -111,7 +112,7 @@ module kernel1_mod
 
     use parkind1, only: jpim, jprb
 
-    use model_physics_mf_mod, only: model_physics_mf_type
+    use model_physics_mf_mod, only: model_physics_mf_type, tlen
     use kernel2_mod, only: kernel2
     use kernel3_mod, only: kernel3
 
@@ -130,11 +131,13 @@ module kernel1_mod
     real(kind=jprb), dimension(nlon, klev) :: zzx
     real(kind=selected_real_kind(13,300)), dimension(nlon, klev) :: zzy
     logical, dimension(nlon, klev) :: zzl
+    logical, dimension(nlon, tlen) :: zzl2
 
     integer(kind=jpim) :: testint
     integer(kind=jpim) :: jl, jlev
 
     zzl = .false.
+    zzl2 = .true.
     do jl =1, nlon
       do jlev = 1, klev
         zzx(jl, jlev) = pzz(jl, jlev)
@@ -294,7 +297,7 @@ end module kernel3_mod
         'z_jprb_stack': ('MAX(klev*nlon + nlon*ydml_phy_mf%yrphy%n_spband + '
                          '2*klev*nlon*ydml_phy_mf%yrphy%n_spband, 2*klev*nlon + '
                          'nlon*ydml_phy_mf%yrphy%n_spband + 2*klev*nlon*ydml_phy_mf%yrphy%n_spband)'),
-        'll_stack': 'klev*nlon',
+        'll_stack': 'klev*nlon + nlon*tlen',
         'z_selected_real_kind_13_300_stack': 'klev*nlon'
     }
 
@@ -302,6 +305,12 @@ end module kernel3_mod
         assert stack_var in driver_var_map
         assert driver_var_map[stack_var].type.allocatable
         assert len(driver_var_map[stack_var].dimensions) == 2
+
+    driver_imports = FindNodes(ir.Import).visit(driver.spec)
+    driver_imported_symbols = []
+    for _import in driver_imports:
+        driver_imported_symbols.extend([sym.name.lower() for sym in _import.symbols])
+    assert 'tlen' in driver_imported_symbols
 
     driver_allocs = FindNodes(ir.Allocation).visit(driver.body)
     for driver_alloc in driver_allocs:
