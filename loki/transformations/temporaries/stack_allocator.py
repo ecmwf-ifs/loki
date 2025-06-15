@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import re
 from collections import  defaultdict
 
 from loki.analyse import dataflow_analysis_attached
@@ -159,10 +158,10 @@ class BaseStackTransformation(Transformation):
 
         stack_intent = 'INOUT' if self.role == 'kernel' else None
 
-        stack_type = SymbolAttributes(dtype = dtype,
-                                      kind = kind,
-                                      intent = stack_intent,
-                                      shape = (RangeIndex((None, None))))
+        stack_type = SymbolAttributes(dtype=dtype,
+                                      kind=kind,
+                                      intent=stack_intent,
+                                      shape=(RangeIndex((None, None))))
 
         return Array(name=stack_name, type=stack_type, scope=routine)
 
@@ -295,7 +294,6 @@ class BaseStackTransformation(Transformation):
         assignments = []
         deallocs = []
         pragma_vars = []
-        pragma_data_start = None
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
                 # start integer names in the driver with 'J'
@@ -431,14 +429,13 @@ class BaseStackTransformation(Transformation):
 
     def apply_pool_allocator_to_temporaries(self, routine, item=None): # pylint: disable=unused-argument
         """
-        Apply raw stack allocator to local temporary arrays
+        Base method to apply raw stack allocator to local temporary arrays
 
-        This appends the relevant argument to the routine's dummy argument list and
-        creates the assignment for the local copy of the stack type.
-        For all local arrays, a Cray pointer is instantiated and the temporaries
-        are mapped via Cray pointers to the pool-allocated memory region.
-
-        The cumulative size of all temporary arrays is determined and returned.
+        This method when implemented should append
+        the relevant arguments to the routine's dummy argument list and
+        should create the assignment for the local copy of the stack type.
+        Further, the cumulative size of all temporary arrays
+        should be determined and returned.
 
         Parameters
         ----------
@@ -483,13 +480,6 @@ class BaseStackTransformation(Transformation):
             var for var in temporary_arrays
             if not all(is_dimension_constant(d) for d in var.shape)
         ]
-
-        # Filter out variables whose first dimension is not horizontal
-        # temporary_arrays = [
-        #     var for var in temporary_arrays if (
-        #     isinstance(var.shape[0], Scalar) and
-        #     var.shape[0].name.lower() == self.horizontal.size.lower())
-        # ]
 
         return temporary_arrays
 
@@ -595,7 +585,7 @@ class BaseStackTransformation(Transformation):
                 if len(stacks) == 1:
                     kind_dict[kind] = stacks[0]
                 else:
-                    kind_dict[kind] = InlineCall(function = Variable(name = 'MAX'), parameters = as_tuple(stacks))
+                    kind_dict[kind] = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stacks))
 
         return stack_dict
 
@@ -607,6 +597,7 @@ class FtrPtrStackTransformation(BaseStackTransformation):
     Starting from:
 
     .. code-block:: fortran
+
         SUBROUTINE driver (nlon, klev, nb, ydml_phy_mf)
 
           USE kernel_mod, ONLY: kernel
@@ -665,6 +656,7 @@ class FtrPtrStackTransformation(BaseStackTransformation):
     This transformation generates:
 
     .. code-block:: fortran
+
         SUBROUTINE driver (nlon, klev, nb)
 
           USE kernel_mod, ONLY: kernel
@@ -806,10 +798,10 @@ class FtrPtrStackTransformation(BaseStackTransformation):
         decl_map = {}
         for decl in declarations:
             if decl.symbols[0] in temporary_arrays:
-                new_dimensions = as_tuple(RangeIndex((None, None)) for _ in decl.symbols[0].dimensions)
+                new_dimensions = as_tuple((RangeIndex((None, None)),)*len(decl.symbols[0].dimensions))
                 new_symbol = decl.symbols[0].clone(dimensions=new_dimensions)
                 if decl.dimensions is not None:
-                    decl_map[decl] = decl.clone(dimensions=as_tuple(RangeIndex((None, None)) for _ in decl.dimensions),
+                    decl_map[decl] = decl.clone(dimensions=(RangeIndex((None, None)),) * len(decl.dimensions),
                                                 symbols=(new_symbol,))
                 else:
                     decl_map[decl] = decl.clone(symbols=(new_symbol,))
@@ -952,6 +944,7 @@ class DirectIdxStackTransformation(BaseStackTransformation):
     Starting from:
 
     .. code-block:: fortran
+
         SUBROUTINE driver (nlon, klev, nb, ydml_phy_mf)
 
           USE kernel_mod, ONLY: kernel
@@ -1010,6 +1003,7 @@ class DirectIdxStackTransformation(BaseStackTransformation):
     This transformation generates:
 
     .. code-block:: fortran
+
         SUBROUTINE driver (nlon, klev, nb)
 
           USE kernel_mod, ONLY: kernel

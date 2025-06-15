@@ -259,16 +259,13 @@ end module kernel3_mod
         }
     }
 
-    if frontend == OMNI:
-        (tmp_path/'parkind_mod.F90').write_text(fcode_parkind_mod)
-        parkind_mod = Sourcefile.from_file(tmp_path/'parkind_mod.F90', frontend=frontend, xmods=[tmp_path])
-        (tmp_path/'yomphy_mod.F90').write_text(fcode_yomphy_mod)
-        yomphy_mod = Sourcefile.from_file(tmp_path/'yomphy_mod.F90', frontend=frontend, xmods=[tmp_path])
-        (tmp_path/'mf_phys_mod.F90').write_text(fcode_mf_phys_mod)
-        mf_phys_mod = Sourcefile.from_file(tmp_path/'mf_phys_mod.F90', frontend=frontend, xmods=[tmp_path])
-        definitions = parkind_mod.definitions + yomphy_mod.definitions + mf_phys_mod.definitions
-    else:
-        definitions = ()
+    (tmp_path/'parkind_mod.F90').write_text(fcode_parkind_mod)
+    parkind_mod = Sourcefile.from_file(tmp_path/'parkind_mod.F90', frontend=frontend, xmods=[tmp_path])
+    (tmp_path/'yomphy_mod.F90').write_text(fcode_yomphy_mod)
+    yomphy_mod = Sourcefile.from_file(tmp_path/'yomphy_mod.F90', frontend=frontend, xmods=[tmp_path])
+    (tmp_path/'mf_phys_mod.F90').write_text(fcode_mf_phys_mod)
+    mf_phys_mod = Sourcefile.from_file(tmp_path/'mf_phys_mod.F90', frontend=frontend, xmods=[tmp_path])
+    definitions = parkind_mod.definitions + yomphy_mod.definitions + mf_phys_mod.definitions
 
     scheduler = Scheduler(paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend,
                           definitions=definitions, xmods=[tmp_path])
