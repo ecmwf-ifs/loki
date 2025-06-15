@@ -28,7 +28,9 @@ def fixture_horizontal():
 @pytest.mark.parametrize('directive', ['openacc', 'omp-gpu'])
 @pytest.mark.parametrize('stack_trafo', [FtrPtrStackTransformation, DirectIdxStackTransformation])
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Inlines kind parameters.')]))
-def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive, stack_trafo, tmp_path):
+@pytest.mark.parametrize('stack_insert_loc_pragma', [True, False])
+def test_raw_stack_allocator_temporaries(frontend, block_dim, horizontal, directive, stack_trafo,
+                                         tmp_path, stack_insert_loc_pragma):
 
     fcode_parkind_mod = """
 module parkind1
@@ -59,7 +61,7 @@ module model_physics_mf_mod
 end module model_physics_mf_mod
     """.strip()
 
-    fcode_driver = """
+    fcode_driver = f"""
 module driver_mod
   contains
   subroutine driver(nlon, klev, nb, ydml_phy_mf)
@@ -83,6 +85,11 @@ module driver_mod
     integer(kind=jpim) :: b
 
     real(kind=jprb), dimension(nlon, klev) :: zzz
+
+
+    !$loki sep
+
+    {'!$loki stack-insert' if stack_insert_loc_pragma else ''}
 
     jstart = 1
     jend = nlon
@@ -310,19 +317,20 @@ end module kernel3_mod
         assert var.dimensions == ()
 
     driver_pragmas = FindNodes(ir.Pragma).visit(driver.body)
-    assert len(driver_pragmas) == 2
-    assert driver_pragmas[0].keyword.lower() == directive_keyword_map[directive]
+    relevant_pragma = 0 if not stack_insert_loc_pragma else 1
+    assert len(driver_pragmas) == 3
+    assert driver_pragmas[relevant_pragma].keyword.lower() == directive_keyword_map[directive]
     # target enter data map(alloc: z_jprb_stack, z_selected_real_kind_13_300_stack, ll_stack)
-    assert driver_pragmas[1].keyword.lower() == directive_keyword_map[directive]
+    assert driver_pragmas[2].keyword.lower() == directive_keyword_map[directive]
     if directive == 'openacc':
-        assert 'enter data create' in driver_pragmas[0].content.lower()
-        assert 'exit data delete' in driver_pragmas[1].content.lower()
+        assert 'enter data create' in driver_pragmas[relevant_pragma].content.lower()
+        assert 'exit data delete' in driver_pragmas[2].content.lower()
     if directive == 'omp-gpu':
-        assert 'target enter data map(alloc:' in driver_pragmas[0].content.lower()
-        assert 'target exit data map(delete:' in driver_pragmas[1].content.lower()
+        assert 'target enter data map(alloc:' in driver_pragmas[relevant_pragma].content.lower()
+        assert 'target exit data map(delete:' in driver_pragmas[2].content.lower()
     for stack_var in stack_vars:
-        assert stack_var in driver_pragmas[0].content.lower()
-        assert stack_var in driver_pragmas[1].content.lower()
+        assert stack_var in driver_pragmas[relevant_pragma].content.lower()
+        assert stack_var in driver_pragmas[2].content.lower()
 
     driver_calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(driver_calls) == 1

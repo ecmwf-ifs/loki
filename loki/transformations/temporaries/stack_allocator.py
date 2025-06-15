@@ -131,14 +131,12 @@ class BaseStackTransformation(Transformation):
 
     @staticmethod
     def _insert_stack_at_loki_pragma(routine, insert):
-        pragma_map = {}
         for pragma in FindNodes(Pragma).visit(routine.body):
             if pragma.keyword == 'loki' and 'stack-insert' in pragma.content:
-                pragma_map[pragma] = insert
-            if pragma_map:
-                routine.body = Transformer(pragma_map).visit(routine.body)
+                routine.body = Transformer({pragma: insert}).visit(routine.body)
                 return True
         return False
+
 
     def _get_stack_int_name(self, prefix, dtype, kind, suffix):
         """
