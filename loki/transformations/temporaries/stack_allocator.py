@@ -143,8 +143,8 @@ class BaseStackTransformation(Transformation):
         Construct the name string for stack used and size integers.
         Replace double underscore with single if kind is None
         """
-        return (prefix + '_' + self.type_name_dict[dtype][self.role] + '_' +
-                self._get_kind_name(kind) + '_' + suffix).replace('__', '_')
+        return (f'{prefix}_{self.type_name_dict[dtype][self.role]}_'
+                f'{self._get_kind_name(kind)}_{suffix}'.replace('__', '_'))
 
 
     def _get_stack_var(self, routine, dtype, kind):
