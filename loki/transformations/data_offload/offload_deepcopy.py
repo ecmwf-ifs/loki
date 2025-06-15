@@ -366,6 +366,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
+    def __init__(self, mode):
+        self.mode = mode
+
     def transform_subroutine(self, routine, **kwargs):
 
         if not (item := kwargs.get('item', None)):
@@ -381,17 +384,6 @@ class DataOffloadDeepcopyTransformation(Transformation):
         if role == 'driver':
             self.process_driver(routine, item.trafo_data[self._key]['analysis'],
                                 item.trafo_data[self._key]['typedef_configs'], targets)
-
-    @staticmethod
-    def _is_active_loki_data_region(region):
-        """Determine if we are in an active loki data region and if so return the deepcopy mode."""
-
-        if is_loki_pragma(region.pragma, starts_with='data offload'):
-            return 'offload'
-        if is_loki_pragma(region.pragma, starts_with='data set_pointers'):
-            return 'set_pointers'
-
-        return False
 
     @staticmethod
     def update_with_manual_overrides(parameters, analysis, variable_map):
@@ -496,7 +488,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     present_vars += as_tuple(v.name for v in analysis if not v in private)
 
                 # replace the `!$loki data` PragmaRegion with the generated deepcopy instructions
-                pragma_map.update(self.insert_deepcopy_instructions(region, mode, copy, host, wipe, present_vars))
+                pragma_map.update(self.insert_deepcopy_instructions(region, self.mode, copy, host, wipe, present_vars))
 
         routine.body = Transformer(pragma_map).visit(routine.body)
 
