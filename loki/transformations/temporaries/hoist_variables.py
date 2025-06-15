@@ -163,19 +163,23 @@ class HoistVariablesAnalysis(Transformation):
             if not isinstance(child, ProcedureItem):
                 continue
 
+            # We may call a subroutine again with aliased sizes, so we check hoisted
+            # variables in children by name before adding them
+            hoist_var_names = [v.name.lower() for v in item.trafo_data[self._key]["hoist_variables"]]
+
             arg_map = dict(call_map[child.local_name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
+                if var.name.lower() in hoist_var_names:
+                    continue
+
                 if isinstance(var, sym.Array):
                     dimensions = SubstituteExpressions(arg_map).visit(var.dimensions)
                     hoist_variables.append(var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions)))
                 else:
                     hoist_variables.append(var)
             item.trafo_data[self._key]["to_hoist"].extend(hoist_variables)
-            item.trafo_data[self._key]["to_hoist"] = list(dict.fromkeys(item.trafo_data[self._key]["to_hoist"]))
             item.trafo_data[self._key]["hoist_variables"].extend(hoist_variables)
-            item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
-                item.trafo_data[self._key]["hoist_variables"]))
             item.trafo_data[self._key]["imported_sizes"] += child.trafo_data[self._key]["imported_sizes"]
             item.trafo_data[self._key]["imported_kinds"] += child.trafo_data[self._key]["imported_kinds"]
 
@@ -500,6 +504,7 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
                 if var not in routine.arguments    # local variable
                 and not all(is_dimension_constant(d) for d in var.shape)
                 and not var.name.lower() == result_name.lower()
+                and not var.type.pointer and not var.type.allocatable
                 and (self.dim_vars is None         # if dim_vars not empty check if at least one dim is within dim_vars
                      or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))]
 
