@@ -368,7 +368,7 @@ end module kernel3_mod
     else:
         assert kernel1_pragmas[0].keyword == 'loki'
         assert 'device-present vars(' in kernel1_pragmas[0].content
-        assert 'p_jprb_stack, p_selected_real_kind_13_300_stack, ld_stack' in kernel1_pragmas[0].content
+        assert 'p_jprb_stack, p_selected_real_kind_13_300_stack, ld_stack' in kernel1_pragmas[0].content.lower()
 
     if stack_trafo == FtrPtrStackTransformation:
         kernel1_incr_vars = {'jprb': ('jd_incr_jprb',),

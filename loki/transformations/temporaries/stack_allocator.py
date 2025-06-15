@@ -294,7 +294,7 @@ class BaseStackTransformation(Transformation):
         stack_arg_dict = {}
         assignments = []
         deallocs = []
-        pragma_string = ''
+        pragma_vars = []
         pragma_data_start = None
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
@@ -328,14 +328,14 @@ class BaseStackTransformation(Transformation):
                 assignments += [Assignment(lhs=stack_size_var,
                                            rhs=stack_dict[dtype][kind]), stack_alloc, stack_used_var_init]
                 deallocs += [stack_dealloc]
-                pragma_string += f'{stack_var.name}, '
+                pragma_vars.append(stack_var.name)
 
         # add to routine
         routine.variables = routine.variables + as_tuple(stack_vars)
         nodes_to_add = assignments
 
-        if pragma_string:
-            pragma_string = pragma_string[:-2].lower()
+        if pragma_vars:
+            pragma_string = ', '.join(pragma_vars)
 
             pragma_data_start = Pragma(keyword='loki', content=f'unstructured-data create({pragma_string})')
             pragma_data_end = Pragma(keyword='loki', content=f'end unstructured-data delete({pragma_string})')
@@ -372,7 +372,7 @@ class BaseStackTransformation(Transformation):
         stack_vars = []
         stack_args = []
         stack_arg_dict = {}
-        pragma_string = ''
+        pragma_vars = []
         assignments = []
         for dtype in stack_dict:
             for kind in stack_dict[dtype]:
@@ -407,11 +407,10 @@ class BaseStackTransformation(Transformation):
                                stack_var.clone(dimensions=stack_type.shape, type=stack_var.type.clone(contiguous=True)),
                                stack_used_arg]
                 stack_vars += [stack_used_var]
-                pragma_string += f'{stack_var.name}, '
+                pragma_vars.append(stack_var.name)
 
-        if pragma_string:
-            # remove ', '
-            pragma_string = pragma_string[:-2].lower()
+        pragma_string = ', '.join(pragma_vars)
+        if pragma_vars:
             present_pragmas = [
                 p for p in FindNodes(Pragma).visit(routine.body)
                 if p.keyword.lower() == 'loki' and p.content.lower().startswith('device-present')
