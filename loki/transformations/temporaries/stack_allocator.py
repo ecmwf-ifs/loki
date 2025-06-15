@@ -114,13 +114,14 @@ class BaseStackTransformation(Transformation):
 
     @classmethod
     def import_allocation_types(cls, routine, item):
-        new_imports = defaultdict(set)
+        new_imports = defaultdict(tuple)
         for s, m in item.trafo_data[cls._key]['kind_imports'].items():
-            new_imports[m] |= set(as_tuple(s))
+            new_imports[m] += as_tuple(s)
         import_map = {i.module.lower(): i for i in routine.imports}
         for mod, symbs in new_imports.items():
+            symbs = tuple(dict.fromkeys(symbs))
             if mod in import_map:
-                import_map[mod]._update(symbols=as_tuple(set(import_map[mod].symbols + as_tuple(symbs))))
+                import_map[mod]._update(symbols=as_tuple(dict.fromkeys(import_map[mod].symbols +symbs)))
             else:
                 _symbs = [s for s in symbs if not (s.name.lower() in routine.variable_map or
                                                    s.name.lower() in routine.imported_symbol_map)]
