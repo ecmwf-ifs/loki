@@ -360,7 +360,52 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
 class DataOffloadDeepcopyTransformation(Transformation):
     """
-    A transformation to generate deepcopies of derived-types.
+    A transformation that generates a deepcopy of all the arguments to a
+    GPU kernel. It relies on the analysis gathered by the
+    :any:`DataOffloadDeepcopyAnalysis` transformation, which must therefore
+    be run before this. Please note that the analysis and deepcopy are per
+    driver-loop, which must be wrapped in a `!$loki data` :any:`PragmaRegion`.
+
+    An underlying assumption of the transformation is that expressions used as
+    lvalues and rvalues are of type :any:`BasicType`, i.e. the data
+    encompassed by a derived-type variable ``a`` with components ``b`` and ``c`` is
+    only ever accessed or modified via fully qualified derived-type expressions
+    ``a%b`` or ``a%c``. The only accepted exception to this are memory status checks
+    such as ``ubound``, ``lbound``, ``size`` etc.
+
+    The encompassing `!$loki data` :any:`PragmaRegion` can be used to
+    to pass hints to the transformation. Consider the following example:
+
+    .. code-block:: fortran
+
+       !$loki data present(a) write(b)
+       do ibl=1,nblks
+          call kernel(a, b, ...)
+       enddo
+       !$loki end data
+
+    Marking ``a`` as ``present`` instructs the transformation to skip the deepcopy
+    generation for it and simply place it in a ``!$loki structured-data present``
+    clause. Marking ``b`` as ``write`` means the contents of the analysis are
+    overriden and the generated deepcopy for ``b`` assumes write-only access. Other
+    hints that can be passed to the deepcopy generation are:
+     - read: Assume read-only access for the specified variables.
+     - readwrite: Assume read-write access for the specified variables.
+     - device_resident: Don't copy the specificied variables back to host and
+                        leave the device allocation intact.
+     - temporary: Wipe the device allocation of the specified variables but
+                  don't copy them  back to host.
+
+    The transformation supports two modes:
+     - offload: Generate device-host deepcopy for the arguments passed to the
+                encompassed call-tree.
+     - set_pointers: Generate the FIELD_API boiler-plate to set host pointers
+                     for any argument representing a field.
+
+    Parameters
+    ----------
+    mode : str
+       Transformation mode, must be either "offload" or "set_pointers".
     """
 
     _key = 'DataOffloadDeepcopyAnalysis'
