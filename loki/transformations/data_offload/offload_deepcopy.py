@@ -425,27 +425,37 @@ class DataOffloadDeepcopyTransformation(Transformation):
         """Insert the generated deepcopy instructions and wrap the driver loop in 
            a `data present` pragma region if applicable."""
 
-        # The recursive design of the deepcopy generation where the parent has no knowledge
-        # of the child may create association checks and loop nests with empty bodies in the
-        # host pull-back. Whilst not a problem per se, we remove them to make the code more readable.
         conds = FindNodes((ir.Conditional, ir.Loop), greedy=True).visit(host)
-        host_pragma_map = {c: None for c in conds if not c.body}
-
         if mode == 'offload':
             # wrap in acc data present pragma
             content = f"structured-data present({', '.join(present_vars)})"
             acc_data_pragma = ir.Pragma(keyword='loki', content=content)
             acc_data_pragma_post = ir.Pragma(keyword='loki', content='end structured-data')
 
-            host = Transformer(host_pragma_map).visit(host)
+            # We may end up with empty conditionals or loops in the "host"
+            # biolerplate. Whilst not a problem per se, we can filter them
+            # to make the generated code more readable.
+            vmap = {c: None for c in conds if not c.body}
+            host = Transformer(vmap).visit(host)
+
             pragma_map = {region.pragma: (copy, acc_data_pragma)}
             pragma_map.update({region.pragma_post: (acc_data_pragma_post, host, wipe)})
         else:
-            # We remove all F-API related boiler plate
-            host_pragmas = FindNodes(ir.Pragma).visit(host)
-            host_pragma_map.update({p: None for p in host_pragmas})
+            # We remove all offload instructions first and non F-API related boiler plate
+            vmap = {}
 
-            host = Transformer(host_pragma_map).visit(host)
+            for cond in conds:
+                calls = FindNodes(ir.CallStatement).visit(cond.body)
+                get_host_call = any('get_host_data_rdwr' in v.name.name.lower() for v in calls)
+
+                if not get_host_call:
+                    vmap[cond] = None
+
+            host_pragmas = FindNodes(ir.Pragma).visit(host)
+            vmap.update({p: None for p in host_pragmas})
+            host = Transformer(vmap).visit(host)
+
+            # Now we insert the updated "host" body in the driver layer
             pragma_map = {region.pragma: host, region.pragma_post: None}
 
         return pragma_map
@@ -628,7 +638,11 @@ class DataOffloadDeepcopyTransformation(Transformation):
            so we create a dummy typedef config here."""
 
         if self.field_array_match_pattern.match(parent.type.dtype.typedef.name.lower()):
-            typedef_config = {'field_prefix': 'F_', 'field_ptr_suffix': '_FIELD'}
+            typedef_config = {
+                'field_prefix': 'F_',
+                'field_ptr_suffix': '_FIELD',
+                'field_ptr_map': {}
+            }
             return typedef_config
         return None
 
