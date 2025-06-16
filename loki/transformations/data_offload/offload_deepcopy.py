@@ -425,30 +425,27 @@ class DataOffloadDeepcopyTransformation(Transformation):
         """Insert the generated deepcopy instructions and wrap the driver loop in 
            a `data present` pragma region if applicable."""
 
+        # The recursive design of the deepcopy generation where the parent has no knowledge
+        # of the child may create association checks and loop nests with empty bodies in the
+        # host pull-back. Whilst not a problem per se, we remove them to make the code more readable.
+        conds = FindNodes((ir.Conditional, ir.Loop), greedy=True).visit(host)
+        host_pragma_map = {c: None for c in conds if not c.body}
+
         if mode == 'offload':
             # wrap in acc data present pragma
             content = f"structured-data present({', '.join(present_vars)})"
             acc_data_pragma = ir.Pragma(keyword='loki', content=content)
             acc_data_pragma_post = ir.Pragma(keyword='loki', content='end structured-data')
 
-            pragma_map = {region.pragma: (copy, acc_data_pragma),
-                          region.pragma_post: (acc_data_pragma_post, host, wipe)}
+            host = Transformer(host_pragma_map).visit(host)
+            pragma_map = {region.pragma: (copy, acc_data_pragma)}
+            pragma_map.update({region.pragma_post: (acc_data_pragma_post, host, wipe)})
         else:
-            # We remove all offload instructions first and non F-API related boiler plate
-            pragma_map = {}
-            conds = FindNodes((ir.Conditional, ir.Loop), greedy=True).visit(host)
-
-            for cond in conds:
-                calls = FindNodes(ir.CallStatement).visit(cond.body)
-                get_host_call = any('get_host_data_rdwr' in v.name.name.lower() for v in calls)
-
-                if not get_host_call:
-                    pragma_map[cond] = None
-
+            # We remove all F-API related boiler plate
             host_pragmas = FindNodes(ir.Pragma).visit(host)
-            pragma_map.update({p: None for p in host_pragmas})
-            host = Transformer(pragma_map).visit(host)
+            host_pragma_map.update({p: None for p in host_pragmas})
 
+            host = Transformer(host_pragma_map).visit(host)
             pragma_map = {region.pragma: host, region.pragma_post: None}
 
         return pragma_map
@@ -460,7 +457,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 
                 # Only work on active `!$loki data` regions
-                if not (mode := self._is_active_loki_data_region(region)):
+                if not is_loki_pragma(region.pragma, starts_with='data'):
                     continue
 
                 parameters = get_pragma_parameters(region.pragma, starts_with='data')
@@ -597,14 +594,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
         # Strip view pointer prefix
         var_name = var.name.lower()
-        if (view_prefix := typedef_config.get('view_prefix', None)):
-            var_name = re.sub(f'^{view_prefix}', '', var_name)
 
         # Get FIELD object name
-        aliased_ptrs = typedef_config.get('aliased_ptrs', {})
-        reverse_alias_map = dict((v, k) for k, v in aliased_ptrs.items())
-        field_object_name = typedef_config['field_prefix'].lower()
-        field_object_name += reverse_alias_map.get(var_name, var_name).replace('_field', '')
+        if not (field_object_name := typedef_config['field_ptr_map'].get(var_name, None)):
+            field_object_name = typedef_config['field_prefix'] + var_name.replace('_field', '')
 
         # Create FIELD object
         variable_map = parent.type.dtype.typedef.variable_map
@@ -621,18 +614,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
         device = as_tuple(field_get_device_data(field_object, field_ptr, access_mode, scope))
         device += self.enter_data_attach(field_ptr)
         host = as_tuple(field_get_host_data(field_object, field_ptr, FieldAPITransferType.READ_WRITE, scope))
-        wipe = ()
-
-        # Deal with aliased pointers
-        if (alias := aliased_ptrs.get(field_ptr.name_parts[-1].lower(), None)):
-            alias_ptr = variable_map[alias].clone(parent=parent, dimensions=None)
-            device += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
-            device += self.enter_data_attach(alias_ptr)
-
-            host += as_tuple(self.create_aliased_ptr_assignment(field_ptr, alias))
-            wipe += self.exit_data_detach(alias_ptr)
-
-        wipe += self.exit_data_detach(field_ptr)
+        wipe = self.exit_data_detach(field_ptr)
         wipe += as_tuple(field_delete_device_data(field_object, scope))
 
         device = self.create_memory_status_test('ASSOCIATED', field_object, device, scope)
@@ -719,7 +701,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 else:
                     # We have a regular array/scalar
                     if not parent or check:
-                        _copy = self.enter_data_copyin(var.clone(parent=parent))
+                        if analysis[var] == 'write':
+                            _copy = self.enter_data_create(var.clone(parent=parent))
+                        else:
+                            _copy = self.enter_data_copyin(var.clone(parent=parent))
                         _wipe = self.exit_data_delete(var.clone(parent=parent))
 
                     # Copy back to host if necessary
