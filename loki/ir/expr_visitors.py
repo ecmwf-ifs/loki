@@ -256,7 +256,7 @@ class ExpressionTransformer(Transformer):
         else:
             new = self.expr_mapper(o)
         # Invalidate `Source` object if we've changed the expression
-        if kwargs.get('source') and not o == new:
+        if kwargs.get('source') and o != new:
             kwargs['source'].status = SourceStatus.INVALID_NODE
         return new
 

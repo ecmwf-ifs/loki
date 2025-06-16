@@ -99,8 +99,8 @@ class Transformer(Visitor):
         args_frozen.update(args)
         if self.invalidate_source and 'source' in args_frozen:
             # If any child node has been invalidated, mark this node as invalid too
-            if any(isinstance(c, Node) and not is_source_valid(c) for c in flatten(children)):
-                if is_source_valid(args_frozen.get('source')):
+            if is_source_valid(args_frozen.get('source')):
+                if any(isinstance(c, Node) and not is_source_valid(c) for c in flatten(children)):
                     args_frozen['source'] = args_frozen['source'].clone(
                         status=SourceStatus.INVALID_CHILDREN
                     )
