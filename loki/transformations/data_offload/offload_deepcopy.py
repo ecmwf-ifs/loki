@@ -417,18 +417,11 @@ class DataOffloadDeepcopyTransformation(Transformation):
         """Insert the generated deepcopy instructions and wrap the driver loop in 
            a `data present` pragma region if applicable."""
 
-        conds = FindNodes((ir.Conditional, ir.Loop), greedy=True).visit(host)
         if mode == 'offload':
             # wrap in acc data present pragma
             content = f"structured-data present({', '.join(present_vars)})"
             acc_data_pragma = ir.Pragma(keyword='loki', content=content)
             acc_data_pragma_post = ir.Pragma(keyword='loki', content='end structured-data')
-
-            # We may end up with empty conditionals or loops in the "host"
-            # biolerplate. Whilst not a problem per se, we can filter them
-            # to make the generated code more readable.
-            vmap = {c: None for c in conds if not c.body}
-            host = Transformer(vmap).visit(host)
 
             pragma_map = {region.pragma: (copy, acc_data_pragma)}
             pragma_map.update({region.pragma_post: (acc_data_pragma_post, host, wipe)})
@@ -436,6 +429,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
             # We remove all offload instructions first and non F-API related boiler plate
             vmap = {}
 
+            conds = FindNodes((ir.Conditional, ir.Loop), greedy=True).visit(host)
             for cond in conds:
                 calls = FindNodes(ir.CallStatement).visit(cond.body)
                 get_host_call = any('get_host_data_rdwr' in v.name.name.lower() for v in calls)
@@ -504,6 +498,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
     def wrap_in_loopnest(self, var, body, routine):
         """Wrap body in loop nest corresponding to the shape of var."""
 
+        # Don't wrap an empty body
+        if not body:
+            return ()
+
         loopbody = ()
         loop_vars = []
         variable_map = routine.variable_map
@@ -546,6 +544,11 @@ class DataOffloadDeepcopyTransformation(Transformation):
     @staticmethod
     def create_memory_status_test(check, var, body, scope):
         """Wrap a given body in a memory status check."""
+
+        # Don't wrap an empty body
+        if not body:
+            return ()
+
         condition = sym.InlineCall(function=sym.ProcedureSymbol(check, scope=scope),
                                    parameters=as_tuple(var))
         return as_tuple(ir.Conditional(condition=condition, body=body))
