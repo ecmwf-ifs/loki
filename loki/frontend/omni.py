@@ -672,7 +672,7 @@ class OMNI2IR(GenericVisitor):
             body += [ir.Intrinsic('SEQUENCE')]
 
         # Build the list of derived type members and individual body for each
-        if struct_type.find('symbols'):
+        if struct_type.find('symbols') is not None:
             variables = self.visit(struct_type.find('symbols'), **kwargs)
             for v in variables:
                 if isinstance(v.type.dtype, ProcedureType):
@@ -685,7 +685,7 @@ class OMNI2IR(GenericVisitor):
                 else:
                     body += [ir.VariableDeclaration(symbols=(v,))]
 
-        if struct_type.find('typeBoundProcedures'):
+        if struct_type.find('typeBoundProcedures') is not None:
             # See if components are marked private
             body += [ir.Intrinsic('CONTAINS')]
             if struct_type.attrib.get('is_internal_private') == 'true':
@@ -747,7 +747,7 @@ class OMNI2IR(GenericVisitor):
         if o.get('is_public') == 'true':
             _type = _type.clone(public=True)
 
-        if o.find('binding'):
+        if o.find('binding') is not None:
             bind_name = self.visit(o.find('binding/name'), **kwargs)
             bind_name_scope = scope.get_symbol_scope(bind_name.name)
 
@@ -1094,7 +1094,7 @@ class OMNI2IR(GenericVisitor):
     def visit_FifStatement(self, o, **kwargs):
         condition = self.visit(o.find('condition'), **kwargs)
         body = self.visit(o.find('then/body'), **kwargs)
-        if o.find('else'):
+        if o.find('else') is not None:
             else_body = self.visit(o.find('else/body'), **kwargs)
         else:
             else_body = ()
