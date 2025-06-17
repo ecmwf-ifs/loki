@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
-from subprocess import CalledProcessError
+from subprocess import CalledProcessError, run, PIPE, STDOUT
 from contextlib import contextmanager
 import pytest
 import toml
@@ -166,6 +166,11 @@ def fixture_loki_install(here, tmp_dir, ecbuild, loki_artifacts_and_env, silent,
         cmd += ['-DENABLE_EDITABLE=OFF']
 
     execute(cmd, silent=silent, cwd=tmp_dir, env=env)
+
+    if request.param == 'editable':
+        # Ensure Loki is installed in editable mode
+        ps = run([str(builddir/'loki_env/bin/pip'), 'list'], stdout=PIPE, stderr=STDOUT, check=True)
+        assert str(here.parent.parent) in ps.stdout.decode()
 
     if request.param == 'relative_install':
         prefix = 'loki'
