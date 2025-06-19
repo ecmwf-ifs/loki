@@ -21,26 +21,24 @@ jobs:
       fail-fast: false  # false: try to complete all jobs
       matrix:
         name:
-          - linux gnu-13
-          # - macos
+          - linux gnu-14
 
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
         include:
-          - name: linux gnu-13
+          - name: linux gnu-14
             os: ubuntu-24.04
               # Enable --with-dace as soon as DaCe supports 3.13 and Numpy>2.0
             install-options: --with-omni --with-examples --with-tests --without-dace
-            env: JAVA_HOME=${JAVA_HOME_11_X64}
+            toolchain: {compiler: gcc, version: 14}
             pkg-dependencies: graphviz gfortran byacc flex cmake meson ninja-build
 
-          # - name: macos
-          #   os: macos-14
-          #   python-version: '3.13'
-          #   install-options: --with-examples --with-tests --without-dace
-          #   env: CC=gcc-13 CXX=g++-13 FC=gfortran-13 F90=gfortran-13 LD=gfortran-13
-          #   path: $(brew --prefix)/opt/python@3.11/libexec/bin:$(brew --prefix)/bin
-          #   pkg-dependencies: graphviz ninja meson
+          - name: macos
+            os: macos-14
+            python-version: '3.13'
+            install-options: --with-examples --with-tests --without-dace
+            toolchain: {compiler: gcc, version: 14}
+            pkg-dependencies: graphviz ninja meson
 
     runs-on: ${{ matrix.os }}
 
@@ -49,17 +47,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Fortran compiler ${{ matrix.toolchain.compiler }} ${{ matrix.toolchain.version }}
+        uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: ${{ matrix.toolchain.compiler }}
+          version: ${{ matrix.toolchain.version }}
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 11
 
       - name: Install dependencies
         run: |
@@ -68,11 +66,6 @@ jobs:
           else
             sudo apt-get -o Acquire::Retries=3 install -y ${{ matrix.pkg-dependencies }}
           fi
-
-      - name: Set-up Environment
-        run:
-          echo ${{ matrix.env }} >> $GITHUB_ENV
-          echo ${{ matrix.path }} >> $GITHUB_PATH
 
       - name: Install Loki
         run: |
