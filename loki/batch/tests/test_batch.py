@@ -752,6 +752,8 @@ def test_typedef_item(testdir):
     assert item.name == 't_mod#t'
     assert str(item) == 'loki.batch.TypeDefItem<t_mod#t>'
     assert item.ir is item.source['t']
+    assert item.scope_ir is item.source['t']
+    assert item.transformation_ir is item.source['t_mod']
     assert 'proc' in item.ir.variable_map
     assert item.definitions == item.ir.declarations
 
