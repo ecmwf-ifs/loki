@@ -59,6 +59,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
+
       - name: Install dependencies
         run: |
           if [[ "${{ matrix.os }}" =~ macos ]]; then
