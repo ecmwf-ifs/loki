@@ -471,8 +471,8 @@ class Scheduler:
         This order can be reversed in the :any:`Transformation` manifest by
         setting :any:`Transformation.reverse_traversal` to ``True``.
 
-        The scheduler applies the transformation to the scope corresponding to
-        each item in the scheduler's graph, determined by the :any:`Item.scope_ir`
+        The scheduler applies the transformation to the program unit scope corresponding to
+        each item in the scheduler's graph, determined by the :any:`Item.transformation_ir`
         property. For example, for a :any:`ProcedureItem`, the transformation is
         applied to the corresponding :any:`Subroutine` object.
 
@@ -556,7 +556,7 @@ class Scheduler:
                     raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
 
                 transformation.apply(
-                    _item.scope_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
+                    _item.transformation_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
                     sub_sgraph=graph.get_sub_sgraph(_item, item_filter=item_filter),
                     role=_item.role, mode=_item.mode, targets=_item.targets,
                     **kwargs
