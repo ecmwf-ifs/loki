@@ -1849,6 +1849,18 @@ class FParser2IR(GenericVisitor):
         # Move trailing comments from spec to the body as those can be pragmas.
         body.prepend(_get_comments_from_section(spec, include_pragmas=True, reverse=True))
 
+        # To complete spec and body, build source objects once we're done moving things around
+        if config['frontend-store-source']:
+            if spec.body:
+                spec_lines = (spec.body[0].source.lines[0], spec.body[-1].source.lines[1])
+                spec_string = ''.join(self.raw_source[spec_lines[0]-1:spec_lines[1]]).strip('\n')
+                spec._update(source=Source(lines=spec_lines, string=spec_string))
+
+            if body.body:
+                body_lines = (body.body[0].source.lines[0], body.body[-1].source.lines[1])
+                body_string = ''.join(self.raw_source[body_lines[0]-1:body_lines[1]]).strip('\n')
+                body._update(source=Source(lines=body_lines, string=body_string))
+
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
@@ -2990,8 +3002,9 @@ class FParser2IR(GenericVisitor):
         # In the visit() below, skip the Forall_Constrct_Stmt and go directly to the Forall_Header
         named_bounds, mask = self.visit(start.children[1], **kwargs)
         body = as_tuple(self.visit(c, **kwargs) for c in body)
+        source = self.get_source(start, end_node=end)
         return *prelude, ir.Forall(name=name, named_bounds=named_bounds, mask=mask,
-                                   body=body, inline=False, source=kwargs.get("source"))
+                                   body=body, inline=False, source=source)
 
     def visit_Forall_Header(self, o, **kwargs):
         """

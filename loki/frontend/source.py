@@ -8,7 +8,9 @@
 """
 Implementation of :any:`Source` and adjacent utilities
 """
+
 from bisect import bisect_left
+from enum import Enum, auto
 from itertools import accumulate, takewhile
 import re
 from codetiming import Timer
@@ -21,7 +23,29 @@ except ImportError:
 
 from loki.logging import debug, warning
 
-__all__ = ['Source', 'FortranReader', 'source_to_lines', 'join_source_list']
+__all__ = [
+    'Source', 'SourceStatus', 'FortranReader', 'source_to_lines',
+    'join_source_list'
+]
+
+class SourceStatus(Enum):
+
+    """
+    The node and its children are unchanged - :any:`Source` is valid!
+    """
+    VALID = auto()
+
+    """
+    Interior node properties (expressions) have changed -
+    :any:`Source` is invalid!
+    """
+    INVALID_NODE = auto()
+
+    """
+    Interior node properties have not changed, but child nodes have
+    been altered - :any:`Source` is invalid!
+    """
+    INVALID_CHILDREN = auto()
 
 
 class Source:
@@ -36,13 +60,16 @@ class Source:
         The original raw source string
     file : str (optional)
         The file name
+    status : :any:`SourceStatus`
+        Flag indicating if the associated node has been altered
     """
 
-    def __init__(self, lines, string=None, file=None):
+    def __init__(self, lines, string=None, file=None, status=None):
         assert lines and len(lines) == 2 and (lines[1] is None or lines[1] >= lines[0])
         self.lines = lines
         self.string = string
         self.file = file
+        self.status = status if status else SourceStatus.VALID
 
     def clone(self, **kwargs):
         """
@@ -54,6 +81,8 @@ class Source:
             kwargs['string'] = self.string
         if self.file is not None and 'file' not in kwargs:
             kwargs['file'] = self.file
+        if self.status is not None and 'status' not in kwargs:
+            kwargs['status'] = self.status
         return type(self)(**kwargs)
 
     def __repr__(self):
@@ -127,6 +156,12 @@ class Source:
             Source(lines=(self.lines[0]+idx,)*2, string=line, file=self.file)
             for idx, line in enumerate(self.string.splitlines())
         ]
+
+    def invalidate(self):
+        """
+        Return an invalid copy of this source with ``status=SourceStatus=INVALID_NODE``.
+        """
+        return self.clone(status=SourceStatus.INVALID_NODE)
 
 
 class FortranReader:
