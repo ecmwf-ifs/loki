@@ -1855,11 +1855,19 @@ class FParser2IR(GenericVisitor):
                 spec_lines = (spec.body[0].source.lines[0], spec.body[-1].source.lines[1])
                 spec_string = ''.join(self.raw_source[spec_lines[0]-1:spec_lines[1]]).strip('\n')
                 spec._update(source=Source(lines=spec_lines, string=spec_string))
+            else:
+                # Empty spec source object
+                line = source.lines[0] + 1
+                spec._update(source=Source(lines=(line, line), string=''))
 
             if body.body:
                 body_lines = (body.body[0].source.lines[0], body.body[-1].source.lines[1])
                 body_string = ''.join(self.raw_source[body_lines[0]-1:body_lines[1]]).strip('\n')
                 body._update(source=Source(lines=body_lines, string=body_string))
+            else:
+                # Empty body source object
+                line = spec.source.lines[1] + 1
+                body._update(source=Source(lines=(line, line), string=''))
 
         # Finally, call the subroutine constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
