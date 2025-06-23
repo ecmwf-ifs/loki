@@ -8,6 +8,7 @@
 from hashlib import md5
 import re
 
+from loki import SourceStatus
 from loki.ir import Comment, CommentBlock, LeafNode, FindNodes, Transformer
 from loki.module import Module
 from loki.sourcefile import Sourcefile
@@ -29,7 +30,7 @@ class Fixer:
         """
         # TODO: implement this!
         if reports:
-            module._source = None
+            module.source.status = SourceStatus.INVALID_NODE
         return module
 
     @classmethod
@@ -46,10 +47,10 @@ class Fixer:
             # Apply the changes and invalidate source objects
             subroutine.spec = Transformer(mapper).visit(subroutine.spec)
             subroutine.body = Transformer(mapper).visit(subroutine.body)
-            subroutine._source = None
+            subroutine.source.status = SourceStatus.INVALID_NODE
             parent = subroutine.parent
             while parent is not None:
-                parent._source = None
+                parent.source.status = SourceStatus.INVALID_NODE
                 parent = getattr(parent, 'parent', None)
 
         return subroutine
@@ -61,7 +62,8 @@ class Fixer:
         """
         # TODO: implement this!
         if reports:
-            sourcefile._source = None
+            sourcefile.source.status = SourceStatus.INVALID_CHILDREN
+            sourcefile.ir.source.status = SourceStatus.INVALID_NODE
         return sourcefile
 
     @classmethod
