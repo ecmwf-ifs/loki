@@ -11,7 +11,6 @@ Visitor classes for traversing and transforming all expression trees in
 """
 from pymbolic.primitives import Expression
 
-from loki.frontend.source import SourceStatus
 from loki.ir.nodes import Node
 from loki.ir.visitor import Visitor
 from loki.ir.transformer import Transformer
@@ -257,7 +256,7 @@ class ExpressionTransformer(Transformer):
             new = self.expr_mapper(o)
         # Invalidate `Source` object if we've changed the expression
         if kwargs.get('source') and o != new:
-            kwargs['source'].status = SourceStatus.INVALID_NODE
+            kwargs['source'].invalidate()
         return new
 
 

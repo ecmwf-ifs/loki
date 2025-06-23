@@ -8,7 +8,7 @@
 """
 Visitor classes for transforming the IR
 """
-from loki.frontend.source import Source, SourceStatus
+from loki.frontend.source import Source
 from loki.ir.nodes import Node, Conditional, ScopedNode
 from loki.ir.visitor import Visitor
 from loki.tools import flatten, is_iterable, as_tuple, replace_windowed
@@ -23,7 +23,7 @@ __all__ = [
 def is_source_valid(source):
     """ Determine the validty status of a given :any:`Node` """
     if source and isinstance(source, Source):
-        return source.status == SourceStatus.VALID
+        return source.is_valid()
     return False
 
 
@@ -101,9 +101,8 @@ class Transformer(Visitor):
             # If any child node has been invalidated, mark this node as invalid too
             if is_source_valid(args_frozen.get('source')):
                 if any(isinstance(c, Node) and not is_source_valid(c) for c in flatten(children)):
-                    args_frozen['source'] = args_frozen['source'].clone(
-                        status=SourceStatus.INVALID_CHILDREN
-                    )
+                    args_frozen['source'] = args_frozen['source'].clone()
+                    args_frozen['source'].invalidate(children=True)
 
         if self.inplace:
             # Updated nodes in place, if requested

@@ -55,7 +55,7 @@ end subroutine routine_simple
     new_expr = sym.Sum((*stmt.rhs.children[:-1], sym.FloatLiteral(2.)))
 
     # Check source invalidation via status flags
-    mapper = {stmt: stmt.clone(rhs=new_expr, source=stmt.source.invalidate())}
+    mapper = {stmt: stmt.clone(rhs=new_expr, source=stmt.source.clone().invalidate())}
     body_invalid_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
 
     # Check that original source has not been modified
@@ -131,7 +131,7 @@ end subroutine routine_simple
 
     cond = get_conditional(routine.ir)
     new_stmt = ir.Assignment(lhs=routine.arguments[0], rhs=routine.arguments[1])
-    mapper = {cond: (new_stmt, cond.clone(source=cond.source.invalidate()))}
+    mapper = {cond: (new_stmt, cond.clone(source=cond.source.clone().invalidate()))}
 
     body_invalid_source = Transformer(mapper, invalidate_source=True).visit(routine.body)
 
