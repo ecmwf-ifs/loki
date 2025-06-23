@@ -5,10 +5,12 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki import Subroutine, config_override
+import pytest
+
+from loki import Subroutine, Sourcefile, config_override
 from loki.backend import fgen
 from loki.ir import nodes as ir, FindNodes, SubstituteExpressions
-from loki.frontend import FP, SourceStatus
+from loki.frontend import FP, OMNI, REGEX, SourceStatus, available_frontends
 
 
 def test_fgen_conservative_routine():
@@ -83,3 +85,60 @@ END SUBROUTINE   MY_TEST_ROUTINE
     expected = fcode.replace('RICK', 'BOB').strip()
     generated = fgen(routine, conservative=True).strip()
     assert generated == expected
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    include_regex=True, skip=[(OMNI, 'OMNI is not string-conservative')]
+))
+def test_fgen_conservative_sourcefile(frontend):
+    """ Test outer program unit conservation via `ir.Section` and REGEX frontend """
+
+    fcode = """
+subroutine some_routine
+implicit none
+end subroutine some_routine
+
+subroutine OTHER_ROUTINE
+implicit none
+call some_routine
+end subroutine OTHER_ROUTINE
+"""
+    with config_override({'frontend-store-source': True}):
+        sourcefile = Sourcefile.from_source(fcode, frontend=frontend)
+
+    assert sourcefile.source
+    assert sourcefile.ir.source
+
+    routines = sourcefile.routines
+    assert len(routines) == 2
+    assert routines[0].source
+    if frontend == REGEX:
+        sourcefile.routines[0].make_complete()
+        sourcefile.routines[1].make_complete()
+    assert routines[0].spec.source
+    assert routines[0].body.source
+    assert routines[1].source
+    assert routines[1].spec.source
+    assert routines[1].body.source
+
+    # Modify the subroutine objects only
+    routines[0].name = routines[0].name.upper()
+    routines[0].source.status = SourceStatus.INVALID_NODE
+
+    routines[1].name = routines[1].name.lower()
+    routines[1].source.status = SourceStatus.INVALID_NODE
+
+    # Ensure only header/footer are changed
+    assert routines[0].to_fortran(conservative=True) == """
+SUBROUTINE SOME_ROUTINE ()
+implicit none
+
+END SUBROUTINE SOME_ROUTINE
+""".strip()
+
+    assert routines[1].to_fortran(conservative=True) == """
+SUBROUTINE other_routine ()
+implicit none
+call some_routine
+END SUBROUTINE other_routine
+""".strip()

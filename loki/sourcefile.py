@@ -263,6 +263,7 @@ class Sourcefile:
 
         lines = (1, raw_source.count('\n') + 1)
         source = Source(lines, string=raw_source, file=path)
+        ir._update(source=source)
         return cls(path=path, ir=ir, ast=ast, source=source)
 
     @classmethod
