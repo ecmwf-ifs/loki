@@ -531,15 +531,15 @@ def test_linter_lint_files_fix(tmp_path, config, backup_suffix):
         @classmethod
         def fix_sourcefile(cls, sourcefile, rule_report, config):
             if rule_report.problem_reports:
-                subroutine.source.status = SourceStatus.INVALID_CHILDREN
-                subroutine.ir.status = SourceStatus.INVALID_CHILDREN
+                subroutine.source.invalidate(children=True)
+                subroutine.ir.source.invalidate(children=True)
 
         @classmethod
         def fix_subroutine(cls, subroutine, rule_report, config):
             assert len(rule_report.problem_reports) == 1
             if rule_report.problem_reports[0].location is subroutine:
                 subroutine.name = subroutine.name.upper()
-                subroutine.source.status = SourceStatus.INVALID_NODE
+                subroutine.source.invalidate()
                 return {None: None}
             return {}
 
