@@ -42,6 +42,12 @@ contains
 
     fun = a
   end function funcky
+
+  real function square(a) result(b)
+    implicit none
+    real, intent(in) :: a
+    b = a * a
+  end function square
 end module my_funcs
     """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
@@ -83,6 +89,13 @@ end module my_funcs
     assert module['funcky'].return_type.kind == 8
     assert len(FindNodes(ir.VariableDeclaration).visit(module['funcky'].spec)) == 2
     assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funcky'].spec)) == 0
+
+    # Implicit return type and renamed result name
+    assert isinstance(module['square'], Function)
+    assert module['square'].result_name == 'b'
+    assert module['square'].return_type.dtype == BasicType.REAL
+    assert len(FindNodes(ir.VariableDeclaration).visit(module['square'].spec)) == 2 if frontend == OMNI else 1
+    assert len(FindNodes(ir.ProcedureDeclaration).visit(module['square'].spec)) == 0
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

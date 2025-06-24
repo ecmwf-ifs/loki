@@ -1950,7 +1950,7 @@ class FParser2IR(GenericVisitor):
 
         # If the return type is given, inject it into the symbol table
         if return_type:
-            routine.symbol_attrs[routine.name] = return_type
+            routine.symbol_attrs[routine.result_name] = return_type
 
         # Now all declarations are well-defined and we can parse the member routines
         contains = self.visit(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
