@@ -203,7 +203,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if role == 'driver':
             self.process_driver(routine, item, successors, targets, **kwargs)
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, sgraph, **kwargs)
+            self.process_kernel(routine, item, successors, **kwargs)
 
     def stringify_dict(self, _dict):
         """
@@ -236,7 +236,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             # gather analysis from children
             analysis = self.gather_analysis_from_children(successor_map)
             # gather typedef configs from children
-            self.gather_typedef_configs_from_callees(successors, item.trafo_data[self._key]['typedef_configs'])
+            self.gather_typedef_configs(successors, item.trafo_data[self._key]['typedef_configs'])
 
             layered_dict = {}
             for k, v in analysis.items():
@@ -251,17 +251,12 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 with open(base_dir/f'driver_{list(successor_map.keys())[0].name}_dataoffload_analysis.yaml', 'w') as f:
                     yaml.dump(str_layered_dict, f)
 
-    def process_kernel(self, routine, item, successors, sgraph, **kwargs):
+    def process_kernel(self, routine, item, successors, **kwargs):
 
         item.trafo_data[self._key] = defaultdict(dict)
 
-        # gather typedef config overrides
-        for child in successors:
-            if isinstance(child, TypeDefItem):
-                self.gather_typedef_configs(child, sgraph, item.trafo_data[self._key]['typedef_configs'])
-
-        # gather typedef configs from callees
-        self.gather_typedef_configs_from_callees(successors, item.trafo_data[self._key]['typedef_configs'])
+        # gather typedef configs from successors
+        self.gather_typedef_configs(successors, item.trafo_data[self._key]['typedef_configs'])
 
         # Pointer indirection completely breaks the dataflow analysis, as the target
         # simply appears as if its being "read", regardless of how the pointer is used.
@@ -335,17 +330,19 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         return analysis
 
-    def gather_typedef_configs_from_callees(self, successors, typedef_configs):
+    def gather_typedef_configs(self, successors, typedef_configs):
         """Gather typedef configs from children."""
 
         for child in successors:
-            if isinstance(child, ProcedureItem) and child.trafo_data.get(self._key, None):
+            if isinstance(child, TypeDefItem) and child.trafo_data.get(self._key, None):
                 typedef_configs.update(child.trafo_data[self._key]['typedef_configs'])
 
-    def gather_typedef_configs(self, item, sgraph, typedef_configs):
-        """Gather typdef configs."""
+    def transform_module(self, module, **kwargs): # pylint: disable=unused-argument
+        """Cache the current type definition config for later reuse."""
 
-        typedef_configs.update({item.ir.name.lower(): item.config})
-        for child in sgraph.successors(item=item):
-            if isinstance(child, TypeDefItem):
-                self.gather_typedef_configs(child, sgraph, typedef_configs)
+        item = kwargs['item']
+        successors = kwargs['sub_sgraph'].successors(item=item)
+        item.trafo_data[self._key] = defaultdict(dict)
+
+        item.trafo_data[self._key]['typedef_configs'][item.ir.name.lower()] = item.config
+        self.gather_typedef_configs(successors, item.trafo_data[self._key]['typedef_configs'])
