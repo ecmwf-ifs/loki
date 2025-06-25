@@ -33,7 +33,7 @@ from loki.transformations.single_column import (
 def fixture_horizontal():
     return Dimension(
         name='horizontal', size=['dims%klon', 'nlon'], index='jl',
-        aliases=('nproma',), lower=('start', 'dims%ist'),
+        aliases=('nproma',), lower=('START', 'dims%ist'),
         upper=('end', 'dims%iend')
     )
 
