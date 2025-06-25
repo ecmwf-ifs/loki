@@ -530,7 +530,7 @@ end module my_scaling_value_mod
         assert driver_pragmas[0].keyword == 'acc'
         assert driver_pragmas[0].content == 'enter data create(compute_column_t)'
         assert driver_pragmas[1].keyword == 'acc'
-        assert driver_pragmas[1].content == 'exit data delete(compute_column_t)'
+        assert driver_pragmas[1].content == 'exit data delete(compute_column_t) finalize'
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
