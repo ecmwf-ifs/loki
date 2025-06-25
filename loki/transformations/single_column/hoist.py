@@ -68,7 +68,7 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
         vnames = ', '.join(v.name for v in variables)
         if vnames:
             pragma = ir.Pragma(keyword='loki', content=f'unstructured-data create({vnames})')
-            pragma_post = ir.Pragma(keyword='loki', content=f'end unstructured-data delete({vnames})')
+            pragma_post = ir.Pragma(keyword='loki', content=f'end unstructured-data delete({vnames}) finalize')
 
             # Add comments around standalone pragmas to avoid false attachment
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
