@@ -1,5 +1,5 @@
 module transformation_module_hoist
-    USE subroutines_mod, only: kernel1, kernel2, device1, device2
+    USE subroutines_mod, only: kernel1, kernel2, device1, device2, kernel3
     implicit none
     integer, parameter :: len = 3
 contains
@@ -21,6 +21,12 @@ contains
         real :: x, y
         call kernel1(a, b, c)
     end subroutine another_driver
+
+    subroutine yet_another_driver(a, a1)
+        integer, intent(in) :: a, a1
+
+        call kernel3(a, a1)
+    end subroutine yet_another_driver
 
 end module transformation_module_hoist
 

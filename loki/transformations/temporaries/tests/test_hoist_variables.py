@@ -55,6 +55,10 @@ def fixture_config():
                 'role': 'driver',
                 'expand': True,
             },
+            'yet_another_driver': {
+                'role': 'driver',
+                'expand': True,
+            },
             'inline_driver': {
                 'role': 'driver',
                 'expand': True,
@@ -743,3 +747,40 @@ end module kernel_mod
         assert driver_var_map['kernel_tmp1'].dimensions == ('nlon',)
     else:
         assert driver_var_map['kernel_tmp1'].dimensions == ('local_nlon',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_hoist_dim_alias(tmp_path, testdir, frontend, config):
+    """
+    Test that temporaries declared with an aliased dimension aren't repeated.
+    """
+
+    proj = testdir/'sources/projHoist'
+    scheduler = Scheduler(
+        paths=[proj], config=config, seed_routines=['yet_another_driver'], frontend=frontend, xmods=[tmp_path]
+    )
+
+    scheduler.process(transformation=HoistTemporaryArraysAnalysis())
+    scheduler.process(transformation=HoistVariablesTransformation())
+
+    kernel3 = scheduler['subroutines_mod#kernel3'].ir
+    device3 = scheduler['subroutines_mod#device3'].ir
+    driver = scheduler['transformation_module_hoist#yet_another_driver'].ir
+
+    # check temporary was hoisted
+    assert 'x' in device3._dummies
+    assert 'device3_x' in kernel3._dummies
+    assert len(kernel3.arguments) == 3
+    device3_temp = kernel3.variable_map['device3_x']
+    assert 'a1' in device3_temp.shape
+
+    # check call signatures for device3 were updated
+    calls = FindNodes(ir.CallStatement).visit(kernel3.body)
+    assert len(calls) == 2
+    assert 'device3_x' in calls[0].arguments
+    assert 'device3_x' in calls[1].arguments
+
+    # check driver layer
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    assert len(calls[0].arguments) == 3
+    assert 'device3_x' in calls[0].arguments
