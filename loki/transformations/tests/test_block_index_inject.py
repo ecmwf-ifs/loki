@@ -212,6 +212,15 @@ subroutine another_kernel(nproma, nlev, data, other)
    real, intent(in) :: other(nproma, nlev)
 end subroutine another_kernel
 """
+        ).strip(),
+        #-------
+        'empty_kernel': (
+        #-------
+"""
+subroutine empty_kernel()
+   implicit none
+end subroutine empty_kernel
+"""
         ).strip()
     }
 
@@ -234,7 +243,8 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
                                          force_inject_arrays, tmp_path):
 
     config['routines'] = {
-        'driver': {'role': 'driver'}
+        'driver': {'role': 'driver'},
+        'empty_kernel': {'role': 'kernel'}
     }
     if force_inject_arrays:
         config['routines'].update({'kernel': {'role': 'kernel', 'force_inject_arrays': ['yda_other%p_field']}})
