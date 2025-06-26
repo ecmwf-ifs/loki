@@ -272,9 +272,9 @@ class RemoveDeadCodeTransformer(Transformer):
 
         for val, body in zip(values, bodies):
             # Equate select expression against case values
-            assert len(val) == 1
-            if symbolic_op(expr, op.eq, val[0]):
-                return body
+            for v in val:
+                if symbolic_op(expr, op.eq, v):
+                    return body
 
         if expr == 'False':
             # Simplify to default if always false

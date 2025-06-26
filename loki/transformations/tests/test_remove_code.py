@@ -327,7 +327,7 @@ subroutine test_dead_code_multiconditional(a, b, i, flag)
     select case (2)
     case (1)
       a = a + b
-    case (2)
+    case (5,2)
       b = b + 2.0
     case (3)
       b = b + a
