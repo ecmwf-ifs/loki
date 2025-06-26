@@ -500,6 +500,7 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
                 if var not in routine.arguments    # local variable
                 and not all(is_dimension_constant(d) for d in var.shape)
                 and not var.name.lower() == result_name.lower()
+                and not var.type.pointer and not var.type.allocatable
                 and (self.dim_vars is None         # if dim_vars not empty check if at least one dim is within dim_vars
                      or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))]
 
