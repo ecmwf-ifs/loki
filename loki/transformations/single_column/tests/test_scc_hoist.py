@@ -393,7 +393,7 @@ END MODULE kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_hoist_openacc(frontend, horizontal, vertical, blocking, tmp_path):
+def test_scc_hoist_openacc(frontend, horizontal, blocking, tmp_path):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
     when hoisting array temporaries to driver.
@@ -430,13 +430,16 @@ END SUBROUTINE column_driver
 SUBROUTINE compute_column(start, end, nlon, nz, q)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, TARGET, INTENT(INOUT) :: q(nlon,nz)
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: b(nlon,psize)
+    REAL, POINTER :: b_ptr(:,:)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
+
+    b_ptr => q
 
     c = 5.345
     DO jk = 2, nz
@@ -483,7 +486,7 @@ end module my_scaling_value_mod
 
     scc_hoist = SCCHoistPipeline(
         horizontal=horizontal, block_dim=blocking,
-        directive='openacc', dim_vars=vertical.sizes
+        directive='openacc'
     )
 
     graph_dic = {driver_item: [kernel_item]}
