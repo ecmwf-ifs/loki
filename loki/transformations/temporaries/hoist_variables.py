@@ -163,19 +163,23 @@ class HoistVariablesAnalysis(Transformation):
             if not isinstance(child, ProcedureItem):
                 continue
 
+            # We may call a subroutine again with aliased sizes, so we check hoisted
+            # variables in children by name before adding them
+            hoist_var_names = [v.name.lower() for v in item.trafo_data[self._key]["hoist_variables"]]
+
             arg_map = dict(call_map[child.local_name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
+                if var.name.lower() in hoist_var_names:
+                    continue
+
                 if isinstance(var, sym.Array):
                     dimensions = SubstituteExpressions(arg_map).visit(var.dimensions)
                     hoist_variables.append(var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions)))
                 else:
                     hoist_variables.append(var)
             item.trafo_data[self._key]["to_hoist"].extend(hoist_variables)
-            item.trafo_data[self._key]["to_hoist"] = list(dict.fromkeys(item.trafo_data[self._key]["to_hoist"]))
             item.trafo_data[self._key]["hoist_variables"].extend(hoist_variables)
-            item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
-                item.trafo_data[self._key]["hoist_variables"]))
             item.trafo_data[self._key]["imported_sizes"] += child.trafo_data[self._key]["imported_sizes"]
             item.trafo_data[self._key]["imported_kinds"] += child.trafo_data[self._key]["imported_kinds"]
 
