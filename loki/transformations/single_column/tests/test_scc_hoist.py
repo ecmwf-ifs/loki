@@ -45,22 +45,37 @@ def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='b', aliases=('block_var%nb',))
 
 
+@pytest.fixture(scope='module', name='blocking_alt')
+def fixture_blocking_alt():
+    return Dimension(name='blocking', size='dims%nb', index='b', aliases=('block_var%nb',))
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_pipeline', [SCCVHoistPipeline, SCCSHoistPipeline])
-def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeline):
+def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking_alt, hoist_pipeline, tmp_path):
     """
     Test hoisting of column temporaries to "driver" level.
     """
 
+    fcode_dims_mod = """
+  MODULE dims_mod
+    TYPE dims_type
+      integer :: nb
+    END TYPE
+  END MODULE dims_mod
+"""
+
     fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+  SUBROUTINE column_driver(nlon, nz, q, dims)
+    USE dims_mod, ONLY : dims_type
+    INTEGER, INTENT(IN)   :: nlon, nz  ! Size of the horizontal and vertical
+    TYPE(DIMS_TYPE), INTENT(IN) :: dims
+    REAL, INTENT(INOUT)   :: q(nlon,nz,dims%nb)
     INTEGER :: b, start, end
 
     start = 1
     end = nlon
-    do b=1, nb
+    do b=1, dims%nb
       call compute_column(start, end, nlon, nz, q(:,:,b))
 
       ! A second call, to check multiple calls are honored
@@ -92,8 +107,11 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     END DO
   END SUBROUTINE compute_column
 """
+    dims_mod_source = Sourcefile.from_source(fcode_dims_mod, frontend=frontend, xmods=[tmp_path])
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
-    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    dims_mod = dims_mod_source['dims_mod']
+    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend,
+                                           definitions=[dims_mod], xmods=[tmp_path])
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
     driver.enrich(kernel)  # Attach kernel source to driver call
@@ -102,7 +120,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
 
     scc_hoist = hoist_pipeline(
-        horizontal=horizontal, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking_alt, directive='openacc'
     )
 
     graph_dic = {driver_item: [kernel_item]}
@@ -151,7 +169,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     else:
         assert len(driver_loops) == 1
     assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
+    assert driver_loops[0].bounds == '1:dims%nb'
 
     # Ensure we have two kernel calls in the driver loop
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
@@ -165,7 +183,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     assert 't' in kernel.argnames
     assert kernel.variable_map['t'].type.intent.lower() == 'inout'
     assert kernel.variable_map['t'].type.shape == ('nlon', 'nz')
-    assert driver.variable_map['compute_column_t'].dimensions == ('nlon', 'nz', 'nb')
+    assert driver.variable_map['compute_column_t'].dimensions == ('nlon', 'nz', 'dims%nb')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
