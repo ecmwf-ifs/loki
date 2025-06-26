@@ -27,6 +27,8 @@ from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 from loki.config import config_override
+from loki.logging import warning
+from loki.analyse import get_loop_tree
 
 
 __all__ = [
@@ -585,6 +587,42 @@ def get_loop_bounds(routine, dimension):
     return bounds
 
 
+
+
+def is_pragma_driver_loop(loop):
+    if loop.pragma:
+        for pragma in loop.pragma:
+            if is_loki_pragma(pragma, starts_with='driver-loop') or \
+               is_loki_pragma(pragma, starts_with='loop driver'):
+                return True
+    return False
+
+
+def is_target_driver_loop(loop, targets):
+    """
+    Test/check whether a given loop is a *driver loop*.
+
+    Parameters
+    ----------
+    loop : :any: `Loop`
+        The loop to test if it is a *driver loop*.
+    targets : list or string
+        List of subroutines that are to be considered as part of
+        the transformation call tree.
+    """
+    for call in FindNodes(ir.CallStatement).visit(loop.body):
+        if call.name in targets:
+            return True
+    return False
+
+
+def has_target_call(loop, targets):
+    for o in loop.body:
+        if isinstance(o, ir.CallStatement) and o.name in targets:
+            return True
+    return False
+
+
 def is_driver_loop(loop, targets):
     """
     Test/check whether a given loop is a *driver loop*.
@@ -597,15 +635,7 @@ def is_driver_loop(loop, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
-    if loop.pragma:
-        for pragma in loop.pragma:
-            if is_loki_pragma(pragma, starts_with='driver-loop') or \
-               is_loki_pragma(pragma, starts_with='loop driver'):
-                return True
-    for call in FindNodes(ir.CallStatement).visit(loop.body):
-        if call.name in targets:
-            return True
-    return False
+    return is_pragma_driver_loop(loop) or is_target_driver_loop(loop, targets)
 
 
 def find_driver_loops(section, targets):
@@ -623,20 +653,98 @@ def find_driver_loops(section, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
+    class FindDriverLoops:
+        """
+        A LoopTree visitor that can find all driver loops in a LoopTree.
 
-    driver_loops = []
-    nested_driver_loops = []
-    for loop in FindNodes(ir.Loop).visit(section):
-        if loop in nested_driver_loops:
-            continue
+        If there are nested loops, then the highest level pragma-marked driver
+        loop will take precedence and be considered the driver loop. If there
+        is no pragma-marked driver loop, then the highest level loop that does
+        not contain a driver loop will be considered the driver loop.
+        """
 
-        if not is_driver_loop(loop, targets):
-            continue
+        def __init__(self):
+            self.driver_loops = []
 
-        driver_loops.append(loop)
-        loops = FindNodes(ir.Loop).visit(loop.body)
-        nested_driver_loops.extend(loops)
-    return driver_loops
+        def visit(self, loop_tree, targets):
+            """
+            Visit method to collect all driver loops in a LoopTree.
+
+            Top level visitor to handle the different roots in the forest.
+            """
+            for root in loop_tree.roots:
+                target_driver_loops = []
+                has_pragma_driver = self.__visit(root, targets, target_driver_loops)
+                if not has_pragma_driver:
+                    self.driver_loops.extend(target_driver_loops)
+
+            return [node.loop for node in self.driver_loops]
+
+
+        def __visit(self, node, targets, target_driver_loops):
+            """
+            Visit method for visiting :any:`LoopTreeNode`s in the :any:`LoopTree`.
+
+            The visitor walks the tree in a depth-first fashion with both pre-
+            and post- order traversal logic. The return value is used to signal
+            if there is a pragma driver loop nested inside the loop.
+
+            Parameters
+            ----------
+            node : :any:`LoopTree.TreeNode`
+                Description of the node parameter. Explain what type of object
+                this is and what role it plays in the function.
+            targets : iterable of str
+                Iterable with the names of the subroutines that are to be
+                considered as target kernels used to identify driver loops.
+            target_driver_loops : list
+                List passed from the parent to which the node adds itself if
+                it has a nested loop with a target call inside.
+            Returns
+            -------
+            bool
+                True if any nested loop is a pragma-marked driver loop, False
+                otherwise.
+
+            """
+            if is_pragma_driver_loop(node.loop):
+                self.driver_loops.append(node)
+                return True
+            is_target_driver = has_target_call(node.loop, targets)
+
+
+            nested_pragma_driver = False
+            # list that holds all child nodes that have a nested target call
+            # loop but no nested driver loop.
+            nested_target_driver_loops = []
+            for child in node.children:
+                nested_pragma_driver |= self.__visit(child, targets, nested_target_driver_loops)
+
+            if is_target_driver:
+                if nested_pragma_driver:
+                    warning("[Loki::find_driver_loops] Nested pragma marked driver loop inside loop"
+                            f" with target call (skipping {node.loop}")
+                    return True
+
+                target_driver_loops.append(node)
+                return False
+
+            if nested_target_driver_loops:
+                # if there is a pragma driver loop nested, then this node can't
+                # be a target driver loop and we add the nested target driver
+                # loops to the list of driver loops
+                if nested_pragma_driver:
+                    self.driver_loops.extend(nested_target_driver_loops)
+                    return True
+
+                # else we add this node to the nested target driver loops of the parent
+                target_driver_loops.append(node)
+                return False
+
+            return nested_pragma_driver
+
+    loop_tree = get_loop_tree(section)
+    return FindDriverLoops().visit(loop_tree, targets)
 
 
 def get_local_arrays(routine, section, unique=True):
