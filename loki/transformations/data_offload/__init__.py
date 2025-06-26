@@ -11,3 +11,4 @@ Sub-package providing data offload transformations.
 from loki.transformations.data_offload.field_offload import * # noqa
 from loki.transformations.data_offload.global_var import * # noqa
 from loki.transformations.data_offload.offload import * # noqa
+from loki.transformations.data_offload.offload_deepcopy import * # noqa

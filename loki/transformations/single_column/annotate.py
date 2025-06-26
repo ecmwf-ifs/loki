@@ -82,7 +82,6 @@ class SCCAnnotateTransformation(Transformation):
                             for v in pragma_params.get('private', []) + private_arrays
                         )
                         pragma_content = [f'{kw}({val})' if val else kw for kw, val in pragma_params.items()]
-                        print(f"pragma_content: {pragma_content}")
                         pragma._update(content=f'loop vector {" ".join(pragma_content)}'.strip())
 
     def warn_vec_within_seq_loops(self, routine):
