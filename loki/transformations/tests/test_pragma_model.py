@@ -22,7 +22,7 @@ def check_pragma(pragma, keyword, content, check_for_equality=True):
             assert _content in pragma.content
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openacc', 'omp-gpu'])
+@pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu'])
 @pytest.mark.parametrize('keep_loki_pragmas', [True, False])
 def test_transform_pragma_model(tmp_path, frontend, directive, keep_loki_pragmas):
     """
@@ -84,7 +84,7 @@ end subroutine some_func
         check_pragma(pragmas[0], 'acc', 'declare create(a, b)')
     if directive == 'omp-gpu':
         check_pragma(pragmas[0], 'omp', 'declare target(a, b)')
-    if directive is None and keep_loki_pragmas:
+    if directive is False and keep_loki_pragmas:
         check_pragma(pragmas[0], 'loki', 'create device(a, b)')
 
     # CHECK ROUTINE
@@ -140,7 +140,7 @@ end subroutine some_func
                 ('omp', 'end target data'),
                 ('omp', ('target data', 'map(to: tmp1, tmp3, tmp4)'), False),
                 ('omp', 'end target data'))
-    if directive is None:
+    if directive is False:
         args = (('loki', 'create device(tmp1, tmp2)'),
                 ('loki', ('update', 'device(tmp1)', 'host(tmp2)'), False),
                 ('loki', ('unstructured-data', 'in(tmp1, tmp2)', 'create(tmp3, tmp4)', 'attach(tmp1)', ), False),

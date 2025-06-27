@@ -319,17 +319,18 @@ class PragmaModelTransformation(Transformation):
 
     Parameters
     ----------
-    directive : None, str
+    directive : False, str
         The directive(s) to be used, used to determine which
-        child class of :any:`GenericPragmaMapper` is used.
+        child class of :any:`GenericPragmaMapper` is used.  Use
+        ``False`` to suppress the directive translation entirely.
     keep_loki_pragmas: bool
         Keep or remove generic Loki pragmas that are not
         mapped.
     """
     item_filter = (ProcedureItem, ModuleItem)
 
-    def __init__(self, directive=None, keep_loki_pragmas=True):
-        assert directive in [None, 'openacc', 'omp-gpu', 'openmp']
+    def __init__(self, directive=False, keep_loki_pragmas=True):
+        assert directive in [False, 'openacc', 'omp-gpu', 'openmp']
         self.directive = directive
         self.keep_loki_pragmas = keep_loki_pragmas
         pmapper_cls_map = {

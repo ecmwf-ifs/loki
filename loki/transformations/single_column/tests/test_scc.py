@@ -363,7 +363,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openacc', 'omp-gpu'])
+@pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu'])
 def test_scc_annotate_directive(frontend, horizontal, blocking, directive):
     """
     Test the correct addition of OpenACC pragmas to SCC format code (no hoisting).
