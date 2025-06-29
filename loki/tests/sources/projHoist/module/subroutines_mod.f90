@@ -45,5 +45,19 @@ contains
         b = z
     end subroutine device2
 
+    subroutine kernel3(a, a1)
+        integer, intent(in) :: a, a1
+
+        call device3(a)
+        call device3(a1)
+    end subroutine kernel3
+
+    subroutine device3(n)
+        integer, intent(in) :: n
+        integer :: x(n)
+
+        x = 1
+    end subroutine device3
+
 end module subroutines_mod
 

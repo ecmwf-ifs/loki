@@ -14,7 +14,7 @@ from loki.batch import (
 from loki.frontend import available_frontends
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Loop, Pragma,
-    pragmas_attached
+    pragmas_attached, Import
 )
 
 from loki.transformations import (
@@ -45,22 +45,37 @@ def fixture_blocking():
     return Dimension(name='blocking', size='nb', index='b', aliases=('block_var%nb',))
 
 
+@pytest.fixture(scope='module', name='blocking_alt')
+def fixture_blocking_alt():
+    return Dimension(name='blocking', size='dims%nb', index='b', aliases=('block_var%nb',))
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('hoist_pipeline', [SCCVHoistPipeline, SCCSHoistPipeline])
-def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeline):
+def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking_alt, hoist_pipeline, tmp_path):
     """
     Test hoisting of column temporaries to "driver" level.
     """
 
+    fcode_dims_mod = """
+  MODULE dims_mod
+    TYPE dims_type
+      integer :: nb
+    END TYPE
+  END MODULE dims_mod
+"""
+
     fcode_driver = """
-  SUBROUTINE column_driver(nlon, nz, q, nb)
-    INTEGER, INTENT(IN)   :: nlon, nz, nb  ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT)   :: q(nlon,nz,nb)
+  SUBROUTINE column_driver(nlon, nz, q, dims)
+    USE dims_mod, ONLY : dims_type
+    INTEGER, INTENT(IN)   :: nlon, nz  ! Size of the horizontal and vertical
+    TYPE(DIMS_TYPE), INTENT(IN) :: dims
+    REAL, INTENT(INOUT)   :: q(nlon,nz,dims%nb)
     INTEGER :: b, start, end
 
     start = 1
     end = nlon
-    do b=1, nb
+    do b=1, dims%nb
       call compute_column(start, end, nlon, nz, q(:,:,b))
 
       ! A second call, to check multiple calls are honored
@@ -92,8 +107,11 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     END DO
   END SUBROUTINE compute_column
 """
+    dims_mod_source = Sourcefile.from_source(fcode_dims_mod, frontend=frontend, xmods=[tmp_path])
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
-    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    dims_mod = dims_mod_source['dims_mod']
+    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend,
+                                           definitions=[dims_mod], xmods=[tmp_path])
     driver = driver_source['column_driver']
     kernel = kernel_source['compute_column']
     driver.enrich(kernel)  # Attach kernel source to driver call
@@ -102,7 +120,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     kernel_item = ProcedureItem(name='#compute_column', source=kernel_source)
 
     scc_hoist = hoist_pipeline(
-        horizontal=horizontal, block_dim=blocking, directive='openacc'
+        horizontal=horizontal, block_dim=blocking_alt, directive='openacc'
     )
 
     graph_dic = {driver_item: [kernel_item]}
@@ -151,7 +169,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     else:
         assert len(driver_loops) == 1
     assert driver_loops[0].variable == 'b'
-    assert driver_loops[0].bounds == '1:nb'
+    assert driver_loops[0].bounds == '1:dims%nb'
 
     # Ensure we have two kernel calls in the driver loop
     kernel_calls = FindNodes(CallStatement).visit(driver_loops[0])
@@ -165,7 +183,7 @@ def test_scc_hoist_multiple_kernels(frontend, horizontal, blocking, hoist_pipeli
     assert 't' in kernel.argnames
     assert kernel.variable_map['t'].type.intent.lower() == 'inout'
     assert kernel.variable_map['t'].type.shape == ('nlon', 'nz')
-    assert driver.variable_map['compute_column_t'].dimensions == ('nlon', 'nz', 'nb')
+    assert driver.variable_map['compute_column_t'].dimensions == ('nlon', 'nz', 'dims%nb')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -375,7 +393,7 @@ END MODULE kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_hoist_openacc(frontend, horizontal, vertical, blocking, tmp_path):
+def test_scc_hoist_openacc(frontend, horizontal, blocking, tmp_path):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
     when hoisting array temporaries to driver.
@@ -412,13 +430,16 @@ END SUBROUTINE column_driver
 SUBROUTINE compute_column(start, end, nlon, nz, q)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, TARGET, INTENT(INOUT) :: q(nlon,nz)
     REAL :: t(nlon,nz)
     REAL :: a(nlon)
     REAL :: b(nlon,psize)
+    REAL, POINTER :: b_ptr(:,:)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
+
+    b_ptr => q
 
     c = 5.345
     DO jk = 2, nz
@@ -465,7 +486,7 @@ end module my_scaling_value_mod
 
     scc_hoist = SCCHoistPipeline(
         horizontal=horizontal, block_dim=blocking,
-        directive='openacc', dim_vars=vertical.sizes
+        directive='openacc'
     )
 
     graph_dic = {driver_item: [kernel_item]}
@@ -509,7 +530,7 @@ end module my_scaling_value_mod
         assert driver_pragmas[0].keyword == 'acc'
         assert driver_pragmas[0].content == 'enter data create(compute_column_t)'
         assert driver_pragmas[1].keyword == 'acc'
-        assert driver_pragmas[1].content == 'exit data delete(compute_column_t)'
+        assert driver_pragmas[1].content == 'exit data delete(compute_column_t) finalize'
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
@@ -557,11 +578,12 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
 
     fcode_inner_kernel = """
   SUBROUTINE update_q(start, end, nlon, nz, q, c)
+    use, intrinsic :: iso_fortran_env, only : real64
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
     REAL, INTENT(INOUT) :: q(nlon,nz)
     REAL, INTENT(IN)    :: c
-    REAL :: t(nlon,nz)
+    REAL(kind=real64)   :: t(nlon,nz)
     INTEGER :: jl, jk
 
     DO jk = 2, nz
@@ -691,6 +713,13 @@ def test_scc_hoist_nested_openacc(frontend, horizontal, vertical, blocking,
         assert outer_kernel_pragmas[1].content == 'data present(q, update_q_t)'
         assert outer_kernel_pragmas[2].keyword == 'acc'
         assert outer_kernel_pragmas[2].content == 'end data'
+
+    # check that kind import was added to driver
+    imports = FindNodes(Import).visit(driver.spec)
+    assert imports
+    assert imports[0].module.lower() == 'iso_fortran_env'
+    assert 'real64' in imports[0].symbols
+    assert driver.variable_map['update_q_t'].type.kind.name.lower() == 'real64'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
