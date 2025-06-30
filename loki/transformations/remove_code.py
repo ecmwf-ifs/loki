@@ -10,9 +10,11 @@ Collection of utilities to automatically remove code elements or
 section and to perform Dead Code Elimination.
 """
 
+import operator as op
+
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
-from loki.expression import simplify, symbols as sym
+from loki.expression import simplify, symbols as sym, symbolic_op
 from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
 from loki.tools import flatten, as_tuple
@@ -258,6 +260,27 @@ class RemoveDeadCodeTransformer(Transformer):
 
         has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
+
+    def visit_MultiConditional(self, o, **kwargs):
+        # Get select expression and simplify if requested
+        expr = self.visit(o.expr, **kwargs)
+        expr = simplify(expr) if self.use_simplify else expr
+
+        values = self.visit(o.values, **kwargs)
+        bodies = self.visit(o.bodies, **kwargs)
+        else_body = self.visit(o.else_body, **kwargs)
+
+        for val, body in zip(values, bodies):
+            # Equate select expression against case values
+            for v in val:
+                if symbolic_op(expr, op.eq, v):
+                    return body
+
+        if expr == 'False':
+            # Simplify to default if always false
+            return else_body
+
+        return self._rebuild(o, tuple((expr,) + (values,) + (bodies,) + (else_body,)), name=o.name)
 
 
 def do_remove_marked_regions(routine, mark_with_comment=True):

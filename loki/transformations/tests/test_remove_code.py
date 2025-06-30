@@ -312,6 +312,72 @@ end subroutine test_dead_code_conditional
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_dead_code_multiconditional(frontend):
+    """
+    Test correct elimination of unreachable conditional branches in
+    SELECT CASE statements.
+    """
+    fcode = """
+subroutine test_dead_code_multiconditional(a, b, i, flag)
+  real(kind=8), intent(inout) :: a, b
+  integer, intent(in) :: i
+  logical, intent(in) :: flag
+
+  if (flag) then
+    select case (2)
+    case (1)
+      a = a + b
+    case (5,2)
+      b = b + 2.0
+    case (3)
+      b = b + a
+    case default
+      a = a + 3.0
+    end select
+
+    select case (i)
+    case (1)
+      ! Check recursion...
+      if (2 == 2) then
+        b = b + a
+      else
+        a = a + 3.0
+      end if
+    case (2)
+      b = b + 4.0
+    case (3)
+      b = b + 5.0
+    case default
+      a = a + 6.0
+    end select
+
+  end if
+end subroutine test_dead_code_multiconditional
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    # Please note that nested conditionals (elseif) counts as two
+    assert len(FindNodes(ir.MultiConditional).visit(routine.body)) == 2
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 2
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 9
+
+    do_remove_dead_code(routine)
+
+    # Check that the first multi-conditional and the nested conditional
+    # inside the second conditional have been removed.
+    multiconds = FindNodes(ir.MultiConditional).visit(routine.body)
+    assert len(multiconds) == 1
+    assert multiconds[0].expr == 'i'
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 5
+    assert assigns[0].lhs == 'b' and assigns[0].rhs == 'b + 2.0'
+    assert assigns[1].lhs == 'b' and assigns[1].rhs == 'b + a'
+    assert assigns[2].lhs == 'b' and assigns[2].rhs == 'b + 4.0'
+    assert assigns[3].lhs == 'b' and assigns[3].rhs == 'b + 5.0'
+    assert assigns[4].lhs == 'a' and assigns[4].rhs == 'a + 6.0'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('mark_with_comment', [True, False])
 def test_transform_remove_code_pragma_region(frontend, mark_with_comment):
     """
