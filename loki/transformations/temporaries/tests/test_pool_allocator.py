@@ -460,7 +460,7 @@ end module kernel_mod
     assert 'tmp5' not in pointers
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc', 'openmp-manual'])
+@pytest.mark.parametrize('directive', [False, 'openmp', 'openacc', 'openmp-manual'])
 @pytest.mark.parametrize('stack_insert_pragma', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_sequence(tmp_path, frontend, block_dim, directive,
@@ -795,7 +795,7 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [None, 'openmp', 'openacc'])
+@pytest.mark.parametrize('directive', [False, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
     driver_pragma = f'!$loki loop gang{" private(b)" if directive == "openmp" else ""}'
