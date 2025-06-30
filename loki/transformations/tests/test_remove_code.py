@@ -367,6 +367,7 @@ end subroutine test_dead_code_multiconditional
     multiconds = FindNodes(ir.MultiConditional).visit(routine.body)
     assert len(multiconds) == 1
     assert multiconds[0].expr == 'i'
+    assert len(FindNodes(ir.Conditional).visit(routine.body)) == 1
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 5
     assert assigns[0].lhs == 'b' and assigns[0].rhs == 'b + 2.0'
