@@ -379,12 +379,24 @@ end subroutine test_dead_code_multiconditional
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('mark_with_comment', [True, False])
-def test_transform_remove_code_pragma_region(frontend, mark_with_comment):
+@pytest.mark.parametrize('replacement_call', [True, False])
+def test_transform_remove_code_pragma_region(frontend, mark_with_comment, replacement_call, tmp_path):
     """
     Test correct removal of pragma-marked code regions.
     """
+    fcode_module = """
+module error_mod
+contains
+  subroutine error
+  end subroutine error
+end module error_mod
+"""
+
     fcode = """
 subroutine test_remove_code(a, b, n, flag)
+  use error_mod, only: error
+  implicit none
+
   real(kind=8), intent(inout) :: a, b(n)
   integer, intent(in) :: n
   logical, intent(in) :: flag
@@ -414,9 +426,17 @@ subroutine test_remove_code(a, b, n, flag)
   end do
 end subroutine test_remove_code
 """
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+    if replacement_call:
+        do_remove_marked_regions(
+            routine, mark_with_comment=mark_with_comment,
+            replacement_call='error',
+            replacement_call_msg='Rick says no!'
+        )
+    else:
+        do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -433,6 +453,17 @@ end subroutine test_remove_code
         if '[Loki] Removed content' in c.text
     ]
     assert len(comments) == (2 if mark_with_comment else 0)
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == (2 if replacement_call else 0)
+    if replacement_call:
+        assert len(calls) == 2
+        assert calls[0].name == 'error'
+        assert calls[0].arguments == ('Rick says no!',)
+        assert calls[1].name == 'error'
+        assert calls[1].arguments == ('Rick says no!',)
+    else:
+        assert len(calls) == 0
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

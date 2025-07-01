@@ -283,7 +283,10 @@ class RemoveDeadCodeTransformer(Transformer):
         return self._rebuild(o, tuple((expr,) + (values,) + (bodies,) + (else_body,)), name=o.name)
 
 
-def do_remove_marked_regions(routine, mark_with_comment=True):
+def do_remove_marked_regions(
+        routine, mark_with_comment=True, replacement_call=None,
+        replacement_call_msg=None
+):
     """
     Utility routine to remove code regions marked with
     ``!$loki remove`` pragmas from a subroutine's body.
@@ -298,11 +301,13 @@ def do_remove_marked_regions(routine, mark_with_comment=True):
     """
 
     transformer = RemoveRegionTransformer(
-        mark_with_comment=mark_with_comment
+        mark_with_comment=mark_with_comment,
+        replacement_call=replacement_call,
+        replacement_call_msg=replacement_call_msg,
     )
 
     with pragma_regions_attached(routine):
-        routine.body = transformer.visit(routine.body)
+        routine.body = transformer.visit(routine.body, scope=routine)
 
 
 class RemoveRegionTransformer(Transformer):
@@ -325,19 +330,32 @@ class RemoveRegionTransformer(Transformer):
         removing a region; default: ``True``.
     """
 
-    def __init__(self, mark_with_comment=True, **kwargs):
+    def __init__(
+            self, mark_with_comment=True, replacement_call=None,
+            replacement_call_msg=None, **kwargs
+    ):
         super().__init__(**kwargs)
         self.mark_with_comment = mark_with_comment
+        self.replacement_call = replacement_call
+        self.replacement_call_msg = replacement_call_msg or '[Loki] Removed code path was invoked!'
 
     def visit_PragmaRegion(self, o, **kwargs):
         """ Remove :any:`PragmaRegion` nodes with ``!$loki remove`` pragmas """
 
         if is_loki_pragma(o.pragma, starts_with='remove'):
             # Leave a comment to mark the removed region in source
+            replacement = []
             if self.mark_with_comment:
-                return Comment(text='! [Loki] Removed content of pragma-marked region!')
+                replacement.append(Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
-            return None
+            if self.replacement_call:
+                call = CallStatement(
+                    name=sym.ProcedureSymbol(self.replacement_call),
+                    arguments=(sym.StringLiteral(self.replacement_call_msg),)
+                )
+                replacement.append(call)
+
+            return tuple(replacement)
 
         # Recurse into the pragama region and rebuild
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
