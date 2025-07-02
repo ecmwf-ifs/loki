@@ -20,7 +20,7 @@ from loki.types import SymbolAttributes, BasicType
 
 __all__ = [
     'remove_explicit_array_dimensions', 'add_explicit_array_dimensions',
-    'resolve_vector_notation',
+    'resolve_vector_notation', 'ResolveVectorNotationTransformer'
 ]
 
 
@@ -102,18 +102,50 @@ def resolve_vector_notation(routine):
     """
     Resolve implicit vector notation by inserting explicit loops
     """
-    loop_map = {}
-    index_vars = set()
-    vmap = {}
-    # find available loops and create map {(lower, upper, step): loop_variable}
+
+    # Find available loops and create map {(lower, upper, step): loop_variable}
     loops = FindNodes(Loop).visit(routine.body)
     loop_map = {(loop.bounds.lower, loop.bounds.upper, loop.bounds.step or 1):
                 loop.variable for loop in loops}
-    for stmt in FindNodes(Assignment).visit(routine.body):
-        # Loop over all variables and replace them with loop indices
+
+    transformer = ResolveVectorNotationTransformer(
+        loop_map=loop_map, scope=routine, inplace=True
+    )
+    routine.body = transformer.visit(routine.body)
+
+    # Add declarations for all newly create loop index variables
+    routine.variables += tuple(set(transformer.index_vars))
+
+
+class ResolveVectorNotationTransformer(Transformer):
+    """
+    A :any:`Transformer` that resolves implicit vector notation by
+    inserting explicit loops.
+
+    Parameters
+    ----------
+    loop_map : dict of tuple to :any:`Variable`
+        A dict mapping the tuple ``(lower, upper, step)`` to
+        a known variable symbol to use as loop index.
+    scope : :any:`Subroutine` or :any:`Module`
+        The scope in which to create new loop index variables
+    """
+
+    def __init__(self, *args, loop_map={}, scope=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.scope = scope
+        self.loop_map = loop_map
+        self.index_vars = set()
+
+    def visit_Assignment(self, stmt):
+
+        vmap = {}
         vdims = []
         shape_index_map = {}
         index_range_map = {}
+
+        # Loop over all variables and replace them with loop indices
         for v in FindVariables(unique=False).visit(stmt):
             if not isinstance(v, sym.Array):
                 continue
@@ -131,13 +163,13 @@ def resolve_vector_notation(routine):
                     test_range = (sym.IntLiteral(1), _s, 1) if not isinstance(_s, sym.RangeIndex)\
                             else (_s.lower, _s.upper, 1)
                     # actually test for it
-                    if test_range in loop_map:
+                    if test_range in self.loop_map:
                         # Use index variable of available matching loop
-                        ivar = loop_map[test_range]
+                        ivar = self.loop_map[test_range]
                     else:
                         # Create new index variable
                         vtype = SymbolAttributes(BasicType.INTEGER)
-                        ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=routine)
+                        ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=self.scope)
                     shape_index_map[(i, s)] = ivar
                     index_range_map[ivar] = _s
 
@@ -149,7 +181,7 @@ def resolve_vector_notation(routine):
                                 for i, d, s in zip(count(), v.dimensions, as_tuple(v.shape)))
             vmap[v] = v.clone(dimensions=new_dims)
 
-        index_vars.update(list(vdims))
+        self.index_vars.update(list(vdims))
 
         # Recursively build new loop nest over all implicit dims
         if len(vdims) > 0:
@@ -164,11 +196,8 @@ def resolve_vector_notation(routine):
                 loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                 body = loop
 
-            loop_map[stmt] = loop
+            # Return the loop nest to replace the statement
+            return SubstituteExpressions(vmap).visit(loop)
 
-    if len(loop_map) > 0:
-        routine.body = Transformer(loop_map).visit(routine.body)
-    routine.variables += tuple(set(index_vars))
-
-    # Apply variable substitution
-    routine.body = SubstituteExpressions(vmap).visit(routine.body)
+        # No vector dimensions encountered, return unchanged
+        return stmt
