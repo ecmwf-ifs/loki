@@ -1031,11 +1031,11 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
         with caplog.at_level(WARNING):
             scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
         if frontend == OMNI:
+            assert len(caplog.records) == 3
+            message = caplog.records[2].message
+        else:
             assert len(caplog.records) == 2
             message = caplog.records[1].message
-        else:
-            assert len(caplog.records) == 1
-            message = caplog.records[0].message
         assert "[Loki-SCC::Annotate] dynamically allocated structs are being privatised: ['local_dims']" in message
     else:
         scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
