@@ -112,6 +112,10 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
         if param_detach := parameters.get('detach'):
             content += f' detach({param_detach})'
         if content:
+            # Rather than simply decrementing the dynamic reference counter,
+            # finalize forces it to zero. This isn't needed for OpenMP, where
+            # target exit data map(delete:<>) statement already sets the
+            # dynamic reference counter to 0
             final = ' finalize' if 'finalize' in parameters else ''
             return Pragma(keyword='acc', content=f'exit data{content}{final}')
         return self.default_retval()
