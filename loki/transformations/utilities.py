@@ -550,7 +550,11 @@ def get_integer_variable(routine, name):
     name : string
         Name of the variable to find the in the routine.
     """
-    if not (v_index := routine.symbol_map.get(name, None)):
+
+    symbol_map = routine.symbol_map
+    if name.split('%', maxsplit=1)[0] in symbol_map:
+        v_index = routine.resolve_typebound_var(name, symbol_map)
+    else:
         dtype = SymbolAttributes(BasicType.INTEGER)
         v_index = sym.Variable(name=name, type=dtype, scope=routine)
     return v_index

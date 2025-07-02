@@ -2,7 +2,7 @@ Loki,OpenACC,OMP-GPU
 ``create device(...)``,``declare create(...)``,``declare target(...)``
 ``update device(...) host(...)``,``update device(...) self(...)``,
 ``unstructured-data in(...) create(...) attach(...)``,``enter data copyin(...) create(...) attach(...)``,``target enter data map(to: ...) map(alloc: ...)``
-``end unstructured-data out(...) delete(...) detach(...)``,``exit data copyout(...) delete(...) detach(...)``,``target exit data map(from: ...) map(delete: ...) map(release: ... ???)``
+``end unstructured-data out(...) delete(...) detach(...) [finalize]``,``exit data copyout(...) delete(...) detach(...) [finalize]``,``target exit data map(from: ...) map(delete: ...) map(release: ... ???)``
 ``structured-data inout(...) in(...) out(...) create(...) present(...)``,``data copy(...) copyin(...) copyout(...) create(...) present(...)``,``target data map(tofrom: ...) map(to: ...) map(from: ...) map(to: ...)``
 ``end structured-data inout(...) in(...) out(...)``,``end data``,``end target data``
 ``loop gang private(...) vlength(...)``,``parallel loop gang private(...) vector_length(...)``,``target teams distribute thread_limit(...) ???``

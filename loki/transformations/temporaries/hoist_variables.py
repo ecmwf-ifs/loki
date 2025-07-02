@@ -141,13 +141,17 @@ class HoistVariablesAnalysis(Transformation):
             variables = self.find_variables(routine)
             item.trafo_data[self._key]["to_hoist"] = variables
             dims = flatten([getattr(v, 'shape', []) for v in variables])
+            kinds = [v.type.kind for v in variables if v.type.kind]
             import_map = routine.import_map
-            item.trafo_data[self._key]["imported_sizes"] = [(d.type.module, d) for d in dims
+            item.trafo_data[self._key]["imported_sizes"] = [(d.type.module.name, d) for d in dims
                                                             if str(d) in import_map]
+            item.trafo_data[self._key]["imported_kinds"] = [(import_map[k].module, k) for k in kinds
+                                                             if k.name in import_map]
             item.trafo_data[self._key]["hoist_variables"] = [var.clone(name=f'{routine.name}_{var.name}')
                                                              for var in variables]
         else:
             item.trafo_data[self._key]["imported_sizes"] = []
+            item.trafo_data[self._key]["imported_kinds"] = []
             item.trafo_data[self._key]["to_hoist"] = []
             item.trafo_data[self._key]["hoist_variables"] = []
 
@@ -159,20 +163,25 @@ class HoistVariablesAnalysis(Transformation):
             if not isinstance(child, ProcedureItem):
                 continue
 
+            # We may call a subroutine again with aliased sizes, so we check hoisted
+            # variables in children by name before adding them
+            hoist_var_names = [v.name.lower() for v in item.trafo_data[self._key]["hoist_variables"]]
+
             arg_map = dict(call_map[child.local_name].arg_iter())
             hoist_variables = []
             for var in child.trafo_data[self._key]["hoist_variables"]:
+                if var.name.lower() in hoist_var_names:
+                    continue
+
                 if isinstance(var, sym.Array):
                     dimensions = SubstituteExpressions(arg_map).visit(var.dimensions)
                     hoist_variables.append(var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions)))
                 else:
                     hoist_variables.append(var)
             item.trafo_data[self._key]["to_hoist"].extend(hoist_variables)
-            item.trafo_data[self._key]["to_hoist"] = list(dict.fromkeys(item.trafo_data[self._key]["to_hoist"]))
             item.trafo_data[self._key]["hoist_variables"].extend(hoist_variables)
-            item.trafo_data[self._key]["hoist_variables"] = list(dict.fromkeys(
-                item.trafo_data[self._key]["hoist_variables"]))
             item.trafo_data[self._key]["imported_sizes"] += child.trafo_data[self._key]["imported_sizes"]
+            item.trafo_data[self._key]["imported_kinds"] += child.trafo_data[self._key]["imported_kinds"]
 
     def find_variables(self, routine):
         """
@@ -298,17 +307,20 @@ class HoistVariablesTransformation(Transformation):
         for module, var in item.trafo_data[self._key]["imported_sizes"]:
             if not var.name in import_map:
                 missing_imports_map[module] |= {var}
+        for module, var in item.trafo_data[self._key]["imported_kinds"]:
+            if not var.name in import_map:
+                missing_imports_map[module] |= {var}
 
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
                 '![Loki::HoistVariablesTransformation] ---------------------------------------'
             )))
             for module, variables in missing_imports_map.items():
-                routine.spec.prepend(Import(module=module.name, symbols=variables))
+                routine.spec.prepend(Import(module=module, symbols=variables))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::HoistVariablesTransformation] '
-                '-------- Added hoisted temporary size imports -------------------------------'
+                '-------- Added hoisted temporary size and kind imports -------------------------------'
             )))
 
         routine.body = Transformer(call_map).visit(routine.body)
@@ -492,6 +504,7 @@ class HoistTemporaryArraysAnalysis(HoistVariablesAnalysis):
                 if var not in routine.arguments    # local variable
                 and not all(is_dimension_constant(d) for d in var.shape)
                 and not var.name.lower() == result_name.lower()
+                and not var.type.pointer and not var.type.allocatable
                 and (self.dim_vars is None         # if dim_vars not empty check if at least one dim is within dim_vars
                      or any(dim_var in self.dim_vars for dim_var in FindVariables().visit(var.dimensions)))]
 

@@ -319,7 +319,7 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
                 if '%' in alias:
                     elem = alias_arg.split('%')[1]
                     alias_arg = alias_arg.split('%')[0]
-                if alias_arg in call_arg_map:
+                if alias_arg.lower() in call_arg_map:
                     return (call_arg_map[alias_arg.lower()], elem)
         return (call_arg_map[bound.lower()], None)
 
