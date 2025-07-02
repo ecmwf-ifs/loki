@@ -49,6 +49,11 @@ class RemoveCodeTransformation(Transformation):
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
+    replacement_call : str
+        Name of the subroutine to call as a replacement for the
+        marked code regions.
+    replacement_call_msg : str
+        String to include as a first argument to the replacement call.
     remove_dead_code : boolean
         Flag to trigger the use of :meth:`remove_dead_code`;
         default: ``False``
@@ -77,6 +82,7 @@ class RemoveCodeTransformation(Transformation):
 
     def __init__(
             self, remove_marked_regions=True, mark_with_comment=True,
+            replacement_call=None, replacement_call_msg=None,
             remove_dead_code=False, use_simplify=True,
             call_names=None, intrinsic_names=None,
             remove_imports=True, kernel_only=False,
@@ -84,6 +90,8 @@ class RemoveCodeTransformation(Transformation):
     ):
         self.remove_marked_regions = remove_marked_regions
         self.mark_with_comment = mark_with_comment
+        self.replacement_call=replacement_call
+        self.replacement_call_msg=replacement_call_msg
 
         self.remove_dead_code = remove_dead_code
         self.use_simplify = use_simplify
@@ -109,7 +117,9 @@ class RemoveCodeTransformation(Transformation):
             # Apply marked region removal
             if self.remove_marked_regions:
                 do_remove_marked_regions(
-                    routine, mark_with_comment=self.mark_with_comment
+                    routine, mark_with_comment=self.mark_with_comment,
+                    replacement_call=self.replacement_call,
+                    replacement_call_msg=self.replacement_call_msg
                 )
 
             # Apply Dead Code Elimination
@@ -291,6 +301,8 @@ def do_remove_marked_regions(
     Utility routine to remove code regions marked with
     ``!$loki remove`` pragmas from a subroutine's body.
 
+    For more information, see :any:`RemoveRegionTransformer`.
+
     Parameters
     ----------
     routine : :any:`Subroutine`
@@ -298,6 +310,11 @@ def do_remove_marked_regions(
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
+    replacement_call : str
+        Name of the subroutine to call as a replacement for the
+        removed code region.
+    replacement_call_msg : str
+        String to include as a first argument to the replacement call.
     """
 
     transformer = RemoveRegionTransformer(
@@ -323,11 +340,21 @@ class RemoveRegionTransformer(Transformer):
     comment in the source to mark the previous location, or remove the
     code region entirely.
 
+    If requested, the removed region can also be replaced by a single
+    :any:`CallStatement`, for example to raise an error should the
+    code path be invoked. The ``replacement_call`` name and
+    ``replacement_call_msg`` can be provided to facilitate that.
+
     Parameters
     ----------
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
+    replacement_call : str
+        Name of the subroutine to call as a replacement for the
+        removed code region.
+    replacement_call_msg : str
+        String to include as a first argument to the replacement call.
     """
 
     def __init__(

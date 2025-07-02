@@ -73,6 +73,10 @@ subroutine never_gonna_give
     WRITE(NULOUT,*) "[WRITE INTRINSIC]"
     if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
 
+    !$loki remove
+    print *, 'and desert you!'
+    !$loki end remove
+
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
 
 contains
@@ -574,7 +578,7 @@ end subroutine
 def test_remove_code_transformation(frontend, source, include_intrinsics, kernel_only, tmp_path):
     """
     Test the use of code removal utilities, in particular the call
-    removal, via the scheduler.
+    removal and marked region removal, via the scheduler.
     """
 
     config = {
@@ -593,7 +597,10 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
     transformation = RemoveCodeTransformation(
         call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT',) if include_intrinsics else (),
-        kernel_only=kernel_only
+        kernel_only=kernel_only,
+        remove_marked_regions=True,
+        replacement_call='error',
+        replacement_call_msg='Rick says no!'
     )
     scheduler.process(transformation=transformation)
 
@@ -610,6 +617,14 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
         assert '[SUBROUTINE CALL]' not in transformed
         assert '[INLINE CONDITIONAL]' not in transformed
         assert ('dave' not in transformed) == include_intrinsics
+
+    # Check that marked region removal inserted an error call
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 2
+    assert calls[0].name == 'never_gonna_run_around'
+    assert calls[0].arguments == ()
+    assert calls[1].name == 'error'
+    assert calls[1].arguments == ('Rick says no!',)
 
     routine = Sourcefile.from_file(
         source/'never_gonna_give.F90', frontend=frontend
