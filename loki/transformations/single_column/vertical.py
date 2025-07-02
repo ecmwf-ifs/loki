@@ -51,6 +51,9 @@ class SCCFuseVerticalLoops(Transformation):
         self.vertical = vertical
         self.apply_to = apply_to or ()
 
+        if self.vertical is None:
+            info('[SCCFuseVerticalLoops] is not applied as the vertical dimension is not defined!')
+
     def transform_subroutine(self, routine, **kwargs):
         """
         Fuse vertical loops and demote temporaries in the vertical dimension
@@ -63,7 +66,6 @@ class SCCFuseVerticalLoops(Transformation):
             temporaries be demoted.
         """
         if self.vertical is None:
-            info('[SCCFuseVerticalLoops] is not applied as the vertical dimension is not defined!')
             return
         role = kwargs['role']
         if role == 'kernel':
