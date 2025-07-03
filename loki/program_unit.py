@@ -315,7 +315,7 @@ class ProgramUnit(Scope):
                 # Import all symbols
                 rename_list = CaseInsensitiveDict((k, v) for k, v in as_tuple(imprt.rename_list))
                 symbols = [
-                    Variable(name=rename_list.get(symbol.name, symbol.name), scope=self)
+                    Variable(name=str(rename_list.get(symbol.name, symbol.name)), scope=self)
                     for symbol in module.symbols
                 ]
 
