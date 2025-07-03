@@ -141,7 +141,7 @@ class HoistVariablesAnalysis(Transformation):
             variables = self.find_variables(routine)
             item.trafo_data[self._key]["to_hoist"] = variables
             dims = flatten([getattr(v, 'shape', []) for v in variables])
-            kinds = [v.type.kind for v in variables]
+            kinds = [v.type.kind for v in variables if v.type.kind]
             import_map = routine.import_map
             item.trafo_data[self._key]["imported_sizes"] = [(d.type.module, d) for d in dims
                                                             if str(d) in import_map]
@@ -306,7 +306,7 @@ class HoistVariablesTransformation(Transformation):
         import_map = routine.import_map
         for module, var in item.trafo_data[self._key]["imported_sizes"]:
             if not var.name in import_map:
-                missing_imports_map[module] |= {var}
+                missing_imports_map[module.name] |= {var}
         for module, var in item.trafo_data[self._key]["imported_kinds"]:
             if not var.name in import_map:
                 missing_imports_map[module] |= {var}
@@ -316,7 +316,7 @@ class HoistVariablesTransformation(Transformation):
                 '![Loki::HoistVariablesTransformation] ---------------------------------------'
             )))
             for module, variables in missing_imports_map.items():
-                routine.spec.prepend(Import(module=str(module), symbols=variables))
+                routine.spec.prepend(Import(module=module, symbols=variables))
 
             routine.spec.prepend(Comment(text=(
                 '![Loki::HoistVariablesTransformation] '
