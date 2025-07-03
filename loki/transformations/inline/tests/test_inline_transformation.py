@@ -515,14 +515,14 @@ module outermost_mod
 implicit none
 contains
 subroutine outermost()
-use intermediate_1_mod, only: intermediate_1
-use intermediate_2_mod, only: intermediate_2
+use intermediate_1_mod, only: intermediate1 => intermediate_1
+use intermediate_2_mod, intermediate2 => intermediate_2
 
 !$loki inline
-call intermediate_1()
+call intermediate1()
 
 !$loki inline
-call intermediate_2()
+call intermediate2()
 
 end subroutine outermost
 end module outermost_mod

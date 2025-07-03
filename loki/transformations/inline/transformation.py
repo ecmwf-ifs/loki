@@ -152,7 +152,12 @@ class InlineTransformation(Transformation):
                     not_inline_calls.add(str(call.name).lower())
         # removed/inlined calls, making sure all calls to the same routine are inlined
         removed_calls = inline_calls - not_inline_calls
-        inline_items = [successor_map[call] for call in removed_calls]
+        rename_map = CaseInsensitiveDict(
+                (s.name, s.type.use_name if s.type.use_name else s.name)
+                for imprt in reversed(getattr(routine, 'imports', ()))
+                for s in imprt.symbols or [r[1] for r in imprt.rename_list or ()]
+                )
+        inline_items = [successor_map[rename_map.get(call, call)] for call in removed_calls]
         # adapt 'removed_dependencies' and 'additional_dependencies' accordingly
         if inline_items:
             item.plan_data.setdefault('removed_dependencies', ())
