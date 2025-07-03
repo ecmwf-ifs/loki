@@ -150,7 +150,8 @@ class InlineTransformation(Transformation):
                     inline_calls.add(str(call.name).lower())
                 else:
                     not_inline_calls.add(str(call.name).lower())
-        # removed/inlined calls, making sure all calls to the same routine are inlined
+        # Determine the list of routines that will be completely inlined and therefore no longer be dependencies
+        # of the current item. If calls to the same routine remain non-inlined, the dependency remains, too.
         removed_calls = inline_calls - not_inline_calls
         rename_map = CaseInsensitiveDict(
                 (s.name, s.type.use_name if s.type.use_name else s.name)
@@ -158,7 +159,10 @@ class InlineTransformation(Transformation):
                 for s in imprt.symbols or [r[1] for r in imprt.rename_list or ()]
                 )
         inline_items = [successor_map[rename_map.get(call, call)] for call in removed_calls]
-        # adapt 'removed_dependencies' and 'additional_dependencies' accordingly
+        # Add fully inlined dependencies to the 'removed_dependencies' list in the plan data to indicate that
+        # they will no longer be dependents. At the same time add any dependencies of inlined successors
+        # to the current item's dependencies as these will be inherited as dependents (unless they are also
+        # inlined)
         if inline_items:
             item.plan_data.setdefault('removed_dependencies', ())
             item.plan_data.setdefault('additional_dependencies', ())
