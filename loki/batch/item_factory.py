@@ -607,7 +607,12 @@ class ItemFactory:
         :any:`MetaSymbol` or :any:`TypedSymbol` :
             The symbol in the defining scope
         """
-        imprt_symbol = imprt.symbols[imprt.symbols.index(symbol_name)]
+        if imprt.symbols:
+            imprt_symbol = imprt.symbols[imprt.symbols.index(symbol_name)]
+        else:
+            rename_dic = CaseInsensitiveDict({local.name: use for (use, local) in imprt.rename_list})
+            symbol_name = rename_dic[symbol_name]
+            imprt_symbol = None
         if imprt_symbol and imprt_symbol.type.use_name:
             symbol_name = imprt_symbol.type.use_name
         return symbol_name
