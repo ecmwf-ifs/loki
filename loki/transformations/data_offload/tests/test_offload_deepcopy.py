@@ -12,10 +12,13 @@ import yaml
 from loki.backend import fgen
 from loki.batch import Scheduler
 from loki.ir import nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attached, get_pragma_parameters
+from loki.expression import Variable, RangeIndex, IntLiteral
 from loki.frontend import available_frontends
 from loki.logging import log_levels
-from loki.tools import gettempdir, flatten
+from loki.subroutine import Subroutine
+from loki.tools import gettempdir, flatten, as_tuple
 from loki.transformations import DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, find_driver_loops
+from loki.types import BasicType, SymbolAttributes
 
 
 @pytest.fixture(scope='module', name='deepcopy_code')
@@ -663,3 +666,55 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
             parameters = get_pragma_parameters(region.pragma)
             present_vars = [v.strip().lower() for v in parameters['present'].split(',')]
             assert all(v in present_vars for v in ['geometry', 'struct', 'variable'])
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('depth', [1, 2, 3, 4])
+def test_loop_nest_wrapping(frontend, depth):
+    """Test the utility to wrap a given body in a loop nest."""
+
+    fcode = """
+subroutine kernel()
+  implicit none
+end subroutine kernel
+    """
+
+    def _check_loops(loop, depth, loop_level):
+        assert isinstance(loop, ir.Loop)
+
+        # check loop bounds
+        assert fgen(loop.bounds.lower).lower() == f'lbound(var, {loop_level})'
+        assert fgen(loop.bounds.upper).lower() == f'ubound(var, {loop_level})'
+
+        # check loop index
+        assert loop.variable.name.lower() == f'j{loop_level}'
+
+        if loop_level > 1:
+            _check_loops(loop.body[0], depth, loop_level - 1)
+        else:
+            assert isinstance(loop.body[0], ir.Assignment)
+            assert fgen(loop.body[0].lhs).lower() == f"var({', '.join(f'j{d+1}' for d in range(depth))})"
+            assert loop.body[0].rhs == '0'
+            assert isinstance(loop.body[1], ir.Pragma)
+            assert loop.body[1].keyword == 'loki'
+            assert loop.body[1].content.lower() == f"update device( var({', '.join(f'j{d+1}' for d in range(depth))}) )"
+
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    shape = as_tuple([RangeIndex((None, None))] * depth)
+    var = Variable(name='var', type=SymbolAttributes(BasicType.INTEGER, shape=shape), dimensions=shape, scope=routine)
+
+    routine.variables += (var,)
+    assign = ir.Assignment(lhs=var.clone(dimensions=None), rhs=IntLiteral(0)) # pylint:disable=no-member
+    pragma = ir.Pragma(keyword='loki', content='update device( var )')
+    body = (assign, pragma)
+
+    trafo = DataOffloadDeepcopyTransformation(mode='offload')
+    loopnest = trafo.wrap_in_loopnest(var.clone(dimensions=None), body, routine) # pylint:disable=no-member
+
+    # check loop variable was added to routine
+    variables = routine.variables
+    assert all(f'J{d+1}' in variables for d in range(depth))
+
+    # check loops are correctly nested
+    _check_loops(loopnest[0], depth, depth)

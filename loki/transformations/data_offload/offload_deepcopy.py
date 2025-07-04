@@ -19,10 +19,10 @@ from loki.ir import (
 )
 from loki.expression import symbols as sym
 from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
-from loki.transformations.utilities import find_driver_loops
+from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
 from loki.tools import as_tuple
-from loki.types import BasicType, DerivedType, SymbolAttributes
+from loki.types import DerivedType
 from loki.transformations.field_api import (
         FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data
 )
@@ -544,16 +544,17 @@ class DataOffloadDeepcopyTransformation(Transformation):
         if not body:
             return ()
 
-        loopbody = ()
+        # initialise working variables
         loop_vars = []
-        variable_map = routine.variable_map
+        loopbody = body
+        var_with_dims = None
+        dimensions = var.dimensions
 
+        # build loop-nest one layer at a time
         for dim in range(len(var.type.shape)):
-            if f'j{dim+1}' in variable_map:
-                loop_vars += [variable_map[f'j{dim+1}']]
-            else:
-                loop_vars += [sym.Variable(name=f'J{dim+1}', type=SymbolAttributes(dtype=BasicType.INTEGER),
-                                           scope=routine)]
+
+            loop_vars += [get_integer_variable(routine, f'J{dim+1}')]
+            if not loop_vars[-1] in routine.variables:
                 routine.variables += as_tuple(loop_vars[-1])
 
             # Create loop bounds
@@ -563,20 +564,13 @@ class DataOffloadDeepcopyTransformation(Transformation):
                                     parameters=(var, sym.IntLiteral(dim+1)))
             bounds = sym.LoopRange((lstart, lend))
 
-            if not loopbody:
-                # Create first layer of loop nest
-                vmap = {var: var.clone(dimensions=as_tuple(loop_vars[-1]))}
-                str_map = {str(k): str(v) for k, v in vmap.items()}
+            var_with_dims = var.clone(dimensions=dimensions)
+            dimensions += as_tuple(loop_vars[-1])
+            vmap = {var_with_dims: var_with_dims.clone(dimensions=dimensions)}
+            str_map = {str(k): str(v) for k, v in vmap.items()}
 
-                SubstitutePragmaStrings(str_map).visit(body)
-                loopbody = as_tuple(SubstituteExpressions(vmap).visit(body))
-            else:
-                # Add subsequent layers
-                vmap = {loop_vars[-2]: (loop_vars[-2], loop_vars[-1])}
-                str_map = {str(k): str(v) for k, v in vmap.items()}
-
-                SubstitutePragmaStrings(str_map).visit(loopbody)
-                loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
+            SubstitutePragmaStrings(str_map).visit(loopbody)
+            loopbody = as_tuple(SubstituteExpressions(vmap).visit(loopbody))
 
             loop = ir.Loop(variable=loop_vars[-1], bounds=bounds, body=loopbody)
             loopbody = loop
