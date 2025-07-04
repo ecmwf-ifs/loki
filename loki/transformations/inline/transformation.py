@@ -158,7 +158,10 @@ class InlineTransformation(Transformation):
                 for imprt in reversed(getattr(routine, 'imports', ()))
                 for s in imprt.symbols or [r[1] for r in imprt.rename_list or ()]
                 )
-        inline_items = [successor_map[rename_map.get(call, call)] for call in removed_calls]
+        inline_items = [successor_map[rename_map.get(call, call)] for call in removed_calls
+                # this shouldn't be necessary, however, if for example a call is marked as to be inlined
+                # within a loki remove pragma region this could otherwise end up throwing an error
+                if rename_map.get(call, call) in successor_map]
         # Add fully inlined dependencies to the 'removed_dependencies' list in the plan data to indicate that
         # they will no longer be dependents. At the same time add any dependencies of inlined successors
         # to the current item's dependencies as these will be inherited as dependents (unless they are also
