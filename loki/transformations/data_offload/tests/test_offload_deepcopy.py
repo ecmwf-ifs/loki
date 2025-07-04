@@ -15,10 +15,11 @@ from loki.ir import nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attac
 from loki.expression import Variable, RangeIndex, IntLiteral
 from loki.frontend import available_frontends
 from loki.logging import log_levels
+from loki.scope import Scope
 from loki.subroutine import Subroutine
 from loki.tools import gettempdir, flatten, as_tuple
 from loki.transformations import DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, find_driver_loops
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
 @pytest.fixture(scope='module', name='deepcopy_code')
@@ -718,3 +719,25 @@ end subroutine kernel
 
     # check loops are correctly nested
     _check_loops(loopnest[0], depth, depth)
+
+
+@pytest.mark.parametrize('rank', [1, 2, 3, 4, 5])
+@pytest.mark.parametrize('suff', ['im', 'rb', 'rd', 'lm'])
+def test_dummy_field_array_typdef_config(rank, suff):
+    """Test the creation of a typedef config for ``FIELD_RANKSUFF_ARRAY`` types."""
+
+    scope = Scope()
+    typedef = ir.TypeDef(name=f'field_{rank}{suff}_array', parent=scope) # pylint: disable=unexpected-keyword-arg
+    _type = SymbolAttributes(DerivedType(typedef=typedef))
+    var = Variable(name='field_array', scope=scope, type=_type)
+
+    trafo = DataOffloadDeepcopyTransformation(mode='offload')
+    typedef_config = trafo.create_dummy_field_array_typedef_config(var)
+
+    # check typedef config was created correctly
+    ref_config = {
+        'field_prefix': 'F_',
+        'field_ptr_suffix': '_FIELD',
+        'field_ptr_map': {}
+    }
+    assert typedef_config == ref_config
