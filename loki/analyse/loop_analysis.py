@@ -40,22 +40,16 @@ class LoopTree:
         ----------
         loop : :any:`ir.Loop`
             :any:`ir.Loop` of the tree node
-        parent : :any:`LoopTree.Treenode` or None
-            parent node in the LoopTree
         children : list of :any:`LoopTree.Treenode`
             child nodes in the LoopTree
         depth : int
             nesting depth of the node (0 if root)
         """
 
-        def __init__(self, loop: ir.Loop, parent=None):
+        def __init__(self, loop: ir.Loop, depth):
             self.loop = loop
-            self.parent = parent
             self.children = []
-            self.depth = 0 if parent is None else parent.depth+1
-
-            if parent:
-                parent.children.append(self)
+            self.depth = depth
 
     def __init__(self):
         self.roots = []
@@ -65,9 +59,13 @@ class LoopTree:
         """
         Helper function to add a loop to the LoopTree
         """
-        tree_node = self.TreeNode(loop, parent)
         if parent is None:
+            tree_node = self.TreeNode(loop, 0)
             self.roots.append(tree_node)
+        else:
+            tree_node = self.TreeNode(loop, parent.depth+1)
+            parent.children.append(tree_node)
+
         self.loop_map[loop] = tree_node
         return tree_node
 
