@@ -7,7 +7,6 @@
 
 from loki.batch import Transformation
 from loki.expression import symbols as sym
-from loki.frontend import HAVE_FP
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, FindExpressions,
     SubstituteExpressions
@@ -19,8 +18,6 @@ from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     get_integer_variable, check_routine_sequential, rename_variables
 )
-if HAVE_FP:
-    from fparser.two import Fortran2003
 
 
 __all__ = ['SCCBaseTransformation']

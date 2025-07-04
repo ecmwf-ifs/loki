@@ -1441,42 +1441,6 @@ def test_scc_inline_and_sequence_association(
         assert fgen(assign).lower() == 'work(jl) = 1.'
 
 
-@pytest.mark.xfail(not HAVE_FP, reason="Identification of array reduction intrinsics requires fparser.")
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_resolve_vector_dimension(frontend, horizontal):
-    """
-    Test SCC vector resolution utility.
-    """
-
-    fcode = """
-subroutine kernel(start, end, nlon, work)
-   integer, intent(in) :: start, end, nlon
-   real, intent(out) :: work(nlon)
-   integer :: jl
-   real :: work_maxval
-
-   work(start:end) = 0.
-   work_maxval = maxval(work(start:end))
-
-end subroutine kernel
-"""
-
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    SCCBaseTransformation.resolve_vector_dimension(routine, routine.variable_map[horizontal.index],
-                                                   horizontal.bounds)
-
-    loops = FindNodes(Loop).visit(routine.body)
-    assigns = FindNodes(Assignment).visit(routine.body)
-    assert len(assigns) == 2
-
-    assert len(loops) == 1
-    assert assigns[0] in loops[0].body
-    assert not assigns[1] in loops[0].body
-
-    assert 'maxval' == assigns[1].rhs.name.lower()
-    assert 'start:end' in assigns[1].rhs.parameters[0].dimensions
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('pipeline,mode', [
     (SCCVVectorPipeline, 'vector'),

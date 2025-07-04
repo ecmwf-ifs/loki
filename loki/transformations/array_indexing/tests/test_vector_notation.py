@@ -8,15 +8,15 @@
 import pytest
 import numpy as np
 
-from loki import Module, Subroutine
+from loki import Module, Subroutine, Dimension
 from loki.jit_build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables
 
 from loki.transformations.array_indexing.vector_notation import (
-    resolve_vector_notation, remove_explicit_array_dimensions,
-    add_explicit_array_dimensions
+    resolve_vector_notation, resolve_vector_dimension,
+    remove_explicit_array_dimensions, add_explicit_array_dimensions
 )
 
 
@@ -316,3 +316,37 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
     assert (b_test == b_ref).all()
 
     builder.clean()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension(frontend):
+    """ Test vector resolution utility for a single dimension. """
+
+    fcode = """
+subroutine kernel(start, end, nlon, work)
+   integer, intent(in) :: start, end, nlon
+   real, intent(out) :: work(nlon)
+   integer :: jl
+   real :: work_maxval
+
+   work(start:end) = 0.
+   work_maxval = maxval(work(start:end))
+
+end subroutine kernel
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+
+    resolve_vector_dimension(routine, dimension=horizontal)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+
+    assert len(loops) == 1
+    assert assigns[0] in loops[0].body
+    assert not assigns[1] in loops[0].body
+
+    assert 'maxval' == assigns[1].rhs.name.lower()
+    assert 'start:end' in assigns[1].rhs.parameters[0].dimensions
