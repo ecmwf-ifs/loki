@@ -153,6 +153,10 @@ class BlockViewToFieldViewTransformation(Transformation):
 
             typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),) # pylint: disable=unexpected-keyword-arg
 
+        # attach a scope to the symbols in the newly created typedefs
+        for typedef in typedefs:
+            typedef.rescope_symbols()
+
         return typedefs
 
     def _create_dummy_field_api_defs(self, field_array_mod_imports):
@@ -212,7 +216,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
 
-    def process_body(self, body, definitions, successors, targets, exclude_arrays):
+    def process_body(self, body, item, successors, targets, exclude_arrays):
 
         # build list of type-bound array access using the horizontal index
         _vars = [var for var in FindVariables(unique=False).visit(body)
@@ -240,7 +244,9 @@ class BlockViewToFieldViewTransformation(Transformation):
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # propagate dummy field_api wrapper definitions to children
-        self.propagate_defs_to_children(self._key, definitions, successors)
+        if item.trafo_data.get(self._key, None):
+            definitions = item.trafo_data[self._key]['definitions']
+            self.propagate_defs_to_children(self._key, definitions, successors)
 
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
@@ -261,8 +267,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
         # for kernels we process the entire body
-        routine.body = self.process_body(routine.body, item.trafo_data[self._key]['definitions'],
-                                         successors, targets, exclude_arrays)
+        routine.body = self.process_body(routine.body, item, successors, targets, exclude_arrays)
 
 
 class InjectBlockIndexTransformation(Transformation):
