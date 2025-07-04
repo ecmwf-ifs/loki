@@ -9,9 +9,9 @@
 
 from itertools import count
 
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.ir import (
-    nodes as ir, Assignment, Loop, FindNodes,
+    nodes as ir, Loop, FindNodes,
     Transformer, FindVariables, SubstituteExpressions, FindInlineCalls
 )
 from loki.tools import as_tuple
@@ -103,10 +103,11 @@ def resolve_vector_notation(routine):
     Resolve implicit vector notation by inserting explicit loops
     """
 
-    # Find available loops and create map {(lower, upper, step): loop_variable}
-    loops = FindNodes(Loop).visit(routine.body)
-    loop_map = {(loop.bounds.lower, loop.bounds.upper, loop.bounds.step or 1):
-                loop.variable for loop in loops}
+    # Find loops and map their range to the loop index variable
+    loop_map = {
+        sym.RangeIndex(loop.bounds.children): loop.variable
+        for loop in FindNodes(Loop).visit(routine.body)
+    }
 
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True
@@ -115,6 +116,80 @@ def resolve_vector_notation(routine):
 
     # Add declarations for all newly create loop index variables
     routine.variables += tuple(set(transformer.index_vars))
+
+
+class IterationRangeShapeMapper(LokiIdentityMapper):
+    """
+    A mapper that derives the fully qualified iteration dimension for
+    unbounded :any:`RangeIndex` indices in array expressions.
+    """
+
+    @staticmethod
+    def _shape_to_range(s):
+        return sym.RangeIndex(
+            (s.lower, s.upper, s.step) if isinstance(s, sym.Range) else (sym.IntLiteral(1), s)
+        )
+
+    def map_array(self, expr, *args, **kwargs):
+        """ Replace ``:`` range indices with ``1:shape`` vector indices """
+
+        new_dims = tuple(
+            self._shape_to_range(s) if isinstance(d, sym.RangeIndex) and d == ':' else d
+            for i, d, s in zip(count(), expr.dimensions, as_tuple(expr.shape))
+        )
+        return expr.clone(dimensions=new_dims)
+
+
+class IterationRangeIndexMapper(LokiIdentityMapper):
+    """
+    A mapper that replaces fully qualified :any:`RangeIndex` symbols
+    with discrete loop indices and collects the according
+    ``index_to_range_map``.
+
+    This takes mapping of known loop indices for a set of ranges and will
+    use these variables if it encounters a matching index range. If not it
+    will create new index variables using the given scope and ``basename``.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        The subroutine to check
+    loop_map : dict of :any:`RangeIndex` to :any:`Scalar`
+        Map of known loop indices for given ranges
+    basename : str
+        Base name string for new iteration variables
+    scope : :any:`Subroutine` or :any:`Module`
+        Scope in which to create potential new iteration index symbols
+    """
+
+    def __init__(self, loop_map, basename, scope, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.loop_map = loop_map
+        self.basename = f'i_{basename}'
+        self.scope = scope
+
+        self.index_range_map = {}
+
+    def map_array(self, expr, *args, **kwargs):
+
+        shape_index_map = {}
+        for i, dim in zip(count(), expr.dimensions):
+            if isinstance(dim, sym.RangeIndex):
+                # See if index variable is knwon for this loop range
+                if dim in self.loop_map:
+                    ivar = self.loop_map[dim]
+                else:
+                    # Create new index variable
+                    vtype = SymbolAttributes(BasicType.INTEGER)
+                    ivar = sym.Variable(name=f'{self.basename}_{i}', type=vtype, scope=self.scope)
+                shape_index_map[(i, dim)] = ivar
+                self.index_range_map[ivar] = dim
+
+        # Add index variable to range replacement
+        new_dims = as_tuple(
+            shape_index_map.get((i, d), d) for i, d in zip(count(), expr.dimensions)
+        )
+        return expr.clone(dimensions=new_dims)
 
 
 class ResolveVectorNotationTransformer(Transformer):
@@ -131,64 +206,35 @@ class ResolveVectorNotationTransformer(Transformer):
         The scope in which to create new loop index variables
     """
 
-    def __init__(self, *args, loop_map={}, scope=None, **kwargs):
+    def __init__(self, *args, loop_map=None, scope=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.scope = scope
-        self.loop_map = loop_map
+        self.loop_map = {} if loop_map is None else loop_map
         self.index_vars = set()
 
-    def visit_Assignment(self, stmt):
+    def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
 
-        vmap = {}
-        vdims = []
-        shape_index_map = {}
-        index_range_map = {}
+        # Replace all unbounded ranges with bounded ranges based on array shape
+        shape_mapper = IterationRangeShapeMapper()
+        stmt._update(lhs=shape_mapper(stmt.lhs), rhs=shape_mapper(stmt.rhs))
 
-        # Loop over all variables and replace them with loop indices
-        for v in FindVariables(unique=False).visit(stmt):
-            if not isinstance(v, sym.Array):
-                continue
+        # Replace all range indices with loop indices and collect the corresponding mapping
+        index_mapper = IterationRangeIndexMapper(
+            loop_map=self.loop_map, basename=stmt.lhs.basename, scope=self.scope
+        )
+        stmt._update(lhs=index_mapper(stmt.lhs), rhs=index_mapper(stmt.rhs))
 
-            # Skip if the entire array is used implicitly
-            if not v.dimensions:
-                continue
-
-            ivar_basename = f'i_{stmt.lhs.basename}'
-            for i, dim, s in zip(count(), v.dimensions, as_tuple(v.shape)):
-                if isinstance(dim, sym.RangeIndex):
-                    # use the shape for e.g., `ARR(:)`, but use the dimension for e.g., `ARR(2:5)`
-                    _s = dim if dim.lower is not None else s
-                    # create tuple to test whether an appropriate loop is already available
-                    test_range = (sym.IntLiteral(1), _s, 1) if not isinstance(_s, sym.RangeIndex)\
-                            else (_s.lower, _s.upper, 1)
-                    # actually test for it
-                    if test_range in self.loop_map:
-                        # Use index variable of available matching loop
-                        ivar = self.loop_map[test_range]
-                    else:
-                        # Create new index variable
-                        vtype = SymbolAttributes(BasicType.INTEGER)
-                        ivar = sym.Variable(name=f'{ivar_basename}_{i}', type=vtype, scope=self.scope)
-                    shape_index_map[(i, s)] = ivar
-                    index_range_map[ivar] = _s
-
-                    if ivar not in vdims:
-                        vdims.append(ivar)
-
-            # Add index variable to range replacement
-            new_dims = as_tuple(shape_index_map.get((i, s), d)
-                                for i, d, s in zip(count(), v.dimensions, as_tuple(v.shape)))
-            vmap[v] = v.clone(dimensions=new_dims)
-
-        self.index_vars.update(list(vdims))
+        # Record all newly create loop index variables,
+        # so that we can declare them in the outer context
+        index_range_map = index_mapper.index_range_map
+        self.index_vars.update(list(index_range_map.keys()))
 
         # Recursively build new loop nest over all implicit dims
-        if len(vdims) > 0:
+        if len(index_range_map):
             loop = None
             body = stmt
-            for ivar in vdims:
-                irange = index_range_map[ivar]
+            for ivar, irange in index_range_map.items():
                 if isinstance(irange, sym.RangeIndex):
                     bounds = sym.LoopRange(irange.children)
                 else:
@@ -196,8 +242,7 @@ class ResolveVectorNotationTransformer(Transformer):
                 loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                 body = loop
 
-            # Return the loop nest to replace the statement
-            return SubstituteExpressions(vmap).visit(loop)
+            return loop
 
         # No vector dimensions encountered, return unchanged
         return stmt
