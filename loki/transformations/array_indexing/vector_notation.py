@@ -17,10 +17,15 @@ from loki.ir import (
 from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType
 
+from loki.transformations.utilities import (
+    get_integer_variable, get_loop_bounds
+)
+
 
 __all__ = [
     'remove_explicit_array_dimensions', 'add_explicit_array_dimensions',
-    'resolve_vector_notation', 'ResolveVectorNotationTransformer'
+    'resolve_vector_notation', 'resolve_vector_dimension',
+    'ResolveVectorNotationTransformer'
 ]
 
 
@@ -110,7 +115,39 @@ def resolve_vector_notation(routine):
     }
 
     transformer = ResolveVectorNotationTransformer(
-        loop_map=loop_map, scope=routine, inplace=True
+        loop_map=loop_map, scope=routine, inplace=True,
+        derive_qualified_ranges=True,
+    )
+    routine.body = transformer.visit(routine.body)
+
+    # Add declarations for all newly create loop index variables
+    routine.variables += tuple(set(transformer.index_vars))
+
+
+def resolve_vector_dimension(routine, dimension):
+    """
+    Resolve vector notation for a given dimension only. The dimension
+    is defined by a loop variable and the bounds of the given range.
+
+    Unliked the related :meth:`resolve_vector_notation` utility, this
+    will only resolve the defined dimension according to ``bounds``
+    and ``loop_variable``.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to resolve vector notation usage.
+    dimension : :any:`Dimension`
+        Dimension object that defines the dimension to resolve
+    """
+    # Find the iteration index variable and bound variables
+    index = get_integer_variable(routine, name=dimension.index)
+    bounds = get_loop_bounds(routine, dimension=dimension)
+    loop_map = {sym.RangeIndex(bounds): index}
+
+    transformer = ResolveVectorNotationTransformer(
+        loop_map=loop_map, scope=routine, inplace=True,
+        derive_qualified_ranges=False
     )
     routine.body = transformer.visit(routine.body)
 
@@ -204,20 +241,28 @@ class ResolveVectorNotationTransformer(Transformer):
         a known variable symbol to use as loop index.
     scope : :any:`Subroutine` or :any:`Module`
         The scope in which to create new loop index variables
+    derive_qualified_ranges : bool
+        Derive explicit bounds for all unqualified index ranges
+        (``:``) before resolving them with loops.
     """
 
-    def __init__(self, *args, loop_map=None, scope=None, **kwargs):
+    def __init__(
+            self, *args, loop_map=None, scope=None, derive_qualified_ranges=True, **kwargs
+    ):
         super().__init__(*args, **kwargs)
 
         self.scope = scope
         self.loop_map = {} if loop_map is None else loop_map
         self.index_vars = set()
 
+        self.derive_qualified_ranges = derive_qualified_ranges
+
     def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
 
         # Replace all unbounded ranges with bounded ranges based on array shape
-        shape_mapper = IterationRangeShapeMapper()
-        stmt._update(lhs=shape_mapper(stmt.lhs), rhs=shape_mapper(stmt.rhs))
+        if self.derive_qualified_ranges:
+            shape_mapper = IterationRangeShapeMapper()
+            stmt._update(lhs=shape_mapper(stmt.lhs), rhs=shape_mapper(stmt.rhs))
 
         # Replace all range indices with loop indices and collect the corresponding mapping
         index_mapper = IterationRangeIndexMapper(
