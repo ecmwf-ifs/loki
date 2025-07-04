@@ -10,9 +10,10 @@
 from itertools import count
 
 from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.frontend import HAVE_FP
 from loki.ir import (
-    nodes as ir, Loop, FindNodes,
-    Transformer, FindVariables, SubstituteExpressions, FindInlineCalls
+    nodes as ir, Loop, FindNodes, FindExpressions, Transformer,
+    FindVariables, SubstituteExpressions, FindInlineCalls
 )
 from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType
@@ -20,6 +21,9 @@ from loki.types import SymbolAttributes, BasicType
 from loki.transformations.utilities import (
     get_integer_variable, get_loop_bounds
 )
+
+if HAVE_FP:
+    from fparser.two import Fortran2003
 
 
 __all__ = [
@@ -258,6 +262,11 @@ class ResolveVectorNotationTransformer(Transformer):
         self.derive_qualified_ranges = derive_qualified_ranges
 
     def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
+
+        if HAVE_FP:
+            if any(redux_op in FindExpressions().visit(stmt.rhs)
+                   for redux_op in Fortran2003.Intrinsic_Name.array_reduction_names):
+                return stmt
 
         # Replace all unbounded ranges with bounded ranges based on array shape
         if self.derive_qualified_ranges:
