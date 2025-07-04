@@ -5,14 +5,17 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import re
+from pathlib import Path
 import pytest
 
-from loki import Module, Subroutine
+from loki import Module, Subroutine, ProcessingStrategy
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
-from loki.batch import Scheduler, SchedulerConfig, TransformationError
+from loki.batch import Scheduler, SchedulerConfig, TransformationError, Pipeline
 
 from loki.transformations.inline import InlineTransformation
+from loki.transformations.build_system import FileWriteTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -503,3 +506,193 @@ end module innermost_mod
     assert len(scheduler.items) == 2
     assert len(_get_successors('outermost_mod#outermost')) == 1
     assert scheduler['innermost_mod#innermost'] in _get_successors('outermost_mod#outermost')
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('full_parse', (True, False))
+def test_inline_transformation_plan(tmp_path, frontend, full_parse):
+    fcode_outermost = """
+module outermost_mod
+implicit none
+contains
+subroutine outermost()
+use intermediate_1_mod, only: intermediate1 => intermediate_1
+use intermediate_2_mod, intermediate2 => intermediate_2
+
+!$loki inline
+call intermediate1()
+
+!$loki inline
+call intermediate2()
+
+end subroutine outermost
+end module outermost_mod
+"""
+
+    fcode_intermediate_1 = """
+module intermediate_1_mod
+implicit none
+contains
+subroutine intermediate_1()
+use innermost_1_mod, only: innermost_1
+use innermost_2_mod, only: innermost_2
+use innermost_3_mod, only: innermost_3
+
+!$loki inline
+call innermost_1()
+
+call innermost_2()
+
+!$loki inline
+call innermost_3()
+
+end subroutine intermediate_1
+end module intermediate_1_mod
+"""
+
+    fcode_intermediate_2 = """
+module intermediate_2_mod
+implicit none
+contains
+subroutine intermediate_2()
+use innermost_1_mod, only: innermost_1
+
+!$loki inline
+call innermost_1()
+
+call innermost_1()
+
+end subroutine intermediate_2
+end module intermediate_2_mod
+"""
+
+    fcode_innermost_1 = """
+module innermost_1_mod
+implicit none
+contains
+subroutine innermost_1()
+use innerinnermost_1_mod, only: innerinnermost_1
+
+!$loki inline
+call innerinnermost_1()
+
+end subroutine innermost_1
+end module innermost_1_mod
+"""
+
+    fcode_innermost_2 = """
+module innermost_2_mod
+implicit none
+contains
+subroutine innermost_2()
+
+end subroutine innermost_2
+end module innermost_2_mod
+"""
+
+    fcode_innermost_3 = """
+module innermost_3_mod
+implicit none
+contains
+subroutine innermost_3()
+
+end subroutine innermost_3
+end module innermost_3_mod
+"""
+
+    fcode_innerinnermost_1 = """
+module innerinnermost_1_mod
+implicit none
+contains
+subroutine innerinnermost_1()
+use innerinnerinnermost_1_mod, only: innerinnerinnermost_1
+
+call innerinnerinnermost_1()
+
+end subroutine innerinnermost_1
+end module innerinnermost_1_mod
+"""
+
+    fcode_innerinnerinnermost_1 = """
+module innerinnerinnermost_1_mod
+implicit none
+contains
+subroutine innerinnerinnermost_1()
+
+end subroutine innerinnerinnermost_1
+end module innerinnerinnermost_1_mod
+"""
+
+    (tmp_path/'outermost_mod.F90').write_text(fcode_outermost)
+    (tmp_path/'intermediate_1_mod.F90').write_text(fcode_intermediate_1)
+    (tmp_path/'intermediate_2_mod.F90').write_text(fcode_intermediate_2)
+    (tmp_path/'innermost_1_mod.F90').write_text(fcode_innermost_1)
+    (tmp_path/'innermost_2_mod.F90').write_text(fcode_innermost_2)
+    (tmp_path/'innermost_3_mod.F90').write_text(fcode_innermost_3)
+    (tmp_path/'innerinnermost_1_mod.F90').write_text(fcode_innerinnermost_1)
+    (tmp_path/'innerinnerinnermost_1_mod.F90').write_text(fcode_innerinnerinnermost_1)
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'replicate': True,
+        },
+        'routines': {
+            'outermost': {'role': 'driver', 'replicate': False}
+        }
+    }
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path], full_parse=full_parse
+    )
+
+    pipeline = Pipeline(classes=(InlineTransformation, FileWriteTransformation))
+
+    plan_file = tmp_path/'plan.cmake'
+    scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
+
+    outermost_item = scheduler["outermost_mod#outermost"]
+    intermediate_1_item = scheduler["intermediate_1_mod#intermediate_1"]
+    intermediate_2_item = scheduler["intermediate_2_mod#intermediate_2"]
+    innermost_1_item = scheduler["innermost_1_mod#innermost_1"]
+    innermost_2_item = scheduler["innermost_2_mod#innermost_2"]
+    innermost_3_item = scheduler["innermost_3_mod#innermost_3"]
+    innerinnermost_1_item = scheduler["innerinnermost_1_mod#innerinnermost_1"]
+    innerinnerinnermost_1_item = scheduler["innerinnerinnermost_1_mod#innerinnerinnermost_1"]
+
+    assert hasattr(outermost_item, 'plan_data')
+    assert set(outermost_item.plan_data['additional_dependencies']) == \
+            {'innerinnerinnermost_1_mod#innerinnerinnermost_1', 'innermost_2_mod#innermost_2',
+                    'innermost_1_mod#innermost_1'}
+    assert set(outermost_item.plan_data['removed_dependencies']) == \
+            {'intermediate_2_mod#intermediate_2', 'intermediate_1_mod#intermediate_1'}
+    assert not hasattr(intermediate_1_item, 'plan_data')
+    assert not hasattr(intermediate_2_item, 'plan_data')
+    assert hasattr(innermost_1_item, 'plan_data')
+    assert set(innermost_1_item.plan_data['additional_dependencies']) == \
+            {'innerinnerinnermost_1_mod#innerinnerinnermost_1'}
+    assert set(innermost_1_item.plan_data['removed_dependencies']) == \
+            {'innerinnermost_1_mod#innerinnermost_1'}
+    assert hasattr(innermost_2_item, 'plan_data')
+    assert not hasattr(innermost_3_item, 'plan_data')
+    assert not hasattr(innerinnermost_1_item, 'plan_data')
+    assert hasattr(innerinnerinnermost_1_item, 'plan_data')
+
+    # Validate the plan file content
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+    loki_plan = plan_file.read_text()
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+
+    expected_items_to_transform = {'innermost_2_mod', 'outermost_mod', 'innermost_1_mod', 'innerinnerinnermost_1_mod'}
+    expected_items_to_append = {'innerinnerinnermost_1_mod.idem', 'outermost_mod.idem', 'innermost_2_mod.idem',
+            'innermost_1_mod.idem'}
+    expected_items_to_remove = {'outermost_mod'}
+
+    assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == expected_items_to_transform
+    assert plan_dict['LOKI_SOURCES_TO_APPEND'] == expected_items_to_append
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == expected_items_to_remove
