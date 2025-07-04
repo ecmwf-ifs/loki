@@ -52,13 +52,13 @@ end subroutine transform_resolve_vector_notation
 
     assert len(loops) == 4
     assert loops[0].variable == 'i_ret1_1'
-    assert loops[0].bounds.children == (1, 'param1', 1) if frontend != OMNI else (1, 3, 1)
+    assert loops[0].bounds.children == (1, 'param1', None) if frontend != OMNI else (1, 3, 1)
     assert loops[1].variable == 'i_ret1_0'
-    assert loops[1].bounds.children == (1, 'param1', 1) if frontend != OMNI else (1, 3, 1)
+    assert loops[1].bounds.children == (1, 'param1', None) if frontend != OMNI else (1, 3, 1)
     assert loops[2].variable == 'i_ret2_1'
-    assert loops[2].bounds.children == (1, 'param2', 1) if frontend != OMNI else (1, 5, 1)
+    assert loops[2].bounds.children == (1, 'param2', None) if frontend != OMNI else (1, 5, 1)
     assert loops[3].variable == 'i_ret2_0'
-    assert loops[3].bounds.children == (1, 'param1', 1) if frontend != OMNI else (1, 3, 1)
+    assert loops[3].bounds.children == (1, 'param1', None) if frontend != OMNI else (1, 3, 1)
 
     assert len(arrays) == 2
     assert arrays[0].dimensions == ('i_ret1_0', 'i_ret1_1')
@@ -153,15 +153,15 @@ end subroutine transform_resolve_vector_notation_common_loops
     arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
     assert len(loops) == 21
     assert loops[0].variable == 'i_tmp_dummy_1' and loops[0].bounds.children == (0, 4, None)
-    assert loops[1].variable == 'jl' and loops[1].bounds.children == (1, 'n', 1)
-    assert loops[2].variable == 'jl' and loops[2].bounds.children == (1, 'n', 1)
-    assert loops[3].variable == 'jm' and loops[3].bounds.children == (1, 'm', 1)
-    assert loops[4].variable == 'jl' and loops[4].bounds.children == (1, 'n', 1)
-    assert loops[5].variable == 'jl' and loops[5].bounds.children == (1, 'n', 1)
-    assert loops[6].variable == 'jm' and loops[6].bounds.children == (1, 'm', 1)
-    assert loops[7].variable == 'jk' and loops[7].bounds.children == (1, 'l', 1)
-    assert loops[8].variable == 'jl' and loops[8].bounds.children == (1, 'n', 1)
-    assert loops[9].variable == 'jk' and loops[9].bounds.children == (1, 'l', 1)
+    assert loops[1].variable == 'jl' and loops[1].bounds.children == (1, 'n', None)
+    assert loops[2].variable == 'jl' and loops[2].bounds.children == (1, 'n', None)
+    assert loops[3].variable == 'jm' and loops[3].bounds.children == (1, 'm', None)
+    assert loops[4].variable == 'jl' and loops[4].bounds.children == (1, 'n', None)
+    assert loops[5].variable == 'jl' and loops[5].bounds.children == (1, 'n', None)
+    assert loops[6].variable == 'jm' and loops[6].bounds.children == (1, 'm', None)
+    assert loops[7].variable == 'jk' and loops[7].bounds.children == (1, 'l', None)
+    assert loops[8].variable == 'jl' and loops[8].bounds.children == (1, 'n', None)
+    assert loops[9].variable == 'jk' and loops[9].bounds.children == (1, 'l', None)
     assert loops[10].variable == 'jl'
     if kidia_loop:
         assert loops[10].bounds.children == ('kidia', 'kfdia', None)
@@ -172,10 +172,10 @@ end subroutine transform_resolve_vector_notation_common_loops
     assert loops[13].variable == 'jl' and loops[13].bounds.children == (1, 'n', None)
     assert loops[14].variable == 'jk' and loops[14].bounds.children == (1, 'l', None)
     assert loops[15].variable == 'jk' and loops[15].bounds.children == (1, 'l', None)
-    assert loops[16].variable == 'jl' and loops[16].bounds.children == (1, 'n', 1)
+    assert loops[16].variable == 'jl' and loops[16].bounds.children == (1, 'n', None)
     assert loops[17].variable == 'jm' and loops[17].bounds.children == (1, 'm', None)
     assert loops[18].variable == 'jl' and loops[18].bounds.children == (1, 'n', None)
-    assert loops[19].variable == 'jl' and loops[19].bounds.children == (1, 'n', 1)
+    assert loops[19].variable == 'jl' and loops[19].bounds.children == (1, 'n', None)
     if kidia_loop:
         assert loops[20].variable == 'jl'
         assert loops[20].bounds.children == ('kidia', 'kfdia', None)
