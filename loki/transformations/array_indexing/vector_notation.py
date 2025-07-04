@@ -12,7 +12,7 @@ from itertools import count
 from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.frontend import HAVE_FP
 from loki.ir import (
-    nodes as ir, Loop, FindNodes, FindExpressions, Transformer,
+    nodes as ir, FindNodes, FindExpressions, Transformer,
     FindVariables, SubstituteExpressions, FindInlineCalls
 )
 from loki.tools import as_tuple
@@ -115,7 +115,7 @@ def resolve_vector_notation(routine):
     # Find loops and map their range to the loop index variable
     loop_map = {
         sym.RangeIndex(loop.bounds.children): loop.variable
-        for loop in FindNodes(Loop).visit(routine.body)
+        for loop in FindNodes(ir.Loop).visit(routine.body)
     }
 
     transformer = ResolveVectorNotationTransformer(
@@ -293,7 +293,7 @@ class ResolveVectorNotationTransformer(Transformer):
                     bounds = sym.LoopRange(irange.children)
                 else:
                     bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
-                loop = Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
+                loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                 body = loop
 
             return loop
