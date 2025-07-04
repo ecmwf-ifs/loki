@@ -14,10 +14,10 @@ from loki.ir import (
 )
 from loki.tools import as_tuple
 
+from loki.transformations.array_indexing import resolve_vector_dimension
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds, check_routine_sequential,
-    rename_variables
+    get_integer_variable, check_routine_sequential, rename_variables
 )
 if HAVE_FP:
     from fparser.two import Fortran2003
@@ -112,51 +112,6 @@ class SCCBaseTransformation(Transformation):
         if mapper and loop_variable not in routine.variables:
             routine.variables += as_tuple(loop_variable)
 
-    @classmethod
-    def resolve_vector_dimension(cls, routine, loop_variable, bounds):
-        """
-        Resolve vector notation for a given dimension only. The dimension
-        is defined by a loop variable and the bounds of the given range.
-
-        TODO: Consolidate this with the internal
-        `loki.transform.transform_array_indexing.resolve_vector_notation`.
-
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            The subroutine in which to resolve vector notation usage.
-        loop_variable : :any:`Scalar`
-            The induction variable for the created loops.
-        bounds : tuple of :any:`Scalar`
-            Tuple defining the iteration space of the inserted loops.
-        """
-
-        bounds_str = f'{bounds[0]}:{bounds[1]}'
-
-        mapper = {}
-        for stmt in FindNodes(ir.Assignment).visit(routine.body):
-            # We want to preserve vector notation for an array reduction intrinsic
-            if HAVE_FP:
-                if any(redux_op in FindExpressions().visit(stmt.rhs)
-                       for redux_op in Fortran2003.Intrinsic_Name.array_reduction_names):
-                    continue
-
-            ranges = [e for e in FindExpressions().visit(stmt)
-                      if isinstance(e, sym.RangeIndex) and e == bounds_str]
-            if ranges:
-                exprmap = {r: loop_variable for r in ranges}
-                loop = ir.Loop(
-                    variable=loop_variable, bounds=sym.LoopRange(bounds),
-                    body=as_tuple(SubstituteExpressions(exprmap).visit(stmt))
-                )
-                mapper[stmt] = loop
-
-        routine.body = Transformer(mapper).visit(routine.body)
-
-        # if loops have been inserted, check if loop variable is declared
-        if mapper and loop_variable not in routine.variables:
-            routine.variables += as_tuple(loop_variable)
-
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -202,9 +157,6 @@ class SCCBaseTransformation(Transformation):
         if rename_indices:
             self.rename_index_aliases(routine, dimension=self.horizontal)
 
-        # check for horizontal loop bounds in subroutine symbol table
-        bounds = get_loop_bounds(routine, dimension=self.horizontal)
-
         # Find the iteration index variable for the specified horizontal
         v_index = get_integer_variable(routine, name=self.horizontal.index)
 
@@ -216,7 +168,7 @@ class SCCBaseTransformation(Transformation):
         self.resolve_masked_stmts(routine, loop_variable=v_index)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        self.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
+        resolve_vector_dimension(routine, dimension=self.horizontal)
 
     def process_driver(self, routine):
         """
