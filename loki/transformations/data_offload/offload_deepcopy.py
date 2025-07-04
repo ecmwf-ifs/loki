@@ -625,19 +625,6 @@ class DataOffloadDeepcopyTransformation(Transformation):
         """Pull back data to host."""
         return as_tuple(ir.Pragma(keyword='loki', content=f'update host({var})'))
 
-    @staticmethod
-    def create_aliased_ptr_assignment(ptr, alias):
-        """Associate an aliased pointer to its target."""
-
-        dims = [sym.InlineCall(function=sym.ProcedureSymbol('LBOUND', scope=ptr.scope),
-                               parameters=(ptr, sym.IntLiteral(r+1))) for r in range(len(ptr.shape))]
-
-        alias_ptr = ptr.parent.type.dtype.typedef.variable_map[alias]
-        lhs = alias_ptr.clone(parent=ptr.parent,
-                              dimensions=as_tuple([sym.RangeIndex(children=(d, None)) for d in dims]))
-
-        return ir.Assignment(lhs=lhs, rhs=ptr, ptr=True)
-
     def create_field_api_offload(self, var, analysis, typedef_config, parent, scope):
 
         #TODO: currently this assumes FIELD objects and their associated pointers are
