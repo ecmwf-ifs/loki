@@ -706,7 +706,7 @@ class ProcedureItem(Item):
     _parser_class = RegexParserClass.ProgramUnitClass
     _depends_class = (
         RegexParserClass.ImportClass | RegexParserClass.InterfaceClass | RegexParserClass.TypeDefClass |
-        RegexParserClass.DeclarationClass | RegexParserClass.CallClass
+        RegexParserClass.DeclarationClass | RegexParserClass.CallClass | RegexParserClass.PragmaClass
     )
 
     @property
