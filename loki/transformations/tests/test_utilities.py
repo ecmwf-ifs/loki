@@ -427,7 +427,7 @@ end module test_get_loop_bounds_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_find_driver_loops(frontend):
+def test_transform_utilities_find_driver_loops(frontend):
     """ Test :any:`find_driver_loops` utility. """
 
     fcode = """

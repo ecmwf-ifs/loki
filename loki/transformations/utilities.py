@@ -639,6 +639,8 @@ def find_driver_loops(section, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
+    targets = [str(t).lower() for t in as_tuple(targets)]
+
     class FindDriverLoops(Visitor):
         """
         A  visitor that collects all driver loops in a section of the IR.
@@ -649,80 +651,70 @@ def find_driver_loops(section, targets):
         not contain a driver loop will be considered the driver loop.
         """
 
+        @classmethod
+        def default_retval(cls):
+            return False, [], []
+
         def __init__(self):
             super().__init__()
             self.driver_loops = []
 
         def visit_tuple(self, o, **kwargs):
             nested_pragma_loop = False
+            nested_target_loops = []
+            nested_target_calls = []
             for i in o:
-                nested_pragma_loop |= self.visit(i, **kwargs)
-            return nested_pragma_loop
+                retval = self.visit(i, **kwargs)
+                nested_pragma_loop |= retval[0]
+                nested_target_loops += retval[1]
+                nested_target_calls += retval[2]
+            return nested_pragma_loop, nested_target_loops, nested_target_calls
 
         visit_list = visit_tuple
 
         def visit_CallStatement(self, call, **kwargs):
-            targets = kwargs.get('targets', [])
-            has_target_calls = kwargs.get('has_target_calls', None)
-            if has_target_calls is not None and call.name in targets:
-                has_target_calls.append(True)
-            return False
-
-        def visit_object(self, o, **kwargs):
-            return False
-
-        def __visit_loop(self, loop, depth, targets, target_loops):
-            # Add loop to driver list and don't recurse into children if loop is pragma-marked.
-            if is_pragma_driver_loop(loop):
-                self.driver_loops.append(loop)
-                return True
-
-            # Recurse into children and
-            nested_pragma_loop = False
-            nested_target_loops = []
-            has_target_calls = []
-            for child in loop.body:
-                nested_pragma_loop |= self.visit(child, depth=depth+1, targets=targets,
-                                                 nested_target_loops=nested_target_loops,
-                                                 has_target_calls=has_target_calls)
-
-            # If this loop contains a target call (not nested inside another loop)
-            if True in has_target_calls:
-                if nested_pragma_loop:
-                    warning("[Loki::find_driver_loops] Nested pragma marked driver loop inside loop"
-                            f" with target call (skipping {loop}")
-                    return True
-                # Add this loop to parent loops list of nested target loops
-                target_loops.append(loop)
-                return False
-
-            if nested_target_loops:
-                # If there is a pragma driver loop nested, then this node can't
-                # be a target driver loop and we add the nested target  loops to
-                # the list of driver loops
-                if nested_pragma_loop:
-                    self.driver_loops.extend(nested_target_loops)
-                    return True
-
-                # Else, we add this node to the nested target loops of the parent
-                target_loops.append(loop)
-                return False
-
-            return nested_pragma_loop
+            if call.name in targets:
+                return False, [], [call]
+            return self.default_retval()
 
         def visit_Loop(self, loop, **kwargs):
-            depth = kwargs.get('depth', 0)
-            targets = kwargs.get('targets', [])
-            nested_target_loops = kwargs.get('nested_target_loops', [])
-            if depth == 0:  # root loop
-                nested_target_loops = []
-                nested_pragma_loop = self.__visit_loop(loop, depth, targets, nested_target_loops)
-                if not nested_pragma_loop:
-                    self.driver_loops.extend(nested_target_loops)
-                return nested_pragma_loop
+            depth = kwargs.pop('depth', 0)
+            if is_pragma_driver_loop(loop):
+                # Propagate the presence of the pragma only if inside a loop nest
+                self.driver_loops.append(loop)
+                return depth > 0, [], []
 
-            # else nested loop
-            return self.__visit_loop(loop, depth, targets, nested_target_loops)
+            # Recurse into the (potential) loop nest
+            nested_pragma_loop, nested_target_loops, nested_target_calls = self.visit(
+                loop.body, depth=depth+1, **kwargs
+            )
+
+            if nested_pragma_loop:
+                # If there is a pragma-marked driver loop, this takes precedence and
+                # we reset the list of nested target loops
+                if nested_target_calls:
+                    warning("[Loki::find_driver_loops] Nested pragma marked driver loop inside loop"
+                            f" with target call (skipping {loop}")
+                    nested_target_loops = []
+
+            elif nested_target_calls:
+                # If there is a target call directly inside the loop, the current loop
+                # is a potential driver loop (unless a pragma-annotated loop is present,
+                # which is why the target loops are collected into a list first and only
+                # added to self.driver_loops once we're back at depth==0)
+                nested_target_loops = [loop]
+
+            elif nested_target_loops and depth > 0:
+                # If this is simply another loop around a nested target loop, we raise
+                # the driver loop one level further up
+                nested_target_loops = [loop]
+
+            if depth == 0:
+                if nested_target_loops:
+                    self.driver_loops.extend(nested_target_loops)
+                return self.default_retval()
+
+            return nested_pragma_loop, nested_target_loops, []
 
     find_driver = FindDriverLoops()
     find_driver.visit(section, targets=targets)
