@@ -323,30 +323,50 @@ def test_resolve_vector_dimension(frontend):
     """ Test vector resolution utility for a single dimension. """
 
     fcode = """
-subroutine kernel(start, end, nlon, work)
-   integer, intent(in) :: start, end, nlon
-   real, intent(out) :: work(nlon)
-   integer :: jl
-   real :: work_maxval
+subroutine kernel(start, end, nlon, nlev, z, work, play, sleep, repeat)
+  integer, intent(in) :: start, end, nlon, nlev
+  real, intent(in) :: z
+  real, intent(out) :: work(nlon), play(nlon, nlev), sleep(nlev,nlev), repeat(nlev,nlon)
+  integer :: jl
+  real :: work_maxval
 
-   work(start:end) = 0.
-   work_maxval = maxval(work(start:end))
+  work(start:end) = 0.
+  work_maxval = maxval(work(start:end))
 
+  play(:,1:nlev) = 42.
+  sleep(:, :) = z * z * z
+  repeat(:,start:end) = 6.66
 end subroutine kernel
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     horizontal = Dimension(name='horizontal', index='jl', lower='start', upper='end')
-
     resolve_vector_dimension(routine, dimension=horizontal)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 2
+
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 2
+    assert len(assigns) == 5
 
-    assert len(loops) == 1
+    # Check that the first expression has been wrapped
     assert assigns[0] in loops[0].body
-    assert not assigns[1] in loops[0].body
+    assert assigns[0].lhs == 'work(jl)'
 
+    # Ensure that none of the other sections has been wrapped
+    assert not assigns[1] in loops[0].body
+    assert not assigns[1] in loops[1].body
     assert 'maxval' == assigns[1].rhs.name.lower()
     assert 'start:end' in assigns[1].rhs.parameters[0].dimensions
+
+    assert not assigns[2] in loops[0].body
+    assert not assigns[2] in loops[1].body
+    assert assigns[2].lhs == 'play(:,1:nlev)'
+
+    assert not assigns[3] in loops[0].body
+    assert not assigns[3] in loops[1].body
+    assert assigns[3].lhs == 'sleep(:,:)'
+
+    # Check that the last expression has been partially wrapped
+    assert assigns[4] in loops[1].body
+    assert assigns[4].lhs == 'repeat(:,jl)'
