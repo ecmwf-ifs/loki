@@ -16,7 +16,8 @@ from loki.ir import nodes as ir, FindNodes, FindVariables
 
 from loki.transformations.array_indexing.vector_notation import (
     resolve_vector_notation, resolve_vector_dimension,
-    remove_explicit_array_dimensions, add_explicit_array_dimensions
+    remove_explicit_array_dimensions, add_explicit_array_dimensions,
+    resolve_masked_statements
 )
 
 
@@ -370,3 +371,60 @@ end subroutine kernel
     # Check that the last expression has been partially wrapped
     assert assigns[4] in loops[1].body
     assert assigns[4].lhs == 'repeat(:,jl)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_statements(frontend):
+    """
+    Test resolving of masked statements in kernel.
+    """
+
+    fcode = """
+subroutine test_resolve_where(start, end, nlon, nz, q, t)
+  INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+  INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+  REAL, INTENT(INOUT) :: t(nlon,nz)
+  REAL, INTENT(INOUT) :: q(nlon,nz)
+  INTEGER :: jk
+
+  DO jk = 2, nz
+    WHERE (q(start:end, jk) > 1.234)
+      q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk)
+    ELSEWHERE
+      q(start:end, jk) = t(start:end, jk)
+    END WHERE
+  END DO
+end subroutine test_resolve_where
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(
+        name='horizontal', index='jl', lower='start', upper='end'
+    )
+    resolve_masked_statements(routine, dimension=horizontal)
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in routine.variables
+
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert loops[1] in FindNodes(ir.Loop).visit(loops[0].body)
+    assert loops[1].variable == 'jl'
+    assert loops[1].bounds == 'start:end'
+    assert loops[0].variable == 'jk'
+    assert loops[0].bounds == '2:nz'
+
+    # Ensure that the respective conditional has been inserted correctly
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 1
+    assert conds[0] in FindNodes(ir.Conditional).visit(loops[1])
+    assert conds[0].condition == 'q(jl, jk) > 1.234'
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0] in conds[0].body
+    assert assigns[0].lhs == 'q(jl, jk)' and assigns[0].rhs == 'q(jl, jk - 1) + t(jl, jk)'
+    assert assigns[1] in conds[0].else_body
+    assert assigns[1].lhs == 'q(jl, jk)' and assigns[1].rhs == 't(jl, jk)'
