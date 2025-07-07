@@ -151,7 +151,7 @@ def resolve_vector_dimension(routine, dimension):
 
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True,
-        derive_qualified_ranges=False
+        derive_qualified_ranges=False, map_unknown_ranges=False
     )
     routine.body = transformer.visit(routine.body)
 
@@ -190,6 +190,9 @@ class IterationRangeIndexMapper(LokiIdentityMapper):
     This takes mapping of known loop indices for a set of ranges and will
     use these variables if it encounters a matching index range. If not it
     will create new index variables using the given scope and ``basename``.
+    The flag ``map_unknown_ranges`` can be used to toggle the
+    automatic generation of generic indices from qualified range
+    symbols.
 
     Parameters
     ----------
@@ -201,13 +204,20 @@ class IterationRangeIndexMapper(LokiIdentityMapper):
         Base name string for new iteration variables
     scope : :any:`Subroutine` or :any:`Module`
         Scope in which to create potential new iteration index symbols
+    map_unknown_ranges : bool
+        Flag to indicate whether range indices not encountered in ``loop_map``
+        should be should be remapped to generic loop indices.
     """
 
-    def __init__(self, loop_map, basename, scope, *args, **kwargs):
+    def __init__(
+            self, *args, loop_map=None, basename=None, scope=None,
+            map_unknown_ranges=True, **kwargs
+    ):
         super().__init__(*args, **kwargs)
-        self.loop_map = loop_map
-        self.basename = f'i_{basename}'
+        self.loop_map = loop_map or {}
+        self.basename = basename if basename else 'i'
         self.scope = scope
+        self.map_unknown_ranges = map_unknown_ranges
 
         self.index_range_map = {}
 
@@ -220,6 +230,10 @@ class IterationRangeIndexMapper(LokiIdentityMapper):
                 if dim in self.loop_map:
                     ivar = self.loop_map[dim]
                 else:
+                    # Skip if we're not supposed to create new indices
+                    if not self.map_unknown_ranges:
+                        continue
+
                     # Create new index variable
                     vtype = SymbolAttributes(BasicType.INTEGER)
                     ivar = sym.Variable(name=f'{self.basename}_{i}', type=vtype, scope=self.scope)
@@ -248,10 +262,15 @@ class ResolveVectorNotationTransformer(Transformer):
     derive_qualified_ranges : bool
         Derive explicit bounds for all unqualified index ranges
         (``:``) before resolving them with loops.
+    map_unknown_ranges : bool
+        Flag to indicate whether unknown, but fully qualified range
+        indices are to be remapped to loops.
     """
 
     def __init__(
-            self, *args, loop_map=None, scope=None, derive_qualified_ranges=True, **kwargs
+            self, *args, loop_map=None, scope=None,
+            derive_qualified_ranges=True, map_unknown_ranges=True,
+            **kwargs
     ):
         super().__init__(*args, **kwargs)
 
@@ -259,6 +278,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.loop_map = {} if loop_map is None else loop_map
         self.index_vars = set()
 
+        self.map_unknown_ranges = map_unknown_ranges
         self.derive_qualified_ranges = derive_qualified_ranges
 
     def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
@@ -275,7 +295,8 @@ class ResolveVectorNotationTransformer(Transformer):
 
         # Replace all range indices with loop indices and collect the corresponding mapping
         index_mapper = IterationRangeIndexMapper(
-            loop_map=self.loop_map, basename=stmt.lhs.basename, scope=self.scope
+            loop_map=self.loop_map, basename=f'i_{stmt.lhs.basename}', scope=self.scope,
+            map_unknown_ranges=self.map_unknown_ranges
         )
         stmt._update(lhs=index_mapper(stmt.lhs), rhs=index_mapper(stmt.rhs))
 
