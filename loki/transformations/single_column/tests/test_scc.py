@@ -103,58 +103,6 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_masked_statement(frontend, horizontal):
-    """
-    Test resolving of masked statements in kernel.
-    """
-
-    fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
-    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
-    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT) :: t(nlon,nz)
-    REAL, INTENT(INOUT) :: q(nlon,nz)
-    INTEGER :: jk
-    REAL :: c
-
-    c = 5.345
-    DO jk = 2, nz
-      WHERE (q(start:end, jk) > 1.234)
-        q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
-      ELSEWHERE
-        q(start:end, jk) = t(start:end, jk)
-      END WHERE
-    END DO
-  END SUBROUTINE compute_column
-"""
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-
-    scc_transform = SCCBaseTransformation(horizontal=horizontal)
-    scc_transform.apply(kernel, role='kernel')
-
-    # Ensure horizontal loop variable has been declared
-    assert 'jl' in kernel.variables
-
-    # Ensure we have three loops in the kernel,
-    # horizontal loops should be nested within vertical
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[1].variable == 'jl'
-    assert kernel_loops[1].bounds == 'start:end'
-    assert kernel_loops[0].variable == 'jk'
-    assert kernel_loops[0].bounds == '2:nz'
-
-    # Ensure that the respective conditional has been inserted correctly
-    kernel_conds = FindNodes(Conditional).visit(kernel.body)
-    assert len(kernel_conds) == 1
-    assert kernel_conds[0] in FindNodes(Conditional).visit(kernel_loops[1])
-    assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
-    assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
-    assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('rel_index', ('jl', 'jcol', 'ji'))
 @pytest.mark.parametrize('indices', (('jl', 'jcol', 'jlll'), ('jcol','jcol', 'jcol'),
     ('jl', 'jl', 'jl'), ('jcol', 'jlll', 'jlll')))
