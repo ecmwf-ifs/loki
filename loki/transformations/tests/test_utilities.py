@@ -427,7 +427,7 @@ end module test_get_loop_bounds_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_find_driver_loops(frontend):
+def test_transform_utilities_find_driver_loops(frontend):
     """ Test :any:`find_driver_loops` utility. """
 
     fcode = """
@@ -478,7 +478,7 @@ def test_transform_utilities_find_driver_loops_multiple_nested(frontend, caplog)
 subroutine test_find_driver_loops(n, start, end, arr)
   integer, intent(in) :: n, start, end
   real, intent(inout) :: arr(1000)
-  integer :: i, j, k, l
+  integer :: i, j, k, l, m, p
 
   !$loki driver-loop
   do i=start,end       ! driver loop 0 (loop 0)
@@ -539,6 +539,28 @@ subroutine test_find_driver_loops(n, start, end, arr)
     call target_kernel(arr(j))
   end do
 
+  do j=start,end
+  do m=start,end
+    do i=start,end
+      do k=start,end ! driver loop 7 (loop 17)
+        do l=start,end
+          call target_kernel(arr(l))
+        end do
+      end do
+      !$loki driver-loop
+      do k=start,end       ! driver loop 8 (loop 19)
+        arr(i) = 2. * arr(i)
+      end do
+      do k=start,end ! driver loop 9 (loop 20)
+        do l=start,end
+          do p=start,end
+            call target_kernel(arr(p))
+          end do
+        end do
+      end do
+    end do
+  end do
+  end do
 
 end subroutine test_find_driver_loops
 """
@@ -548,7 +570,7 @@ end subroutine test_find_driver_loops
     with pragmas_attached(routine, node_type=ir.Loop):
         # Test is_driver_loop utility
         loops = FindNodes(ir.Loop).visit(routine.body)
-        assert len(loops) == 14
+        assert len(loops) == 23
 
         assert is_pragma_driver_loop(loops[0])
         assert is_driver_loop(loops[0], targets=())
@@ -565,8 +587,8 @@ end subroutine test_find_driver_loops
         assert len(caplog.records) == 1
         assert "Nested pragma marked driver loop inside loop" in caplog.records[0].message
 
-        assert len(driver_loops) == 7
-        for i in [0, 3, 4, 6, 8, 9, 13]:
+        assert len(driver_loops) == 10
+        for i in [0, 3, 4, 6, 8, 9, 13, 17, 19, 20]:
             assert loops[i] in driver_loops
 
 
