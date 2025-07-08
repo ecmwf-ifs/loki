@@ -16,8 +16,7 @@ from loki.ir import nodes as ir, FindNodes, FindVariables
 
 from loki.transformations.array_indexing.vector_notation import (
     resolve_vector_notation, resolve_vector_dimension,
-    remove_explicit_array_dimensions, add_explicit_array_dimensions,
-    resolve_masked_statements
+    remove_explicit_array_dimensions, add_explicit_array_dimensions
 )
 
 
@@ -401,7 +400,7 @@ end subroutine test_resolve_where
     horizontal = Dimension(
         name='horizontal', index='jl', lower='start', upper='end'
     )
-    resolve_masked_statements(routine, dimension=horizontal)
+    resolve_vector_dimension(routine, dimension=horizontal)
 
     # Ensure horizontal loop variable has been declared
     assert 'jl' in routine.variables

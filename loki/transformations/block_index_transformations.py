@@ -18,9 +18,7 @@ from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.expression import (
     symbols as sym, Variable, Array, RangeIndex
 )
-from loki.transformations.array_indexing import (
-    resolve_masked_statements, resolve_vector_dimension
-)
+from loki.transformations.array_indexing import resolve_vector_dimension
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     recursive_expression_map_update, get_integer_variable,
@@ -258,7 +256,6 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         # Sanitize the subroutine
         do_resolve_associates(routine)
-        resolve_masked_statements(routine, dimension=self.horizontal)
 
         # Bail if routine is marked as sequential
         if check_routine_sequential(routine):
