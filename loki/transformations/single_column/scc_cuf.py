@@ -20,9 +20,7 @@ from loki.tools import CaseInsensitiveDict, as_tuple, flatten
 from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
-from loki.transformations.array_indexing import (
-    resolve_masked_statements, resolve_vector_dimension
-)
+from loki.transformations.array_indexing import resolve_vector_dimension
 from loki.transformations.temporaries.hoist_variables import HoistVariablesTransformation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
@@ -625,7 +623,6 @@ class SccLowLevelDataOffload(Transformation):
         """
 
         do_resolve_associates(routine)
-        resolve_masked_statements(routine, dimension=self.horizontal)
         resolve_vector_dimension(routine, dimension=self.horizontal)
         routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
 

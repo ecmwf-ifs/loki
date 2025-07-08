@@ -7,9 +7,7 @@
 
 from loki.batch import Transformation
 
-from loki.transformations.array_indexing import (
-    resolve_masked_statements, resolve_vector_dimension
-)
+from loki.transformations.array_indexing import resolve_vector_dimension
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
     check_routine_sequential, rename_variables
@@ -119,9 +117,6 @@ class SCCBaseTransformation(Transformation):
         # Associates at the highest level, so they don't interfere
         # with the sections we need to do for detecting subroutine calls
         do_resolve_associates(routine)
-
-        # Resolve WHERE clauses
-        resolve_masked_statements(routine, dimension=self.horizontal)
 
         # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
         resolve_vector_dimension(routine, dimension=self.horizontal)

@@ -15,7 +15,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindExpressions, Transformer,
     FindVariables, SubstituteExpressions, FindInlineCalls
 )
-from loki.tools import as_tuple
+from loki.tools import as_tuple, dict_override
 from loki.types import SymbolAttributes, BasicType
 
 from loki.transformations.utilities import (
@@ -29,8 +29,7 @@ if HAVE_FP:
 __all__ = [
     'remove_explicit_array_dimensions', 'add_explicit_array_dimensions',
     'resolve_vector_notation', 'resolve_vector_dimension',
-    'ResolveVectorNotationTransformer', 'resolve_masked_statements',
-    'ResolveMaskedStatementTransformer'
+    'ResolveVectorNotationTransformer'
 ]
 
 
@@ -283,6 +282,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.derive_qualified_ranges = derive_qualified_ranges
 
     def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
+        create_loops = kwargs.get('create_loops', True)
 
         if HAVE_FP:
             if any(redux_op in FindExpressions().visit(stmt.rhs)
@@ -307,7 +307,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.index_vars.update(list(index_range_map.keys()))
 
         # Recursively build new loop nest over all implicit dims
-        if len(index_range_map):
+        if create_loops and len(index_range_map):
             loop = None
             body = stmt
             for ivar, irange in index_range_map.items():
@@ -323,69 +323,39 @@ class ResolveVectorNotationTransformer(Transformer):
         # No vector dimensions encountered, return unchanged
         return stmt
 
-
-def resolve_masked_statements(routine, dimension):
-    """
-    Resolve :any:`MaskedStatement` (WHERE statement) objects to an
-    explicit combination of :any:`Loop` and :any:`Conditional` combination.
-
-    Parameters
-    ----------
-    routine : :any:`Subroutine`
-        The subroutine in which to resolve masked statements
-    dimension : :any:`Dimension`
-        The :any:`Dimension` object describing the loop index and bounds
-    """
-    index = get_integer_variable(routine, name=dimension.index)
-    bounds = get_loop_bounds(routine, dimension=dimension)
-
-    transformer = ResolveMaskedStatementTransformer(
-        index=index, bounds=bounds, inplace=True
-    )
-    routine.body = transformer.visit(routine.body)
-
-    # Add declarations for loop index variable, if it does not exist
-    if index not in routine.variables:
-        routine.variables += as_tuple(index)
-
-
-class ResolveMaskedStatementTransformer(Transformer):
-    """
-    Replace :any:`MaskedStatement` objects with a nested :any:`Conditional`
-    within a :any:`Loop`. This replacement is currently restrictred to
-    index range expressions that match the given bounds.
-
-    Parameters
-    ----------
-    index : :any:`Variable`
-        The loop index variable to be used to construct the outer :any:`Loop`.
-    bounds : tuple of :any:`Expression`
-        The loop bounds to match again for explacing index range expressions.
-    """
-
-    def __init__(self, *args, index, bounds, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.ivar = index
-        self.ibounds = sym.RangeIndex(bounds)
-
     def visit_MaskedStatement(self, masked, **kwargs):  # pylint: disable=unused-argument
         # TODO: Currently limited to simple, single-clause WHERE stmts
         assert len(masked.conditions) == 1 and len(masked.bodies) == 1
 
-        # Determine loop ranges in the condition
-        ranges = tuple(
-            e for e in FindExpressions().visit(masked.conditions[0])
-            if isinstance(e, sym.RangeIndex) and e == self.ibounds
+        index_mapper = IterationRangeIndexMapper(
+            loop_map=self.loop_map, scope=self.scope,
+            map_unknown_ranges=self.map_unknown_ranges
         )
-        exprmap = {r: self.ivar for r in ranges}
-        assert len(ranges) > 0
-        assert all(r == ranges[0] for r in ranges)
+        conditions = index_mapper(masked.conditions)
+        index_range_map = index_mapper.index_range_map
+
+        with dict_override(kwargs, {'create_loops': False}):
+            bodies = self.visit(masked.bodies, **kwargs)
+            else_body = self.visit(masked.default, **kwargs)
 
         # Rebuild construct as an IF conditional inside a loop over the range bounds
-        bounds = sym.LoopRange((ranges[0].start, ranges[0].stop, ranges[0].step))
+        idx_range = list(index_range_map.values())[0]
+        bounds = sym.LoopRange((idx_range.start, idx_range.stop, idx_range.step))
         cond = ir.Conditional(
-            condition=masked.conditions[0], body=masked.bodies[0], else_body=masked.default
+            condition=conditions[0], body=bodies, else_body=else_body
         )
-        cond = SubstituteExpressions(exprmap).visit(cond)
-        return ir.Loop(variable=self.ivar, bounds=bounds, body=(cond,))
+
+        # Recursively build new loop nest over all implicit dims
+        if len(index_range_map):
+            loop = None
+            body = cond
+            for ivar, irange in index_range_map.items():
+                if isinstance(irange, sym.RangeIndex):
+                    bounds = sym.LoopRange(irange.children)
+                else:
+                    bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
+                loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
+                body = loop
+            return loop
+
+        return masked
