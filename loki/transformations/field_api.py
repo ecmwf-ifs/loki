@@ -194,6 +194,8 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
         suffix = 'RDWR'
     elif transfer_type == FieldAPITransferType.WRITE_ONLY:
         suffix = 'WRONLY'
+        if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
+            raise TypeError("incorrect transfer_type for Field-API sync method")
     elif transfer_type == FieldAPITransferType.FORCE:
         suffix = 'FORCE'
     else:
@@ -376,8 +378,22 @@ def field_sync_host(field_ptr, transfer_type: FieldAPITransferType, scope: Scope
 
 
 def field_create_device_data(field_ptr, scope: Scope, blk_bounds=None):
+    """
+    Utility unction to generate a :any:`CallStatement` corresponding to a Field API
+    `CREATE_DEVICE_DATA` call.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``DELETE_DEVICE_DATA`` from.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    blk_bounds: integer dimension(2) array
+        ``BLK_BOUNDS`` optional argument
+    """
+    kwargs = (('blk_bounds', blk_bounds),) if blk_bounds else None
     return ir.CallStatement(name=sym.ProcedureSymbol('CREATE_DEVICE_DATA', parent=field_ptr, scope=scope),
-                            kwarguments=(('blk_bounds', blk_bounds),))
+                            kwarguments=kwargs)
 
 
 def field_delete_device_data(field_ptr, scope):
@@ -400,21 +416,3 @@ def field_delete_device_data(field_ptr, scope):
 def field_wait_for_async_queue(queue, scope: Scope):
     return ir.CallStatement(name=sym.ProcedureSymbol('WAIT_FOR_ASYNC_QUEUE', scope=scope),
                             arguments=(queue,))
-
-
-def find_field_offload_calls(ir_section):
-    """
-    Utility function to find all :any:`CallStatement` nodes that are Field API data transfer calls.
-
-    Parameters
-    ----------
-    field_ptr: pointer to field object
-        Pointer to the field to call ``SYNC_HOST`` from.
-    scope: :any:`Scope`
-        Scope of the created :any:`CallStatement`
-    queue: integer
-       ``QUEUE`` optional  argument
-    blk_bounds: integer dimension(2) array
-        ``BLK_BOUNDS`` optional argument
-    """
-    pass
