@@ -10,6 +10,7 @@ import pytest
 from loki import Module, Subroutine, Dimension, fgen
 from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends, OMNI
+from loki.logging import WARNING
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls,
     SubstituteExpressions, pragmas_attached
@@ -21,7 +22,7 @@ from loki.transformations.utilities import (
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
     find_driver_loops, get_local_arrays, check_routine_sequential,
-    substitute_variables_for_definitions
+    substitute_variables_for_definitions, is_pragma_driver_loop
 )
 
 
@@ -426,7 +427,7 @@ end module test_get_loop_bounds_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_utilites_find_driver_loops(frontend):
+def test_transform_utilities_find_driver_loops(frontend):
     """ Test :any:`find_driver_loops` utility. """
 
     fcode = """
@@ -467,6 +468,128 @@ end subroutine test_find_driver_loops
         assert isinstance(driver_loops[0].body[0], ir.Assignment)
         assert driver_loops[1].variable == 'i'
         assert isinstance(driver_loops[1].body[0], ir.CallStatement)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilities_find_driver_loops_multiple_nested(frontend, caplog):
+    """ Test :any:`find_driver_loops` utility. """
+
+    fcode = """
+subroutine test_find_driver_loops(n, start, end, arr)
+  integer, intent(in) :: n, start, end
+  real, intent(inout) :: arr(1000)
+  integer :: i, j, k, l, m, p
+
+  !$loki driver-loop
+  do i=start,end       ! driver loop 0 (loop 0)
+    arr(i) = 2. * arr(i)
+  end do
+
+  do j=start,end
+    arr(j) = 2. * arr(j)
+  end do
+
+  do i=start, end
+    !$loki driver-loop
+    do j=start,end     ! driver loop 1 (loop 3)
+      arr(j) = 2. * arr(j)
+    end do
+
+    do j=start,end     ! driver loop 2 (loop 4)
+        call target_kernel(arr(j))
+    end do
+  end do
+
+  do i=start,end
+    do j=start,end     ! driver loop 4 (loop 6)
+        do l=start,end
+            call target_kernel(arr(i+j+l))
+        end do
+    end do
+
+    !$loki driver-loop
+    do j=start,end     ! driver loop 3 (loop 8)
+        arr(j+l) = 2. * arr(j+l)
+    end do
+  end do
+
+
+  do i=start,end        ! driver loop 5 (loop 9)
+
+    call target_kernel(arr(i))
+
+    do j=start,end
+      arr(j) = 2. * arr(j)
+    end do
+
+    call target_kernel(arr(i))
+
+  end do
+
+  do j=start,end
+    do i=start,end       ! skipped loop
+      call target_kernel(arr(i))
+    end do
+
+    !$loki driver-loop
+    do i=start,end       ! driver loop 6 (loop 13)
+      arr(i) = 2. * arr(i)
+    end do
+
+    call target_kernel(arr(j))
+  end do
+
+  do j=start,end
+  do m=start,end
+    do i=start,end
+      do k=start,end ! driver loop 7 (loop 17)
+        do l=start,end
+          call target_kernel(arr(l))
+        end do
+      end do
+      !$loki driver-loop
+      do k=start,end       ! driver loop 8 (loop 19)
+        arr(i) = 2. * arr(i)
+      end do
+      do k=start,end ! driver loop 9 (loop 20)
+        do l=start,end
+          do p=start,end
+            call target_kernel(arr(p))
+          end do
+        end do
+      end do
+    end do
+  end do
+  end do
+
+end subroutine test_find_driver_loops
+"""
+    caplog.set_level(WARNING)
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    with pragmas_attached(routine, node_type=ir.Loop):
+        # Test is_driver_loop utility
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        assert len(loops) == 23
+
+        assert is_pragma_driver_loop(loops[0])
+        assert is_driver_loop(loops[0], targets=())
+        assert not is_pragma_driver_loop(loops[1])
+
+        assert not is_driver_loop(loops[1], targets=())
+        assert not is_driver_loop(loops[2], targets=())
+
+        assert is_driver_loop(loops[3], targets=())
+        assert not is_driver_loop(loops[4], targets=())
+        assert is_driver_loop(loops[4], targets=('target_kernel', ))
+
+        driver_loops = find_driver_loops(routine.body, targets=('target_kernel',))
+        assert len(caplog.records) == 1
+        assert "Nested pragma marked driver loop inside loop" in caplog.records[0].message
+
+        assert len(driver_loops) == 10
+        for i in [0, 3, 4, 6, 8, 9, 13, 17, 19, 20]:
+            assert loops[i] in driver_loops
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

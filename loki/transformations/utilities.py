@@ -27,13 +27,15 @@ from loki.subroutine import Subroutine
 from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 from loki.config import config_override
+from loki.logging import warning
+from loki.ir.visitor import Visitor
 
 
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
-    'get_integer_variable', 'get_loop_bounds', 'find_driver_loops',
+    'get_integer_variable', 'get_loop_bounds', 'is_pragma_driver_loop', 'find_driver_loops',
     'get_local_arrays', 'check_routine_sequential', 'substitute_variables_for_definitions'
 ]
 
@@ -589,6 +591,15 @@ def get_loop_bounds(routine, dimension):
     return bounds
 
 
+def is_pragma_driver_loop(loop):
+    if loop.pragma:
+        for pragma in loop.pragma:
+            if is_loki_pragma(pragma, starts_with='driver-loop') or \
+               is_loki_pragma(pragma, starts_with='loop driver'):
+                return True
+    return False
+
+
 def is_driver_loop(loop, targets):
     """
     Test/check whether a given loop is a *driver loop*.
@@ -619,6 +630,11 @@ def find_driver_loops(section, targets):
     A *driver loop* is specified either by a call to a routine within
     `targets` or by the pragma `!$loki driver-loop`.
 
+    If there are nested loops, then the highest level pragma-marked driver
+    loop will take precedence and be considered the driver loop. If there
+    is no pragma-marked driver loop, then the highest level loop that does
+    not contain a driver loop will be considered the driver loop.
+
     Parameters
     ----------
     section : :any:`Section` or tuple
@@ -627,20 +643,87 @@ def find_driver_loops(section, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
+    targets = [str(t).lower() for t in as_tuple(targets)]
 
-    driver_loops = []
-    nested_driver_loops = []
-    for loop in FindNodes(ir.Loop).visit(section):
-        if loop in nested_driver_loops:
-            continue
+    class FindDriverLoops(Visitor):
+        """
+        A  visitor that collects all driver loops in a section of the IR.
 
-        if not is_driver_loop(loop, targets):
-            continue
+        If there are nested loops, then the highest level pragma-marked driver
+        loop will take precedence and be considered the driver loop. If there
+        is no pragma-marked driver loop, then the highest level loop that does
+        not contain a driver loop will be considered the driver loop.
+        """
 
-        driver_loops.append(loop)
-        loops = FindNodes(ir.Loop).visit(loop.body)
-        nested_driver_loops.extend(loops)
-    return driver_loops
+        @classmethod
+        def default_retval(cls):
+            return False, False, []
+
+        def __init__(self):
+            super().__init__()
+            self.driver_loops = []
+
+        def visit_tuple(self, o, **kwargs):
+            nested_pragma_loop = False
+            nested_target_loops = []
+            has_target_call = False
+            for i in o:
+                retval = self.visit(i, **kwargs)
+                nested_pragma_loop |= retval[0]
+                has_target_call |= retval[1]
+                nested_target_loops += retval[2]
+
+            return nested_pragma_loop, has_target_call, nested_target_loops
+
+        visit_list = visit_tuple
+
+        def visit_CallStatement(self, call, **_kwargs):
+            if call.name in targets:
+                return False, True, []
+            return self.default_retval()
+
+        def visit_Loop(self, loop, **kwargs):
+            depth = kwargs.pop('depth', 0)
+            if is_pragma_driver_loop(loop):
+                # Propagate the presence of the pragma only if inside a loop nest
+                self.driver_loops.append(loop)
+                return depth > 0, False, []
+
+            # Recurse into the (potential) loop nest
+            nested_pragma_loop, has_target_call, nested_target_loops = self.visit(
+                loop.body, depth=depth+1, **kwargs
+            )
+
+            if nested_pragma_loop:
+                # If there is a pragma-marked driver loop, this takes precedence and
+                # we reset the list of nested target loops
+                if has_target_call:
+                    warning("[Loki::find_driver_loops] Nested pragma marked driver loop inside loop"
+                            f" with target call (skipping {loop}")
+                    nested_target_loops = []
+
+            elif has_target_call:
+                # If there is a target call directly inside the loop, the current loop
+                # is a potential driver loop (unless a pragma-annotated loop is present,
+                # which is why the target loops are collected into a list first and only
+                # added to self.driver_loops once we're back at depth==0)
+                nested_target_loops = [loop]
+
+            elif nested_target_loops and depth > 0:
+                # If this is simply another loop around a nested target loop, we raise
+                # the driver loop one level further up
+                nested_target_loops = [loop]
+
+            if depth == 0:
+                if nested_target_loops:
+                    self.driver_loops.extend(nested_target_loops)
+                return self.default_retval()
+
+            return nested_pragma_loop, False, nested_target_loops
+
+    find_driver = FindDriverLoops()
+    find_driver.visit(section, targets=targets)
+    return find_driver.driver_loops
 
 
 def get_local_arrays(routine, section, unique=True):
