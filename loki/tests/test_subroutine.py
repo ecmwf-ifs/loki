@@ -141,7 +141,7 @@ end subroutine my_routine
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI frontend interface does not provide interfaces')]
 ))
-def test_routine_bind(frontend):
+def test_routine_bind(frontend, tmp_path):
     """ Test matching of 'bind" suffix for subroutines in interfaces """
     fcode = """
 module my_module
@@ -164,7 +164,7 @@ contains
 end module my_module
 """
     # Note that Fparser fails here if the legal 'recursive' prefix is used!
-    module = Module.from_source(fcode, frontend=frontend)
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     routine = module['my_routine']
 
