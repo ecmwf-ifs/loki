@@ -333,7 +333,7 @@ def replace_kernel_args(driver, offload_map, offload_index):
 
     args = offload_map.args
     for arg in FindVariables().visit(driver.body):
-        if not arg.name in args:
+        if arg.name not in args:
             continue
 
         dataptr = offload_map.dataptr_from_array(arg)
@@ -356,7 +356,7 @@ def block_driver_loops(driver, region, block_size):
             loop = driver_loops[0]
         else:
             error(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
-        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=possibly-used-before-assignment
+        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=used-before-assignment
         # move loop pragmas to inner loop
         if outer_loop.pragma is not None:
             pragmas = []
