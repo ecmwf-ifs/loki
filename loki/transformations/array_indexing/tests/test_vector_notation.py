@@ -427,3 +427,54 @@ end subroutine test_resolve_where
     assert assigns[0].lhs == 'q(jl, jk)' and assigns[0].rhs == 'q(jl, jk - 1) + t(jl, jk)'
     assert assigns[1] in conds[0].else_body
     assert assigns[1].lhs == 'q(jl, jk)' and assigns[1].rhs == 't(jl, jk)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_inferred_bounds(frontend):
+    """ Test the resolution of WHERE stmts with inferred bounds """
+
+    fcode = """
+subroutine test_masked_inferred(n, m, x, y, z)
+  implicit none
+  integer, intent(in) :: n, m
+  real(kind=8), intent(inout) :: x(n), y(n), z(m)
+  integer :: i
+
+  do i=1,n
+    x(i) = i
+  end do
+  y(:) = 0.0
+  z(:) = 0.0
+
+  where( (x > 5.0) )
+    x = y
+  end where
+end subroutine test_masked_inferred
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    dim = Dimension(name='n', index='i', lower='1', upper='n')
+    resolve_vector_dimension(
+        routine, dimension=dim, derive_qualified_ranges=True
+    )
+
+    # Check only assignments over ``n`` have been resolved
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    assert assigns[0].lhs == 'x(i)' and assigns[0].rhs == 'i'
+    assert assigns[1].lhs == 'y(i)' and assigns[1].rhs == '0.0'
+    assert assigns[2].lhs == 'z(1:m)' and assigns[2].rhs == '0.0'
+    assert assigns[3].lhs == 'x(i)' and assigns[3].rhs == 'y(i)'
+
+    # Check the WHERE has been resolved to IF
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 1
+    assert conds[0].condition == 'x(i) > 5.0'
+    assert assigns[3] in conds[0].body
+
+    # Check that new loops have been inserted
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 3
+    assert assigns[0] in loops[0].body
+    assert assigns[1] in loops[1].body
+    assert conds[0] in loops[2].body

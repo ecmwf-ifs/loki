@@ -128,7 +128,7 @@ def resolve_vector_notation(routine):
     routine.variables += tuple(set(transformer.index_vars))
 
 
-def resolve_vector_dimension(routine, dimension):
+def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False):
     """
     Resolve vector notation for a given dimension only. The dimension
     is defined by a loop variable and the bounds of the given range.
@@ -143,15 +143,21 @@ def resolve_vector_dimension(routine, dimension):
         The subroutine in which to resolve vector notation usage.
     dimension : :any:`Dimension`
         Dimension object that defines the dimension to resolve
+    derive_qualified_ranges : bool
+        Flag to enable the derivation of (all) range bounds from
+        shape information.
     """
     # Find the iteration index variable and bound variables
     index = get_integer_variable(routine, name=dimension.index)
     bounds = get_loop_bounds(routine, dimension=dimension)
+
+    # Map any range indices to the given loop index variable
     loop_map = {sym.RangeIndex(bounds): index}
 
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True,
-        derive_qualified_ranges=False, map_unknown_ranges=False
+        derive_qualified_ranges=derive_qualified_ranges,
+        map_unknown_ranges=False
     )
     routine.body = transformer.visit(routine.body)
 
@@ -174,6 +180,11 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
     def map_array(self, expr, *args, **kwargs):
         """ Replace ``:`` range indices with ``1:shape`` vector indices """
 
+        # Resolve implicit range indices if we know the shape
+        if not expr.dimensions and expr.shape:
+            expr = expr.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in expr.shape))
+
+        # Derive fully qualified bounds for ``:``
         new_dims = tuple(
             self._shape_to_range(s) if isinstance(d, sym.RangeIndex) and d == ':' else d
             for i, d, s in zip(count(), expr.dimensions, as_tuple(expr.shape))
@@ -327,11 +338,16 @@ class ResolveVectorNotationTransformer(Transformer):
         # TODO: Currently limited to simple, single-clause WHERE stmts
         assert len(masked.conditions) == 1 and len(masked.bodies) == 1
 
+        # Replace all unbounded ranges with bounded ranges based on array shape
+        conditions = masked.conditions
+        if self.derive_qualified_ranges:
+            conditions = IterationRangeShapeMapper()(conditions)
+
         index_mapper = IterationRangeIndexMapper(
             loop_map=self.loop_map, scope=self.scope,
             map_unknown_ranges=self.map_unknown_ranges
         )
-        conditions = index_mapper(masked.conditions)
+        conditions = index_mapper(conditions)
         index_range_map = index_mapper.index_range_map
 
         with dict_override(kwargs, {'create_loops': False}):
@@ -339,6 +355,9 @@ class ResolveVectorNotationTransformer(Transformer):
             else_body = self.visit(masked.default, **kwargs)
 
         # Rebuild construct as an IF conditional inside a loop over the range bounds
+        if not index_range_map:
+            return masked
+
         idx_range = list(index_range_map.values())[0]
         bounds = sym.LoopRange((idx_range.start, idx_range.stop, idx_range.step))
         cond = ir.Conditional(
