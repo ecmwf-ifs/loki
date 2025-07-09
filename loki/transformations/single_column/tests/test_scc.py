@@ -1410,7 +1410,11 @@ end subroutine kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_annotate_driver_loop(frontend, tmp_path):
+@pytest.mark.parametrize('pipeline,mode', [
+    (SCCVVectorPipeline, 'vector'),
+    (SCCSVectorPipeline, 'seq')
+])
+def test_scc_annotate_driver_loop(frontend, tmp_path, pipeline, mode):
     """
     Test for issue #246 to ensure the correct loop in the loop nest
     is identified and annotated as driver loop
@@ -1461,20 +1465,18 @@ end module mod
     block_dim = Dimension('block_dim', index='JBLK', size='NGPBLK')
 
     # Test OpenACC annotations on non-hoisted version
-    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
-    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
-    scc_transform += (SCCAnnotateTransformation(block_dim=block_dim),)
-    scc_transform += (PragmaModelTransformation(directive='openacc'),)
-    for transform in scc_transform:
+    for transform in pipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc').transformations:
         transform.apply(source['wrapper'], role='driver', targets=['kernel'])
         transform.apply(source['kernel'], role='kernel')
 
     # Ensure routine is annotated at vector level
     pragmas = FindNodes(Pragma).visit(source['kernel'].ir)
-    assert len(pragmas) == 5
+    if mode == 'vector':
+        assert len(pragmas) == 5
+    else:
+        assert len(pragmas) == 4
     assert pragmas[0].keyword == 'acc'
-    assert pragmas[0].content == 'routine vector'
+    assert pragmas[0].content == f'routine {mode}'
     assert pragmas[1].keyword == 'acc'
     assert pragmas[1].content == 'data present(arr)'
     assert pragmas[-1].keyword == 'acc'
@@ -1483,16 +1485,22 @@ end module mod
     # Ensure vector and seq loops are annotated, including privatized variable `b`
     with pragmas_attached(source['kernel'], Loop):
         kernel_loops = FindNodes(Loop).visit(source['kernel'].ir)
-        assert len(kernel_loops) == 2
-        assert kernel_loops[0].pragma[0].keyword == 'acc'
-        assert kernel_loops[0].pragma[0].content == 'loop vector'
-        assert kernel_loops[1].pragma[0].keyword == 'acc'
-        assert kernel_loops[1].pragma[0].content == 'loop seq'
+        assert kernel_loops[0].pragma[-1].keyword == 'acc'
+        assert kernel_loops[0].pragma[-1].content == f'loop {mode}'
+        if mode == 'vector':
+            assert len(kernel_loops) == 2
+            assert kernel_loops[1].pragma[-1].keyword == 'acc'
+            assert kernel_loops[1].pragma[-1].content == 'loop seq'
+        else:
+            assert len(kernel_loops) == 1
 
     # Ensure a single outer parallel loop in driver
     with pragmas_attached(source['wrapper'], Loop):
         driver_loops = FindNodes(Loop).visit(source['wrapper'].body)
-        assert len(driver_loops) == 2
+        if mode == 'vector':
+            assert len(driver_loops) == 2
+        else:
+            assert len(driver_loops) == 3
         assert not driver_loops[0].pragma
-        assert driver_loops[1].pragma[0].keyword == 'acc'
-        assert driver_loops[1].pragma[0].content == 'parallel loop gang'
+        assert driver_loops[1].pragma[-1].keyword == 'acc'
+        assert driver_loops[1].pragma[-1].content == 'parallel loop gang'
