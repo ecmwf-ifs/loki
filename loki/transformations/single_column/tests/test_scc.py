@@ -1407,3 +1407,92 @@ end subroutine kernel
 
     assert 'maxval' == assigns[1].rhs.name.lower()
     assert 'start:end' in assigns[1].rhs.parameters[0].dimensions
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_annotate_driver_loop(frontend, tmp_path):
+    """
+    Test for issue #246 to ensure the correct loop in the loop nest
+    is identified and annotated as driver loop
+    """
+    fcode = """
+module mod
+    implicit none
+    integer, parameter :: ngpblk = 2
+    integer, parameter :: klon = 10
+    integer, parameter :: klev = 5
+    contains
+    subroutine wrapper(arr)
+        integer, parameter :: niter = 10
+        integer, intent(in) :: arr(klon, klev, ngpblk)
+        integer :: jblk, jiter
+
+        ! Begin relevant part.
+        DO jiter=1,niter
+            DO jblk=1,ngpblk
+                CALL kernel(klon, klev, 1, 1, arr(:, :, jblk))
+            END DO
+        END DO
+        ! End relevant part.
+
+    end subroutine wrapper
+
+    subroutine kernel(klon, klev, jlev_lower, jlon_lower, arr)
+        integer, intent(in) :: klon
+        integer, intent(in) :: klev
+        integer, intent(in) :: jlev_lower, jlon_lower
+        integer, intent(inout) :: arr(klon, klev)
+        integer :: jlon, jlev
+
+        DO jlev=jlev_lower,klev
+            DO jlon=jlon_lower,klon
+                arr(jlon, jlev) = jlon + jlev
+            END DO
+        END DO
+
+    end subroutine kernel
+
+end module mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=(tmp_path,))
+
+    horizontal = Dimension('horizontal', index='JLON', bounds=['jlon_lower', 'klon'], size='KLON')
+    block_dim = Dimension('block_dim', index='JBLK', size='NGPBLK')
+
+    # Test OpenACC annotations on non-hoisted version
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCDemoteTransformation(horizontal=horizontal),)
+    scc_transform += (SCCRevectorTransformation(horizontal=horizontal),)
+    scc_transform += (SCCAnnotateTransformation(block_dim=block_dim),)
+    scc_transform += (PragmaModelTransformation(directive='openacc'),)
+    for transform in scc_transform:
+        transform.apply(source['wrapper'], role='driver', targets=['kernel'])
+        transform.apply(source['kernel'], role='kernel')
+
+    # Ensure routine is annotated at vector level
+    pragmas = FindNodes(Pragma).visit(source['kernel'].ir)
+    assert len(pragmas) == 5
+    assert pragmas[0].keyword == 'acc'
+    assert pragmas[0].content == 'routine vector'
+    assert pragmas[1].keyword == 'acc'
+    assert pragmas[1].content == 'data present(arr)'
+    assert pragmas[-1].keyword == 'acc'
+    assert pragmas[-1].content == 'end data'
+
+    # Ensure vector and seq loops are annotated, including privatized variable `b`
+    with pragmas_attached(source['kernel'], Loop):
+        kernel_loops = FindNodes(Loop).visit(source['kernel'].ir)
+        assert len(kernel_loops) == 2
+        assert kernel_loops[0].pragma[0].keyword == 'acc'
+        assert kernel_loops[0].pragma[0].content == 'loop vector'
+        assert kernel_loops[1].pragma[0].keyword == 'acc'
+        assert kernel_loops[1].pragma[0].content == 'loop seq'
+
+    # Ensure a single outer parallel loop in driver
+    with pragmas_attached(source['wrapper'], Loop):
+        driver_loops = FindNodes(Loop).visit(source['wrapper'].body)
+        assert len(driver_loops) == 2
+        assert not driver_loops[0].pragma
+        assert driver_loops[1].pragma[0].keyword == 'acc'
+        assert driver_loops[1].pragma[0].content == 'parallel loop gang'
