@@ -352,10 +352,12 @@ def block_driver_loops(driver, region, block_size):
         if len(driver_loops) == 1:
             loop = driver_loops[0]
         elif len(driver_loops) > 1:
-            warning(f'[Loki] Data offload (field blocking): Multiple driver loops found in {driver.name}')
+            warning('[Loki] FieldOffloadBlockedTransformation: Multiple driver loops found in ' +
+                    f'{driver.name}, discarding all but first')
             loop = driver_loops[0]
         else:
-            error(f'[Loki] Data offload (field blocking): No driver loops found in {driver.name}')
+            error(f'[Loki] FieldOffloadBlockedTransformation: No driver loops found in {driver.name}')
+
         splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=used-before-assignment
         # move loop pragmas to inner loop
         if outer_loop.pragma is not None:
