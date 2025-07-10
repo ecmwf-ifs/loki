@@ -386,7 +386,7 @@ subroutine test_get_loop_bounds(dim, n, start, end, arr)
   type(my_dim), intent(in) :: dim
   integer, intent(in) :: n, start, end
   real, intent(inout) :: arr(n)
-  integer :: i, j
+  integer :: i, j, k
 
   do i=start, end
     arr(i) = 2. * arr(i)
@@ -395,6 +395,11 @@ subroutine test_get_loop_bounds(dim, n, start, end, arr)
   do j=dim%a, dim%b
     arr(j) = 2. * arr(j)
   end do
+
+  do k=1,n
+    arr(k) = 2. * arr(k)
+  end do
+
 end subroutine test_get_loop_bounds
 end module test_get_loop_bounds_mod
 """
@@ -404,6 +409,7 @@ end module test_get_loop_bounds_mod
     x = Dimension(name='x', size='n', index='i', bounds=('start', 'end'))
     y = Dimension(name='y', size='n', index='i', bounds=('a', 'b'))
     z = Dimension(name='y', size='n', index='i', bounds=('dim%a', 'dim%b'))
+    a = Dimension(name='a', size='n', index='k', lower='1', upper='n')
 
     start, end = get_loop_bounds(routine, x)  # pylint: disable=unbalanced-tuple-unpacking
     assert isinstance(start, sym.Scalar)
@@ -424,6 +430,13 @@ end module test_get_loop_bounds_mod
     assert isinstance(end, sym.Scalar)
     assert end.type.dtype == BasicType.INTEGER
     assert end.type.kind == '8'
+
+    # Test matching with a natural constant lower bound
+    start, end = get_loop_bounds(routine, a)  # pylint: disable=unbalanced-tuple-unpacking
+    assert isinstance(start, sym.IntLiteral) and start == 1
+    assert isinstance(end, sym.Scalar) and end == 'n'
+    assert end.type.dtype == BasicType.INTEGER
+    assert end.type.intent == 'in'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
