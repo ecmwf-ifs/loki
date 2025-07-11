@@ -21,21 +21,23 @@ from loki.transformations import DataOffloadTransformation, PragmaModelTransform
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('assume_deviceptr', [True, False])
 @pytest.mark.parametrize('present_on_device', [True, False])
-def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, present_on_device):
+@pytest.mark.parametrize('asynchronous', [True, False])
+def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, present_on_device,
+                                     asynchronous):
     """
     Test the creation of a simple device data offload region
     (`!$acc update`) from a `!$loki data` region with a single
     kernel call.
     """
 
-    fcode_driver = """
+    fcode_driver = f"""
   SUBROUTINE driver_routine(nlon, nlev, a, b, c)
     INTEGER, INTENT(IN)   :: nlon, nlev
     REAL, INTENT(INOUT)   :: a(nlon,nlev)
     REAL, INTENT(INOUT)   :: b(nlon,nlev)
     REAL, INTENT(INOUT)   :: c(nlon,nlev)
 
-    !$loki data
+    !$loki data {'async(1)' if asynchronous else ''}
     call kernel_routine(nlon, nlev, a, b, c)
     !$loki end data
 
@@ -77,7 +79,6 @@ def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, present
     trafos += (PragmaModelTransformation(directive='openacc'),)
     for trafo in trafos:
         driver.apply(trafo, role='driver', targets=['kernel_routine'])
-
     pragmas = FindNodes(Pragma).visit(driver.body)
     assert len(pragmas) == 2
     assert all(p.keyword == 'acc' for p in pragmas)
@@ -94,6 +95,12 @@ def test_data_offload_region_openacc(caplog, frontend, assume_deviceptr, present
         assert 'copyin( a )' in transformed
         assert 'copy( b )' in transformed
         assert 'copyout( c )' in transformed
+        if asynchronous:
+            assert 'async( 1 )' in transformed
+    if asynchronous:
+        assert 'async' in pragmas[0].content
+        async_param = get_pragma_parameters(pragmas[0], only_loki_pragmas=False)['async']
+        assert async_param =='1', 'async parameter should be 1.'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
