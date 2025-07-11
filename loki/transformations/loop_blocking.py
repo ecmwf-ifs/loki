@@ -32,7 +32,8 @@ class LoopSplittingVariables:
         elif isinstance(block_size, (sym.Scalar, sym.IntLiteral)):
             blk_size = block_size
         else:
-            error("Block size must a be a an integer constant or a scalar variable")
+            error("LoopSplittingVariables: Block size argument must be an integer constant or a scalar variable")
+            raise ValueError('Block size must a be a an integer constant or a scalar variable')
 
         self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
                                                type=loop_var.type.clone(parameter=True,
@@ -95,6 +96,8 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
         Loop to be split.
     block_size: int
         inner loop size (size of blocking blocks)
+    data_region: :any:`PragmaRegion`, optional
+
     """
 
     # loop splitting variable declarations
@@ -138,12 +141,14 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
                                  f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
                                  scope=routine))))
 
-    #  Outer loop bounds + body
+    #  Create outer_loop with blocking vars and inner_loop in its body
     if data_region is None:
         outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
                                 bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
         change_map = {loop: block_loop_inits + (outer_loop,)}
         Transformer(change_map, inplace=True).visit(routine.body)
+    # If data_region is provided we block the entire data_region and place the
+    # outer loop outside the data region
     else:
         outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (data_region,),
                                 bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
@@ -151,7 +156,7 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
         # Transformer to place block loop outside data region
         class BlockDataRegionTransformer(Transformer):
             def visit_PragmaRegion(self, pragma_region):
-                if not pragma_region is data_region:
+                if pragma_region is not data_region:
                     return pragma_region
                 change_map = {loop: (inner_loop,)}
                 Transformer(change_map, inplace=True).visit(data_region)
@@ -179,7 +184,9 @@ def blocked_type(a: sym.Array):
 
 def replace_indices(dimensions, indices: list, replacement_index):
     """
-    Returns a new dimension object with all occurences of indices changed to replacement_index.  Parameters
+    Returns a new dimension object with all occurences of indices changed to replacement_index.
+
+    Parameters
     ----------
     dimensions:
         Symbolic representation of dimensions or indices.
