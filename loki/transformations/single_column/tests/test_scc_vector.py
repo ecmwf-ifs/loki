@@ -88,7 +88,7 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
         q(jl, jk) = q(jl, jk-1) + t(jl, jk) * c
       END DO
     END DO
-    
+
     ! The scaling is purposefully upper-cased
     DO JL = START, END
       Q(JL, NZ) = Q(JL, NZ) * C
@@ -155,13 +155,24 @@ def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignor
 """
 
     # kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    nested_kernel_mod = Module.from_source(fcode_nested_kernel, frontend=frontend, xmods=[tmp_path])
-    intermediate_kernel_mod = Module.from_source(fcode_intermediate_kernel, frontend=frontend,
-            definitions=nested_kernel_mod,xmods=[tmp_path])
-    intermediate_kernel2_mod = Module.from_source(fcode_intermediate2_kernel, frontend=frontend)
-    kernel_mod = Module.from_source(fcode_kernel, frontend=frontend,
-            definitions=[intermediate_kernel_mod, intermediate_kernel2_mod], xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=kernel_mod, xmods=[tmp_path])
+    nested_kernel_mod = Module.from_source(
+        fcode_nested_kernel, frontend=frontend, xmods=[tmp_path]
+    )
+    intermediate_kernel_mod = Module.from_source(
+        fcode_intermediate_kernel, frontend=frontend, xmods=[tmp_path],
+        definitions=nested_kernel_mod
+    )
+    intermediate_kernel2_mod = Module.from_source(
+        fcode_intermediate2_kernel, frontend=frontend, xmods=[tmp_path]
+    )
+    kernel_mod = Module.from_source(
+        fcode_kernel, frontend=frontend, xmods=[tmp_path],
+        definitions=[intermediate_kernel_mod, intermediate_kernel2_mod]
+    )
+    driver = Subroutine.from_source(
+        fcode_driver, frontend=frontend, xmods=[tmp_path],
+        definitions=kernel_mod
+    )
     kernel = kernel_mod.subroutines[0]
     intermediate_kernel = intermediate_kernel_mod.subroutines[0]
     nested_kernel = nested_kernel_mod.subroutines[0]
