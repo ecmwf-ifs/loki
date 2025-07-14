@@ -2252,6 +2252,28 @@ class FParser2IR(GenericVisitor):
         # Now that all declarations are well-defined we can parse the member routines
         contains = self.visit(get_child(o, Fortran2003.Module_Subprogram_Part), **kwargs)
 
+        # To complete spec and contains, build source objects once we have everything
+        if config['frontend-store-source']:
+            if spec:
+                if spec.body:
+                    spec_lines = (spec.body[0].source.lines[0], spec.body[-1].source.lines[1])
+                    spec_string = ''.join(self.raw_source[spec_lines[0]-1:spec_lines[1]]).strip('\n')
+                    spec._update(source=Source(lines=spec_lines, string=spec_string))
+                else:
+                    # Empty spec source object
+                    line = source.lines[0] + 1
+                    spec._update(source=Source(lines=(line, line), string=''))
+
+            if contains:
+                if contains.body:
+                    contains_lines = (contains.body[0].source.lines[0], contains.body[-1].source.lines[1])
+                    contains_string = ''.join(self.raw_source[contains_lines[0]-1:contains_lines[1]]).strip('\n')
+                    contains._update(source=Source(lines=contains_lines, string=contains_string))
+                else:
+                    # Empty body source object
+                    line = spec.source.lines[1] + 1
+                    contains._update(source=Source(lines=(line, line), string=''))
+
         # Finally, call the module constructor on the object again to register all
         # bits and pieces in place and rescope all symbols
         # pylint: disable=unnecessary-dunder-call
