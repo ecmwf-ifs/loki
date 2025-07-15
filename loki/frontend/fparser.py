@@ -1862,7 +1862,7 @@ class FParser2IR(GenericVisitor):
 
             if body.body:
                 body_lines = (body.body[0].source.lines[0], body.body[-1].source.lines[1])
-                body_string = ''.join(self.raw_source[body_lines[0]-1:body_lines[1]]).strip('\n')
+                body_string = ''.join(self.raw_source[body_lines[0]-1:body_lines[1]]).rstrip('\n')
                 body._update(source=Source(lines=body_lines, string=body_string))
             else:
                 # Empty body source object
