@@ -204,4 +204,34 @@ class FortranCodegenConservative(FortranCodegen):
     def visit_Module(self, o, *args, **kwargs):
         if o.source and o.source.status == SourceStatus.VALID:
             return o.source.string
+
+        if o.source and o.source.status == SourceStatus.INVALID_CHILDREN:
+            # Re-construct header and footer from source if possible
+            h_end = o.contains.source.lines[0] if o.contains and o.contains.source else o.source.lines[1]
+            h_end = min(h_end, o.spec.source.lines[0]) if o.spec.source else h_end
+
+            if h_end < o.source.lines[1]:
+                header = '\n'.join(o.source.string.splitlines()[:h_end-o.source.lines[0]])
+            else:
+                header = self._construct_subroutine_header(o, **kwargs)
+
+            # For one-line footers reconstruct from source
+            foot = o.source.string.splitlines()[o.source.lines[1]-o.source.lines[0]]
+            if 'END ' in foot.upper():
+                footer = foot
+            else:
+                footer = self._construct_procedure_footer(o, **kwargs)
+
+            self.depth += self.style.module_spec_indent
+            spec = self.visit(o.spec, **kwargs)
+            self.depth -= self.style.module_spec_indent
+
+            self.depth += self.style.module_contains_indent
+            contains = self.visit(o.contains, **kwargs)
+            self.depth -= self.style.module_contains_indent
+            if contains:
+                return self.join_lines(header, spec, contains, footer)
+
+            return self.join_lines(header, spec, footer)
+
         return super().visit_Module(o, *args, **kwargs)

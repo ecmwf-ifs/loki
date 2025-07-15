@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import Subroutine, Sourcefile, config_override
+from loki import Subroutine, Module, Sourcefile, config_override
 from loki.backend import fgen
 from loki.ir import nodes as ir, FindNodes, SubstituteExpressions
 from loki.frontend import FP, OMNI, REGEX, SourceStatus, available_frontends
@@ -85,6 +85,93 @@ END SUBROUTINE   MY_TEST_ROUTINE
     expected = fcode.replace('RICK', 'BOB').strip()
     generated = fgen(routine, conservative=True).strip()
     assert generated == expected
+
+
+def test_fgen_conservative_module():
+    fcode_type = """
+MODULE MY_MOD
+  INTEGER, PARAMETER :: AKIND = 8
+  TYPE RTYPE
+    real(kind = 8) ::   DaVe
+  END TYPE RTYPE
+END MODULE   MY_MOD
+"""
+
+    fcode = """
+MODULE MY_TEST_MOD
+  USE MY_MOD, ONLY: AKIND, RTYPE
+  IMPLICIT NONE
+
+  REAL(KIND=AKIND) ::    DAVE(5)
+
+  CONTAINS
+
+  SUBROUTINE A_SHORT_ROUTINE( N,DAVE)
+    INTEGER,          INTENT(IN) :: N
+    REAL(KIND=AKIND), INTENT(INOUT) :: DAVE(N)
+
+    DAVE(:) = DAVE(:) + 2.0
+  END SUBROUTINE   A_SHORT_ROUTINE
+END MODULE MY_TEST_MOD
+"""
+    with config_override({'frontend-store-source': True}):
+        type_mod = Module.from_source(fcode_type, frontend=FP)
+        module = Module.from_source(fcode, frontend=FP)
+
+    routine = module['a_short_routine']
+
+    # Check modules can be re-created string-identically
+    s_type_mod = fgen(type_mod, conservative=True)
+    assert fcode_type.strip() == s_type_mod.strip()
+    s_module = fgen(module, conservative=True)
+    assert fcode.strip() == s_module.strip()
+
+    # Type Module: Use `SubstituteExpressions` to replace AKIND with BKIND
+    akind = FindNodes(ir.VariableDeclaration).visit(type_mod.spec)[0].symbols[0]
+    assert akind == 'AKIND'
+    sub_expr = SubstituteExpressions(
+        {akind: akind.clone(name='BKIND')}, invalidate_source=True
+    )
+    type_mod.spec = sub_expr.visit(type_mod.spec)
+    type_mod.source.status = SourceStatus.INVALID_CHILDREN
+    assert type_mod.spec.source.status == SourceStatus.INVALID_CHILDREN
+
+    # Type Module: Check that substitutions have invalidated relevant nodes
+    decls = FindNodes(ir.VariableDeclaration).visit(type_mod.spec)
+    assert 'bkind' in decls[0].symbols and not decls[0].source.status == SourceStatus.VALID
+
+    # Type Module: Check the actual output formatting of type module
+    type_mod_expected = fcode_type.replace('AKIND', 'BKIND').strip()
+    type_mod_generated = fgen(type_mod, conservative=True).strip()
+    assert type_mod_generated == type_mod_expected
+
+    # Main Module: Use `SubstituteExpressions` to replace AKIND with BKIND in main module
+    akind = FindNodes(ir.Import).visit(module.spec)[0].symbols[0]
+    assert akind == 'AKIND'
+    sub_expr = SubstituteExpressions(
+        {akind: akind.clone(name='BKIND')}, invalidate_source=True
+    )
+    module.spec = sub_expr.visit(module.spec)
+    module.source.status = SourceStatus.INVALID_CHILDREN
+    assert module.spec.source.status == SourceStatus.INVALID_CHILDREN
+    # TODO: Change routine directly, as Transformer does not recurse into program unit yet
+    routine.spec = sub_expr.visit(module['a_short_routine'].spec)
+    routine.source.status = SourceStatus.INVALID_CHILDREN
+    assert routine.spec.source.status == SourceStatus.INVALID_CHILDREN
+
+    module.contains.source.status = SourceStatus.INVALID_CHILDREN
+
+    # Main Module: Check that substitutions have invalidated relevant nodes
+    decls_m = FindNodes(ir.VariableDeclaration).visit(module.spec)
+    assert len(decls_m) == 1
+    assert decls_m[0].symbols[0] == 'dave(5)'
+    assert decls_m[0].symbols[0].type.kind == 'bkind'
+    assert decls_m[0].source.status == SourceStatus.INVALID_NODE
+
+    # Main Module: Check the actual output formatting
+    module_expected = fcode.replace('AKIND', 'BKIND').strip()
+    module_generated = fgen(module, conservative=True).strip()
+    assert module_generated == module_expected
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
