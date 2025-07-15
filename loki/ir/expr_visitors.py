@@ -299,15 +299,38 @@ class SubstituteExpressions(ExpressionTransformer):
 
     def visit_Import(self, o, **kwargs):
         """
-        For :any:`Import` (as well as :any:`VariableDeclaration` and :any:`ProcedureDeclaration`)
-        we set ``recurse_to_declaration_attributes=True`` to make sure properties in the symbol
-        table are updated during dispatch to the expression mapper
+        For :any:`Import` we set ``recurse_to_declaration_attributes=True``
+        to make sure properties in the symbol table are updated during
+        dispatch to the expression mapper.
         """
         kwargs['recurse_to_declaration_attributes'] = True
         return super().visit_Node(o, **kwargs)
 
-    visit_VariableDeclaration = visit_Import
-    visit_ProcedureDeclaration = visit_Import
+    def visit_VariableDeclaration(self, o, **kwargs):
+        """
+        For :any:`VariableDeclaration`  or :any:`ProcedureDeclaration`
+        we set ``recurse_to_declaration_attributes=True`` to make sure
+        properties in the symbol table are updated during dispatch to
+        the expression mapper.
+
+        If source invalidation is being requested, we also check the
+        associated type (on first symbol) to track changes there.
+        """
+        kwargs['recurse_to_declaration_attributes'] = True
+
+        # Store a copy of the old type, as it will be in-place updated
+        old_type = o.symbols[0].type.clone() if self.invalidate_source else None
+        new = super().visit_Node(o, **kwargs)
+
+        # Check the type if we're tracking source invalidation
+        if self.invalidate_source and o.source:
+            if old_type != o.symbols[0].type:
+                new.source.invalidate()
+
+        return new
+
+    # visit_VariableDeclaration = visit_Import
+    visit_ProcedureDeclaration = visit_VariableDeclaration
 
 
 class SubstituteStringExpressions(SubstituteExpressions):
