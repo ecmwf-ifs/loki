@@ -111,14 +111,17 @@ class FortranCodegenConservative(FortranCodegen):
             return o.source.string
 
         if o.source and o.source.status == SourceStatus.INVALID_NODE:
+            no_indent = False
+
             # Attempt to recreate some structure by locating `::`
             slist = o.source.string.split('::', maxsplit=1)
             assert len(slist) == 2
 
-            # If type attributes haven't changed, prefer source
+            # If type attributes haven't changed, prefer source (and don't indent)
             attributes = str(self.join_items(self._construct_type_attributes(o, **kwargs))) + ' '
             if slist[0].strip() == attributes.strip():
                 attributes = slist[0]
+                no_indent = True
 
             # If declared variables haven't changed, prefer source
             variables = ' ' + str(self.join_items(self._construct_decl_variables(o, **kwargs)))
@@ -127,7 +130,7 @@ class FortranCodegenConservative(FortranCodegen):
 
             comment = str(self.visit(o.comment, **kwargs)) if o.comment else ''
 
-            return f'{attributes}::{variables}{comment}'
+            return self.format_line(attributes, '::', variables, comment, no_indent=no_indent)
 
         return super().visit_VariableDeclaration(o, *args, **kwargs)
 
