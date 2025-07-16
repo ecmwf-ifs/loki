@@ -1053,11 +1053,12 @@ def fgen(ir, style=None, depth=0, conservative=False):
     """
     Generate standardized Fortran code from one or many IR objects/trees.
     """
-    from loki.backend.fgencon import FortranCodegenConservative  # pylint: disable=import-outside-toplevel,cyclic-import
-
     style = style if style else FortranStyle()
 
     if conservative:
+        # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.backend.fgencon import FortranCodegenConservative
+
         return FortranCodegenConservative(style=style, depth=depth).visit(ir) or ''
 
     return FortranCodegen(style=style, depth=depth).visit(ir) or ''
