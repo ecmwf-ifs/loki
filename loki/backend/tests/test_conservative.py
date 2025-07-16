@@ -19,7 +19,7 @@ SUBROUTINE MY_TEST_ROUTINE( N,DAVE)
   USE MY_MOD, ONLY : AKIND, RTYPE
   IMPLICIT NONE
   INTEGER,          INTENT(IN) :: N
-  TYPE(RTYPE)                 :: RICK ! CAN'T MAKE ARGUMENT YET!
+  tyPe(RTYPE)                 :: RICK ! CAN'T MAKE ARGUMENT YET!
   REAL(KIND=AKIND), INTENT(INOUT) :: DAVE(N)
   REAL(KIND=AKIND) :: TMP
   INTEGER :: I
@@ -28,13 +28,13 @@ SUBROUTINE MY_TEST_ROUTINE( N,DAVE)
     IF (  DAVE(I)    > 0.5) THEN
       ! Who is DAVE = ...
       TMP = RICK%A
-      DAVE(I)   =   DAVE( I   )+TMP
+      DAvE( I)   = RICK%A
 
          ! BUT ALSO...
-         RICK%B = 42.0
+         RICK%B = DaVe(  i)
        ELSE
           ! ... AND ...
-            DAVE(I) = 66.6
+            DaVE( I ) = 66.6
     END IF
 
       ! BECAUSE DAVE WILL ...
@@ -102,7 +102,7 @@ MODULE MY_TEST_MOD
   USE MY_MOD, ONLY: AKIND, RTYPE
   IMPLICIT NONE
 
-  REAL(KIND=AKIND) ::    DAVE(5)
+  REAL(KIND=AKIND) ::    DaVE(  5 )
 
   CONTAINS
 
@@ -110,7 +110,7 @@ MODULE MY_TEST_MOD
     INTEGER,          INTENT(IN) :: N
     REAL(KIND=AKIND), INTENT(INOUT) :: DAVE(N)
 
-    DAVE(:) = DAVE(:) + 2.0
+    DaVE(:) = DaVE(:) + 2.0
   END SUBROUTINE   A_SHORT_ROUTINE
 END MODULE MY_TEST_MOD
 """

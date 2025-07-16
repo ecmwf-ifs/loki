@@ -7,6 +7,7 @@
 
 from loki.backend.fgen import FortranCodegen
 from loki.frontend.source import SourceStatus
+from loki.tools.util import as_tuple
 
 
 __all__ = ['FortranCodegenConservative']
@@ -35,7 +36,7 @@ class FortranCodegenConservative(FortranCodegen):
 
             # If LHS hasn't changed, prefer source
             lhs = self.visit(o.lhs, **kwargs) + ' '
-            if slist[0].strip() == lhs.strip():
+            if slist[0] == o.lhs:
                 lhs = slist[0]
             else:
                 # At least prescribe previous indent...
@@ -44,7 +45,7 @@ class FortranCodegenConservative(FortranCodegen):
 
             # If RHS hasn't changed, prefer source
             rhs = ' ' + self.visit(o.rhs, **kwargs)
-            if slist[1].strip() == rhs.strip():
+            if slist[1] == o.rhs:
                 rhs = slist[1]
 
             comment = str(self.visit(o.comment, **kwargs)) if o.comment else ''
@@ -119,13 +120,14 @@ class FortranCodegenConservative(FortranCodegen):
 
             # If type attributes haven't changed, prefer source (and don't indent)
             attributes = str(self.join_items(self._construct_type_attributes(o, **kwargs))) + ' '
-            if slist[0].strip() == attributes.strip():
+            # TODO: Type attributes don't string compare cleanly yet; needs fixing!
+            if slist[0].strip().lower() == attributes.strip().lower():
                 attributes = slist[0]
                 no_indent = True
 
             # If declared variables haven't changed, prefer source
             variables = ' ' + str(self.join_items(self._construct_decl_variables(o, **kwargs)))
-            if slist[1].strip() == variables.strip():
+            if o.symbols == as_tuple(slist[1].split(',')):
                 variables = slist[1]
 
             comment = str(self.visit(o.comment, **kwargs)) if o.comment else ''
