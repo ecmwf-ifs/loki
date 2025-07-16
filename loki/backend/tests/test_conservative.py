@@ -229,3 +229,92 @@ implicit none
 call some_routine
 END SUBROUTINE other_routine
 """.strip()
+
+
+def test_fgen_conservative_rebuild():
+    """ Test that triggers a near complete re-build """
+
+    fcode = """
+MODULE MY_TEST_MOD
+  use type_mod, only: akind, ikind, rtype
+  ! use func_mod, only: my_func
+  implicit none
+
+  REAL(KIND=AKIND) ::    DaVE(  5 )
+
+  CONTAINS
+
+  SUBROUTINE A_SHORT_ROUTINE( N, DAVE)
+    INTEGER,          INTENT(IN) :: N
+    REAL(KIND=AKIND), INTENT(INOUT) :: DAVE(N)
+    integer( kind =ikind) :: i
+
+    DaVE( : ) = DaVE(:) + 2.0
+    do    i=1, n
+      if   (  DaVe(i) ==    0.0)  then
+        dave (i) = 3.0
+      end  if
+    enddo
+
+    CALL My_Func(n, daVE(1:n))
+  END SUBROUTINE   A_SHORT_ROUTINE
+END MODULE MY_TEST_MOD
+"""
+    with config_override({'frontend-store-source': True}):
+        module = Module.from_source(fcode, frontend=FP)
+    routine = module['a_short_routine']
+
+    # Change nearly every line to trigger full re-build
+    smap = module.imported_symbol_map
+    vmap = module.variable_map
+    subs_module = SubstituteExpressions(
+        {
+            smap['ikind']: smap['ikind'].clone(name='ikinder'),
+            smap['akind']: smap['akind'].clone(name='akinder'),
+            vmap['dave'].symbol: vmap['dave'].symbol.clone(name='rick')
+        }, invalidate_source=True
+    )
+    module.spec = subs_module.visit(module.spec)
+    module.contains = subs_module.visit(module.contains)
+    assert module.spec.source.status == SourceStatus.INVALID_CHILDREN
+    assert module.contains.source.status == SourceStatus.INVALID_CHILDREN
+    module.name = 'A_NEW_MOD'
+    module.source.status = SourceStatus.INVALID_NODE
+
+    vmap = routine.variable_map
+    subs_routine = SubstituteExpressions(
+        {
+            vmap['dave'].symbol: vmap['dave'].symbol.clone(name='rick'),
+            vmap['n']: vmap['n'].clone(name='m'),
+            vmap['i']: vmap['i'].clone(name='j'),
+        }, invalidate_source=True
+    )
+    routine.spec = subs_routine.visit(routine.spec)
+    routine.body = subs_routine.visit(routine.body)
+    assert routine.spec.source.status == SourceStatus.INVALID_CHILDREN
+    assert routine.body.source.status == SourceStatus.INVALID_CHILDREN
+    routine.name = 'A_CHANGED_ROUTINE'
+    routine.source.status = SourceStatus.INVALID_NODE
+
+    # Check that changes have indeed invalidated nodes
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0].lhs == 'rick(:)' and assigns[0].rhs == 'rick(:) + 2.0'
+    assert assigns[0].source.status == SourceStatus.INVALID_NODE
+    assert assigns[1].lhs == 'rick(j)' and assigns[1].rhs == '3.0'
+    assert assigns[1].source.status == SourceStatus.INVALID_NODE
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].variable == 'j' and loops[0].bounds == '1:m'
+    assert loops[0].source.status == SourceStatus.INVALID_NODE
+
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 1
+    assert conds[0].condition == 'rick(j) == 0.0'
+    assert conds[0].source.status == SourceStatus.INVALID_NODE
+
+    # Check that fully generated and conservative agree
+    routine_expected = fgen(module, conservative=False).strip()
+    routine_generated = fgen(module, conservative=True).strip()
+    assert routine_generated == routine_expected
