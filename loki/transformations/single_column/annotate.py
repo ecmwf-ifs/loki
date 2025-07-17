@@ -307,10 +307,11 @@ class SCCAnnotateTransformation(Transformation):
                 # Replace `!$loki loop driver` pragma with OpenACC equivalent
                 params = get_pragma_parameters(loop.pragma, starts_with='loop driver')
                 vlength = params.get('vector_length')
-
+                asynchronous = params.get('async')
                 vlength_clause = f' vlength({vlength})' if vlength else ''
+                asynchronous_clause = f' async({asynchronous})' if asynchronous else ''
 
-                content = f'loop gang{private_clause}{vlength_clause}'
+                content = f'loop gang{private_clause}{vlength_clause}{asynchronous_clause}'
                 pragma_new = ir.Pragma(keyword='loki', content=content)
                 pragma_post = ir.Pragma(keyword='loki', content='end loop gang')
 
