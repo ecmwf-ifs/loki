@@ -143,6 +143,12 @@ class FortranCodegen(Stringifier):
         """
         return self.visit(o.ir, **kwargs)
 
+    def _construct_module_header(self, o, **kwargs):
+        return self.format_line('MODULE ', o.name)
+
+    def _construct_module_footer(self, o, **kwargs):
+        return self.format_line('END MODULE ', o.name if self.style.module_end_named else '')
+
     def visit_Module(self, o, **kwargs):
         """
         Format as
@@ -152,8 +158,8 @@ class FortranCodegen(Stringifier):
             ...routines...
           END MODULE
         """
-        header = self.format_line('MODULE ', o.name)
-        footer = self.format_line('END MODULE ', o.name if self.style.module_end_named else '')
+        header = self._construct_module_header(o, **kwargs)
+        footer = self._construct_module_footer(o, **kwargs)
 
         self.depth += self.style.module_spec_indent
 
@@ -245,7 +251,6 @@ class FortranCodegen(Stringifier):
         return self.join_lines(header, docstring, spec, body, footer)
 
     def _construct_subroutine_header(self, o, **kwargs):
-        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
@@ -257,7 +262,7 @@ class FortranCodegen(Stringifier):
         else:
             bind_c = ''
 
-        return self.format_line(prefix, ftype, ' ', o.name, ' (', arguments, ')', bind_c)
+        return self.format_line(prefix, 'SUBROUTINE ', o.name, ' (', arguments, ')', bind_c)
 
     def visit_Subroutine(self, o, **kwargs):
         """
