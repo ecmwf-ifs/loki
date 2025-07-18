@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import pytest
 from fparser.two.utils import FortranSyntaxError
 
-from loki import Sourcefile, Assignment, FindNodes, FindVariables
+from loki import Sourcefile, Assignment, FindNodes, FindVariables, SourceStatus
 from loki.lint import (
     GenericHandler, Reporter, Linter, GenericRule,
     LinterTransformation, lint_files, LazyTextfile
@@ -531,13 +531,15 @@ def test_linter_lint_files_fix(tmp_path, config, backup_suffix):
         @classmethod
         def fix_sourcefile(cls, sourcefile, rule_report, config):
             if rule_report.problem_reports:
-                sourcefile._source = None
+                subroutine.source.invalidate(children=True)
+                subroutine.ir.source.invalidate(children=True)
 
         @classmethod
         def fix_subroutine(cls, subroutine, rule_report, config):
             assert len(rule_report.problem_reports) == 1
             if rule_report.problem_reports[0].location is subroutine:
                 subroutine.name = subroutine.name.upper()
+                subroutine.source.invalidate()
                 return {None: None}
             return {}
 

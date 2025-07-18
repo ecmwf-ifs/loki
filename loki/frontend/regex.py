@@ -374,6 +374,9 @@ def parse_regex_source(source, parser_classes=None, scope=None):
     timeout_message = f'REGEX frontend timeout of {config["regex-frontend-timeout"]} s exceeded'
     with timeout(config['regex-frontend-timeout'], message=timeout_message):
         ir_ = Pattern.match_block_candidates(reader, candidates, parser_classes=parser_classes, scope=scope)
+
+    lines = (1, source.count('\n') + 1)
+    source = Source(lines, string=source)
     return ir.Section(body=as_tuple(ir_), source=source)
 
 

@@ -29,7 +29,7 @@ class Fixer:
         """
         # TODO: implement this!
         if reports:
-            module._source = None
+            module.source.invalidate()
         return module
 
     @classmethod
@@ -46,10 +46,10 @@ class Fixer:
             # Apply the changes and invalidate source objects
             subroutine.spec = Transformer(mapper).visit(subroutine.spec)
             subroutine.body = Transformer(mapper).visit(subroutine.body)
-            subroutine._source = None
+            subroutine.source.invalidate()
             parent = subroutine.parent
             while parent is not None:
-                parent._source = None
+                parent.source.invalidate(children=True)
                 parent = getattr(parent, 'parent', None)
 
         return subroutine
@@ -61,7 +61,8 @@ class Fixer:
         """
         # TODO: implement this!
         if reports:
-            sourcefile._source = None
+            sourcefile.source.invalidate(children=True)
+            sourcefile.ir.source.invalidate(children=True)
         return sourcefile
 
     @classmethod

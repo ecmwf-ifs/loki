@@ -168,9 +168,13 @@ end module test_source_mod
         routine = module['my_test_routine']
 
     if store_source:
+        assert module.spec.source and module.spec.source.lines == (3, 10)
+        assert module.contains.source and module.contains.source.lines == (11, 27)
         assert routine.spec.source and routine.spec.source.lines == (14, 16)
         assert routine.body.source and routine.body.source.lines == (17, 26)
     else:
+        assert not module.spec.source
+        assert not module.contains.source
         assert not routine.spec.source
         assert not routine.body.source
 

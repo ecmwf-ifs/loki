@@ -157,11 +157,21 @@ class Source:
             for idx, line in enumerate(self.string.splitlines())
         ]
 
-    def invalidate(self):
+    def invalidate(self, children=False):
         """
-        Return an invalid copy of this source with ``status=SourceStatus=INVALID_NODE``.
+        Set the status of this source to ``SourceStatus.INVALID_NODE``
+        or ``SourceStatus.INVALID_CHILDREN``.
+
+        Calling ``source.invalidate()`` marks the entire source object as invalid,
+        while ``source.invalidate(children=True)`` denotes that interior properties the
+        associated node have not been changed, but its children have been invalidated.
         """
-        return self.clone(status=SourceStatus.INVALID_NODE)
+        self.status = SourceStatus.INVALID_CHILDREN if children else SourceStatus.INVALID_NODE
+        return self
+
+    def is_valid(self):
+        """ Returns ``True`` if the :any:`Source` object is still valid. """
+        return self.status == SourceStatus.VALID
 
 
 class FortranReader:
