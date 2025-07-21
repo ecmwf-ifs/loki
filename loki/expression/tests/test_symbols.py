@@ -7,7 +7,67 @@
 
 from loki.expression import symbols as sym
 from loki.scope import Scope
-from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+
+
+def test_variable_symbols():
+    """ Test the default symbol creation and attributes of variable symbols """
+
+    # pylint: disable=no-member
+
+    scope = Scope()
+    int_type = SymbolAttributes(BasicType.INTEGER, parameter=True, initial=42)
+    real_type = SymbolAttributes(BasicType.REAL, kind='rick')
+    deferred_type = SymbolAttributes(BasicType.DEFERRED)
+    dtype = DerivedType(name='DerDieDas', typedef=BasicType.DEFERRED)
+    dtype_type = SymbolAttributes(dtype)
+
+    # A simple integer scalar parameter with inital value
+    i = sym.Variable(name='i', type=int_type, scope=scope)
+    assert isinstance(i, sym.Scalar) and i == 'i'
+    assert isinstance(i.symbol, sym.VariableSymbol)
+    assert i.type.parameter and i.initial == 42
+
+    # A derived-type scalar variable
+    r = sym.Variable(name='r', type=dtype_type)
+    assert isinstance(r, sym.Scalar) and r == 'r'
+    assert isinstance(r.symbol, sym.VariableSymbol)  # Why not DerivedTypeSymbol?
+    assert isinstance(r.type.dtype, DerivedType) and r.type.dtype.name == 'DerDieDas'
+    assert r.type.dtype.typedef == BasicType.DEFERRED
+
+    # A scalar variable with an unknown type
+    x = sym.Variable(name='x', type=deferred_type)
+    assert isinstance(x, sym.DeferredTypeSymbol) and x == 'x'
+    # For unknown-type, we don't create a meta-symbol - should we though?
+    # assert isinstance(x.symbol, sym.VariableSymbol)
+
+    # A simple array variable with a single dimension access
+    a = sym.Variable(name='a', dimensions=(i,), type=real_type, scope=scope)
+    assert isinstance(a, sym.Array) and a == 'a(i)'
+    assert isinstance(a.symbol, sym.VariableSymbol)
+    assert a.type.kind == 'rick' and a.dimensions == (i,)
+
+    # Update the shape and create another instance of "a" that shares the shape
+    assert not a.type.shape
+    a.clone(type=a.type.clone(shape=(i,)))
+    assert a.type.shape == ('i',)
+    j = sym.Variable(name='j', type=int_type, scope=scope)
+    a_j = sym.Variable(name='a', dimensions=(j,), scope=scope)
+    assert a_j == 'a(j)' and a.shape == ('i',)
+
+    # A scalar variable access on a derived-type parent variable
+    b = sym.Variable(name='b', parent=r, type=real_type, scope=scope)
+    assert isinstance(b, sym.Scalar) and b == 'r%b'
+    assert isinstance(b.symbol, sym.VariableSymbol)
+    assert b.parent == 'r' and b.parent.type.dtype.name == 'DerDieDas'
+    assert b.type.kind == 'rick'
+
+    # A two-dimensional array access on a derived-type parent variable
+    c = sym.Variable(name='c', dimensions=(i, i), parent=r, type=real_type, scope=scope)
+    assert isinstance(c, sym.Array) and c == 'r%c(i, i)'
+    assert isinstance(c.symbol, sym.VariableSymbol)
+    assert c.parent == 'r' and c.parent.type.dtype.name == 'DerDieDas'
+    assert c.type.kind == 'rick' and c.dimensions == ('i', 'i')
 
 
 def test_symbol_recreation():
