@@ -11,12 +11,12 @@ import pymbolic.primitives as pmbl
 import pymbolic.mapper as pmbl_mapper
 
 from loki import Subroutine, Module, Scope
-from loki.expression import symbols as sym, parse_expr
+from loki.expression import symbols as sym, parse_expr, LokiEvaluationMapper
 from loki.frontend import (
     available_frontends, HAVE_FP, parse_fparser_expression
 )
 from loki.ir import FindVariables
-
+from loki.tools.util import CaseInsensitiveDict
 
 # utility function to test parse_expr with different case
 def convert_to_case(_str, mode='upper'):
@@ -387,97 +387,190 @@ end module external_mod
 
 
 @pytest.mark.parametrize('case', ('upper', 'lower', 'random'))
-def test_expression_parser_evaluate(case):
+@pytest.mark.parametrize('direct', (True, False))
+def test_expression_parser_evaluate(case, direct):
+
+    def parse_expr_eval(test_str, evaluate=False, context=None, strict=False):
+        if direct:
+            return parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=evaluate,
+                    context=context, strict=strict)
+        if context is not None:
+            context = CaseInsensitiveDict(context)
+        _expr = parse_expr(convert_to_case(f'{test_str}', mode=case))
+        if evaluate:
+            return LokiEvaluationMapper(context=context, strict=strict)(_expr)
+        return _expr
 
     test_str = '.FALSE. .OR. .TRUE. .AND. .TRUE.'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True)
+    parsed = parse_expr_eval(test_str, evaluate=True)
     assert parsed
 
     context = {'a': 0.9}
     test_str = 'a .lt. 1'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
-    assert parsed
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'a': 0.9}
+    test_str = 'a .lt. b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, sym.Comparison) and parse_expr('0.9 < b') == parsed
 
     context = {'a': 0.9}
     test_str = 'a .lt. 1_jprb'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a .lt. b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a < b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a <= b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a .eq. b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and not parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a == b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and not parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a .ne. b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'a': 0.9, 'b': 1.0}
+    test_str = 'a /= b'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'a': 0.9, 'b': 1.0, 'c': 1.9  }
+    test_str = 'a + b .eq. c'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
 
     context = {'VAR1': True, 'VAR2': False}
     test_str = 'VAR1 .AND. VAR2 .AND. .TRUE.'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert not parsed
 
+    context = {'VAR1': True}
+    test_str = 'VAR1 .AND. VAR2 .AND. .TRUE.'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, sym.LogicalAnd)
+    # assert parsed == parse_expr('.TRUE. .AND. VAR2 .AND. .TRUE.')
+    assert parsed == 'VAR2'
+
+    context = {'VAR1': True, 'VAR2': False}
+    test_str = 'VAR1 .OR. VAR2 .OR. .TRUE.'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'VAR1': True}
+    test_str = 'VAR1 .OR. VAR2 .OR. .FALSE.'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
+    context = {'VAR1': False, 'VAR2': False}
+    test_str = 'VAR1 .OR. VAR2 .OR. .FALSE.'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and not parsed
+
+    context = {'VAR1': False, 'VAR2': False}
+    test_str = 'VAR1 .OR. .NOT. VAR2 .OR. .FALSE.'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert isinstance(parsed, (bool, sym.LogicLiteral)) and parsed
+
     test_str = '(2*3)**2 - 16'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True)
+    parsed = parse_expr_eval(test_str, evaluate=True)
     assert parsed == 20
 
     test_str = '(2*3)**2 - a'
     context = {'A': 6}
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 30
 
     test_str = '(2*3)**2 - a'
     context = {'a': 6}
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 30
 
     context = {'a': 6}
     test_str = 'min(a, 10)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 6
+
     test_str = '(2*3)**2 - min(a, 10)'
     context = {'a': 6}
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 30
+
     context = {'a': 6}
     test_str = 'max(a, 10)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 10
+
+    context = {'a': 6}
+    test_str = 'max2(a, 10)'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert parsed == parse_expr('max2(6, 10)')
+
+    context = {'a': 2, 'arr1': [10, 20, 30, 40]}
+    test_str = 'arr1(a)'
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
+    assert parsed == 20
 
     context = {'a': 6, 'b': 2}
     test_str = 'modulo(A, B)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 0
 
     context = {'x': '4'}
     test_str = 'real(x)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 4.0
-    assert isinstance(parsed, sym.FloatLiteral)
+    assert isinstance(parsed, (sym.FloatLiteral, float))
 
     context = {'a': '4.67'}
     test_str = 'int(a)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 4
-    assert isinstance(parsed, sym.IntLiteral)
+    assert isinstance(parsed, (sym.IntLiteral, int))
 
-    context = {'x': '-4.145'}
+    context = {'x': -4.145}
     test_str = 'abs(x)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 4.145
 
-    context = {'x': '9'}
+    context = {'x': 9}
     test_str = 'sqrt(x)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 3
 
-    context = {'x': '0'}
+    context = {'x': 0}
     test_str = 'exp(x)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 1
 
     context = {'arr': [[1, 2], [3, 4]]}
     test_str = '1 + arr(1, 2)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 3
 
     context = {'a': 6}
     test_str = '1 + 1 + a + some_func(a, 10)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
-    with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
-        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True, context=context)
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=False, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '8+some_func(6,10)'
 
     def some_func(a, b, c=None):
@@ -487,17 +580,17 @@ def test_expression_parser_evaluate(case):
 
     context = {'a': 6, 'some_func': some_func}
     test_str = '1 + 1 + a + some_func(a, 10)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 24
 
     context = {'a': 6, 'some_func': some_func}
     test_str = '1 + 1 + a + some_func(a, 10, c=2)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 26
 
     context = {'a': 6, 'b': 7}
     test_str = '(a + b + c + 1)/(c + 1)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '(13+c+1)/(c+1)'
 
     class BarBarBar:
@@ -530,35 +623,35 @@ def test_expression_parser_evaluate(case):
 
     context = {'foo': Foo(2, 3)}
     test_str = 'foo%val1 + foo%val2 + foo%val3'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case))
+    parsed = parse_expr_eval(test_str)
     assert str(parsed).lower().replace(' ', '') == 'foo%val1+foo%val2+foo%val3'
     with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
-        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+        parsed = parse_expr_eval(test_str, evaluate=True, strict=True)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 6
     test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func_2(3)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert str(parsed).lower().replace(' ', '') == '5+foo%static_func_2(3)'
     with pytest.raises(pmbl_mapper.evaluator.UnknownVariableError):
-        parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, strict=True)
+        parsed = parse_expr_eval(test_str, evaluate=True, strict=True)
     test_str = 'foo%val1 + foo%some_func(1, 2) + foo%static_func(3) + foo%arr(1, 2)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context, strict=True)
     assert parsed == 13
     test_str = 'foo%val1 + foo%some_func(1, b=2) + foo%static_func(a=3) + foo%arr(1, 2)'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context, strict=True)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context, strict=True)
     assert parsed == 13
     test_str = 'foo%bar%val_bar + 1'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 6
     test_str = 'foo%bar%bar_func(2) + 1'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 5
     test_str = 'foo%bar%barbar%val_barbar + 1'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == -2
     test_str = 'foo%bar%barbar%barbar_func(0) + 1'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 0
     test_str = 'foo%bar%barbar%barbarbar%val_barbarbar + 1'
-    parsed = parse_expr(convert_to_case(f'{test_str}', mode=case), evaluate=True, context=context)
+    parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 6
