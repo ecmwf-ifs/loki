@@ -185,11 +185,19 @@ class BaseRevectorTransformation(Transformation):
         vector_length = f' vector_length({sizes[0]})' if sizes else ''
 
         # Replace existing `!$loki loop driver markers, but leave all others
-        pragma = ir.Pragma(keyword='loki', content=f'loop driver{vector_length}')
-        loop_pragmas = tuple(
-            p for p in as_tuple(loop.pragma) if not is_loki_pragma(p, starts_with='driver-loop')
-        )
-        loop._update(pragma=loop_pragmas + (pragma,))
+        loop_pragmas = []
+        driver_pragma = None
+        for p in as_tuple(loop.pragma):
+            if is_loki_pragma(p, starts_with='driver-loop'):
+                driver_pragma = p
+            else:
+                loop_pragmas.append(p)
+        loop_pragmas = tuple(loop_pragmas)
+        driver_content = f'loop driver{vector_length}'
+        if driver_pragma is not None:
+            driver_content = driver_pragma.content.replace('driver-loop', driver_content)
+        driver_pragma = ir.Pragma(keyword='loki', content=driver_content)
+        loop._update(pragma=loop_pragmas + (driver_pragma,))
 
 
 class SCCVecRevectorTransformation(BaseRevectorTransformation):

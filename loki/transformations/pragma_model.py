@@ -134,6 +134,8 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             content += f' default({params_default})'
         if params_default := parameters.get('present'):
             content += f' present({params_default})'
+        if params_asynchronous := parameters.get('async'):
+            content += f' async({params_asynchronous})'
         if content:
             return Pragma(keyword='acc', content=f'data{content}')
         return self.default_retval()
@@ -167,7 +169,9 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             fprivate = f' firstprivate({fprivate_param})' if fprivate_param else ''
             vlength_param = parameters.get('vlength')
             vlength = f' vector_length({vlength_param})' if vlength_param else ''
-            content = f'parallel loop gang{private}{fprivate}{vlength}'
+            asynchronous_param = parameters.get('async')
+            asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
+            content = f'parallel loop gang{private}{fprivate}{vlength}{asynchronous}'
             return Pragma(keyword='acc', content=content)
         return self.default_retval()
 
@@ -177,16 +181,20 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
         return self.default_retval()
 
     def pmap_device_present(self, pragma, parameters, **kwargs):
+        asynchronous_param = parameters.get('async')
+        asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
         if param_vars := parameters.get('vars'):
-            return Pragma(keyword='acc', content=f'data present({param_vars})')
+            return Pragma(keyword='acc', content=f'data present({param_vars})'+asynchronous)
         return self.default_retval()
 
     def pmap_end_device_present(self, pragma, parameters, **kwargs):
         return Pragma(keyword='acc', content='end data')
 
     def pmap_device_ptr(self, pragma, parameters, **kwargs):
+        asynchronous_param = parameters.get('async')
+        asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
         if param_vars := parameters.get('vars'):
-            return Pragma(keyword='acc', content=f'data deviceptr({param_vars})')
+            return Pragma(keyword='acc', content=f'data deviceptr({param_vars})'+asynchronous)
         return self.default_retval()
 
     def pmap_end_device_ptr(self, pragma, parameters, **kwargs):
