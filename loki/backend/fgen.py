@@ -110,12 +110,11 @@ class FortranCodegen(Stringifier):
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, style, depth=0, conservative=True):
+    def __init__(self, style, depth=0):
         super().__init__(
             style=style, depth=depth, line_cont=' &\n{}& '.format,
             symgen=FCodeMapper()
         )
-        self.conservative = conservative
 
     def apply_label(self, line, label):
         """
@@ -134,15 +133,6 @@ class FortranCodegen(Stringifier):
             line = f'{label:{indent}} {line.lstrip()}'
         return line
 
-    def visit(self, o, *args, **kwargs):
-        """
-        Overwrite standard visit routine to inject original source in conservative mode.
-        """
-        if self.conservative and hasattr(o, 'source') and getattr(o.source, 'string', None) is not None:
-            # Re-use original source associated with node
-            return o.source.string
-        return super().visit(o, *args, **kwargs)
-
     # Handler for outer objects
 
     def visit_Sourcefile(self, o, **kwargs):
@@ -153,6 +143,12 @@ class FortranCodegen(Stringifier):
         """
         return self.visit(o.ir, **kwargs)
 
+    def _construct_module_header(self, o, **kwargs):
+        return self.format_line('MODULE ', o.name)
+
+    def _construct_module_footer(self, o, **kwargs):
+        return self.format_line('END MODULE ', o.name if self.style.module_end_named else '')
+
     def visit_Module(self, o, **kwargs):
         """
         Format as
@@ -162,8 +158,8 @@ class FortranCodegen(Stringifier):
             ...routines...
           END MODULE
         """
-        header = self.format_line('MODULE ', o.name)
-        footer = self.format_line('END MODULE ', o.name if self.style.module_end_named else '')
+        header = self._construct_module_header(o, **kwargs)
+        footer = self._construct_module_footer(o, **kwargs)
 
         self.depth += self.style.module_spec_indent
 
@@ -200,29 +196,42 @@ class FortranCodegen(Stringifier):
 
         return self.join_lines(header, docstring, spec, contains, footer)
 
-    def visit_Subroutine(self, o, **kwargs):
-        """
-        Format as
-          [<prefix>] SUBROUTINE <name> ([<args>]) [BIND(c, name=<name>)]
-            ...docstring...
-            ...spec...
-            ...body...
-          [CONTAINS]
-            [...member...]
-          END SUBROUTINE <name>
-        """
+    def _construct_procedure_footer(self, o, **kwargs):
+        ftype = 'FUNCTION' if o.is_function else 'SUBROUTINE'
+        return self.format_line('END ', ftype, ' ', o.name if self.style.procedure_end_named else '')
+
+    def _construct_function_header(self, o, **kwargs):
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
+        if not o.result_name in o.variable_map:
+            prefix += f'{self.visit(o.return_type)} '
         arguments = self.join_items(o.argnames)
+        result = f' RESULT({o.result_name})' if o.result_name\
+                and o.result_name.lower() != o.name.lower() else ''
         if isinstance(o.bind, str):
             bind_c = f' BIND(c, name="{o.bind}")'
         elif isinstance(o.bind, StringLiteral):
             bind_c = f' BIND(c, name={o.bind})'
         else:
             bind_c = ''
-        header = self.format_line(prefix, 'SUBROUTINE ', o.name, ' (', arguments, ')', bind_c)
-        footer = self.format_line('END SUBROUTINE ', o.name if self.style.procedure_end_named else '')
+
+        return self.format_line(prefix, 'FUNCTION ', o.name, ' (', arguments, ')', result, bind_c)
+
+    def visit_Function(self, o, **kwargs):
+        """
+        Format as
+          [<prefix>] FUNCTION <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
+            ...docstring...
+            ...spec...
+            ...body...
+          [CONTAINS]
+            [...member...]
+          END FUNCTION <name>
+        """
+
+        header = self._construct_function_header(o, **kwargs)
+        footer = self._construct_procedure_footer(o, **kwargs)
 
         self.depth += self.style.procedure_spec_indent
         docstring = self.visit(o.docstring, **kwargs)
@@ -241,33 +250,33 @@ class FortranCodegen(Stringifier):
 
         return self.join_lines(header, docstring, spec, body, footer)
 
-    def visit_Function(self, o, **kwargs):
-        """
-        Format as
-          [<prefix>] FUNCTION <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
-            ...docstring...
-            ...spec...
-            ...body...
-          [CONTAINS]
-            [...member...]
-          END FUNCTION <name>
-        """
+    def _construct_subroutine_header(self, o, **kwargs):
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
-        if not o.result_name in o.variable_map:
-            prefix += f'{self.visit(o.return_type)} '
         arguments = self.join_items(o.argnames)
-        result = f' RESULT({o.result_name})' if o.result_name\
-                and o.result_name.lower() != o.name.lower() else ''
         if isinstance(o.bind, str):
             bind_c = f' BIND(c, name="{o.bind}")'
         elif isinstance(o.bind, StringLiteral):
             bind_c = f' BIND(c, name={o.bind})'
         else:
             bind_c = ''
-        header = self.format_line(prefix, 'FUNCTION ', o.name, ' (', arguments, ')', result, bind_c)
-        footer = self.format_line('END FUNCTION ', o.name if self.style.procedure_end_named else '')
+
+        return self.format_line(prefix, 'SUBROUTINE ', o.name, ' (', arguments, ')', bind_c)
+
+    def visit_Subroutine(self, o, **kwargs):
+        """
+        Format as
+          <ftype> [<prefix>] <name> ([<args>]) [RESULT(<name>)] [BIND(c, name=<name>)]
+            ...docstring...
+            ...spec...
+            ...body...
+          [CONTAINS]
+            [...member...]
+          END <ftype> <name>
+        """
+        header = self._construct_subroutine_header(o, **kwargs)
+        footer = self._construct_procedure_footer(o, **kwargs)
 
         self.depth += self.style.procedure_spec_indent
         docstring = self.visit(o.docstring, **kwargs)
@@ -371,11 +380,7 @@ class FortranCodegen(Stringifier):
         """
         return self.format_line(str(o.text).lstrip(), no_wrap=True, no_indent=True)
 
-    def visit_VariableDeclaration(self, o, **kwargs):
-        """
-        Format declaration as
-          [<type>] [, DIMENSION(...)] :: var [= initial] [, var [= initial] ] ...
-        """
+    def _construct_type_attributes(self, o, **kwargs):
         attributes = []
         assert len(o.symbols) > 0
         types = [v.type for v in o.symbols]
@@ -420,6 +425,9 @@ class FortranCodegen(Stringifier):
         if o.dimensions:
             attributes += [f'DIMENSION({", ".join(self.visit_all(o.dimensions, **kwargs))})']
 
+        return attributes
+
+    def _construct_decl_variables(self, o, **kwargs):
         # Declared entities
         variables = []
         for v in o.symbols:
@@ -431,6 +439,18 @@ class FortranCodegen(Stringifier):
                 op = '=>' if v.type.pointer else '='
                 initial = f' {op} {self.visit(v.type.initial, **kwargs)}'
             variables += [f'{var}{initial}']
+        return variables
+
+    def visit_VariableDeclaration(self, o, **kwargs):
+        """
+        Format declaration as
+          [<type>] [, DIMENSION(...)] :: var [= initial] [, var [= initial] ] ...
+        """
+        # Construct type attributes to the left of `::`
+        attributes = self._construct_type_attributes(o, **kwargs)
+
+        # Construct variable symbols to be declared to the right of `::`
+        variables = self._construct_decl_variables(o, **kwargs)
 
         # In-line comment
         comment = None
@@ -1039,9 +1059,14 @@ def fgen(ir, style=None, depth=0, conservative=False):
     Generate standardized Fortran code from one or many IR objects/trees.
     """
     style = style if style else FortranStyle()
-    return FortranCodegen(
-        style=style, depth=depth, conservative=conservative
-    ).visit(ir) or ''
+
+    if conservative:
+        # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.backend.fgencon import FortranCodegenConservative
+
+        return FortranCodegenConservative(style=style, depth=depth).visit(ir) or ''
+
+    return FortranCodegen(style=style, depth=depth).visit(ir) or ''
 
 
 """

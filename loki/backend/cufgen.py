@@ -60,7 +60,7 @@ class CudaFortranCodegen(FortranCodegen):
         return self.join_items([attr_str] + attributes)
 
 
-def cufgen(ir, style=None, depth=0, conservative=False):
+def cufgen(ir, style=None, depth=0):
     """
     Generate CUDA Fortran code from one or many IR objects/trees.
 
@@ -80,4 +80,4 @@ def cufgen(ir, style=None, depth=0, conservative=False):
     .. _CUDA_FORTRAN_PROGRAMMING_GUIDE: https://docs.nvidia.com/hpc-sdk/compilers/cuda-fortran-prog-guide/index.html
     """
     style = style if style else FortranStyle()
-    return CudaFortranCodegen(style=style, depth=depth, conservative=conservative).visit(ir)
+    return CudaFortranCodegen(style=style, depth=depth).visit(ir)

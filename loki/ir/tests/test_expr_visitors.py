@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import Sourcefile, Subroutine, config_override
+from loki import Sourcefile, Subroutine, Module, config_override
 from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends, OMNI, SourceStatus
 from loki.ir import (
@@ -266,15 +266,22 @@ end subroutine test_routine
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('use_string', [True, False])
-def test_substitute_expression_source_invalidation(use_string, frontend):
+def test_substitute_expression_source_invalidation(use_string, frontend, tmp_path):
     """ Test source invalidation when using symbol or string substitution """
+
+    fcode_type = """
+module type_mod
+  integer, parameter :: jprb = 8
+end module type_mod
+"""
 
     fcode = """
 subroutine test_routine(n, a, b)
+  use type_mod, only: jprb
   implicit none
   integer, intent(in) :: n
-  real(kind=8), intent(inout) :: a, b
-  real(kind=8) :: c(n)
+  real(kind=jprb), intent(inout) :: a, b
+  real(kind=jprb) :: c(n)
   integer :: i
 
   associate(d => b)
@@ -297,8 +304,9 @@ subroutine test_routine(n, a, b)
   end associate
 end subroutine test_routine
 """
+    Module.from_source(fcode_type, frontend=frontend, xmods=[tmp_path])
     with config_override({'frontend-store-source': True}):
-        routine = Subroutine.from_source(fcode, frontend=frontend)
+        routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     assoc = FindNodes(ir.Associate).visit(routine.body)[0]
@@ -341,3 +349,30 @@ end subroutine test_routine
     assert conds[0].source.status == SourceStatus.INVALID_CHILDREN
     assert conds[1].source.status == SourceStatus.INVALID_NODE
     assert conds[2].source.status == SourceStatus.INVALID_CHILDREN
+
+    # Now test replacing the kind attribute in imports and declarations
+    if use_string:
+        expr_map = {'jprb': 'dbl'}
+        routine.spec = SubstituteStringExpressions(expr_map, scope=assoc).visit(routine.spec)
+    else:
+        a = routine.imported_symbol_map['jprb']
+        expr_map = {a: parse_expr('dbl', scope=assoc)}
+        routine.spec = SubstituteExpressions(expr_map).visit(routine.spec)
+
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    assert len(imports) == 1
+    assert imports[0].module == 'type_mod' and imports[0].symbols == ('dbl',)
+    assert imports[0].source.status == SourceStatus.INVALID_NODE
+
+    # OMNI changes declarations too much
+    if not frontend == OMNI:
+        decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+        assert len(decls) == 4
+        assert decls[0].symbols == ('n',) and decls[0].symbols[0].type.intent == 'in'
+        assert decls[1].symbols == ('a', 'b') and decls[1].symbols[0].type.kind == 'dbl'
+        assert decls[2].symbols == ('c(n)',) and decls[2].symbols[0].type.kind == 'dbl'
+        assert decls[3].symbols == ('i',) and decls[3].symbols[0].type.intent is None
+        assert decls[0].source.status == SourceStatus.VALID
+        assert decls[1].source.status == SourceStatus.INVALID_NODE
+        assert decls[2].source.status == SourceStatus.INVALID_NODE
+        assert decls[3].source.status == SourceStatus.VALID
