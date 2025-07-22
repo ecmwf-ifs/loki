@@ -10,7 +10,7 @@ import re
 import math
 import pytools.lex
 import numpy as np
-from pymbolic.parser import Parser as ParserBase #  , FinalizedTuple
+from pymbolic.parser import Parser as ParserBase
 from pymbolic.mapper import Mapper
 import pymbolic.primitives as pmbl
 from pymbolic.mapper.evaluator import EvaluationMapper
@@ -28,9 +28,9 @@ except ImportError:
 
 from loki.expression import symbols as sym, operations as sym_ops
 from loki.scope import Scope
-from loki.tools.util import CaseInsensitiveDict
+from loki.tools.util import CaseInsensitiveDict, as_tuple
 
-__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES', 'LokiEvaluationMapper']
+__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES', 'LokiPymbolicEvaluationMapper']
 
 
 class PymbolicMapper(Mapper):
@@ -127,7 +127,7 @@ class PymbolicMapper(Mapper):
             return self.map_constant(expr)
         if isinstance(expr, pmbl.Call):
             if expr.function.name.lower() in ('real', 'int'):
-                return sym.Cast(expr.function.name, [self.rec(param, *args, **kwargs) for param in expr.parameter][0])
+                return sym.Cast(expr.function.name, [self.rec(param, *args, **kwargs) for param in expr.parameters][0])
             if expr.function.name.upper() in FORTRAN_INTRINSIC_PROCEDURES:
                 return sym.InlineCall(function=sym.Variable(name=expr.function.name),
                         parameters=tuple(self.rec(param, *args, **kwargs) for param in expr.parameters))
@@ -145,13 +145,14 @@ class PymbolicMapper(Mapper):
             return expr
 
     def map_call_with_kwargs(self, expr, *args, **kwargs):
-        name = sym.Variable(name=expr.function.name)
+        parent = kwargs.pop('parent', None)
+        name = sym.Variable(name=expr.function.name, parent=parent)
         parameters = tuple(self.rec(param, *args, **kwargs) for param in expr.parameters)
         kw_parameters = {key: self.rec(value, *args, **kwargs) for key, value\
                 in CaseInsensitiveDict(expr.kw_parameters).items()}
         if expr.function.name.lower() in ('real', 'int'):
             return sym.Cast(name, parameters, kind=kw_parameters['kind'])
-
+        # print(f"PymbolicMapper - map_call_with_kwargs: {expr} | kwargs {kwargs}")
         return sym.InlineCall(function=name, parameters=parameters, kw_parameters=kw_parameters)
 
     def map_tuple(self, expr, *args, **kwargs):
@@ -171,7 +172,7 @@ class PymbolicMapper(Mapper):
         return self.rec(expr.name, parent=parent)
 
 
-class LokiEvaluationMapper(EvaluationMapper):
+class LokiPymbolicEvaluationMapper(EvaluationMapper):
     """
     A mapper for evaluating expressions, based on
     :any:`pymbolic.mapper.evaluator.EvaluationMapper`.
@@ -195,6 +196,21 @@ class LokiEvaluationMapper(EvaluationMapper):
     def __init__(self, strict=False, **kwargs):
         self.strict = strict
         super().__init__(**kwargs)
+
+    def map_comparison(self, expr):
+        import operator # pylint: disable=import-outside-toplevel
+        left = self.rec(expr.left)
+        right = self.rec(expr.right)
+        if isinstance(left, (sym._Literal, float, int)) and isinstance(right, (sym._Literal, float, int)):
+            return getattr(operator, expr.operator_to_name[expr.operator])(
+                self.rec(expr.left), self.rec(expr.right))
+        return sym.Comparison(left=left, operator=expr.operator, right=right)
+
+    def map_logical_and(self, expr):
+        children = [self.rec(ch) for ch in expr.children]
+        if not all(isinstance(ch, bool) for ch in children):
+            return sym.LogicalAnd(as_tuple(children))
+        return all(children)
 
     def map_logic_literal(self, expr):
         return expr.value
@@ -368,7 +384,7 @@ class ExpressionParser(ParserBase):
             (_f_greaterequal, pytools.lex.RE(r"\.ge\.", re.IGNORECASE)),
             (_f_greater, pytools.lex.RE(r"\.gt\.", re.IGNORECASE)),
             (_f_equal, pytools.lex.RE(r"\.eq\.", re.IGNORECASE)),
-            (_f_notequal, pytools.lex.RE(r"\.ne\.", re.IGNORECASE)),
+            (_f_notequal, ("|", pytools.lex.RE(r"\.ne\.", re.IGNORECASE), pytools.lex.RE(r"/=", re.IGNORECASE))),
             (_f_and, pytools.lex.RE(r"\.and\.", re.IGNORECASE)),
             (_f_or, pytools.lex.RE(r"\.or\.", re.IGNORECASE)),
             (_f_not, pytools.lex.RE(r"\.not\.", re.IGNORECASE)),
@@ -522,7 +538,7 @@ class ExpressionParser(ParserBase):
         context = context or {}
         context = CaseInsensitiveDict(context)
         if evaluate:
-            result = LokiEvaluationMapper(context=context, strict=strict)(result)
+            result = LokiPymbolicEvaluationMapper(context=context, strict=strict)(result)
         ir = PymbolicMapper()(result)
         return AttachScopes().visit(ir, scope=scope or Scope())
 
