@@ -21,14 +21,12 @@ from pymbolic.mapper.evaluator import UnknownVariableError
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
-from loki.expression.mappers import ExpressionRetriever
 from loki.config import config
+
+from loki.expression.mixins import StrCompareMixin
 
 
 __all__ = [
-    'loki_make_stringifier',
-    # Mix-ins
-    'StrCompareMixin',
     # Typed leaf nodes
     'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol', 'DerivedTypeSymbol',
     'MetaSymbol', 'Scalar', 'Array', 'Variable',
@@ -42,51 +40,6 @@ __all__ = [
     # C/C++ concepts
     'Reference', 'Dereference',
 ]
-
-# pylint: disable=abstract-method,too-many-lines
-
-def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disable=unused-argument
-    """
-    Return a :any:`LokiStringifyMapper` instance that can be used to generate a
-    human-readable representation of :data:`self`.
-
-    This is used as common abstraction for the :meth:`make_stringifier` method in
-    Pymbolic expression nodes.
-    """
-    from loki.expression.mappers import LokiStringifyMapper  # pylint: disable=import-outside-toplevel
-    return LokiStringifyMapper()
-
-
-class StrCompareMixin:
-    """
-    Mixin to enable comparing expressions to strings.
-
-    The purpose of the string comparison override is to reliably and flexibly
-    identify expression symbols from equivalent strings.
-    """
-
-    @staticmethod
-    def _canonical(s):
-        """ Define canonical string representations (lower-case, no spaces) """
-        if config['case-sensitive']:
-            return str(s).replace(' ', '')
-        return str(s).lower().replace(' ', '')
-
-    def __hash__(self):
-        return hash(self._canonical(self))
-
-    def __eq__(self, other):
-        if isinstance(other, (str, type(self))):
-            # Do comparsion based on canonical string representations
-            return self._canonical(self) == self._canonical(other)
-
-        return super().__eq__(other)
-
-    def __contains__(self, other):
-        # Assess containment via a retriver with node-wise string comparison
-        return len(ExpressionRetriever(lambda x: x == other).retrieve(self)) > 0
-
-    make_stringifier = loki_make_stringifier
 
 
 class TypedSymbol:
@@ -648,7 +601,6 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         return self.type.initial
 
     mapper_method = intern('map_meta_symbol')
-    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return self.symbol.__getinitargs__()
