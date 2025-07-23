@@ -1338,7 +1338,7 @@ class InlineCall(pmbl.CallWithKwargs):
     init_arg_names = ('function', 'parameters', 'kw_parameters')
 
     def __getinitargs__(self):
-        return (self.function, self.parameters, self.kw_parameters)
+        return (self.function, self.parameters, as_tuple(self.kw_parameters))
 
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
@@ -1357,14 +1357,10 @@ class InlineCall(pmbl.CallWithKwargs):
     mapper_method = intern('map_inline_call')
     make_stringifier = loki_make_stringifier
 
-    @property
-    def _canonical(self):
-        return (self.function, self.parameters, as_tuple(self.kw_parameters))
-
     def __hash__(self):
         # A custom `__hash__` function to protect us from unhashasble
         # dicts that `pmbl.CallWithKwargs` uses internally
-        return hash(self._canonical)
+        return hash(self.__getinitargs__())
 
     @property
     def name(self):
