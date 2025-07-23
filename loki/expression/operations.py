@@ -14,9 +14,9 @@ nevertheless change code results.
 from sys import intern
 import pymbolic.primitives as pmbl
 
+from loki.expression.mixins import loki_make_stringifier
 from loki.expression.symbols import (
-    StringLiteral, Sum, Product, Quotient, Power,
-    loki_make_stringifier
+    StringLiteral, Sum, Product, Quotient, Power
 )
 
 
