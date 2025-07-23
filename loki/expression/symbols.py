@@ -1261,7 +1261,7 @@ class Literal:
         return obj
 
 
-class LiteralList(pmbl.AlgebraicLeaf):
+class LiteralList(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
     A list of constant literals, e.g., as used in Array Initialization Lists.
     """
@@ -1274,13 +1274,12 @@ class LiteralList(pmbl.AlgebraicLeaf):
         super().__init__(**kwargs)
 
     mapper_method = intern('map_literal_list')
-    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return (self.elements, self.dtype)
 
 
-class InlineDo(pmbl.AlgebraicLeaf):
+class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
     """
@@ -1292,7 +1291,6 @@ class InlineDo(pmbl.AlgebraicLeaf):
         super().__init__(**kwargs)
 
     mapper_method = intern('map_inline_do')
-    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return (self.values, self.variable, self.bounds)
@@ -1330,7 +1328,7 @@ class LogicalNot(StrCompareMixin, pmbl.LogicalNot):
     """Representation of a negation in a logical expression."""
 
 
-class InlineCall(pmbl.CallWithKwargs):
+class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
     """
@@ -1355,7 +1353,6 @@ class InlineCall(pmbl.CallWithKwargs):
                          kw_parameters=kw_parameters, **kwargs)
 
     mapper_method = intern('map_inline_call')
-    make_stringifier = loki_make_stringifier
 
     def __hash__(self):
         # A custom `__hash__` function to protect us from unhashasble
@@ -1485,7 +1482,7 @@ class InlineCall(pmbl.CallWithKwargs):
         new_args = tuple(arg[1] for arg in new_kwarguments)
         return self.clone(parameters=self.arguments + new_args, kw_parameters=())
 
-class Cast(pmbl.Call):
+class Cast(StrCompareMixin, pmbl.Call):
     """
     Internal representation of a data type cast.
     """
@@ -1614,7 +1611,7 @@ class StringSubscript(StrCompareMixin, pmbl.Subscript):
     def symbol(self):
         return self.aggregate
 
-class Reference(pmbl.Expression):
+class Reference(StrCompareMixin, pmbl.Expression):
     """
     Internal representation of a Reference.
 
@@ -1669,10 +1666,9 @@ class Reference(pmbl.Expression):
         return self.expression.initial
 
     mapper_method = intern('map_c_reference')
-    make_stringifier = loki_make_stringifier
 
 
-class Dereference(pmbl.Expression):
+class Dereference(StrCompareMixin, pmbl.Expression):
     """
     Internal representation of a Dereference.
 
@@ -1727,4 +1723,3 @@ class Dereference(pmbl.Expression):
         return self.expression.initial
 
     mapper_method = intern('map_c_dereference')
-    make_stringifier = loki_make_stringifier
