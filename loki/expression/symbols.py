@@ -24,7 +24,10 @@ from loki.scope import Scope
 from loki.config import config
 
 from loki.expression.mixins import StrCompareMixin
-
+from loki.expression.operations import (
+    Sum, Product, Quotient, Power, Comparison, LogicalAnd,
+    LogicalOr, LogicalNot, StringConcat, Cast, Reference, Dereference
+)
 
 __all__ = [
     # Typed leaf nodes
@@ -34,11 +37,10 @@ __all__ = [
     'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
     'IntrinsicLiteral', 'Literal', 'LiteralList', 'InlineDo',
     # Internal nodes
+    'InlineCall', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript', 'StringSubscript',
+    # Operations (importedm but exposed here for convenience)
     'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
-    'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
-    'StringSubscript',
-    # C/C++ concepts
-    'Reference', 'Dereference',
+    'LogicalNot', 'StringConcat', 'Cast', 'Reference', 'Dereference',
 ]
 
 
@@ -1248,38 +1250,6 @@ class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
         return (self.values, self.variable, self.bounds)
 
 
-class Sum(StrCompareMixin, pmbl.Sum):
-    """Representation of a sum."""
-
-
-class Product(StrCompareMixin, pmbl.Product):
-    """Representation of a product."""
-
-
-class Quotient(StrCompareMixin, pmbl.Quotient):
-    """Representation of a quotient."""
-
-
-class Power(StrCompareMixin, pmbl.Power):
-    """Representation of a power."""
-
-
-class Comparison(StrCompareMixin, pmbl.Comparison):
-    """Representation of a comparison operation."""
-
-
-class LogicalAnd(StrCompareMixin, pmbl.LogicalAnd):
-    """Representation of an 'and' in a logical expression."""
-
-
-class LogicalOr(StrCompareMixin, pmbl.LogicalOr):
-    """Representation of an 'or' in a logical expression."""
-
-
-class LogicalNot(StrCompareMixin, pmbl.LogicalNot):
-    """Representation of a negation in a logical expression."""
-
-
 class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
@@ -1434,31 +1404,6 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
         new_args = tuple(arg[1] for arg in new_kwarguments)
         return self.clone(parameters=self.arguments + new_args, kw_parameters=())
 
-class Cast(StrCompareMixin, pmbl.Call):
-    """
-    Internal representation of a data type cast.
-    """
-
-    init_arg_names = ('name', 'expression', 'kind')
-
-    def __init__(self, name, expression, kind=None, **kwargs):
-        assert kind is None or isinstance(kind, pmbl.Expression)
-        self.kind = kind
-        super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
-
-    def __getinitargs__(self):
-        return (self.name, self.expression, self.kind)
-
-    mapper_method = intern('map_cast')
-
-    @property
-    def name(self):
-        return self.function.name
-
-    @property
-    def expression(self):
-        return self.parameters
-
 
 class Range(StrCompareMixin, pmbl.Slice):
     """
@@ -1562,116 +1507,3 @@ class StringSubscript(StrCompareMixin, pmbl.Subscript):
     @property
     def symbol(self):
         return self.aggregate
-
-class Reference(StrCompareMixin, pmbl.Expression):
-    """
-    Internal representation of a Reference.
-
-    .. warning:: Experimental! Allowing compound
-        ``Reference(Variable(...))`` to appear
-        with behaviour akin to a symbol itself
-        for easier processing in mappers.
-
-    **C/C++ only**, no corresponding concept in Fortran.
-    Referencing refers to taking the address of an
-    existing variable (to set a pointer variable).
-    """
-    init_arg_names = ('expression',)
-
-    def __getinitargs__(self):
-        return (self.expression, )
-
-    def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
-        self.expression = expression
-
-    @property
-    def name(self):
-        """
-        Allowing the compound ``Reference(Variable(name))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.name
-
-    @property
-    def type(self):
-        """
-        Allowing the compound ``Reference(Variable(type))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.type
-
-    @property
-    def scope(self):
-        """
-        Allowing the compound ``Reference(Variable(scope))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.scope
-
-    @property
-    def initial(self):
-        """
-        Allowing the compound ``Reference(Variable(initial))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.initial
-
-    mapper_method = intern('map_c_reference')
-
-
-class Dereference(StrCompareMixin, pmbl.Expression):
-    """
-    Internal representation of a Dereference.
-
-    .. warning:: Experimental! Allowing compound
-        ``Dereference(Variable(...))`` to appear
-        with behaviour akin to a symbol itself
-        for easier processing in mappers.
-
-    **C/C++ only**, no corresponding concept in Fortran.
-    Dereferencing (a pointer) refers to retrieving the value
-    from a memory address (that is pointed by the pointer).
-    """
-    init_arg_names = ('expression', )
-
-    def __getinitargs__(self):
-        return (self.expression, )
-
-    def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
-        self.expression = expression
-
-    @property
-    def name(self):
-        """
-        Allowing the compound ``Dereference(Variable(name))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.name
-
-    @property
-    def type(self):
-        """
-        Allowing the compound ``Dereference(Variable(type))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.type
-
-    @property
-    def scope(self):
-        """
-        Allowing the compound ``Dereference(Variable(scope))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.scope
-
-    @property
-    def initial(self):
-        """
-        Allowing the compound ``Dereference(Variable(initial))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.initial
-
-    mapper_method = intern('map_c_dereference')
