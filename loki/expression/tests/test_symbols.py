@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from loki.backend import cgen, fgen
 from loki.expression import symbols as sym
 from loki.scope import Scope
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
@@ -68,6 +69,66 @@ def test_variable_symbols():
     assert isinstance(c.symbol, sym.VariableSymbol)
     assert c.parent == 'r' and c.parent.type.dtype.name == 'DerDieDas'
     assert c.type.kind == 'rick' and c.dimensions == ('i', 'i')
+
+
+def test_procedure_symbols():
+    """ Test produre symbols and internal function call operators """
+
+    # pylint: disable=no-member
+
+    scope = Scope()
+    int_type = SymbolAttributes(BasicType.INTEGER)
+    real_type = SymbolAttributes(BasicType.REAL, kind='rick')
+    func_type = SymbolAttributes(
+        ProcedureType(name='f', is_function=True, return_type=real_type)
+    )
+    x = sym.Variable(name='x', type=real_type, scope=scope)
+    i = sym.Variable(name='i', type=int_type, scope=scope)
+    n = sym.Variable(name='n', type=int_type, scope=scope)
+    r_n = sym.LoopRange((sym.IntLiteral(1), n))
+
+    # A simple procedure symbol created via the generic ``Variable``
+    f = sym.Variable(name='f', type=func_type, scope=scope)
+    assert isinstance(f, sym.ProcedureSymbol) and f == 'f'
+    assert isinstance(f.type.dtype, ProcedureType)
+    assert f.type.dtype.is_function
+    assert f.type.dtype.return_type.kind == 'rick'
+
+    # An inline function call expression with named and unnamed arguments
+    f_x_i = sym.InlineCall(function=f, parameters=(x,), kw_parameters={'i': i})
+    assert f_x_i == 'f(x, i=i)' and f_x_i == 'F(x,i=I)'
+    assert f_x_i.function.type.dtype.is_function
+    assert f_x_i.function.type.dtype.return_type.kind == 'rick'
+
+    ido = sym.InlineDo(
+        values=(sym.Quotient(sym.FloatLiteral(42.0), i),), variable=i, bounds=r_n
+    )
+    # TODO: Because all `sym.Range` sub-types render to `1:n`, the
+    # correct mapping here is only captured in fgen! This needs fixing!
+    assert fgen(ido) == '( 42.0 / i, i = 1,n )'
+    assert len(ido.values) == 1 and ido.values[0] == '42.0/I'
+    assert ido.variable == 'I' and ido.bounds == '1:n'  # Which range is `i:n` and which `1,n`?
+
+    # A simple cast with an expression defining the type "kind"
+    cast = sym.Cast('int', expression=sym.Quotient(n, i), kind=n)
+    assert cast == 'int(n / i, kind=n)' and cast == 'INt(N/i, KiNd=N  )'
+    assert len(cast.expression) == 1 and cast.expression[0] == 'n / i'
+
+    # Native C reference and dereference inline intrinsics
+    g_type = real_type.clone(parameter=True, initial=sym.Literal(9.81))
+    g = sym.Variable(name='g', type=g_type, scope=scope)
+
+    ref = sym.Reference(expression=g)
+    assert ref.expression == 'g' and ref.name =='g'
+    assert cgen(ref) == ' (&g)'
+    assert ref.type.dtype == BasicType.REAL and ref.type.kind == 'rick'
+    assert ref.scope == scope and ref.initial == 9.81
+
+    deref = sym.Dereference(expression=g)
+    assert deref.expression == 'g' and deref.name =='g'
+    assert cgen(deref) == ' (*g)'
+    assert deref.type.dtype == BasicType.REAL and deref.type.kind == 'rick'
+    assert deref.scope == scope and deref.initial == 9.81
 
 
 def test_symbol_recreation():
