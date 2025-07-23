@@ -10,6 +10,7 @@ Expression layer of the two-level Loki IR based on `Pymbolic
 """
 
 from loki.expression.evaluation import *  # noqa
+from loki.expression.literals import *  # noqa
 from loki.expression.mappers import *  # noqa
 from loki.expression.mixins import *  # noqa
 from loki.expression.operations import *  # noqa

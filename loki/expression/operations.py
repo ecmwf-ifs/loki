@@ -17,6 +17,7 @@ import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple
 
+from loki.expression.literals import StringLiteral
 from loki.expression.mixins import loki_make_stringifier, StrCompareMixin
 
 
