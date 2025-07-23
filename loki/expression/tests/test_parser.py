@@ -333,7 +333,7 @@ end module external_mod
     assert parsed.name.lower() == 'real'
     assert all(isinstance(_parsed, sym.IntLiteral) for _parsed in parsed.parameters)
     assert parsed.kind.name.lower() == 'jprb'
-    assert to_str(parsed) == 'real(6)'
+    assert to_str(parsed) == 'real(6,kind=jprb)'
 
     parsed = parse_expr(convert_to_case('2.4', mode=case))
     assert isinstance(parsed, sym.FloatLiteral)
