@@ -340,10 +340,11 @@ class Pattern:
 
         # We should now be left with no parentheses anymore and can build the new string
         # by using everything between these parenthesis "spans"
-        new_string = string[:spans[0][0]]
+        starts, ends = zip(*spans)
+        new_string = string[:min(starts)]
         for (_, start), (end, _) in zip(spans[:-1], spans[1:]):
             new_string += string[start+1:end]
-        new_string += string[spans[-1][1]+1:]
+        new_string += string[max(ends)+1:]
         return new_string
 
 
