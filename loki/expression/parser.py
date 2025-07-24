@@ -7,13 +7,10 @@
 
 from sys import intern
 import re
-import math
 import pytools.lex
-import numpy as np
 from pymbolic.parser import Parser as ParserBase
 from pymbolic.mapper import Mapper
 import pymbolic.primitives as pmbl
-from pymbolic.mapper.evaluator import EvaluationMapper
 from pymbolic.parser import (
     _openpar, _closepar, _minus, FinalizedTuple, _PREC_UNARY,
     _PREC_TIMES, _PREC_PLUS, _PREC_CALL, _times, _plus
@@ -27,10 +24,11 @@ except ImportError:
     FORTRAN_INTRINSIC_PROCEDURES = ()
 
 from loki.expression import symbols as sym, operations as sym_ops
+from loki.expression.evaluation import eval_expr
 from loki.scope import Scope
-from loki.tools.util import CaseInsensitiveDict, as_tuple
+from loki.tools.util import CaseInsensitiveDict
 
-__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES', 'LokiPymbolicEvaluationMapper']
+__all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES']
 
 
 class PymbolicMapper(Mapper):
@@ -170,139 +168,6 @@ class PymbolicMapper(Mapper):
         parent = kwargs.pop('parent', None)
         parent = self.rec(expr.aggregate, parent=parent)
         return self.rec(expr.name, parent=parent)
-
-
-class LokiPymbolicEvaluationMapper(EvaluationMapper):
-    """
-    A mapper for evaluating expressions, based on
-    :any:`pymbolic.mapper.evaluator.EvaluationMapper`.
-    
-    Parameters
-    ----------
-    strict : bool
-        Raise exception for unknown symbols/expressions (default: `False`).
-    """
-
-    @staticmethod
-    def case_insensitive_getattr(obj, attr):
-        """
-        Case-insensitive version of `getattr`.
-        """
-        for elem in dir(obj):
-            if elem.lower() == attr.lower():
-                return getattr(obj, elem)
-        return getattr(obj, attr)
-
-    def __init__(self, strict=False, **kwargs):
-        self.strict = strict
-        super().__init__(**kwargs)
-
-    def map_comparison(self, expr):
-        import operator # pylint: disable=import-outside-toplevel
-        left = self.rec(expr.left)
-        right = self.rec(expr.right)
-        if isinstance(left, (sym._Literal, float, int)) and isinstance(right, (sym._Literal, float, int)):
-            return getattr(operator, expr.operator_to_name[expr.operator])(
-                self.rec(expr.left), self.rec(expr.right))
-        return sym.Comparison(left=left, operator=expr.operator, right=right)
-
-    def map_logical_and(self, expr):
-        children = [self.rec(ch) for ch in expr.children]
-        if not all(isinstance(ch, bool) for ch in children):
-            return sym.LogicalAnd(as_tuple(children))
-        return all(children)
-
-    def map_logic_literal(self, expr):
-        return expr.value
-
-    def map_float_literal(self, expr):
-        return expr.value
-    map_int_literal = map_float_literal
-
-    def map_variable(self, expr):
-        if expr.name.upper() in FORTRAN_INTRINSIC_PROCEDURES:
-            return self.map_call(expr)
-        if self.strict:
-            return super().map_variable(expr)
-        if expr.name in self.context:
-            return super().map_variable(expr)
-        return expr
-
-    @staticmethod
-    def _evaluate_array(arr, dims):
-        """
-        Evaluate arrays by converting to numpy array and
-        adapting the dimensions corresponding to the different
-        starting index.
-        """
-        return np.array(arr, order='F').item(*[dim-1 for dim in dims])
-
-    def map_call(self, expr):
-        if expr.function.name.lower() == 'min':
-            return min(self.rec(par) for par in expr.parameters)
-        if expr.function.name.lower() == 'max':
-            return max(self.rec(par) for par in expr.parameters)
-        if expr.function.name.lower() == 'modulo':
-            args = [self.rec(par) for par in expr.parameters]
-            return args[0]%args[1]
-        if expr.function.name.lower() == 'abs':
-            return abs(float([self.rec(par) for par in expr.parameters][0]))
-        if expr.function.name.lower() == 'int':
-            return int(float([self.rec(par) for par in expr.parameters][0]))
-        if expr.function.name.lower() == 'real':
-            return float([self.rec(par) for par in expr.parameters][0])
-        if expr.function.name.lower() == 'sqrt':
-            return math.sqrt(float([self.rec(par) for par in expr.parameters][0]))
-        if expr.function.name.lower() == 'exp':
-            return math.exp(float([self.rec(par) for par in expr.parameters][0]))
-        if expr.function.name in self.context and not callable(self.context[expr.function.name]):
-            return self._evaluate_array(self.context[expr.function.name],
-                    [self.rec(par) for par in expr.parameters])
-        return super().map_call(expr)
-
-    def map_call_with_kwargs(self, expr):
-        args = [self.rec(par) for par in expr.parameters]
-        kwargs = {
-                k: self.rec(v)
-                for k, v in expr.kw_parameters.items()}
-        kwargs = CaseInsensitiveDict(kwargs)
-        return self.rec(expr.function)(*args, **kwargs)
-
-    def map_lookup(self, expr):
-
-        def rec_lookup(expr, obj, name):
-            return expr.name, self.case_insensitive_getattr(obj, name)
-
-        try:
-            current_expr = expr
-            obj = self.rec(expr.aggregate)
-            while isinstance(current_expr.name, pmbl.Lookup):
-                current_expr, obj = rec_lookup(current_expr, obj, current_expr.name.aggregate.name)
-            if isinstance(current_expr.name, pmbl.Variable):
-                _, obj = rec_lookup(current_expr, obj, current_expr.name.name)
-                return obj
-            if isinstance(current_expr.name, pmbl.Call):
-                name = current_expr.name.function.name
-                _, obj = rec_lookup(current_expr, obj, name)
-                if callable(obj):
-                    return obj(*[self.rec(par) for par in current_expr.name.parameters])
-                return self._evaluate_array(obj, [self.rec(par) for par in current_expr.name.parameters])
-            if isinstance(current_expr.name, pmbl.CallWithKwargs):
-                name = current_expr.name.function.name
-                _, obj = rec_lookup(current_expr, obj, name)
-                args = [self.rec(par) for par in current_expr.name.parameters]
-                kwargs = CaseInsensitiveDict(
-                    (k, self.rec(v))
-                    for k, v in current_expr.name.kw_parameters.items()
-                )
-                return obj(*args, **kwargs)
-        except Exception as e:
-            if self.strict:
-                raise e
-            return expr
-        if self.strict:
-            raise NotImplementedError
-        return expr
 
 
 class ExpressionParser(ParserBase):
@@ -535,11 +400,9 @@ class ExpressionParser(ParserBase):
         """
         from loki.ir import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
         result = super().__call__(expr_str)
-        context = context or {}
-        context = CaseInsensitiveDict(context)
-        if evaluate:
-            result = LokiPymbolicEvaluationMapper(context=context, strict=strict)(result)
         ir = PymbolicMapper()(result)
+        if evaluate:
+            ir = eval_expr(ir, context=context, strict=strict)
         return AttachScopes().visit(ir, scope=scope or Scope())
 
     def parse_float(self, s):
