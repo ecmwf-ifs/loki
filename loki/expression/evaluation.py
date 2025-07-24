@@ -19,7 +19,7 @@ except ImportError:
 from loki.expression import symbols as sym
 from loki.tools.util import CaseInsensitiveDict, as_tuple
 
-__all__ = ['LokiEvaluationMapper']
+__all__ = ['LokiEvaluationMapper', 'eval_expr']
 
 class LokiEvaluationMapper(EvaluationMapper):
     """
@@ -174,3 +174,29 @@ class LokiEvaluationMapper(EvaluationMapper):
                 for k, v in expr.kw_parameters.items()}
         kwargs = CaseInsensitiveDict(kwargs)
         return self.rec(expr.function)(*args, **kwargs)
+
+
+def eval_expr(expr, context=None, strict=False):
+    """
+    Call Loki Evaluation Mapper to evaluate expression(s).
+
+    Parameters
+    ----------
+    expr : :any:`Expression`
+        The expression as a string
+    strict : bool, optional
+        Whether to raise exception for unknown variables/symbols when
+        evaluating an expression (default: `False`)
+    context : dict, optional
+        Symbol context, defining variables/symbols/procedures to help/support
+        evaluating an expression
+
+    Returns
+    -------
+    :any:`Expression`
+        The evaluated expression tree corresponding to the expression
+    """
+    context = context or {}
+    context = CaseInsensitiveDict(context)
+    mapper = LokiEvaluationMapper(context=context, strict=strict)
+    return mapper(expr)
