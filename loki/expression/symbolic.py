@@ -14,7 +14,7 @@ import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki.expression.mappers import LokiIdentityMapper
-from loki.expression.parser import LokiEvaluationMapper
+from loki.expression.evaluation import LokiEvaluationMapper
 import loki.expression.symbols as sym
 from loki.tools import as_tuple
 
