@@ -264,6 +264,28 @@ def add_field_offload_calls(driver, region, offload_map):
 
 def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables,
                                     queue=None, offset=None):
+    """
+    Adds blocked Field API data transfer calls to a region inside a block loop.
+
+
+    Parameters
+    ----------
+    driver : :any:`Subroutine`
+        Driver subroutine IR node
+    block_loop : :any:`ir.Loop`
+        Block loop containing the region to be offloaded.
+    region : :any:`PragmaRegion`
+        Code region to prepend and append data transfer calls.
+    offload_map : :any:`FieldPointerMap`
+        FieldPointerMap with variables to be offloaded.
+    splitting_variables: :any:`LoopSplittingVariables`
+        Loop splitting variables for `block_loop`
+    queue : optional
+        Queue parameter for Field API data transfer calls
+    offset : optional
+        Offset parameter for Field API data transfer calls.
+    """
+
     host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
                                                                 splitting_variables.block_start,
                                                                 splitting_variables.block_end)
@@ -280,7 +302,6 @@ def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, spl
                                                        offset=offset
                                                        )
     with pragmas_attached(driver, ir.Loop):
-        # new_loop = block_loop.clone(body=host_to_device + block_loop.body + device_to_host)
         update_map = {region: host_to_device+(region,)+device_to_host}
         Transformer(update_map, inplace=True).visit(block_loop)
 
