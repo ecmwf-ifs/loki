@@ -170,7 +170,7 @@ class FieldOffloadBlockedTransformation(Transformation):
                     # inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
-                    splitting_vars, _, block_loop = block_driver_loops(driver, region, self.block_size)
+                    splitting_vars, block_loop = block_driver_loop(driver, region, self.block_size)
 
                     if self.asynchronous and self.num_queues > 1:
                         add_device_field_allocations(driver, block_loop, offload_map,
@@ -188,7 +188,7 @@ class FieldOffloadBlockedTransformation(Transformation):
 
 def find_offload_variables(driver, region, field_group_types):
     """
-    Finds the sets of array variable symbols for which we can generate
+    Find the sets of array variable symbols for which we can generate
     Field API offload code.
 
     Note
@@ -262,10 +262,10 @@ def add_field_offload_calls(driver, region, offload_map):
     Transformer(update_map, inplace=True).visit(driver.body)
 
 
-def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_variables,
+def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars,
                                     queue=None, offset=None):
     """
-    Adds blocked Field API data transfer calls to a region inside a block loop.
+    Add blocked Field API data transfer calls to a region inside a block loop.
 
 
     Parameters
@@ -278,7 +278,7 @@ def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, spl
         Code region to prepend and append data transfer calls.
     offload_map : :any:`FieldPointerMap`
         FieldPointerMap with variables to be offloaded.
-    splitting_variables: :any:`LoopSplittingVariables`
+    splitting_vars: :any:`LoopSplittingVariables`
         Loop splitting variables for `block_loop`
     queue : optional
         Queue parameter for Field API data transfer calls
@@ -287,27 +287,41 @@ def add_blocked_field_offload_calls(driver, block_loop, region, offload_map, spl
     """
 
     host_to_device = offload_map.host_to_device_force_calls(blk_bounds=sym.LiteralList(values=(
-                                                                splitting_variables.block_start,
-                                                                splitting_variables.block_end)
+                                                                splitting_vars.block_start,
+                                                                splitting_vars.block_end)
                                                                                       ),
                                                             queue=queue,
                                                             offset=offset
                                                             )
 
     device_to_host = offload_map.sync_host_force_calls(blk_bounds=sym.LiteralList(values=(
-                                                            splitting_variables.block_start,
-                                                            splitting_variables.block_end)
+                                                            splitting_vars.block_start,
+                                                            splitting_vars.block_end)
                                                                                  ),
                                                        queue=queue,
                                                        offset=offset
                                                        )
     with pragmas_attached(driver, ir.Loop):
-        update_map = {region: host_to_device+(region,)+device_to_host}
+        update_map = {region: host_to_device + (region,) + device_to_host}
         Transformer(update_map, inplace=True).visit(block_loop)
 
 
 def add_device_field_allocations(driver, block_loop, offload_map, block_size, num_queues):
-    blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size*num_queues))
+    """
+    Add Field API device data allocation calls for variables in `offload_map`.
+
+    Parameters
+    ----------
+    driver : :any:`Subroutine`
+        Driver subroutine IR node
+    block_loop : :any:`ir.Loop`
+        Block loop containing the region to be offloaded.
+    offload_map : :any:`FieldPointerMap`
+        FieldPointerMap with variables to be offloaded.
+    block_size : `int`
+        Number of blocks in a chunk.
+    """
+    blk_bounds = sym.LiteralList(values=(sym.IntLiteral(1), block_size * num_queues))
     create_device_data_calls = tuple(field_create_device_data(field_ptr=offload_map.field_ptr_from_view(arg),
                                                               scope=driver,
                                                               blk_bounds=blk_bounds)
@@ -322,6 +336,31 @@ def add_device_field_allocations(driver, block_loop, offload_map, block_size, nu
 
 
 def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
+    """
+    Add the variables required for asynchronous blocked offloading over multiple queues to
+    the routine.
+
+    The `queue` variable is assigned the value `mod(block_idx, nqueues) + 1` inside the  block loop
+    and the `offset` variable is assigned the value `(queue-1) * block_size`
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Subroutine IR node containing loop to be blocked.
+    block_loop : :any:`ir.Loop`
+        Block loop containing the region to be offloaded.
+    num_queues : :any:`IntLiteral`
+        Queue parameter for Field API data transfer calls
+    splitting_vars : :any:`LoopSplittingVariables`
+        Loop splitting variables for `block_loop`
+
+    Returns
+    -------
+    queue:
+        Variable holding the queue number in the blocked loop.
+    offset:
+        Variable holding the offset in the blocked loop.
+    """
     queue = sym.Variable(name='loki_block_queue', type=SymbolAttributes(BasicType.INTEGER),
                          scope=routine)
     nqueues = sym.Variable(name='loki_block_nqueues', type=SymbolAttributes(BasicType.INTEGER,
@@ -367,7 +406,19 @@ def replace_kernel_args(driver, offload_map, offload_index):
     driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)
 
 
-def block_driver_loops(driver, region, block_size):
+def block_driver_loop(driver, region, block_size):
+    """
+    Block a driver loop inside a code region.
+
+    Parameters
+    ----------
+    driver : :any:`Subroutine`
+        Subroutine containing the driver loop.
+    region : :any:`PragmaRegion`
+        Region, containing the driver loop, to be blocked inside the loop.
+    block_size : `int`
+        Number of blocks in a chunk.
+    """
     with pragmas_attached(driver, ir.Loop):
         driver_loops = find_driver_loops(driver.body, targets=None)
         if len(driver_loops) == 1:
@@ -388,10 +439,20 @@ def block_driver_loops(driver, region, block_size):
                 pragmas.append(pragma.clone(content=content))
             inner_loop._update(pragma=tuple(pragmas))
             outer_loop._update(pragma=None)
-    return splitting_vars, inner_loop, outer_loop
+    return splitting_vars, outer_loop
 
 
 def add_async_queue_to_pragmas(section, queue):
+    """
+    Add async pragma content to Loki data and driver-loop pragmas in the section.
+
+    Parameters
+    ----------
+    section : :any:`Section`
+        IR section in whcih async content will be added to Loki pragmas.
+    queue :
+        Variable holding the queue value that will be added to the async pragma content.
+    """
     pragmas = FindNodes(ir.Pragma).visit(section)
     async_content = f' async({queue.name})'
     for pragma in pragmas:
@@ -400,6 +461,20 @@ def add_async_queue_to_pragmas(section, queue):
 
 
 def add_wait_calls(driver, block_loop, queue, num_queues):
+    """
+    Add wait calls to synchronize all queues after a block loop.
+
+    Parameters
+    ----------
+    driver :  :any:`Subroutine`
+        Routine containing the block loop.
+    block_loop : :any:`ir.Loop`
+        Block loop containing the region to be offloaded.
+    queue :
+        Variable holding the queue value that will be added to the async pragma content.
+    num_queues : :any:`IntLiteral`
+        Total number of async queues.
+    """
     wait_loop = ir.Loop(variable=queue,
                         body=field_wait_for_async_queue(queue, driver),
                         bounds=sym.LoopRange((sym.IntLiteral(1), sym.IntLiteral(num_queues)))
