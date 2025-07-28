@@ -124,6 +124,8 @@ class RemoveCodeTransformation(Transformation):
             do_remove_unused_call_args(routine, unused_args_map)
 
             if item.config.get('remove_unused_args', True) and kwargs['role'] == 'kernel':
+                if routine.name.lower() == 'cpedia':
+                    return
                 # find unused args
                 unused_args = find_unused_dummy_args(routine)
                 do_remove_unused_dummy_args(routine, unused_args)

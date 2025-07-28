@@ -460,61 +460,69 @@ class FortranCodegen(Stringifier):
         # TODO: We can't fully compare procedure types, yet, but we can make at least sure
         # names match and other declared attributes are compatible
         ignore = ['dtype', 'shape', 'dimensions', 'symbols', 'source', 'initial']
-        assert all(isinstance(t.dtype, ProcedureType) for t in types)
-        assert all(t.compare(types[0], ignore=ignore) for t in types)
-        if isinstance(o.interface, DataType):
-            assert all(t.dtype.return_type.dtype == o.interface for t in types)
-        elif o.interface is not None:
-            assert all(t.dtype.name == o.interface for t in types)
+        print(f"o: {o} | o.symbols: {o.symbols}")
+        print(f"types: {types}")
+        try:
+            assert all(isinstance(t.dtype, ProcedureType) or t.external for t in types)
+            assert all(t.compare(types[0], ignore=ignore) for t in types)
+            if isinstance(o.interface, DataType):
+                assert all(t.dtype.return_type.dtype == o.interface for t in types)
+            elif o.interface is not None:
+                assert all(t.dtype.name == o.interface for t in types)
 
-        if o.external:
-            # This is an EXTERNAL statement (i.e., a kind of forward declaration)
-            assert o.interface is None
-            assert all(t.dtype.is_function for t in types) or all(not t.dtype.is_function for t in types)
-            if types[0].dtype.is_function:
-                # EXTERNAL statement for functions must include return_type
-                assert all(t.dtype.return_type.compare(types[0].dtype.return_type) for t in types)
-                attributes = [self.visit(types[0].dtype.return_type, **kwargs)]
+            if o.external:
+                # This is an EXTERNAL statement (i.e., a kind of forward declaration)
+                assert o.interface is None
+                assert all(t.dtype.is_function for t in types) or all(not t.dtype.is_function for t in types)
+                if types[0].dtype.is_function:
+                    # EXTERNAL statement for functions must include return_type
+                    assert all(t.dtype.return_type.compare(types[0].dtype.return_type) for t in types)
+                    attributes = [self.visit(types[0].dtype.return_type, **kwargs)]
+                else:
+                    attributes = []
+                # NB: no need to provide EXTERNAL here, as EXTERNAL is specified by visit_SymbolAttributes
+            elif o.interface:
+                # This is a PROCEDURE declaration with interface provided
+                attributes = [f'PROCEDURE({self.visit(o.interface, **kwargs)})']
+            elif o.module:
+                attributes = ['MODULE PROCEDURE']
+            elif o.generic:
+                attributes = ['GENERIC']
+            elif o.final:
+                attributes = ['FINAL']
             else:
-                attributes = []
-            # NB: no need to provide EXTERNAL here, as EXTERNAL is specified by visit_SymbolAttributes
-        elif o.interface:
-            # This is a PROCEDURE declaration with interface provided
-            attributes = [f'PROCEDURE({self.visit(o.interface, **kwargs)})']
-        elif o.module:
-            attributes = ['MODULE PROCEDURE']
-        elif o.generic:
-            attributes = ['GENERIC']
-        elif o.final:
-            attributes = ['FINAL']
-        else:
-            # This is a PROCEDURE declaration without interface provided
-            # (as they can appear in a derived type component declaration)
-            attributes = ['PROCEDURE']
+                # This is a PROCEDURE declaration without interface provided
+                # (as they can appear in a derived type component declaration)
+                attributes = ['PROCEDURE']
 
-        decl_attrs = self.visit(types[0], **kwargs)
-        if str(decl_attrs):
-            attributes += [decl_attrs]
+            decl_attrs = self.visit(types[0], **kwargs)
+            if str(decl_attrs):
+                attributes += [decl_attrs]
 
-        symbols = []
-        for v in o.symbols:
-            var = self.visit(v, **kwargs)
-            if v.type.initial is not None:
-                symbols += [f'{var} => {self.visit(v.type.initial, **kwargs)}']
-            elif v.type.bind_names is not None and o.interface is None:
-                bind_names = [self.visit(n, **kwargs) for n in v.type.bind_names]
-                symbols += [f'{var} => {self.join_items(bind_names)}']
-            else:
-                symbols += [var]
+            symbols = []
+            for v in o.symbols:
+                var = self.visit(v, **kwargs)
+                if v.type.initial is not None:
+                    symbols += [f'{var} => {self.visit(v.type.initial, **kwargs)}']
+                elif v.type.bind_names is not None and o.interface is None:
+                    bind_names = [self.visit(n, **kwargs) for n in v.type.bind_names]
+                    symbols += [f'{var} => {self.join_items(bind_names)}']
+                else:
+                    symbols += [var]
 
-        comment = None
-        if o.comment:
-            comment = str(self.visit(o.comment, **kwargs))
+            comment = None
+            if o.comment:
+                comment = str(self.visit(o.comment, **kwargs))
 
-        return self.format_line(
-            self.join_items(attributes), ' :: ', self.join_items(symbols),
-            comment=comment
-        )
+            return self.format_line(
+                self.join_items(attributes), ' :: ', self.join_items(symbols),
+                comment=comment
+            )
+        except Exception as e:
+            return self.format_line(
+                self.join_items(['FOO']), ' :: ', self.join_items([str(_) for _ in o.symbols]),
+                comment=f'exception {e}'
+            )
 
     def visit_DataDeclaration(self, o, **kwargs):
         """

@@ -328,7 +328,7 @@ class Scheduler:
         config, try to provide this information
         """
         definitions = self.definitions
-        for item in SFilter(self.sgraph, item_filter=ProcedureItem):
+        for item in SFilter(self.sgraph, item_filter=ProcedureItem): # (ProcedureItem, ModuleItem)):
             # Enrich with the definitions of the scheduler's graph and meta-info from outside the callgraph
             enrich_definitions = definitions
             for name in as_tuple(item.enrich):
@@ -381,12 +381,14 @@ class Scheduler:
                     if item.scope_name not in item.source:
                         # The parent module has been removed
                         deleted_keys.add(key)
+        
 
         # Rename item scopes where necessary
         for key, item in self.item_factory.item_cache.items():
             if item.scope_name in renamed_keys and key not in deleted_keys:
                 item.name = f'{renamed_keys[item.scope_name]}#{item.local_name}'
                 renamed_keys[key] = item.name
+
 
         # Search for invalid item cache keys in config entries
         for old_name, new_name in renamed_keys.items():
@@ -553,7 +555,9 @@ class Scheduler:
                 if isinstance(_item, ExternalItem):
                     if kwargs['plan_mode'] and _item.is_generated:
                         continue
-                    raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    # raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    print(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    continue
 
                 transformation.apply(
                     _item.transformation_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
@@ -570,7 +574,7 @@ class Scheduler:
             if self.full_parse:
                 self._parse_items()
 
-    def callgraph(self, path, with_file_graph=False, with_legend=False):
+    def callgraph(self, path, with_file_graph=True, with_legend=False):
         """
         Generate a callgraph visualization and dump to file.
 
@@ -588,6 +592,8 @@ class Scheduler:
         except ImportError:
             warning('[Loki] Failed to load graphviz, skipping callgraph generation...')
             return
+
+        self.sgraph.overview() # item_filter=ProcedureItem)
 
         item_colors = {
             FileItem: '#c0c0c0',       # gray

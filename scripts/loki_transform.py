@@ -130,6 +130,9 @@ def convert(
         output_dir=build, **build_args
     )
 
+    if callgraph:
+        scheduler.callgraph(callgraph)
+
     # If requested, apply a custom pipeline from the scheduler config
     # Note that this new entry point will bypass all other default
     # behaviour and exit immediately after.

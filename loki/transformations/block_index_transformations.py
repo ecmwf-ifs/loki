@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.batch import Transformation, ProcedureItem
+from loki.batch import Transformation, ProcedureItem, TypeDefItem, ModuleItem
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached,
     pragma_regions_attached, FindVariables, SubstituteExpressions,
@@ -81,11 +81,21 @@ class BlockViewToFieldViewTransformation(Transformation):
     _key = 'BlockViewToFieldViewTransformation'
     """Identifier for trafo_data entry"""
 
-    item_filter = (ProcedureItem,)
+    # reverse_traversal = True
+    item_filter = (ProcedureItem,) #  TypeDefItem, ModuleItem)
 
     def __init__(self, horizontal, global_gfl_ptr=False):
         self.horizontal = horizontal
         self.global_gfl_ptr = global_gfl_ptr
+
+
+    def transform_module(self, module, **kwargs):
+        definitions = []
+        field_array_mod_imports = [imp for imp in module.imports if imp.module.lower() == 'field_array_module']
+        if field_array_mod_imports:
+            definitions += self._create_dummy_field_api_defs(field_array_mod_imports)
+        module.enrich(definitions)
+        # module.rescope_symbols()
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -99,10 +109,23 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         exclude_arrays = item.config.get('exclude_arrays', [])
 
+        ##
+    
+        field_array_mod_imports = [imp for imp in routine.imports if imp.module.lower() == 'field_array_module']
+        definitions = []
+        if field_array_mod_imports:
+            definitions += self._create_dummy_field_api_defs(field_array_mod_imports)
+        # propagate dummy field_api wrapper definitions to self and children
+        routine.enrich(definitions) # , recurse=True)
+        self.propagate_defs_to_children(self._key, definitions, successors, sub_sgraph)
+        # routine.rescope_symbols()
+        # self.propagate_defs_to_children(self._key, definitions, successors, sub_sgraph)
+        ##
+
         if role == 'kernel':
             self.process_kernel(routine, item, successors, targets, exclude_arrays)
         if role == 'driver':
-            self.process_driver(routine, successors)
+            self.process_driver(routine, item, successors, targets, exclude_arrays, sub_sgraph)
 
     @staticmethod
     def _get_parkind_suffix(_type):
@@ -179,27 +202,34 @@ class BlockViewToFieldViewTransformation(Transformation):
 
         return [field_array_module,]
 
-    @staticmethod
-    def propagate_defs_to_children(key, definitions, successors):
+    def propagate_defs_to_children(self, key, definitions, successors, sub_sgraph):
         """
         Enrich all successors with the dummy FIELD_API definitions.
         """
 
         for child in successors:
-            child.ir.enrich(definitions)
-            child.trafo_data.update({key: {'definitions': definitions}})
+            if isinstance(child, TypeDefItem):
+                child.ir.parent.enrich(definitions)
+            else:
+                child.ir.enrich(definitions)
+                child.trafo_data.update({key: {'definitions': definitions}})
+            self.propagate_defs_to_children(key, definitions, sub_sgraph.successors(child), sub_sgraph)
 
-    def process_driver(self, routine, successors):
+    def process_driver(self, routine, item, successors, targets, exclude_arrays, sub_sgraph):
 
-        # create dummy definitions for field_api wrapper types
-        field_array_mod_imports = [imp for imp in routine.imports if imp.module.lower() == 'field_array_module']
-        definitions = []
-        if field_array_mod_imports:
-            definitions += self._create_dummy_field_api_defs(field_array_mod_imports)
+        # # create dummy definitions for field_api wrapper types
+        # field_array_mod_imports = [imp for imp in routine.imports if imp.module.lower() == 'field_array_module']
+        # definitions = []
+        # # if field_array_mod_imports:
+        # definitions += self._create_dummy_field_api_defs(field_array_mod_imports)
+     
+        # # propagate dummy field_api wrapper definitions to self and children
+        # routine.enrich(definitions)
+        # self.propagate_defs_to_children(self._key, definitions, successors, sub_sgraph)
 
-        # propagate dummy field_api wrapper definitions to self and children
-        routine.enrich(definitions)
-        self.propagate_defs_to_children(self._key, definitions, successors)
+        # also process driver
+        routine.body = self.process_body(routine.body, item, successors, targets, exclude_arrays)
+        ##
 
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
@@ -216,12 +246,12 @@ class BlockViewToFieldViewTransformation(Transformation):
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
 
-    def process_body(self, body, item, successors, targets, exclude_arrays):
+    def process_body(self, body, item, successors, targets, exclude_arrays, debug_prints=False):
 
         # build list of type-bound array access using the horizontal index
         _vars = [var for var in FindVariables(unique=False).visit(body)
                 if isinstance(var, Array) and var.parents and self.horizontal.index in var.dimensions]
-
+        
         # build list of type-bound view pointers passed as subroutine arguments
         for call in FindNodes(ir.CallStatement).visit(body):
             if call.name in targets:
@@ -230,9 +260,17 @@ class BlockViewToFieldViewTransformation(Transformation):
                           if any(v in d.shape for v in self.horizontal.sizes) and a.parents]
 
         # replace per-block view pointers with full field pointers
-        vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
-                               type=var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type)
-                for var in _vars}
+        # vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
+        #                        type=var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type)
+        #         for var in _vars}
+        vmap = {}
+        for var in _vars:
+            # if var.name_parts[-1] + '_FIELD' in var.parent.variable_map:
+            new_type = var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type
+            # else:
+            #     new_type = var.parent.scope.symbol_attrs[var.name + '_FIELD']
+            vmap[var] = var.clone(name=var.name_parts[-1] + '_FIELD', type=new_type)
+
 
         # replace thread-private GFL_PTR with global
         if self.global_gfl_ptr:
@@ -244,12 +282,14 @@ class BlockViewToFieldViewTransformation(Transformation):
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
         # propagate dummy field_api wrapper definitions to children
-        if item.trafo_data.get(self._key, None):
-            definitions = item.trafo_data[self._key]['definitions']
-            self.propagate_defs_to_children(self._key, definitions, successors)
+        # if item.trafo_data.get(self._key, None):
+        #     definitions = item.trafo_data[self._key]['definitions']
+        #     self.propagate_defs_to_children(self._key, definitions, successors)
 
         # finally we perform the substitution
-        return SubstituteExpressions(vmap).visit(body)
+        # return SubstituteExpressions(vmap).visit(body)
+        new_body = SubstituteExpressions(vmap).visit(body)
+        return new_body
 
 
     def process_kernel(self, routine, item, successors, targets, exclude_arrays):
@@ -267,7 +307,11 @@ class BlockViewToFieldViewTransformation(Transformation):
         SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=bounds)
 
         # for kernels we process the entire body
-        routine.body = self.process_body(routine.body, item, successors, targets, exclude_arrays)
+        routine.body = self.process_body(routine.body, item, successors, targets, exclude_arrays, debug_prints=routine.name.lower()=='postphy')
+        # if routine.name.lower()=='postphy':
+        #     from loki import fgen
+        #     print(f"----------")
+        #     print(fgen(routine.body))
 
 
 class InjectBlockIndexTransformation(Transformation):
@@ -363,8 +407,8 @@ class InjectBlockIndexTransformation(Transformation):
             exclude_arrays = item.config.get('exclude_arrays', [])
             force_inject_arrays = item.config.get('force_inject_arrays', [])
 
-        if role == 'kernel':
-            self.process_kernel(routine, targets, exclude_arrays, force_inject_arrays)
+        # if role == 'kernel':
+        self.process_kernel(routine, targets, exclude_arrays, force_inject_arrays)
 
         #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
 
@@ -413,7 +457,6 @@ class InjectBlockIndexTransformation(Transformation):
         # Now get the rest of the variables
         for var in FindVariables(unique=False).visit(body):
             if getattr(var, 'dimensions', None) and not var in call_args:
-
                 local_rank = len(var.dimensions)
                 decl_rank = local_rank
                 # we assume here that all derived-type components we wish to transform
@@ -440,6 +483,7 @@ class InjectBlockIndexTransformation(Transformation):
         # we skip routines that do not contain the block index or any known alias
         variable_map = routine.variable_map
         if not (block_index := self.get_block_index(routine, variable_map)):
+            print(f"HERE! no block_index, thus returning {routine}")
             return
 
         # replace strings with variables
