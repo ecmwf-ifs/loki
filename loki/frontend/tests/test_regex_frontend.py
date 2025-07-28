@@ -1018,6 +1018,23 @@ end subroutine definitely_not_allfpos
     assert routine.symbol_map['cloud_type_name'].type.dtype is BasicType.CHARACTER
 
 
+def test_regex_call_statement_parentheses():
+    """Correct handling of nested parentheses, reported in #585"""
+    fcode = """
+subroutine a_function(arg1, arg3)
+    implicit none
+    integer, intent(inout) :: arg1, arg3
+    call parse_me_wrong(arg1, arg2=[1,2,3], arg3)
+    call parse_me_wrong2(arg1, arg2=(/1,2,3/), arg3)
+end subroutine a_function
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX)
+    routine = source['a_function']
+    calls = FindNodes(ir.CallStatement).visit(routine.ir)
+    assert [call.name for call in calls] == ['parse_me_wrong', 'parse_me_wrong2']
+
+
 def test_regex_preproc_in_contains():
     fcode = """
 module preproc_in_contains
