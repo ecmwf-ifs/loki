@@ -692,7 +692,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
             temporary = var in kwargs['temporary']
 
             check = 'ASSOCIATED' if var.type.pointer else None
-            check = 'ALLOCATED' if var.type.allocatable else None
+            if not check:
+                check = 'ALLOCATED' if var.type.allocatable else None
 
             if isinstance(var.type.dtype, DerivedType):
 

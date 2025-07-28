@@ -81,7 +81,7 @@ module type_def_mod
 
    type :: geom_type
       type(geom_dims) :: dim
-      integer, allocatable :: metadata(:)
+      integer, pointer :: metadata(:)
    end type
 end module type_def_mod
             """.strip()
@@ -481,6 +481,8 @@ def check_geometry(conds, pragmas, routine):
 
     conds = [c for c in conds
              if 'geometry%metadata' in c.condition.parameters]
+
+    assert all(c.condition.name.lower() == 'associated' for c in conds)
 
     # geometry should only have copy and wipe related instructions
     assert len(conds) == 2
