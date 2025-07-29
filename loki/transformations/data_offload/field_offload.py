@@ -25,7 +25,7 @@ from loki.transformations.parallel import remove_field_api_view_updates
 
 __all__ = [
     'FieldOffloadTransformation', 'FieldOffloadBlockedTransformation', 'find_offload_variables',
-    'add_field_offload_calls', 'replace_kernel_args'
+    'add_field_offload_calls', 'replace_offload_args'
 ]
 
 
@@ -90,7 +90,7 @@ class FieldOffloadTransformation(Transformation):
                     # Inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     add_field_offload_calls(driver, region, offload_map)
-                    replace_kernel_args(driver, offload_map, self.offload_index)
+                    replace_offload_args(driver, region, offload_map, self.offload_index)
 
 
 class FieldOffloadBlockedTransformation(Transformation):
@@ -181,7 +181,7 @@ class FieldOffloadBlockedTransformation(Transformation):
                         add_wait_calls(driver, block_loop, queue, self.num_queues)
                     else:
                         add_blocked_field_offload_calls(driver, block_loop, region, offload_map, splitting_vars)
-                    replace_kernel_args(driver, offload_map, self.offload_index)
+                    replace_offload_args(driver, region, offload_map, self.offload_index)
         if self.asynchronous and self.num_queues >1:
             add_async_queue_to_pragmas(block_loop, queue)
 
@@ -387,12 +387,26 @@ def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
     return queue, offset
 
 
-def replace_kernel_args(driver, offload_map, offload_index):
+def replace_offload_args(driver, region, offload_map, offload_index):
+    """
+    Replace instances of offload variables with their device pointers inside the region.
+
+    Parameters
+    ----------
+    driver : :any:`Subroutine`
+        Subroutine containing the data region.
+    region : :any:`PragmaRegion`
+        Data region in which offload variables in the offload map will be replaced.
+    offload_map : :any:`FieldPointerMap`
+        FieldPointerMap with variables to be offloaded.
+    offload_index: str
+        Name of index variable to inject in the outmost dimension of offloaded pointers.
+    """
     change_map = {}
     offload_idx_expr = driver.variable_map[offload_index]
 
     args = offload_map.args
-    for arg in FindVariables().visit(driver.body):
+    for arg in FindVariables().visit(region.body):
         if arg.name not in args:
             continue
 
@@ -402,8 +416,7 @@ def replace_kernel_args(driver, offload_map, offload_index):
         else:
             dims = (sym.RangeIndex((None, None)),) * (len(dataptr.shape)-1) + (offload_idx_expr,)
         change_map[arg] = dataptr.clone(dimensions=dims)
-
-    driver.body = SubstituteExpressions(change_map, inplace=True).visit(driver.body)
+    SubstituteExpressions(change_map, inplace=True).visit(region.body)
 
 
 def block_driver_loop(driver, region, block_size):
