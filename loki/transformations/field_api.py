@@ -26,15 +26,23 @@ __all__ = [
 
 
 class FieldAPITransferType(Enum):
-    READ_ONLY = 1
-    READ_WRITE = 2
-    WRITE_ONLY = 3
-    FORCE = 4
+    READ_ONLY = 'RDONLY'
+    READ_WRITE = 'RDWR'
+    WRITE_ONLY = 'WRONLY'
+    FORCE = 'FORCE'
+
+    @property
+    def suffix(self):
+        return self.value
 
 
 class FieldAPITransferDirection(Enum):
-    DEVICE_TO_HOST=1
-    HOST_TO_DEVICE=2
+    DEVICE_TO_HOST = 'HOST'
+    HOST_TO_DEVICE = 'DEVICE'
+
+    @property
+    def suffix(self):
+        return self.value
 
 
 class FieldPointerMap:
@@ -182,34 +190,49 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
 def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
                     transfer_direction: FieldAPITransferDirection,
                     scope: Scope, queue=None, blk_bounds=None, offset=None):
+    """
+    Internal function to generate FIELD API ``GET DATA`` calls.
 
+    .. note::
+        This routine is not meant to be called from any code outisde `field_api.py`, then the
+        corresponding :any:`field_get_device_data` or :any:`field_get_host_data` functions
+        should be called instead.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``GET_DEVICE_DATA`` from.
+    dev_ptr: :any:`Array`
+        Device pointer array
+    transfer_type: :any:`FieldAPITransferType`
+        Field API transfer type to determine which type of ``GET DATA`` method to call.
+    transfer_direction: :any:`FieldAPITransferDirection`
+        Field API transfer direction to determine which type of ``GET DATA`` method to call.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    queue: integer
+       ``QUEUE`` optional  argument
+    blk_bounds: integer dimension(2) array
+        ``BLK_BOUNDS`` optional argument
+    offset: integer
+        ``OFFSET`` optional argument
+
+    """
     if not isinstance(transfer_type, FieldAPITransferType):
-        raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
+        raise TypeError("transfer_type must be of type FieldAPITransferType, " +
+                        f"but is of type {type(transfer_type)}")
+    if not isinstance(transfer_direction, FieldAPITransferDirection):
+        raise TypeError("transfer_direction must be of type FieldAPITransferDirection, " +
+                        f"but is of type {type(transfer_direction)}")
+
     if transfer_type != FieldAPITransferType.FORCE and (queue is not None or blk_bounds is not None):
         raise ValueError("Only force copy methods can have non-None type queue or blk_bounds")
+    if (transfer_type == FieldAPITransferType.WRITE_ONLY and
+        transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST
+    ):
+        raise TypeError("incorrect transfer_type (WRITE_ONLY) for Field-API get method")
 
-    if transfer_type == FieldAPITransferType.READ_ONLY:
-        suffix = 'RDONLY'
-    elif transfer_type == FieldAPITransferType.READ_WRITE:
-        suffix = 'RDWR'
-    elif transfer_type == FieldAPITransferType.WRITE_ONLY:
-        suffix = 'WRONLY'
-        if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
-            raise TypeError("incorrect transfer_type for Field-API sync method")
-    elif transfer_type == FieldAPITransferType.FORCE:
-        suffix = 'FORCE'
-    else:
-        suffix = ''
-
-    if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
-        direction = 'HOST'
-    elif transfer_direction == FieldAPITransferDirection.HOST_TO_DEVICE:
-        direction = 'DEVICE'
-    else:
-        raise TypeError("transfer_direction must be of type FieldAPITransferDirection, but is of" +
-                        f"type {type(transfer_type)}")
-
-    procedure_name = 'GET_' + direction + '_DATA_' + suffix
+    procedure_name = 'GET_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
 
     kwargs = []
     if queue is not None:
@@ -283,34 +306,49 @@ def field_get_host_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
 def _field_sync(field_ptr, transfer_type: FieldAPITransferType,
                 transfer_direction: FieldAPITransferDirection,
                 scope: Scope, queue=None, blk_bounds=None, offset=None):
+    """
+    Internal function to generate FIELD API ``SYNC`` calls.
+
+    .. note::
+        This routine is not meant to be called from any code outisde `field_api.py`, then the
+        corresponding :any:`field_sync_host` or :any:`field_sync_device` functions should be
+        called instead.
+
+    Parameters
+    ----------
+    field_ptr: pointer to field object
+        Pointer to the field to call ``GET_DEVICE_DATA`` from.
+    transfer_type: :any:`FieldAPITransferType`
+        Field API transfer type to determine which type of ``GET DATA`` method to call.
+    transfer_direction: :any:`FieldAPITransferDirection`
+        Field API transfer direction to determine which type of ``GET DATA`` method to call.
+    scope: :any:`Scope`
+        Scope of the created :any:`CallStatement`
+    queue: integer
+       ``QUEUE`` optional  argument
+    blk_bounds: integer dimension(2) array
+        ``BLK_BOUNDS`` optional argument
+    offset: integer
+        ``OFFSET`` optional argument
+    """
 
     if not isinstance(transfer_type, FieldAPITransferType):
-        raise TypeError(f"transfer_type must be of type FieldAPITransferType, but is of type {type(transfer_type)}")
+        raise TypeError("transfer_type must be of type FieldAPITransferType, " +
+                        f"but is of type {type(transfer_type)}")
+    if not isinstance(transfer_direction, FieldAPITransferDirection):
+        raise TypeError("transfer_direction must be of type FieldAPITransferDirection, " +
+                        f"but is of type {type(transfer_direction)}")
+
     if transfer_type != FieldAPITransferType.FORCE and (queue is not None or blk_bounds is not None):
         raise ValueError("Only force copy methods can have non-None type queue or blk_bounds")
 
-    if transfer_type == FieldAPITransferType.READ_ONLY:
-        suffix = 'RDONLY'
-    elif transfer_type == FieldAPITransferType.READ_WRITE:
-        suffix = 'RDWR'
-    elif transfer_type == FieldAPITransferType.WRITE_ONLY:
-        suffix = 'WRONLY'
-        if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
-            raise TypeError("incorrect transfer_type for Field-API sync method")
-    elif transfer_type == FieldAPITransferType.FORCE:
-        suffix = 'FORCE'
-    else:
-        suffix = ''
+    if (
+        transfer_type == FieldAPITransferType.WRITE_ONLY and
+        transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST
+    ):
+        raise TypeError("incorrect transfer_type for Field-API sync method")
 
-    if transfer_direction == FieldAPITransferDirection.DEVICE_TO_HOST:
-        direction = 'HOST'
-    elif transfer_direction == FieldAPITransferDirection.HOST_TO_DEVICE:
-        direction = 'DEVICE'
-    else:
-        raise TypeError("transfer_direction must be of type FieldAPITransferDirection, but is of" +
-                        f"type {type(transfer_type)}")
-
-    procedure_name = 'SYNC_' + direction + '_' + suffix
+    procedure_name = 'SYNC_' + transfer_direction.suffix + '_' + transfer_type.suffix
 
     kwargs = []
     if queue is not None:
