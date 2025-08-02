@@ -133,7 +133,9 @@ class SCCDevectorTransformation(Transformation):
 
         for assign in FindNodes(ir.Assignment).visit(section):
             if assign.ptr and isinstance(assign.rhs, sym.Array):
-                if any(s in assign.rhs.shape for s in horizontal.size_expressions):
+                if 'GET_VIEW' in assign.rhs.name:
+                    print('devector skipping array assignment:', assign)
+                elif any(s in assign.rhs.shape for s in horizontal.size_expressions):
                     separator_nodes = cls._add_separator(assign, section, separator_nodes)
 
             if isinstance(assign.rhs, sym.InlineCall):
