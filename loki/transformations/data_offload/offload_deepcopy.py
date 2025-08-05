@@ -514,7 +514,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
     @staticmethod
     def get_pragma_vars(parameters, category):
-        return [v.strip() for v in parameters.get(category, '').split(',')]
+        return [v.strip().lower() for v in parameters.get(category, '').split(',')]
 
     def insert_deepcopy_instructions(self, region, mode, copy, host, wipe, present_vars):
         """Insert the generated deepcopy instructions and wrap the driver loop in 
@@ -566,6 +566,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 # skip the deepcopy for variables previously marked as present/private
                 present = self.get_pragma_vars(parameters, 'present')
                 private = self.get_pragma_vars(parameters, 'private')
+                
+                print(f"[routine {routine}] - private: {private}")
 
                 # temporary variables are not copied back to host and are wiped from device memory
                 temporary = self.get_pragma_vars(parameters, 'temporary')
@@ -592,7 +594,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     host += _host
                     wipe += _wipe
 
-                    present_vars += as_tuple(v.name for v in analysis if not v in private)
+                    present_vars += as_tuple(v.name.lower() for v in analysis if not v.name.lower() in private)
 
                 # replace the `!$loki data` PragmaRegion with the generated deepcopy instructions
                 pragma_map.update(self.insert_deepcopy_instructions(region, self.mode, copy, host, wipe, present_vars))
@@ -754,7 +756,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
             _copy, _host, _wipe = (), (), ()
 
             # Don't generate a deepcopy for variables marked as present or private
-            if var in kwargs['present'] or var in kwargs['private']:
+            if var.name.lower() in kwargs['present'] or var.name.lower() in kwargs['private']:
                 continue
 
             # determine if var should be kept on device
@@ -793,14 +795,21 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 # if 'postphy' in routine.name.lower():
                 #     breakpoint()
 
+                if 'postphy' in routine.name.lower():
+                    print(f"[routine {routine} var {var} | parent {parent}]")
+
                 # First determine whether we have a field pointer or a regular array/scalar
                 typedef_config = None
                 if parent:
                     typedef_config = kwargs['typedef_configs'].get(parent.type.dtype.typedef.name.lower(), None)
+                    if 'postphy' in routine.name.lower():
+                        print(f"  typedef_config via kwargs -> {parent.type.dtype.typedef.name.lower()}: {typedef_config}")
 
                 # Create a dummy typedef config for FIELD_RANKSUFF_ARRAY types
                 if parent and not typedef_config:
                     typedef_config = self.create_dummy_field_array_typedef_config(parent)
+                    if 'postphy' in routine.name.lower():
+                        print(f"  typedef_config via dummy_field_array ... {typedef_config}")
 
                 field = False
                 if typedef_config:
@@ -808,6 +817,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     suffix = typedef_config['field_ptr_suffix']
                     field = var in typedef_config.get('field_ptrs', [])
                     field = field or re.search(f'{suffix}$', var.name, re.IGNORECASE)
+
+                if 'postphy' in routine.name.lower():
+                    print(f"  field: {field} | typedef_config: {typedef_config}")
 
                 if field:
                     _copy, _host, _wipe = self.create_field_api_offload(var, analysis[var], typedef_config,
