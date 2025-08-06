@@ -305,7 +305,7 @@ end subroutine test_1d_blocking
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
 
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    splitting_vars, inner_loop, outer_loop, _ = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     assert len(loops) == num_loops + 1, \
         f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
@@ -365,7 +365,7 @@ end subroutine test_1d_blocking_multi_intent
 
     num_loops = len(loops)
     num_vars = len(routine.variable_map)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    splitting_vars, inner_loop, outer_loop, _ = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     assert len(loops) == num_loops + 1, \
         f"Total number of loops transformation is: {len(loops)} but expected {num_loops + 1}"
@@ -425,7 +425,7 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, ir.Loop):
         loops = find_driver_loops(routine.body, targets=None)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    splitting_vars, inner_loop, outer_loop, _ = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
     assert len(loops) == num_loops + 1, \
@@ -485,7 +485,7 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
     num_vars = len(routine.variable_map)
     with pragmas_attached(routine, ir.Loop):
         loops = find_driver_loops(routine.body, targets=None)
-    splitting_vars, inner_loop, outer_loop = split_loop(routine, loops[0], block_size)
+    splitting_vars, inner_loop, outer_loop, _ = split_loop(routine, loops[0], block_size)
     loops = FindNodes(ir.Loop).visit(routine.ir)
 
     assert len(loops) == num_loops + 1, \
