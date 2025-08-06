@@ -135,36 +135,31 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
         ir.Assignment(loop.variable,
                       iteration_index(splitting_vars.iter_num, loop_range))
     )
-    inner_loop = ir.Loop(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
-                         bounds=sym.LoopRange(
-                             (sym.IntLiteral(1), parse_expr(
-                                 f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
-                                 scope=routine))))
+    inner_loop = loop.clone(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
+                            bounds=sym.LoopRange(
+                                (sym.IntLiteral(1), parse_expr(
+                                    f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
+                                    scope=routine))))
 
-    #  Create outer_loop with blocking vars and inner_loop in its body
-    if data_region is None:
-        outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
-                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
-        change_map = {loop: block_loop_inits + (outer_loop,)}
-        Transformer(change_map, inplace=True).visit(routine.body)
     # If data_region is provided we block the entire data_region and place the
     # outer loop outside the data region
-    else:
-        outer_loop = loop.clone(variable=splitting_vars.block_idx, body=blocking_body + (data_region,),
+    if data_region:
+        new_data_region = Transformer({loop: inner_loop}, inplace=False).visit(data_region)
+        outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (new_data_region,),
                                 bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+        change_map = {data_region: block_loop_inits + (outer_loop,)}
+        region = new_data_region
 
-        # Transformer to place block loop outside data region
-        class BlockDataRegionTransformer(Transformer):
-            def visit_PragmaRegion(self, pragma_region):
-                if pragma_region is not data_region:
-                    return pragma_region
-                change_map = {loop: (inner_loop,)}
-                Transformer(change_map, inplace=True).visit(data_region)
-                return block_loop_inits + (outer_loop,)
+    #  Create outer_loop with blocking vars and inner_loop in its body
+    else:
+        outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
+                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+        change_map = {loop: block_loop_inits + (outer_loop,)}
+        region = None
 
-        BlockDataRegionTransformer(inplace=True).visit(routine.body)
+    Transformer(change_map, inplace=True).visit(routine.body)
 
-    return splitting_vars, inner_loop, outer_loop
+    return splitting_vars, inner_loop, outer_loop, region
 
 
 def blocked_shape(a: sym.Array, blocking_indices, block_size):

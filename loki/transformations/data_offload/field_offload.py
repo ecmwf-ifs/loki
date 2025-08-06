@@ -170,7 +170,7 @@ class FieldOffloadBlockedTransformation(Transformation):
                     # inject declarations and offload API calls into driver region
                     declare_device_ptrs(driver, deviceptrs=offload_map.dataptrs)
                     # blocks all loops inside the region and places them inside one
-                    splitting_vars, block_loop = block_driver_loop(driver, region, self.block_size)
+                    splitting_vars, block_loop, region = block_driver_loop(driver, region, self.block_size)
 
                     if self.asynchronous and self.num_queues > 1:
                         add_device_field_allocations(driver, block_loop, offload_map,
@@ -443,16 +443,8 @@ def block_driver_loop(driver, region, block_size):
         else:
             error(f'[Loki] FieldOffloadBlockedTransformation: No driver loops found in {driver.name}')
 
-        splitting_vars, inner_loop, outer_loop = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=used-before-assignment
-        # move loop pragmas to inner loop
-        if outer_loop.pragma is not None:
-            pragmas = []
-            for pragma in outer_loop.pragma:
-                content = pragma.content
-                pragmas.append(pragma.clone(content=content))
-            inner_loop._update(pragma=tuple(pragmas))
-            outer_loop._update(pragma=None)
-    return splitting_vars, outer_loop
+        splitting_vars, _, outer_loop, region = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=used-before-assignment
+    return splitting_vars, outer_loop, region
 
 
 def add_async_queue_to_pragmas(section, queue):
