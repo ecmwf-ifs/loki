@@ -8,14 +8,6 @@
 import math
 import numpy as np
 from pymbolic.mapper.evaluator import EvaluationMapper
-try:
-    from fparser.two.Fortran2003 import Intrinsic_Name
-
-    FORTRAN_INTRINSIC_PROCEDURES = Intrinsic_Name.function_names
-    """list of intrinsic fortran procedure(s) names"""
-except ImportError:
-    FORTRAN_INTRINSIC_PROCEDURES = ()
-
 from loki.expression import symbols as sym
 from loki.tools.util import CaseInsensitiveDict, as_tuple
 
@@ -71,6 +63,7 @@ class LokiEvaluationMapper(EvaluationMapper):
     map_int_literal = map_float_literal
 
     def map_variable(self, expr):
+        from loki.expression.parser import FORTRAN_INTRINSIC_PROCEDURES # pylint: disable=import-outside-toplevel,cyclic-import
         _, obj = self._recurse_parent(expr)
         if obj is not None:
             try:
@@ -113,12 +106,8 @@ class LokiEvaluationMapper(EvaluationMapper):
                 _call = self.case_insensitive_getattr(obj, expr.name.split('%')[-1])
                 if callable(_call):
                     return _call(*[self.rec(par) for par in expr.dimensions])
-                try:
-                    return self._evaluate_array(_call,
-                            [self.rec(par) for par in expr.dimensions])
-                except: # pylint: disable=bare-except
-                    pass
-                return expr
+                return self._evaluate_array(_call,
+                        [self.rec(par) for par in expr.dimensions])
             except Exception as e:
                 if self.strict:
                     raise e
@@ -142,7 +131,7 @@ class LokiEvaluationMapper(EvaluationMapper):
             return math.sqrt(float([self.rec(par) for par in expr_parameters][0]))
         if call_name == 'exp':
             return math.exp(float([self.rec(par) for par in expr_parameters][0]))
-        if call_name in self.context:  # and not callable(self.context[call_name]):
+        if call_name in self.context:
             if not callable(self.context[call_name]):
                 return self._evaluate_array(self.context[call_name],
                         [self.rec(par) for par in expr_parameters])
@@ -166,14 +155,6 @@ class LokiEvaluationMapper(EvaluationMapper):
                 return expr
         return self.map_call(expr, name=expr.name.lower(),
                 parameters=as_tuple(self.rec(param) for param in expr.parameters))
-
-    def map_call_with_kwargs(self, expr):
-        args = [self.rec(par) for par in expr.parameters]
-        kwargs = {
-                k: self.rec(v)
-                for k, v in expr.kw_parameters.items()}
-        kwargs = CaseInsensitiveDict(kwargs)
-        return self.rec(expr.function)(*args, **kwargs)
 
 
 def eval_expr(expr, context=None, strict=False):

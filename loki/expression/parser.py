@@ -24,7 +24,6 @@ except ImportError:
     FORTRAN_INTRINSIC_PROCEDURES = ()
 
 from loki.expression import symbols as sym, operations as sym_ops
-from loki.expression.evaluation import eval_expr
 from loki.scope import Scope
 from loki.tools.util import CaseInsensitiveDict
 
@@ -150,7 +149,6 @@ class PymbolicMapper(Mapper):
                 in CaseInsensitiveDict(expr.kw_parameters).items()}
         if expr.function.name.lower() in ('real', 'int'):
             return sym.Cast(name, parameters, kind=kw_parameters['kind'])
-        # print(f"PymbolicMapper - map_call_with_kwargs: {expr} | kwargs {kwargs}")
         return sym.InlineCall(function=name, parameters=parameters, kw_parameters=kw_parameters)
 
     def map_tuple(self, expr, *args, **kwargs):
@@ -399,6 +397,7 @@ class ExpressionParser(ParserBase):
             The expression tree corresponding to the expression
         """
         from loki.ir import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.expression.evaluation import eval_expr # pylint: disable=import-outside-toplevel,cyclic-import
         result = super().__call__(expr_str)
         ir = PymbolicMapper()(result)
         if evaluate:
