@@ -18,7 +18,7 @@ import pymbolic.primitives as pmbl
 from loki import Scope, is_dimension_constant, Subroutine
 from loki.expression import symbols as sym, simplify, Simplification, symbolic_op, parse_expr
 from loki.expression import iteration_number, iteration_index, get_pyrange
-from loki.expression.parser import LokiEvaluationMapper
+from loki.expression.evaluation import LokiEvaluationMapper
 from loki.frontend import available_frontends
 
 
