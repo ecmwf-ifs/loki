@@ -155,6 +155,72 @@ def test_scc_base_masked_statement(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('rel_index', ('jl', 'jcol', 'ji'))
+@pytest.mark.parametrize('indices', (('jl', 'jcol', 'jlll'), ('jcol','jcol', 'jcol'),
+    ('jl', 'jl', 'jl'), ('jcol', 'jlll', 'jlll')))
+def test_scc_base_rename_index_aliases(frontend, rel_index, indices):
+    """
+    Test rename index aliases in kernel.
+    """
+
+    fcode_kernel = f"""
+  SUBROUTINE kernel_rename_index_aliases(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk {', jl' if 'jl' in indices else ''}
+    {'INTEGER :: jcol' if 'jcol' in indices else ''}
+    {'INTEGER :: jlll' if 'jlll' in indices else ''}
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      DO {indices[0]} = start, end
+        t({indices[0]}, jk) = c * jk
+        q({indices[0]}, jk) = q({indices[0]}, jk-1) + t({indices[0]}, jk) * c
+      END DO
+    END DO
+    DO jk = 2, nz
+      DO {indices[1]} = start, end
+        t({indices[1]}, jk) = c * jk
+        q({indices[1]}, jk) = q({indices[1]}, jk-1) + t({indices[1]}, jk) * c
+      END DO
+    END DO
+    DO jk = 2, nz
+      DO {indices[2]} = start, end
+        t({indices[2]}, jk) = c * jk
+        q({indices[2]}, jk) = q({indices[2]}, jk-1) + t({indices[2]}, jk) * c
+      END DO
+    END DO
+  END SUBROUTINE kernel_rename_index_aliases
+"""
+
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+
+    h_indices = [rel_index] + [_index for _index in indices if _index != rel_index]
+    horizontal = Dimension(
+        name='horizontal', size=['dims%klon', 'nlon'], index=h_indices,
+        aliases=('nproma',), lower=('START', 'dims%ist'),
+        upper=('end', 'dims%iend')
+    )
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel', rename_index_aliases=True)
+
+    # ensure correct horizontal index is within the kernel variables
+    assert rel_index in kernel.variables
+    # ensure no horizontal index alias is in the kernel variables
+    for h_index in h_indices[1:]:
+        assert h_index not in kernel.variables
+
+    # make sure all the relevant loops are there and have the correct variable
+    loops = FindNodes(Loop).visit(kernel.body)
+    h_loops = [loop for loop in loops if loop.bounds.lower == 'start']
+    assert len(h_loops) == 3
+    assert all(h_loop.variable == rel_index for h_loop in h_loops)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_demote_transformation(frontend, horizontal):
     """
     Test that local array variables that do not buffer values
