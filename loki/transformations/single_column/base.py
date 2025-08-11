@@ -16,7 +16,8 @@ from loki.tools import as_tuple
 
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds, check_routine_sequential
+    get_integer_variable, get_loop_bounds, check_routine_sequential,
+    rename_variables
 )
 if HAVE_FP:
     from fparser.two import Fortran2003
@@ -40,6 +41,25 @@ class SCCBaseTransformation(Transformation):
 
     def __init__(self, horizontal):
         self.horizontal = horizontal
+        self.rename_indices = False
+
+    @staticmethod
+    def rename_index_aliases(routine, dimension):
+        """
+        Rename index aliases: map all index aliases ``dimension.indices`` to
+        ``dimension.index``.
+
+        Parameters
+        ----------
+        routine: :any:`Subroutine`
+            The subroutine to rename index aliases.
+        horizontal : :any:`Dimension`
+            :any:`Dimension` object to rename the index aliases
+            to the first/former index.
+        """
+        if len(dimension.indices) > 1:
+            symbol_map = {index: dimension.index for index in dimension.indices[1:]}
+            rename_variables(routine, symbol_map)
 
     # TODO: correct "definition" of a pure/elemental routine (take e.g. loki serial into account ...)
     @staticmethod
@@ -150,13 +170,17 @@ class SCCBaseTransformation(Transformation):
             Role of the subroutine in the call tree; should be ``"kernel"``
         """
         role = kwargs['role']
+        item = kwargs.get('item', None)
+        rename_indices = kwargs.get('rename_index_aliases', self.rename_indices)
+        if item:
+            rename_indices = item.config.get('rename_index_aliases', rename_indices)
 
         if role == 'kernel':
-            self.process_kernel(routine)
+            self.process_kernel(routine, rename_indices=rename_indices)
         if role == 'driver':
             self.process_driver(routine)
 
-    def process_kernel(self, routine):
+    def process_kernel(self, routine, rename_indices=False):
         """
         Applies the SCCBase utilities to a "kernel". This consists simply
         of resolving associations, masked statements and vector notation.
@@ -174,6 +198,9 @@ class SCCBaseTransformation(Transformation):
         # Bail if routine is elemental
         if self.is_elemental(routine):
             return
+
+        if rename_indices:
+            self.rename_index_aliases(routine, dimension=self.horizontal)
 
         # check for horizontal loop bounds in subroutine symbol table
         bounds = get_loop_bounds(routine, dimension=self.horizontal)

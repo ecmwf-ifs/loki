@@ -198,6 +198,23 @@ def rename_variables(routine, symbol_map=None):
     if var_map:
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
         routine.body = SubstituteExpressions(var_map).visit(routine.body)
+    # remove duplicated variable declarations
+    var_decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    already_declared = ()
+    var_decl_map = {}
+    for var_decl in var_decls:
+        symbols = ()
+        for symbol in var_decl.symbols:
+            if symbol not in already_declared:
+                symbols += (symbol,)
+                already_declared += (symbol,)
+        if symbols:
+            if symbols != var_decl.symbols:
+                var_decl_map[var_decl] = var_decl.clone(symbols=symbols)
+        else:
+            var_decl_map[var_decl] = None
+    if var_decl_map:
+        routine.spec = Transformer(var_decl_map).visit(routine.spec)
     # update symbol table - remove entries under the previous name
     var_map_names = [key.name.lower() for key in var_map]
     delete = [key for key in routine.symbol_attrs if key.lower() in var_map_names\
