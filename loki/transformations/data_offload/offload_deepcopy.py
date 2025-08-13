@@ -24,7 +24,7 @@ from loki.logging import warning
 from loki.tools import as_tuple
 from loki.types import DerivedType
 from loki.transformations.field_api import (
-        FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data
+        FieldAPITransferType, field_get_data, field_get_host_data, field_delete_device_data
 )
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
@@ -644,7 +644,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
         else:
             access_mode = FieldAPITransferType.WRITE_ONLY
 
-        device = as_tuple(field_get_device_data(field_object, field_ptr, access_mode, scope))
+        DEVICE = FieldAPIDestination.DEVICE
+
+        device = as_tuple(field_get_data(field_object, field_ptr, access_mode, DEVICE, scope))
         device += self.enter_data_attach(field_ptr)
         host = as_tuple(field_get_host_data(field_object, field_ptr, FieldAPITransferType.READ_WRITE, scope))
         wipe = self.exit_data_detach(field_ptr)

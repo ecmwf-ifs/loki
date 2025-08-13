@@ -20,7 +20,7 @@ from loki.scope import Scope
 
 __all__ = [
     'FieldAPITransferType', 'FieldAPIDestination', 'FieldPointerMap',
-    'get_field_type', 'field_get_device_data', 'field_sync_host',
+    'get_field_type', 'field_sync_host',
     'field_get_host_data', 'field_delete_device_data'
 ]
 
