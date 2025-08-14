@@ -53,15 +53,17 @@ field_group_types = [
     'SURF_AND_MORE_LOCAL_TYPE', 'KEYS_LOCAL_TYPE',
     'PERTURB_LOCAL_TYPE', 'GEMS_LOCAL_TYPE',
     'FIELD_3RB_ARRAY', 'FIELD_4RB_ARRAY',
+    'TEND_VD_TYPE'
 ]
 
 fprivate_variables = [
-    'IDIMS', 'ZDVARS', 'ZSLPHY9',
+    'IDIMS', 'ZSLPHY9',
     'STATE_T0', 'STATE_TMP', 'TENDENCY_CML', 'TENDENCY_DYN',
     'TENDENCY_SATADJ', 'TENDENCY_LOC', 'TENDENCY_PHY', 'TENDENCY_VDF',
     'ZAUX', 'ZRAD', 'ZPERT', 'ZFLUX', 'ZDIAG', 'ZDDHS',
     'ZAUXL', 'ZSURFL', 'ZLLKEYS', 'ZPERTL', 'GEMSL',
-    'YLA_CONVCTY', 'YLA_GFL_DYN', 'YLA_GFLSLP', 'YLA_SAVTEND', 'YLA_TENDENCY_VD9'
+    'YLA_CONVCTY', 'YLA_GFL_DYN', 'YLA_GFLSLP', 'YLA_SAVTEND', 'YLA_TENDENCY_VD9',
+    'ZTENDENCY_VD9'
 ]
 
 fgroup_dimension = ['DIMENSION_TYPE']
@@ -69,7 +71,7 @@ fgroup_dimension = ['DIMENSION_TYPE']
 # for YDVARS, despite firstprivatisation trick. However, this triggers
 # Nvidia bug, so let's not for now... Also, once added here, need to
 # remove from field_group_types above
-fgroup_firstprivates = ['SURF_AND_MORE_TYPE']  #'FIELD_VARIABLES'
+fgroup_firstprivates = ['SURF_AND_MORE_TYPE', 'FIELD_VARIABLES']
 lcopies_firstprivates = {'ZSURF': 'ZSURFACE', 'ZDVARS': 'YDVARS'}
 
 # List of variables that we know to have global scope
@@ -80,7 +82,7 @@ shared_variables = [
     'YGFL', 'PGMV', 'PGMVT1', 'ZGFL_DYN',
     'ZCONVCTY', 'YDDIMV', 'YDPHY2',
     'PHYS_MWAVE', 'ZSPPTGFIX',
-    'ZSURFACE', 'YDVARS', 'YLOPTS'
+    'ZSURFACE', 'YDVARS', 'YLOPTS', 'SPPT_N2D'
 ]
 
 
@@ -416,6 +418,7 @@ def parallel(source, build, header, remove_block_loop, promote_local_arrays, log
         header/'ecphys_flux_type_mod.F90',
         header/'ecphys_perturb_type_mod.F90',
         # header/'ecphys_surface_type_mod.F90',
+        header/'yomphyder.F90',
     ]
     definitions = []
     for h in headers:
