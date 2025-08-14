@@ -9,6 +9,7 @@ from loki.expression import symbols as sym
 from loki.ir import nodes as ir
 
 from loki.transformations.temporaries.hoist_variables import HoistVariablesTransformation
+from loki.transformations.temporaries.stack_allocator import BaseStackTransformation
 from loki.transformations.utilities import get_integer_variable, substitute_variables_for_definitions
 
 
@@ -74,7 +75,8 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
             pragma_post = ir.Pragma(keyword='loki', content=f'end unstructured-data delete({vnames}) finalize')
 
             # Add comments around standalone pragmas to avoid false attachment
-            routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
+            if not BaseStackTransformation._insert_stack_at_loki_pragma(routine, pragma):
+                routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
     def driver_call_argument_remapping(self, routine, call, variables):

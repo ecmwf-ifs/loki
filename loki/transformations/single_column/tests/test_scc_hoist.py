@@ -393,7 +393,8 @@ END MODULE kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_hoist_openacc(frontend, horizontal, blocking, tmp_path):
+@pytest.mark.parametrize('insert_pragma', [False, True])
+def test_scc_hoist_openacc(insert_pragma, frontend, horizontal, blocking, tmp_path):
     """
     Test the correct addition of OpenACC pragmas to SCC format code
     when hoisting array temporaries to driver.
@@ -407,7 +408,7 @@ MODULE BLOCK_DIM_MOD
 END MODULE BLOCK_DIM_MOD
     """.strip()
 
-    fcode_driver = """
+    fcode_driver = f"""
 SUBROUTINE column_driver(nlon, nz, q)
     USE BLOCK_DIM_MOD, ONLY : block_type
     INTEGER, INTENT(IN)   :: nlon, nz  ! Size of the horizontal and vertical
@@ -417,6 +418,10 @@ SUBROUTINE column_driver(nlon, nz, q)
     INTEGER :: nb
 
     nb = block_var%nb
+
+    !$loki helper
+
+    {'!$loki stack-insert' if insert_pragma else ''}
 
     start = 1
     end = nlon
@@ -517,7 +522,7 @@ end module my_scaling_value_mod
         assert kernel_loops[1].pragma[0].keyword == 'acc'
         assert kernel_loops[1].pragma[0].content == 'loop seq'
 
-    # Ensure two levels of blocked parallel loops in driver
+    # Ensure two levels of blocked parallel loops in driver
     with pragmas_attached(driver, Loop):
         driver_loops = FindNodes(Loop).visit(driver.body)
         assert len(driver_loops) == 1
@@ -526,11 +531,12 @@ end module my_scaling_value_mod
 
         # Ensure device allocation and teardown via `!$acc enter/exit data`
         driver_pragmas = FindNodes(Pragma).visit(driver.body)
-        assert len(driver_pragmas) == 2
-        assert driver_pragmas[0].keyword == 'acc'
-        assert driver_pragmas[0].content == 'enter data create(compute_column_t)'
-        assert driver_pragmas[1].keyword == 'acc'
-        assert driver_pragmas[1].content == 'exit data delete(compute_column_t) finalize'
+        assert len(driver_pragmas) == 3
+        enter_data_pragma = 0 if not insert_pragma else 1
+        assert driver_pragmas[enter_data_pragma].keyword == 'acc'
+        assert driver_pragmas[enter_data_pragma].content == 'enter data create(compute_column_t)'
+        assert driver_pragmas[2].keyword == 'acc'
+        assert driver_pragmas[2].content == 'exit data delete(compute_column_t) finalize'
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('as_kwarguments', [False, True])
