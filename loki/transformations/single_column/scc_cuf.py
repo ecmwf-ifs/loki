@@ -20,13 +20,13 @@ from loki.tools import CaseInsensitiveDict, as_tuple, flatten
 from loki.types import BasicType, DerivedType
 from loki.scope import SymbolAttributes
 
+from loki.transformations.array_indexing import resolve_vector_notation
 from loki.transformations.temporaries.hoist_variables import HoistVariablesTransformation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.devector import RemoveLoopTransformer
 from loki.transformations.utilities import single_variable_declaration
 from loki.ir.pragma_utils import get_pragma_parameters
-from loki.transformations.utilities import get_integer_variable
 
 __all__ = [
     'HoistTemporaryArraysDeviceAllocatableTransformation',
@@ -622,10 +622,8 @@ class SccLowLevelDataOffload(Transformation):
             The subroutine (kernel/device subroutine) to process
         """
 
-        v_index = get_integer_variable(routine, name=self.horizontal.index)
         do_resolve_associates(routine)
-        SCCBaseTransformation.resolve_masked_stmts(routine, loop_variable=v_index)
-        SCCBaseTransformation.resolve_vector_dimension(routine, loop_variable=v_index, bounds=self.horizontal.bounds)
+        resolve_vector_notation(routine)
         routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
 
         self.kernel_cuf(

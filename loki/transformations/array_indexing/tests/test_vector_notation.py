@@ -8,15 +8,15 @@
 import pytest
 import numpy as np
 
-from loki import Module, Subroutine
+from loki import Module, Subroutine, Dimension
 from loki.jit_build import jit_compile, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables
 
 from loki.transformations.array_indexing.vector_notation import (
-    resolve_vector_notation, remove_explicit_array_dimensions,
-    add_explicit_array_dimensions
+    resolve_vector_notation, resolve_vector_dimension,
+    remove_explicit_array_dimensions, add_explicit_array_dimensions
 )
 
 
@@ -52,13 +52,13 @@ end subroutine transform_resolve_vector_notation
 
     assert len(loops) == 4
     assert loops[0].variable == 'i_ret1_1'
-    assert loops[0].bounds.children == (1, 'param1', 1) if frontend != OMNI else (1, 3, 1)
+    assert loops[0].bounds == '1:param1' if frontend != OMNI else '1:3:1'
     assert loops[1].variable == 'i_ret1_0'
-    assert loops[1].bounds.children == (1, 'param1', 1) if frontend != OMNI else (1, 3, 1)
+    assert loops[1].bounds == '1:param1' if frontend != OMNI else '1:3:1'
     assert loops[2].variable == 'i_ret2_1'
-    assert loops[2].bounds.children == (1, 'param2', 1) if frontend != OMNI else (1, 5, 1)
+    assert loops[2].bounds == '1:param2' if frontend != OMNI else '1:5:1'
     assert loops[3].variable == 'i_ret2_0'
-    assert loops[3].bounds.children == (1, 'param1', 1) if frontend != OMNI else (1, 3, 1)
+    assert loops[3].bounds == '1:param1' if frontend != OMNI else '1:3:1'
 
     assert len(arrays) == 2
     assert arrays[0].dimensions == ('i_ret1_0', 'i_ret1_1')
@@ -152,36 +152,36 @@ end subroutine transform_resolve_vector_notation_common_loops
     loops = FindNodes(ir.Loop).visit(routine.body)
     arrays = [var for var in FindVariables(unique=False).visit(routine.body) if isinstance(var, sym.Array)]
     assert len(loops) == 21
-    assert loops[0].variable == 'i_tmp_dummy_1' and loops[0].bounds.children == (0, 4, None)
-    assert loops[1].variable == 'jl' and loops[1].bounds.children == (1, 'n', 1)
-    assert loops[2].variable == 'jl' and loops[2].bounds.children == (1, 'n', 1)
-    assert loops[3].variable == 'jm' and loops[3].bounds.children == (1, 'm', 1)
-    assert loops[4].variable == 'jl' and loops[4].bounds.children == (1, 'n', 1)
-    assert loops[5].variable == 'jl' and loops[5].bounds.children == (1, 'n', 1)
-    assert loops[6].variable == 'jm' and loops[6].bounds.children == (1, 'm', 1)
-    assert loops[7].variable == 'jk' and loops[7].bounds.children == (1, 'l', 1)
-    assert loops[8].variable == 'jl' and loops[8].bounds.children == (1, 'n', 1)
-    assert loops[9].variable == 'jk' and loops[9].bounds.children == (1, 'l', 1)
+    assert loops[0].variable == 'i_tmp_dummy_1' and loops[0].bounds == '0:4'
+    assert loops[1].variable == 'jl' and loops[1].bounds == '1:n'
+    assert loops[2].variable == 'jl' and loops[2].bounds == '1:n'
+    assert loops[3].variable == 'jm' and loops[3].bounds == '1:m'
+    assert loops[4].variable == 'jl' and loops[4].bounds == '1:n'
+    assert loops[5].variable == 'jl' and loops[5].bounds == '1:n'
+    assert loops[6].variable == 'jm' and loops[6].bounds == '1:m'
+    assert loops[7].variable == 'jk' and loops[7].bounds == '1:l'
+    assert loops[8].variable == 'jl' and loops[8].bounds == '1:n'
+    assert loops[9].variable == 'jk' and loops[9].bounds == '1:l'
     assert loops[10].variable == 'jl'
     if kidia_loop:
-        assert loops[10].bounds.children == ('kidia', 'kfdia', None)
+        assert loops[10].bounds == 'kidia:kfdia'
     else:
-        assert loops[10].bounds.children == (1, 'n', None)
-    assert loops[11].variable == 'jm' and loops[11].bounds.children == (1, 'm', None)
-    assert loops[12].variable == 'jm' and loops[12].bounds.children == (1, 'm', None)
-    assert loops[13].variable == 'jl' and loops[13].bounds.children == (1, 'n', None)
-    assert loops[14].variable == 'jk' and loops[14].bounds.children == (1, 'l', None)
-    assert loops[15].variable == 'jk' and loops[15].bounds.children == (1, 'l', None)
-    assert loops[16].variable == 'jl' and loops[16].bounds.children == (1, 'n', 1)
-    assert loops[17].variable == 'jm' and loops[17].bounds.children == (1, 'm', None)
-    assert loops[18].variable == 'jl' and loops[18].bounds.children == (1, 'n', None)
-    assert loops[19].variable == 'jl' and loops[19].bounds.children == (1, 'n', 1)
+        assert loops[10].bounds == '1:n'
+    assert loops[11].variable == 'jm' and loops[11].bounds == '1:m'
+    assert loops[12].variable == 'jm' and loops[12].bounds == '1:m'
+    assert loops[13].variable == 'jl' and loops[13].bounds == '1:n'
+    assert loops[14].variable == 'jk' and loops[14].bounds == '1:l'
+    assert loops[15].variable == 'jk' and loops[15].bounds == '1:l'
+    assert loops[16].variable == 'jl' and loops[16].bounds == '1:n'
+    assert loops[17].variable == 'jm' and loops[17].bounds == '1:m'
+    assert loops[18].variable == 'jl' and loops[18].bounds == '1:n'
+    assert loops[19].variable == 'jl' and loops[19].bounds == '1:n'
     if kidia_loop:
         assert loops[20].variable == 'jl'
-        assert loops[20].bounds.children == ('kidia', 'kfdia', None)
+        assert loops[20].bounds == 'kidia:kfdia'
     else:
         assert loops[20].variable == 'i_vector_2_0'
-        assert loops[20].bounds.children == ('kidia', 'kfdia', None)
+        assert loops[20].bounds == 'kidia:kfdia'
 
     assert len(arrays) == 17
     assert arrays[0].name.lower() == 'tmp_dummy' and arrays[0].dimensions == ('jl', 'i_tmp_dummy_1')
@@ -316,3 +316,165 @@ def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
     assert (b_test == b_ref).all()
 
     builder.clean()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension(frontend):
+    """ Test vector resolution utility for a single dimension. """
+
+    fcode = """
+subroutine kernel(start, end, nlon, nlev, z, work, play, sleep, repeat)
+  integer, intent(in) :: start, end, nlon, nlev
+  real, intent(in) :: z
+  real, intent(out) :: work(nlon), play(nlon, nlev), sleep(nlev,nlev), repeat(nlev,nlon)
+  integer :: jl
+  real :: work_maxval
+
+  work(start:end) = 0.
+  work_maxval = maxval(work(start:end))
+
+  play(:,1:nlev) = 42.
+  sleep(:, :) = z * z * z
+  repeat(:,start:end) = 6.66
+end subroutine kernel
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+    resolve_vector_dimension(routine, dimension=horizontal)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 2
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 5
+
+    # Check that the first expression has been wrapped
+    assert assigns[0] in loops[0].body
+    assert assigns[0].lhs == 'work(jl)'
+
+    # Ensure that none of the other sections has been wrapped
+    assert not assigns[1] in loops[0].body
+    assert not assigns[1] in loops[1].body
+    assert 'maxval' == assigns[1].rhs.name.lower()
+    assert 'start:end' in assigns[1].rhs.parameters[0].dimensions
+
+    assert not assigns[2] in loops[0].body
+    assert not assigns[2] in loops[1].body
+    assert assigns[2].lhs == 'play(:,1:nlev)'
+
+    assert not assigns[3] in loops[0].body
+    assert not assigns[3] in loops[1].body
+    assert assigns[3].lhs == 'sleep(:,:)'
+
+    # Check that the last expression has been partially wrapped
+    assert assigns[4] in loops[1].body
+    assert assigns[4].lhs == 'repeat(:,jl)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_statements(frontend):
+    """
+    Test resolving of masked statements in kernel.
+    """
+
+    fcode = """
+subroutine test_resolve_where(start, end, nlon, nz, q, t)
+  INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+  INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+  REAL, INTENT(INOUT) :: t(nlon,nz)
+  REAL, INTENT(INOUT) :: q(nlon,nz)
+  INTEGER :: jk
+
+  DO jk = 2, nz
+    WHERE (q(start:end, jk) > 1.234)
+      q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk)
+    ELSEWHERE
+      q(start:end, jk) = t(start:end, jk)
+    END WHERE
+  END DO
+end subroutine test_resolve_where
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(
+        name='horizontal', index='jl', lower='start', upper='end'
+    )
+    resolve_vector_dimension(routine, dimension=horizontal)
+
+    # Ensure horizontal loop variable has been declared
+    assert 'jl' in routine.variables
+
+    # Ensure we have three loops in the kernel,
+    # horizontal loops should be nested within vertical
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 2
+    assert loops[1] in FindNodes(ir.Loop).visit(loops[0].body)
+    assert loops[1].variable == 'jl'
+    assert loops[1].bounds == 'start:end'
+    assert loops[0].variable == 'jk'
+    assert loops[0].bounds == '2:nz'
+
+    # Ensure that the respective conditional has been inserted correctly
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 1
+    assert conds[0] in FindNodes(ir.Conditional).visit(loops[1])
+    assert conds[0].condition == 'q(jl, jk) > 1.234'
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    assert assigns[0] in conds[0].body
+    assert assigns[0].lhs == 'q(jl, jk)' and assigns[0].rhs == 'q(jl, jk - 1) + t(jl, jk)'
+    assert assigns[1] in conds[0].else_body
+    assert assigns[1].lhs == 'q(jl, jk)' and assigns[1].rhs == 't(jl, jk)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_inferred_bounds(frontend):
+    """ Test the resolution of WHERE stmts with inferred bounds """
+
+    fcode = """
+subroutine test_masked_inferred(n, m, x, y, z)
+  implicit none
+  integer, intent(in) :: n, m
+  real(kind=8), intent(inout) :: x(n), y(n), z(m)
+  integer :: i
+
+  do i=1,n
+    x(i) = i
+  end do
+  y(:) = 0.0
+  z(:) = 0.0
+
+  where( (x > 5.0) )
+    x = y
+  end where
+end subroutine test_masked_inferred
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    dim = Dimension(name='n', index='i', lower='1', upper='n')
+    resolve_vector_dimension(
+        routine, dimension=dim, derive_qualified_ranges=True
+    )
+
+    # Check only assignments over ``n`` have been resolved
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 4
+    assert assigns[0].lhs == 'x(i)' and assigns[0].rhs == 'i'
+    assert assigns[1].lhs == 'y(i)' and assigns[1].rhs == '0.0'
+    assert assigns[2].lhs == 'z(1:m)' and assigns[2].rhs == '0.0'
+    assert assigns[3].lhs == 'x(i)' and assigns[3].rhs == 'y(i)'
+
+    # Check the WHERE has been resolved to IF
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds) == 1
+    assert conds[0].condition == 'x(i) > 5.0'
+    assert assigns[3] in conds[0].body
+
+    # Check that new loops have been inserted
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 3
+    assert assigns[0] in loops[0].body
+    assert assigns[1] in loops[1].body
+    assert conds[0] in loops[2].body

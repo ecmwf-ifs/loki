@@ -334,7 +334,7 @@ def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_ana
 
         # check that the warning for pointer associations is produced
         messages = [log.message for log in caplog.records]
-        assert '[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in kernel' in messages
+        assert '[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in kernel' in messages[-1]
 
     # The analysis is tied to driver loops
     trafo_data_key = transformation._key

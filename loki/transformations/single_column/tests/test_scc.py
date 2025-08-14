@@ -103,58 +103,6 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_masked_statement(frontend, horizontal):
-    """
-    Test resolving of masked statements in kernel.
-    """
-
-    fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
-    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
-    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
-    REAL, INTENT(INOUT) :: t(nlon,nz)
-    REAL, INTENT(INOUT) :: q(nlon,nz)
-    INTEGER :: jk
-    REAL :: c
-
-    c = 5.345
-    DO jk = 2, nz
-      WHERE (q(start:end, jk) > 1.234)
-        q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
-      ELSEWHERE
-        q(start:end, jk) = t(start:end, jk)
-      END WHERE
-    END DO
-  END SUBROUTINE compute_column
-"""
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-
-    scc_transform = SCCBaseTransformation(horizontal=horizontal)
-    scc_transform.apply(kernel, role='kernel')
-
-    # Ensure horizontal loop variable has been declared
-    assert 'jl' in kernel.variables
-
-    # Ensure we have three loops in the kernel,
-    # horizontal loops should be nested within vertical
-    kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 2
-    assert kernel_loops[1] in FindNodes(Loop).visit(kernel_loops[0].body)
-    assert kernel_loops[1].variable == 'jl'
-    assert kernel_loops[1].bounds == 'start:end'
-    assert kernel_loops[0].variable == 'jk'
-    assert kernel_loops[0].bounds == '2:nz'
-
-    # Ensure that the respective conditional has been inserted correctly
-    kernel_conds = FindNodes(Conditional).visit(kernel.body)
-    assert len(kernel_conds) == 1
-    assert kernel_conds[0] in FindNodes(Conditional).visit(kernel_loops[1])
-    assert kernel_conds[0].condition == 'q(jl, jk) > 1.234'
-    assert fgen(kernel_conds[0].body) == 'q(jl, jk) = q(jl, jk - 1) + t(jl, jk)*c'
-    assert fgen(kernel_conds[0].else_body) == 'q(jl, jk) = t(jl, jk)'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('rel_index', ('jl', 'jcol', 'ji'))
 @pytest.mark.parametrize('indices', (('jl', 'jcol', 'jlll'), ('jcol','jcol', 'jcol'),
     ('jl', 'jl', 'jl'), ('jcol', 'jlll', 'jlll')))
@@ -1031,11 +979,11 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
         with caplog.at_level(WARNING):
             scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
         if frontend == OMNI:
+            assert len(caplog.records) == 3
+            message = caplog.records[2].message
+        else:
             assert len(caplog.records) == 2
             message = caplog.records[1].message
-        else:
-            assert len(caplog.records) == 1
-            message = caplog.records[0].message
         assert "[Loki-SCC::Annotate] dynamically allocated structs are being privatised: ['local_dims']" in message
     else:
         scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
@@ -1439,42 +1387,6 @@ def test_scc_inline_and_sequence_association(
 
         assign = FindNodes(Assignment).visit(loop.body)[0]
         assert fgen(assign).lower() == 'work(jl) = 1.'
-
-
-@pytest.mark.xfail(not HAVE_FP, reason="Identification of array reduction intrinsics requires fparser.")
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_resolve_vector_dimension(frontend, horizontal):
-    """
-    Test SCC vector resolution utility.
-    """
-
-    fcode = """
-subroutine kernel(start, end, nlon, work)
-   integer, intent(in) :: start, end, nlon
-   real, intent(out) :: work(nlon)
-   integer :: jl
-   real :: work_maxval
-
-   work(start:end) = 0.
-   work_maxval = maxval(work(start:end))
-
-end subroutine kernel
-"""
-
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    SCCBaseTransformation.resolve_vector_dimension(routine, routine.variable_map[horizontal.index],
-                                                   horizontal.bounds)
-
-    loops = FindNodes(Loop).visit(routine.body)
-    assigns = FindNodes(Assignment).visit(routine.body)
-    assert len(assigns) == 2
-
-    assert len(loops) == 1
-    assert assigns[0] in loops[0].body
-    assert not assigns[1] in loops[0].body
-
-    assert 'maxval' == assigns[1].rhs.name.lower()
-    assert 'start:end' in assigns[1].rhs.parameters[0].dimensions
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
