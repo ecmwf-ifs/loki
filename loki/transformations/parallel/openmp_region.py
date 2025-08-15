@@ -164,8 +164,8 @@ def add_openmp_parallel_region(
     firstprivates = tuple(dict.fromkeys(
         v.name for v in local_vars if v.name in fprivate_variables
     ))
-    # Also make values that have an initial value firstprivate
-    firstprivates += tuple(v.name for v in local_vars if v.type.initial)
+    # # Also make values that have an initial value firstprivate
+    # firstprivates += tuple(v.name for v in local_vars if v.type.initial)
 
     # Mark all other variables as private
     privates = tuple(dict.fromkeys(
@@ -255,6 +255,15 @@ def do_remove_firstprivate_copies(region, fprivate_map, scope):
                 return None
             return assign
 
+        def visit_Allocation(self, a, **kwargs):  # pylint: disable=unused-argument
+            if len(a.variables) == 1 and a.variables[0].name in fprivate_map:
+                return None
+
+            return a
+
+        visit_Deallocation = visit_Allocation
+        visit_Nullify = visit_Allocation
+
     # Strip assignments of local copies
     region = RemoveExplicitCopyTransformer().visit(region)
 
@@ -280,7 +289,13 @@ class InjectFirstprivateCopyTransformer(Transformer):
             if not rhs in routine.variables:
                 continue
             if not lhs in routine.variable_map:
-                routine.variables += (lhs.clone(type=rhs.type.clone(intent=None)),)
+                # As a workaround for an NVHPC compiler bug, the local
+                # variable is a pointer that gets alloc/dealloc'd explicitly.
+                # TODO: This should probable be made optional via a flag!
+                ltype = rhs.type.clone(
+                    intent=None, pointer=True, initial=ir.Intrinsic('NULL()')
+                )
+                routine.variables += (lhs.clone(type=ltype),)
 
     def visit_PragmaRegion(self, region, **kwargs):  # pylint: disable=unused-argument
         # Apply to pragma-marked "parallel" regions only
@@ -296,13 +311,15 @@ class InjectFirstprivateCopyTransformer(Transformer):
         # Collect the explicit privatisation copies
         lvars = FindVariables(unique=True).visit(region.body)
         assigns = ()
+        deallocs = ()
         for lcl, gbl in self.fprivate_map.items():
             lhs = scope.parse_expr(lcl)
             rhs = scope.parse_expr(gbl)
             if not rhs in scope.variables:
                 continue
             if rhs in lvars:
-                assigns += (ir.Assignment(lhs=lhs, rhs=rhs),)
+                assigns += (ir.Allocation((lhs,)), ir.Assignment(lhs=lhs, rhs=rhs))
+                deallocs += (ir.Deallocation((lhs,)), ir.Nullify((lhs,)))
 
         # Remap from global to local name in marked regions
         SubstituteStringExpressions(
@@ -311,6 +328,7 @@ class InjectFirstprivateCopyTransformer(Transformer):
 
         # Add the copies and return
         region.prepend(assigns)
+        region.append(deallocs)
 
 
 def do_add_firstprivate_copies(routine, fprivate_map):
