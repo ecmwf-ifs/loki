@@ -16,7 +16,7 @@ from loki.ir import (
 )
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, ProcedureType, SymbolAttributes
 
 from loki.transformations.utilities import ensure_imported_symbols
 
@@ -95,9 +95,13 @@ class InsertBlockLoopTransformer(Transformer):
         lrange = sym.LoopRange((sym.Literal(1), lupper, bsize))
 
         expr_tail = scope.parse_expr(f'{lupper}-{lidx}+1')
-        expr_max = sym.InlineCall(
-            function=sym.ProcedureSymbol('MIN', scope=scope), parameters=(bsize, expr_tail)
+        # TODO: There's got to be a better way to do this correctly...
+        function = sym.ProcedureSymbol(
+            'MIN', type=SymbolAttributes(
+                ProcedureType(name='MIN', is_intrinsic=True), is_intrinsic=True
+            ), scope=scope
         )
+        expr_max = sym.InlineCall(function=function, parameters=(bsize, expr_tail))
         preamble = (ir.Assignment(lhs=bupper, rhs=expr_max),)
         preamble += (ir.Assignment(
             lhs=bidx, rhs=scope.parse_expr(f'({lidx}-1)/{bsize}+1')
