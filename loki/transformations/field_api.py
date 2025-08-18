@@ -43,7 +43,9 @@ class FieldPointerMap:
     This utility is used to store arrays passed to target kernel calls
     and easily access corresponding device pointers added by the transformation.
     """
-    def __init__(self, inargs, inoutargs, outargs, scope, ptr_prefix='loki_ptr_'):
+    def __init__(
+            self, inargs, inoutargs, outargs, scope, ptr_prefix='loki_ptr_', arr_prefix=''
+    ):
         # Ensure no duplication between in/inout/out args
         inoutargs += tuple(v for v in inargs if v in outargs)
         inargs = tuple(v for v in inargs if v not in inoutargs)
@@ -65,6 +67,7 @@ class FieldPointerMap:
         self.scope = scope
 
         self.ptr_prefix = ptr_prefix
+        self.arr_prefix = arr_prefix
 
     def dataptr_from_array(self, a: sym.Array):
         """
@@ -75,13 +78,14 @@ class FieldPointerMap:
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
         return sym.Variable(name=self.ptr_prefix + base_name, type=dataptr_type, dimensions=shape)
 
-    @staticmethod
-    def field_ptr_from_view(field_view):
+    def field_ptr_from_view(self, field_view):
         """
         Returns a symbol for the pointer to the corresponding Field object.
         """
-        type_chain = field_view.name.split('%')
-        field_type_name = 'F_' + type_chain[-1]
+        basename = field_view.basename
+        if self.arr_prefix and basename.startswith(self.arr_prefix):
+            basename = basename[len(self.arr_prefix):]
+        field_type_name = 'F_' + basename
         return field_view.parent.get_derived_type_member(field_type_name)
 
     @property

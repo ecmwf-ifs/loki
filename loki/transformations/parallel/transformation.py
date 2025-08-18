@@ -246,26 +246,37 @@ class AddHostDataDriverLoopTransformation(Transformation):
                 # Use pieces of the FieldOffloadTransformation to generate the field pointers
                 field_group_types = tuple(typename.lower() for typename in self.field_group_types)
 
-                with dataflow_analysis_attached(routine):
-                    offload_variables = find_offload_variables(routine, region, field_group_types)
+                # TODO: Hacky - this is getting pretty bad...
+                surf_group_types = ('surf_and_more_type',)
+                ifs_group_types = tuple(ft for ft in field_group_types if ft not in surf_group_types)
 
-                    offload_map = FieldPointerMap(
-                        *offload_variables, scope=routine, ptr_prefix=""
+                with dataflow_analysis_attached(routine):
+                    # Split IFS and surface offload variables, as their naming conventions vary
+                    ifs_offload_vars = find_offload_variables(routine, region, ifs_group_types)
+                    surf_offload_vars = find_offload_variables(routine, region, surf_group_types)
+
+                    ifs_offload_map = FieldPointerMap(
+                        *ifs_offload_vars, scope=routine, ptr_prefix='', arr_prefix=''
                     )
-                    declare_device_ptrs(routine, deviceptrs=offload_map.dataptrs)
+                    surf_offload_map = FieldPointerMap(
+                        *surf_offload_vars, scope=routine, ptr_prefix='', arr_prefix='P'
+                    )
+                    declare_device_ptrs(routine, deviceptrs=ifs_offload_map.dataptrs)
+                    declare_device_ptrs(routine, deviceptrs=surf_offload_map.dataptrs)
 
                     # Add host-side pointer extraction boiler plate
-                    update_map = {
-                        region: offload_map.device_to_host_calls + (region,)
-                    }
+                    d2h_calls = ifs_offload_map.device_to_host_calls + surf_offload_map.device_to_host_calls
+                    update_map = {region: d2h_calls + (region,)}
                     Transformer(update_map, inplace=True).visit(routine.body)                    
-                    replace_kernel_args(routine, offload_map, offload_index='IBL')
+                    replace_kernel_args(routine, ifs_offload_map, offload_index='IBL')
+                    replace_kernel_args(routine, surf_offload_map, offload_index='IBL')
 
                 if self.add_openmp_regions:
                     # Need to re-generate dataflow info here, as prior
                     # transformers might have added new symbols.
                     with dataflow_analysis_attached(routine):
-                        shared_variables = tuple(p.name for p in offload_map.dataptrs)
+                        shared_variables = tuple(p.name for p in ifs_offload_map.dataptrs)
+                        shared_variables += tuple(p.name for p in surf_offload_map.dataptrs)
 
                         # Add OpenMP parallel region
                         add_openmp_parallel_region(
