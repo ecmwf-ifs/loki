@@ -119,9 +119,21 @@ def find_offload_variables(driver, region, field_group_types):
     outargs = region.defines_symbols - region.uses_symbols
 
     # Filter out relevant array symbols
-    inargs = tuple(a for a in inargs if isinstance(a, sym.Array) and a.parent)
-    inoutargs = tuple(a for a in inoutargs if isinstance(a, sym.Array) and a.parent)
-    outargs = tuple(a for a in outargs if isinstance(a, sym.Array) and a.parent)
+    inargs = tuple(
+        a for a in inargs
+        if isinstance(a, sym.Array) and a.parent and \
+        a.parent.type.dtype.name.lower() in field_group_types
+    )
+    inoutargs = tuple(
+        a for a in inoutargs
+        if isinstance(a, sym.Array) and a.parent and \
+        a.parent.type.dtype.name.lower() in field_group_types
+    )
+    outargs = tuple(
+        a for a in outargs
+        if isinstance(a, sym.Array) and a.parent and \
+        a.parent.type.dtype.name.lower() in field_group_types
+    )
 
     # Do some sanity checking and warning for enclosed calls
     for call in FindNodes(ir.CallStatement).visit(region):
@@ -135,8 +147,6 @@ def find_offload_variables(driver, region, field_group_types):
             try:
                 parent = arg.parents[0] if len(arg.parents) > 1 else arg.parent
                 if parent.type.dtype.name.lower() not in field_group_types:
-                    warning(f'[Loki] Data offload: The parent object {parent.name} of type ' +
-                            f'{parent.type.dtype} is not in the list of field wrapper types')
                     continue
 
                 if parent.type.intent == 'in':
