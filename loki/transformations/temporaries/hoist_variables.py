@@ -89,6 +89,8 @@ from loki.ir import (
     Assignment, FindVariables, FindInlineCalls, SubstituteExpressions
 )
 from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict, flatten
+from loki.types import BasicType
+from loki.logging import warning
 
 from loki.transformations.utilities import single_variable_declaration
 
@@ -161,6 +163,14 @@ class HoistVariablesAnalysis(Transformation):
 
         for child in successors:
             if not isinstance(child, ProcedureItem):
+                continue
+
+            if call_map[child.local_name].routine is BasicType.DEFERRED:
+                warning((
+                    '[Loki::HoistVariablesAnalysis] '
+                    f''
+                    f'call.routine is BasicType.DEFERRED for call to {child.local_name} in {routine.name}'
+                ))
                 continue
 
             # We may call a subroutine again with aliased sizes, so we check hoisted
@@ -278,6 +288,14 @@ class HoistVariablesTransformation(Transformation):
         for call in FindNodes(CallStatement).visit(routine.body) + list(FindInlineCalls().visit(routine.body)):
             # Only process calls in this call tree
             if str(call.name) not in successor_map:
+                continue
+
+            if call.routine is BasicType.DEFERRED:
+                warning((
+                    '[Loki::HoistVariablesTransformation] '
+                    f''
+                    f'call.routine is BasicType.DEFERRED for call to {call.name} in {routine.name}'
+                ))
                 continue
 
             successor_item = successor_map[str(call.routine.name)]
