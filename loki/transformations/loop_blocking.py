@@ -15,7 +15,7 @@ from loki.expression import (
 )
 from loki.logging import error
 
-__all__ = ['split_loop', 'block_loop_arrays']
+__all__ = ['split_loop', 'split_loop_region', 'block_loop_arrays']
 
 
 class LoopSplittingVariables:
@@ -83,7 +83,55 @@ class LoopSplittingVariables:
         return self._splitting_vars
 
 
-def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=None):
+def compute_block_indices(splitting_vars, loop, scope):
+    """
+    Compute start and end indices for a *block* inside the outer loop.
+    """
+    block_start = ir.Assignment(splitting_vars.block_start,
+                                parse_expr(
+                                    f"({splitting_vars.block_idx} - 1) * {splitting_vars.block_size} + 1",
+                                    scope=scope)
+                                )
+    block_end = ir.Assignment(splitting_vars.block_end,
+                              sym.InlineCall(sym.DeferredTypeSymbol('MIN', scope=scope),
+                                             parameters=(sym.Product(children=(
+                                                 splitting_vars.block_idx, splitting_vars.block_size)),
+                                                         loop.bounds.num_iterations))
+                              )
+    return block_start, block_end
+
+
+def compute_num_blocks(splitting_vars, loop):
+    """
+    Compute the total number of blocks.
+    """
+    num_blocks = ir.Assignment(splitting_vars.num_blocks,
+                               ceil_division(loop.bounds.num_iterations,
+                                             splitting_vars.block_size))
+    return num_blocks
+
+
+def create_inner_loop(splitting_vars: LoopSplittingVariables, loop: ir.Loop, scope):
+    """
+    Create innermost loop in the loop split.
+    """
+    iteration_nums = (
+        ir.Assignment(splitting_vars.iter_num,
+                      parse_expr(
+                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1"),
+                      scope=scope),
+        ir.Assignment(loop.variable,
+                      iteration_index(splitting_vars.iter_num, loop.bounds))
+    )
+    inner_loop = loop.clone(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
+                            bounds=sym.LoopRange(
+                                (sym.IntLiteral(1), parse_expr(
+                                    f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
+                                    scope=scope))))
+    return inner_loop
+
+
+def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int):
     """
     Blocks a loop by splitting it into an outer loop and inner loop of size `block_size`.
 
@@ -96,70 +144,58 @@ def split_loop(routine: Subroutine, loop: ir.Loop, block_size: int, data_region=
         Loop to be split.
     block_size: int
         inner loop size (size of blocking blocks)
-    data_region: :any:`PragmaRegion`, optional
-
     """
-
-    # loop splitting variable declarations
     splitting_vars = LoopSplittingVariables(loop.variable, block_size)
     routine.variables += splitting_vars.splitting_vars
 
-    # block index calculations
-    blocking_body = (
-        ir.Assignment(splitting_vars.block_start,
-                      parse_expr(
-                          f"({splitting_vars.block_idx} - 1) * {splitting_vars.block_size} + 1",
-                          scope=routine)
-                      ),
-        ir.Assignment(splitting_vars.block_end,
-                      sym.InlineCall(sym.DeferredTypeSymbol('MIN', scope=routine),
-                                     parameters=(sym.Product(children=(
-                                         splitting_vars.block_idx, splitting_vars.block_size)),
-                                                 loop.bounds.num_iterations))
-                      ))
+    inner_loop = create_inner_loop(splitting_vars, loop, routine)
 
-    # Outer loop blocking variable assignments
-    loop_range = loop.bounds
-    block_loop_inits = (
-        ir.Assignment(splitting_vars.num_blocks,
-                      ceil_division(loop_range.num_iterations,
-                                    splitting_vars.block_size)),
-    )
+    block_loop_body = (
+        compute_block_indices(splitting_vars, loop, routine),
+        inner_loop)
+    outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=block_loop_body,
+                         bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
 
-    # Inner loop
-    iteration_nums = (
-        ir.Assignment(splitting_vars.iter_num,
-                      parse_expr(
-                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1"),
-                      scope=routine),
-        ir.Assignment(loop.variable,
-                      iteration_index(splitting_vars.iter_num, loop_range))
-    )
-    inner_loop = loop.clone(variable=splitting_vars.inner_loop_var, body=iteration_nums + loop.body,
-                            bounds=sym.LoopRange(
-                                (sym.IntLiteral(1), parse_expr(
-                                    f"{splitting_vars.block_end} - {splitting_vars.block_start} + 1",
-                                    scope=routine))))
-
-    # If data_region is provided we block the entire data_region and place the
-    # outer loop outside the data region
-    if data_region:
-        new_data_region = Transformer({loop: inner_loop}, inplace=False).visit(data_region)
-        outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (new_data_region,),
-                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
-        change_map = {data_region: block_loop_inits + (outer_loop,)}
-        region = new_data_region
-
-    #  Create outer_loop with blocking vars and inner_loop in its body
-    else:
-        outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=blocking_body + (inner_loop,),
-                                bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
-        change_map = {loop: block_loop_inits + (outer_loop,)}
-        region = None
-
+    change_map = {loop: (compute_num_blocks(splitting_vars, loop),) + (outer_loop,)}
     Transformer(change_map, inplace=True).visit(routine.body)
 
-    return splitting_vars, inner_loop, outer_loop, region
+    return splitting_vars, inner_loop, outer_loop
+
+
+def split_loop_region(routine: Subroutine, loop: ir.Loop, block_size: int, data_region):
+    """
+    Blocks a loop inside a data region and puts the data region inside the outer loop.
+
+    Parameters
+    ----------
+    routine: :any:`Subroutine`
+        Subroutine object containing the loop. New variables introduced in the
+        loop splitting will be declared in the body of routine.
+    loop: :any:`Loop`
+        Loop to be split.
+    block_size: int
+        inner loop size (size of blocking blocks)
+    data_region: :any:`PragmaRegion`,
+        data region containing the loop to be blocked
+    """
+    splitting_vars = LoopSplittingVariables(loop.variable, block_size)
+    routine.variables += splitting_vars.splitting_vars
+
+    inner_loop = create_inner_loop(splitting_vars, loop, routine)
+
+    # Create a new data region and place inside loop body
+    new_data_region = Transformer({loop: inner_loop}, inplace=False).visit(data_region)
+    block_loop_body = (
+        compute_block_indices(splitting_vars, loop, routine),
+        new_data_region
+    )
+    outer_loop = ir.Loop(variable=splitting_vars.block_idx, body=block_loop_body,
+                         bounds=sym.LoopRange((sym.IntLiteral(1), splitting_vars.num_blocks)))
+
+    change_map = {data_region: (compute_num_blocks(splitting_vars, loop),) + (outer_loop,)}
+    Transformer(change_map, inplace=True).visit(routine.body)
+
+    return splitting_vars, inner_loop, outer_loop, new_data_region
 
 
 def blocked_shape(a: sym.Array, blocking_indices, block_size):

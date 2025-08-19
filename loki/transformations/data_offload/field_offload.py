@@ -15,7 +15,7 @@ from loki.ir import (
 )
 from loki.logging import warning, error
 
-from loki.transformations.loop_blocking import split_loop
+from loki.transformations.loop_blocking import split_loop_region
 from loki.transformations.utilities import find_driver_loops
 from loki.transformations.field_api import (
     FieldPointerMap, field_create_device_data, field_wait_for_async_queue
@@ -443,7 +443,7 @@ def block_driver_loop(driver, region, block_size):
         else:
             error(f'[Loki] FieldOffloadBlockedTransformation: No driver loops found in {driver.name}')
 
-        splitting_vars, _, outer_loop, region = split_loop(driver, loop, block_size, data_region=region)  # pylint: disable=used-before-assignment
+        splitting_vars, _, outer_loop, region = split_loop_region(driver, loop, block_size, region)  # pylint: disable=used-before-assignment
     return splitting_vars, outer_loop, region
 
 
