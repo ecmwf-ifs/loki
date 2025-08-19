@@ -59,9 +59,9 @@ def test_loop_splitting_vars(caplog):
     with caplog.at_level(ERROR):
         with pytest.raises(ValueError):
             loop_splitting_vars = LoopSplittingVariables(loop_var, blk_size)
-            assert len(caplog.records) == 1
-            assert (caplog.records[0] == "LoopSplittingVariables: Block size argument must " +
-                                         "be an integer constant or a scalar variable")
+        assert len(caplog.records) == 1
+        assert ("LoopSplittingVariables: Block size argument must be an integer constant or a " +
+                "scalar variable" in caplog.records[0].message)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
