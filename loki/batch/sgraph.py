@@ -434,6 +434,24 @@ class SGraph:
         }
         return depths
 
+    def overview(self, item_filter=None):
+        """
+        Return a mapping of :any:`Item` nodes to their depth (topological generation)
+        in the dependency graph
+        """
+        def gen_overview(item, level=0, item_filter=None):
+            print(f"{2*level*' '}* {item.name} [{item.source.path if item.source is not None else ' - '}]")
+            for successor in self.successors(item, item_filter):
+                gen_overview(successor, level=level+1, item_filter=item_filter)
+
+        item_filter = self._get_item_filter(item_filter)
+        topological_generations = list(nx.topological_generations(self._graph))
+        roots = topological_generations[0]
+        for root in roots:
+            gen_overview(root, level=0, item_filter=item_filter)
+
+            
+
     def add_node(self, item):
         """
         Add :data:`item` as a node to the dependency graph

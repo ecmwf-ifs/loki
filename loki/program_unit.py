@@ -563,6 +563,24 @@ class ProgramUnit(Scope):
         return imports
 
     @property
+    def all_imported_symbols(self):
+        """
+        Return the symbols imported in this unit
+        """
+        imports = self.all_imports
+        return as_tuple(flatten(
+            imprt.symbols or [s[1] for s in imprt.rename_list or []]
+            for imprt in imports
+        ))
+
+    @property
+    def all_imported_symbol_map(self):
+        """
+        Map of imported symbol names to objects
+        """
+        return CaseInsensitiveDict((s.name, s) for s in self.all_imported_symbols)
+
+    @property
     def interfaces(self):
         """
         Return the list of :any:`Interface` declared in this unit

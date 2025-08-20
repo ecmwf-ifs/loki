@@ -80,17 +80,20 @@ def map_derived_type_arguments(arg_map, analysis):
     return _analysis
 
 
-def create_nested_dict(k, v, variable_map):
+def create_nested_dict(k, v, variable_map, routine=None):
     """Create nested dict from derived-type expression."""
 
     name_parts = k.name.split('%', maxsplit=1)
     parent = variable_map[name_parts[0]].clone(dimensions=None)
     if len(name_parts) > 1:
         child_name_parts = name_parts[1].split('%', maxsplit=1)
-        child = parent.type.dtype.typedef.variable_map[child_name_parts[0]]
-        if len(child_name_parts) > 1:
-            child = child.get_derived_type_member(child_name_parts[1])
-        v = create_nested_dict(child, v, parent.type.dtype.typedef.variable_map)
+        # try:
+        if True:
+            child = parent.type.dtype.typedef.variable_map[child_name_parts[0]]
+            if len(child_name_parts) > 1:
+                child = child.get_derived_type_member(child_name_parts[1])
+            v = create_nested_dict(child, v, parent.type.dtype.typedef.variable_map)
+        # except Exception as e:
 
     return {parent: v}
 
@@ -211,6 +214,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
 
         if role == 'driver':
+            # self.process_kernel(routine, item, successors, **kwargs)
             self.process_driver(routine, item, successors, targets, **kwargs)
         if role == 'kernel':
             self.process_kernel(routine, item, successors, **kwargs)
@@ -245,12 +249,55 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
             # gather analysis from children
             analysis = self.gather_analysis_from_children(successor_map)
+            # item.trafo_data[self._key]['analysis']
+
             # gather typedef configs from children
             self.gather_typedef_configs(successors, item.trafo_data[self._key]['typedef_configs'])
+            
+            ###
+            DeepcopyDataflowAnalysisAttacher().visit(routine.spec, successor_map=successor_map)
+            DeepcopyDataflowAnalysisAttacher().visit(routine.body, successor_map=successor_map)
+
+            tmp_trafo_data = defaultdict(dict)
+
+            #gather used symbols in specification
+            # for v in routine.spec.uses_symbols:
+            #     if v.name_parts[0].lower() in routine._dummies:
+            #         # item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
+            #         tmp_trafo_data['analysis'][v.clone(dimensions=None)] = 'read'
+
+            imported_symbol_map = routine.all_imported_symbol_map
+            #gather used and defined symbols in body
+            for v in loop.uses_symbols: # loop.body.uses_symbols:
+                # if True: # v.name_parts[0].lower() in routine._dummies:
+                if v.name_parts[0] not in imported_symbol_map:
+                    # item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
+                    tmp_trafo_data['analysis'][v.clone(dimensions=None)] = 'read'
+                # else:
+                #     tmp_trafo_data['analysis'][v.clone(dimensions=None)] = 'wtf1'
+
+            for v in loop.defines_symbols:
+                # if True: # v.name_parts[0].lower() in routine._dummies:
+                if v.name_parts[0] not in imported_symbol_map:
+                    if v in (routine.spec.uses_symbols | routine.body.uses_symbols):
+                        # item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
+                        tmp_trafo_data['analysis'][v.clone(dimensions=None)] = 'readwrite'
+                    else:
+                        # item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
+                        tmp_trafo_data['analysis'][v.clone(dimensions=None)] = 'write'
+                # else:
+                #     tmp_trafo_data['analysis'][v.clone(dimensions=None)] = 'wtf2'
+
+            DataflowAnalysisDetacher().visit(routine.body)
+            DataflowAnalysisDetacher().visit(routine.spec)
+
+            loop_analysis = self.gather_analysis_from_driver_loop(tmp_trafo_data['analysis'])
+
+            analysis.update(loop_analysis)
 
             layered_dict = {}
             for k, v in analysis.items():
-                _temp_dict = create_nested_dict(k, v, routine.symbol_map)
+                _temp_dict = create_nested_dict(k, v, routine.symbol_map, routine)
                 layered_dict = merge_nested_dict(layered_dict, _temp_dict)
 
             item.trafo_data[self._key]['analysis'][loop] = layered_dict
@@ -311,7 +358,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if self.output_analysis:
             layered_dict = {}
             for k, v in item.trafo_data[self._key]['analysis'].items():
-                _temp_dict = create_nested_dict(k, v, routine.symbol_map)
+                _temp_dict = create_nested_dict(k, v, routine.symbol_map, routine)
                 layered_dict = merge_nested_dict(layered_dict, _temp_dict)
 
             base_dir = Path(kwargs['build_args']['output_dir'])
@@ -339,6 +386,20 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                     analysis[k] = _v
 
         return analysis
+
+    def gather_analysis_from_driver_loop(self, loop_analysis):
+
+        analysis = {}
+        for k, v in loop_analysis.items():
+            _v = analysis.get(k, v)
+            if _v != v:
+                if _v == 'write':
+                    continue
+                analysis[k] = 'readwrite'
+            else:
+                analysis[k] = _v
+        return analysis
+
 
     def gather_typedef_configs(self, successors, typedef_configs):
         """Gather typedef configs from children."""
@@ -453,7 +514,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
     @staticmethod
     def get_pragma_vars(parameters, category):
-        return [v.strip() for v in parameters.get(category, '').split(',')]
+        return [v.strip().lower() for v in parameters.get(category, '').split(',')]
 
     def insert_deepcopy_instructions(self, region, mode, copy, host, wipe, present_vars):
         """Insert the generated deepcopy instructions and wrap the driver loop in 
@@ -496,6 +557,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                 # Only work on active `!$loki data` regions
                 if not is_loki_pragma(region.pragma, starts_with='data'):
+                    print(f"skipping routine {routine} since no loki data region")
                     continue
 
                 parameters = get_pragma_parameters(region.pragma, starts_with='data')
@@ -504,6 +566,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 # skip the deepcopy for variables previously marked as present/private
                 present = self.get_pragma_vars(parameters, 'present')
                 private = self.get_pragma_vars(parameters, 'private')
+                
+                print(f"[routine {routine}] - private: {private}")
 
                 # temporary variables are not copied back to host and are wiped from device memory
                 temporary = self.get_pragma_vars(parameters, 'temporary')
@@ -530,7 +594,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     host += _host
                     wipe += _wipe
 
-                    present_vars += as_tuple(v.name for v in analysis if not v in private)
+                    present_vars += as_tuple(v.name.lower() for v in analysis if not v.name.lower() in private)
 
                 # replace the `!$loki data` PragmaRegion with the generated deepcopy instructions
                 pragma_map.update(self.insert_deepcopy_instructions(region, self.mode, copy, host, wipe, present_vars))
@@ -631,10 +695,14 @@ class DataOffloadDeepcopyTransformation(Transformation):
         # Get FIELD object name
         if not (field_object_name := typedef_config['field_ptr_map'].get(var_name, None)):
             field_object_name = typedef_config['field_prefix'] + var_name.replace('_field', '')
+            field_object_name_2 = typedef_config['field_prefix'] + var_name.replace('_field', '')[1:]
 
         # Create FIELD object
         variable_map = parent.type.dtype.typedef.variable_map
-        field_object = variable_map[field_object_name].clone(parent=parent)
+        if field_object_name in variable_map:
+            field_object = variable_map[field_object_name].clone(parent=parent)
+        else:
+            field_object = variable_map[field_object_name_2].clone(parent=parent)
         field_ptr = var.clone(dimensions=None, parent=parent)
 
         if analysis == 'read':
@@ -672,6 +740,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
     def generate_deepcopy(self, routine, **kwargs):
         """Recursively traverse the deepcopy analysis to generate the deepcopy instructions."""
 
+        # if 'postphy_layer' in routine.name.lower():
+        #     breakpoint()
+
         # initialise tuples used to store the deepcopy instructions
         copy, host, wipe = (), (), ()
 
@@ -680,10 +751,12 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
         for var in analysis:
 
+            # if "GSD_" in var.name.upper():
+            #     breakpoint()
             _copy, _host, _wipe = (), (), ()
 
             # Don't generate a deepcopy for variables marked as present or private
-            if var in kwargs['present'] or var in kwargs['private']:
+            if var.name.lower() in kwargs['present'] or var.name.lower() in kwargs['private']:
                 continue
 
             # determine if var should be kept on device
@@ -718,15 +791,25 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     _wipe = self.create_memory_status_test(check, var_with_parent, _wipe, routine)
 
             else:
+                
+                # if 'postphy' in routine.name.lower():
+                #     breakpoint()
+
+                if 'postphy' in routine.name.lower():
+                    print(f"[routine {routine} var {var} | parent {parent}]")
 
                 # First determine whether we have a field pointer or a regular array/scalar
                 typedef_config = None
                 if parent:
                     typedef_config = kwargs['typedef_configs'].get(parent.type.dtype.typedef.name.lower(), None)
+                    if 'postphy' in routine.name.lower():
+                        print(f"  typedef_config via kwargs -> {parent.type.dtype.typedef.name.lower()}: {typedef_config}")
 
                 # Create a dummy typedef config for FIELD_RANKSUFF_ARRAY types
                 if parent and not typedef_config:
                     typedef_config = self.create_dummy_field_array_typedef_config(parent)
+                    if 'postphy' in routine.name.lower():
+                        print(f"  typedef_config via dummy_field_array ... {typedef_config}")
 
                 field = False
                 if typedef_config:
@@ -734,6 +817,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     suffix = typedef_config['field_ptr_suffix']
                     field = var in typedef_config.get('field_ptrs', [])
                     field = field or re.search(f'{suffix}$', var.name, re.IGNORECASE)
+
+                if 'postphy' in routine.name.lower():
+                    print(f"  field: {field} | typedef_config: {typedef_config}")
 
                 if field:
                     _copy, _host, _wipe = self.create_field_api_offload(var, analysis[var], typedef_config,

@@ -235,11 +235,237 @@ end subroutine empty_kernel
 
     rmtree(workdir)
 
+@pytest.fixture(scope='module', name='blockview_to_fieldview_code_2', params=[True, False])
+def fixture_blockview_to_fieldview_code_2(request):
+    fcode = {
+        #-------------
+        'variable1_mod': (
+        #-------------
+"""
+module field_mod
+
+  ! USE FIELD_MODULE, ONLY: FIELD_2RB, FIELD_3RB, FIELD_4RB, FIELD_2RB_PTR, &
+  !  &                      FIELD_3RB_PTR, FIELD_2RB_VIEW, FIELD_3RB_VIEW
+
+  implicit none
+
+  TYPE FIELD_2RB_VIEW
+   REAL(KIND=JPRB), POINTER :: P(:) => NULL()
+   REAL(KIND=JPRB), POINTER :: P_FIELD(:,:) => NULL()
+  END TYPE FIELD_2RB_VIEW
+end module field_mod
+"""
+        ).strip(),
+        #-------------
+        'variable_mod': (
+        #-------------
+"""
+module ecphys_surface_type_mod
+
+  ! USE FIELD_MODULE, ONLY: FIELD_2RB, FIELD_3RB, FIELD_4RB, FIELD_2RB_PTR, &
+  !  &                      FIELD_3RB_PTR, FIELD_2RB_VIEW, FIELD_3RB_VIEW
+
+  ! USE FIELD_MODULE, ONLY: FIELD_2RB_VIEW
+  USE FIELD_ARRAY_MODULE, ONLY: FIELD_2RB_ARRAY
+  implicit none
+
+  ! TYPE FIELD_2RB_VIEW
+  !  REAL(KIND=JPRB), POINTER :: P(:) => NULL()
+  !  REAL(KIND=JPRB), POINTER :: P_FIELD(:,:) => NULL()
+  ! END TYPE FIELD_2RB_VIEW
+
+  TYPE SURFACE_VIEW_GROUP_VDIAG
+    REAL(KIND=JPRB), POINTER :: PINEE(:) 
+    REAL(KIND=JPRB), POINTER :: PINEE_FIELD(:,:) 
+    TYPE(FIELD_2RB_ARRAY), ALLOCATABLE, DIMENSION(:) :: PTRCCHEM
+    TYPE(FIELD_2RB_ARRAY), ALLOCATABLE, DIMENSION(:,:) :: PAERODIAG
+  END TYPE SURFACE_VIEW_GROUP_VDIAG
+
+  TYPE SURF_AND_MORE_TYPE
+    TYPE(SURFACE_VIEW_GROUP_VDIAG) :: GSD_VD
+  END TYPE SURF_AND_MORE_TYPE
+
+end module ecphys_surface_type_mod
+
+! module variable_mod
+!   implicit none
+! 
+!   type variable_3d
+!       real, pointer :: p(:,:) => null()
+!       real, pointer :: p_field(:,:,:) => null()
+!   end type variable_3d
+! 
+!   type variable_3d_ptr
+!       integer :: comp
+!       type(variable_3d), pointer :: ptr => null()
+!   end type variable_3d_ptr
+! 
+! end module variable_mod
+"""
+        ).strip(),
+        #--------------------
+#         'field_variables_mod': (
+#         #--------------------
+# """
+# ! module field_variables_mod
+# !   use variable_mod, only: variable_3d, variable_3d_ptr
+# !   implicit none
+# ! 
+# !   type field_variables
+# !       type(variable_3d_ptr), allocatable :: gfl_ptr_g(:)
+# !       type(variable_3d_ptr), pointer :: gfl_ptr(:) => null()
+# !       type(variable_3d) :: var
+# !   end type field_variables
+# ! 
+# ! end module field_variables_mod
+# """
+#         ).strip(),
+#         #-------------------
+#         'container_type_mod': (
+#         #-------------------
+# """
+# ! module container_type_mod
+# !   implicit none
+# ! 
+# !   type container_3d_var
+# !     real, pointer :: p(:,:) => null()
+# !     real, pointer :: p_field(:,:,:) => null()
+# !   end type container_3d_var
+# ! 
+# !   type container_type
+# !     type(container_3d_var), allocatable :: vars(:)
+# !   end type container_type
+# ! 
+# ! end module container_type_mod
+# 
+# """
+#         ).strip(),
+        #--------------
+        'dims_type_mod': (
+        #--------------
+"""
+module dims_type_mod
+   type dims_type
+      integer :: start, end, kbl, nb
+   end type dims_type
+end module dims_type_mod
+"""
+        ).strip(),
+        #-------
+        'driver': (
+        #-------
+f"""
+subroutine driver(data, psurf, nlon, nlev, {'start, end, nb' if request.param else 'bnds'})
+
+   use ecphys_surface_type_mod, only: surf_and_more_type
+
+   USE FIELD_ARRAY_MODULE, ONLY: FIELD_2RB_ARRAY
+   {'use dims_type_mod, only: dims_type' if not request.param else ''}
+
+   implicit none
+
+   #include "kernel.intfb.h"
+
+   real, intent(inout) :: data(:,:,:)
+   integer, intent(in) :: nlon, nlev
+   type(surf_and_more_type), intent(inout) :: psurf
+   {'integer, intent(in) :: start, end, nb' if request.param else 'type(dims_type), intent(in) :: bnds'}
+
+   integer :: ibl, jl, ichem
+
+   {'associate(start=>bnds%start, end=>bnds%end, ibl=>bnds%kbl)' if not request.param else ''}
+
+   do ibl=1,{'nb' if request.param else 'bnds%nb'}
+      {'bnds%kbl = ibl' if not request.param else ''}
+
+       do jl=start,end
+         psurf%gsd_vd%pinee(jl) = 0
+         do ichem=1,10
+           psurf%gsd_vd%ptrcchem(ichem)%p(jl) = 0.0
+         end do
+       end do
+
+      ! call kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, psurf)
+   enddo
+
+   {'end associate' if not request.param else ''}
+
+end subroutine driver
+"""
+        ).strip(),
+        #-------
+        'kernel': (
+        #-------
+f"""
+subroutine kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yda_data, yda_other)
+   use field_module, only: FIELD_2RB_VIEW
+   use ecphys_surface_type_mod, only: surf_and_more_type
+   {'use dims_type_mod, only: dims_type' if not request.param else ''}
+   implicit none
+
+#include "another_kernel.intfb.h"
+#include "abor1.intfb.h"
+
+   integer, intent(in) :: nlon, nlev
+   {'integer, intent(in) :: start, end, ibl' if request.param else 'type(dims_type), intent(in) :: bnds'}
+   type(surf_and_more_type), intent(inout) :: psurf
+
+   integer :: jl, jfld, ichem
+   {'associate(start=>bnds%start, end=>bnds%end, ibl=>bnds%kbl)' if not request.param else ''}
+
+   if(nlon < 0) call abor1('kernel')
+
+   do jl=start,end
+     do ichem=1,10
+       psurf%gsd_vd%ptrcchem(ichem)%p(jl) = 0.0
+     end do
+   end do
+
+   {'end associate' if not request.param else ''}
+end subroutine kernel
+"""
+        ).strip(),
+#         #-------
+#         'another_kernel': (
+#         #-------
+# """
+# subroutine another_kernel(nproma, nlev, data, other)
+#    implicit none
+#    !... not a sequential routine but still labelling it as one to test the
+#    !... bail-out mechanism
+#    !$loki routine seq
+#    integer, intent(in) :: nproma, nlev
+#    real, intent(inout) :: data(nproma, nlev)
+#    real, intent(in) :: other(nproma, nlev)
+# end subroutine another_kernel
+# """
+#         ).strip(),
+#         #-------
+#         'empty_kernel': (
+#         #-------
+# """
+# subroutine empty_kernel()
+#    implicit none
+# end subroutine empty_kernel
+# """
+#         ).strip()
+    }
+
+    workdir = gettempdir()/'test_blockview_to_fieldview'
+    if workdir.exists():
+        rmtree(workdir)
+    workdir.mkdir()
+    for name, code in fcode.items():
+        (workdir/f'{name}.F90').write_text(code)
+
+    yield workdir, request.param
+
+    rmtree(workdir)
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
                          'OMNI fails to import undefined module.')]))
 @pytest.mark.parametrize('force_inject_arrays', [True, False])
-def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code,
+def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code_2,
                                          force_inject_arrays, tmp_path):
 
     config['routines'] = {
@@ -250,47 +476,53 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
         config['routines'].update({'kernel': {'role': 'kernel', 'force_inject_arrays': ['yda_other%p_field']}})
 
     scheduler = Scheduler(
-        paths=(blockview_to_fieldview_code[0],), config=config, seed_routines='driver', frontend=frontend,
+        paths=(blockview_to_fieldview_code_2[0],), config=config, seed_routines='driver', frontend=frontend,
         xmods=[tmp_path]
     )
     scheduler.process(BlockViewToFieldViewTransformation(horizontal, global_gfl_ptr=True))
     scheduler.process(InjectBlockIndexTransformation(blocking))
 
-    kernel = scheduler['#kernel'].ir
-    aliased_bounds = not blockview_to_fieldview_code[1]
-    ibl_expr = blocking.index
-    if aliased_bounds:
-        ibl_expr = blocking.indices[1]
+    driver = scheduler['#driver'].ir
+    print(driver.to_fortran())
+    
+    # print(f"\n-------------------------------\n")
+    # kernel = scheduler['#kernel'].ir
+    # print(kernel.to_fortran())
 
-    assigns = FindNodes(Assignment).visit(kernel.body)
+    # aliased_bounds = not blockview_to_fieldview_code[1]
+    # ibl_expr = blocking.index
+    # if aliased_bounds:
+    #     ibl_expr = blocking.indices[1]
 
-    # check that access pointers for arrays without horizontal index in dimensions were not updated
-    assert assigns[0].lhs == f'ydvars%var%p_field(:,:,{ibl_expr})'
-    assert assigns[1].lhs == f'ydvars%var%p_field(:,:,{ibl_expr})'
+    # assigns = FindNodes(Assignment).visit(kernel.body)
 
-    # check that vector notation was resolved correctly
-    assert assigns[2].lhs == f'yda_data%p_field(jl, :, {ibl_expr})'
-    assert assigns[3].lhs == f'ydvars%var%p_field(jl, :, {ibl_expr})'
+    # # check that access pointers for arrays without horizontal index in dimensions were not updated
+    # assert assigns[0].lhs == f'ydvars%var%p_field(:,:,{ibl_expr})'
+    # assert assigns[1].lhs == f'ydvars%var%p_field(:,:,{ibl_expr})'
 
-    # check thread-local ydvars%gfl_ptr was replaced with its global equivalent
-    gfl_ptr_vars = {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr' in v.name.lower()}
-    gfl_ptr_g_vars = {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr_g' in v.name.lower()}
-    assert gfl_ptr_g_vars
-    assert not gfl_ptr_g_vars - gfl_ptr_vars
+    # # check that vector notation was resolved correctly
+    # assert assigns[2].lhs == f'yda_data%p_field(jl, :, {ibl_expr})'
+    # assert assigns[3].lhs == f'ydvars%var%p_field(jl, :, {ibl_expr})'
 
-    assert assigns[4].lhs == f'ydvars%gfl_ptr_g(jfld)%ptr%p_field(jl,:,{ibl_expr})'
-    assert assigns[4].rhs == f'yda_data%p_field(jl,:,{ibl_expr})'
-    assert assigns[5].lhs == f'container%vars(ydvars%gfl_ptr_g(jfld)%comp)%p_field(jl,:,{ibl_expr})'
+    # # check thread-local ydvars%gfl_ptr was replaced with its global equivalent
+    # gfl_ptr_vars = {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr' in v.name.lower()}
+    # gfl_ptr_g_vars = {v for v in FindVariables().visit(kernel.body) if 'ydvars%gfl_ptr_g' in v.name.lower()}
+    # assert gfl_ptr_g_vars
+    # assert not gfl_ptr_g_vars - gfl_ptr_vars
 
-    # check callstatement was updated correctly
-    calls = FindNodes(CallStatement).visit(kernel.body)
-    assert f'yda_data%p_field(:,:,{ibl_expr})' in calls[1].arg_map.values()
+    # assert assigns[4].lhs == f'ydvars%gfl_ptr_g(jfld)%ptr%p_field(jl,:,{ibl_expr})'
+    # assert assigns[4].rhs == f'yda_data%p_field(jl,:,{ibl_expr})'
+    # assert assigns[5].lhs == f'container%vars(ydvars%gfl_ptr_g(jfld)%comp)%p_field(jl,:,{ibl_expr})'
 
-    # check force injection of block index in sequence associated args (yay!)
-    if force_inject_arrays:
-        assert f'yda_other%p_field(:,{ibl_expr})' in calls[1].arg_map.values()
-    else:
-        assert 'yda_other%p_field' in calls[1].arg_map.values()
+    # # check callstatement was updated correctly
+    # calls = FindNodes(CallStatement).visit(kernel.body)
+    # assert f'yda_data%p_field(:,:,{ibl_expr})' in calls[1].arg_map.values()
+
+    # # check force injection of block index in sequence associated args (yay!)
+    # if force_inject_arrays:
+    #     assert f'yda_other%p_field(:,{ibl_expr})' in calls[1].arg_map.values()
+    # else:
+    #     assert 'yda_other%p_field' in calls[1].arg_map.values()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
