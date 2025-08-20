@@ -9,7 +9,7 @@ from loki.batch import Transformation
 from loki.expression import Array
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Transformer,
-    pragma_regions_attached,
+    pragma_regions_attached, get_pragma_parameters
 )
 from loki.logging import warning, error
 from loki.tools import as_tuple
@@ -173,6 +173,13 @@ class DataOffloadTransformation(Transformation):
                     copyout = f'out({", ".join(outargs)})' if outargs else ''
                     pragma = Pragma(keyword='loki', content=f'structured-data {copyin} {copy} {copyout}')
                     pragma_post = Pragma(keyword='loki', content='end structured-data')
+
+                # Add async if present
+                async_parameter = get_pragma_parameters(region.pragma).get('async', '')
+                if async_parameter:
+                    pragma = Pragma(keyword='loki', content=pragma.content+f' async({async_parameter})')
+
+                # Add pragmas to map
                 pragma_map[region.pragma] = pragma
                 pragma_map[region.pragma_post] = pragma_post
 

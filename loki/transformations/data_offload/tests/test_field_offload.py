@@ -7,16 +7,13 @@
 
 import pytest
 
-from loki import Sourcefile, Module, Subroutine
+from loki import Sourcefile, Module
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, Pragma, CallStatement
 from loki.logging import log_levels
-
-from loki.transformations import (
-        FieldOffloadTransformation, FieldAPITransferType,
-        field_delete_device_data, field_get_device_data, field_get_host_data
-)
+from loki.transformations import FieldOffloadTransformation, FieldOffloadBlockedTransformation
+from loki.batch import TransformationError
 
 
 @pytest.fixture(name="parkind_mod")
@@ -44,7 +41,7 @@ def fixture_field_module(tmp_path, frontend):
      contains
         procedure :: update_view
       end type field_3rb
-      
+
       type field_4rb
         real, pointer :: f_ptr(:,:,:)
      contains
@@ -569,7 +566,6 @@ def test_field_offload_driver_compute(frontend, state_module, tmp_path):
         !$loki data
         do ibl=1,nlev
           call state%update_view(ibl)
-
           do i=1, nlon
             state%a(i, 1) = state%b(i, 1) + 0.1
             state%a(i, 2) = state%a(i, 1)
@@ -613,42 +609,255 @@ def test_field_offload_driver_compute(frontend, state_module, tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('access_mode', list(FieldAPITransferType))
-def test_field_api_call_gen(frontend, field_module, parkind_mod, access_mode, tmp_path): # pylint: disable=unused-argument
-    """
-    Test the correct generation of FIELD_API calls.
-    """
-
+def test_field_offload_blocked(frontend, state_module, tmp_path):
     fcode = """
-subroutine kernel(field)
-  use field_module, only : field_3rb
-  use parkind1, only : jprb
-  implicit none
-  type(field_3rb), intent(inout) :: field
-  real(kind=jprb) :: ptr
+    module driver_mod
+      use state_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      implicit none
 
-end subroutine kernel
-    """.strip()
+    contains
 
-    def _check_call(call, target, mode, arguments):
-        mode_str = {
-            'READ_ONLY': 'rdonly',
-            'READ_WRITE': 'rdwr',
-            'WRITE_ONLY': 'wronly',
-        }
-        assert call.name.name.lower() == f'field%get_{target}_data_{mode_str[mode.name]}'
-        assert all(arg in call.arguments for arg in arguments)
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
 
-    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    field_object = routine.variable_map['field']
-    access_ptr = routine.variable_map['ptr']
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
 
-    get_device_data = field_get_device_data(field_object, access_ptr, access_mode, scope=routine)
-    _check_call(get_device_data, 'device', access_mode, [access_ptr])
-    if access_mode != FieldAPITransferType.WRITE_ONLY:
-        get_host_data = field_get_host_data(field_object, access_ptr, access_mode, scope=routine)
-        _check_call(get_host_data, 'host', access_mode, [access_ptr])
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
 
-    delete_device_data = field_delete_device_data(field_object, scope=routine)
-    assert delete_device_data.name.name.lower() == 'field%delete_device_data'
-    assert not delete_device_data.arguments
+        !$loki data
+        !$loki driver-loop
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    driver_mod = Module.from_source(
+        fcode, frontend=frontend, definitions=state_module, xmods=[tmp_path]
+    )
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadBlockedTransformation(devptr_prefix=deviceptr_prefix,
+                                                   offload_index='i',
+                                                   field_group_types=['state_type'],
+                                                   block_size=100),
+                 role='driver',
+                 targets=['kernel_routine'])
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    kernel_call = next(c for c in calls if c.name=='kernel_routine')
+
+    # verify that field offloads are generated properly
+    in_calls = [c for c in calls if 'get_device_data_force' in c.name.name.lower()]
+    assert len(in_calls) == 3
+    # verify that field sync host calls are generated properly
+    sync_calls = [c for c in calls if 'sync_host_force' in c.name.name.lower()]
+    assert len(sync_calls) == 2
+
+    # verify that data offload pragmas remain
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 3
+    assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas, ['data', 'driver-loop', 'end data']))
+
+    # verify that new pointer variables are created and used in driver calls
+    for var in ['state_a', 'state_b', 'state_c']:
+        name = deviceptr_prefix + var
+        assert name in driver.variable_map
+        devptr = driver.variable_map[name]
+        assert isinstance(devptr, sym.Array)
+        assert len(devptr.shape) == 3
+        assert devptr.name in (arg.name for arg in kernel_call.arguments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_blocked_async(frontend, state_module, tmp_path):
+    fcode = """
+    module driver_mod
+      use state_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      implicit none
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_routine(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        !$loki driver-loop
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_routine
+    end module driver_mod
+    """
+    driver_mod = Module.from_source(
+        fcode, frontend=frontend, definitions=state_module, xmods=[tmp_path]
+    )
+    driver = driver_mod['driver_routine']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+    driver.apply(FieldOffloadBlockedTransformation(devptr_prefix=deviceptr_prefix,
+                                                   offload_index='i',
+                                                   field_group_types=['state_type'],
+                                                   block_size=100,
+                                                   asynchronous=True,
+                                                   num_queues=3),
+                 role='driver',
+                 targets=['kernel_routine'])
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    kernel_call = next(c for c in calls if c.name=='kernel_routine')
+
+    # verify that field offloads are generated properly
+    in_calls = [c for c in calls if 'get_device_data_force' in c.name.name.lower()]
+    assert len(in_calls) == 3
+    # verify that field sync host calls are generated properly
+    sync_calls = [c for c in calls if 'sync_host_force' in c.name.name.lower()]
+    assert len(sync_calls) == 2
+
+    # verify that data offload pragmas remain
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert len(pragmas) == 3
+    assert all(p.keyword=='loki' and p.content==c for p, c in zip(pragmas,
+                                                                  ['data async(loki_block_queue)',
+                                                                   'driver-loop async(loki_block_queue)',
+                                                                   'end data']))
+
+    # verify that new pointer variables are created and used in driver calls
+    for var in ['state_a', 'state_b', 'state_c']:
+        name = deviceptr_prefix + var
+        assert name in driver.variable_map
+        devptr = driver.variable_map[name]
+        assert isinstance(devptr, sym.Array)
+        assert len(devptr.shape) == 3
+        assert devptr.name in (arg.name for arg in kernel_call.arguments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_field_offload_blocked_warnings(frontend, state_module, tmp_path, caplog):
+    fcode = """
+    module driver_mod
+      use state_mod, only: state_type
+      use parkind1, only: jprb
+      use field_module, only: field_2rb, field_3rb
+      implicit none
+
+    contains
+
+      subroutine kernel_routine(nlon, nlev, a, b, c)
+        integer, intent(in)             :: nlon, nlev
+        real(kind=jprb), intent(in)     :: a(nlon,nlev)
+        real(kind=jprb), intent(inout)  :: b(nlon,nlev)
+        real(kind=jprb), intent(out)    :: c(nlon,nlev)
+        integer :: i, j
+
+        do j=1, nlon
+          do i=1, nlev
+            b(i,j) = a(i,j) + 0.1
+            c(i,j) = 0.1
+          end do
+        end do
+      end subroutine kernel_routine
+
+      subroutine driver_multiple_loops(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        !$loki driver-loop
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki driver-loop
+        do i=1,nlev
+            call state%update_view(i)
+            call kernel_routine(nlon, nlev, state%a, state%b, state%c)
+        end do
+        !$loki end data
+
+      end subroutine driver_multiple_loops
+
+      subroutine driver_no_driver_loop(nlon, nlev, state)
+        integer, intent(in)             :: nlon, nlev
+        type(state_type), intent(inout) :: state
+        integer                         :: i
+
+        !$loki data
+        do i=1,nlev
+            call state%update_view(i)
+        end do
+        !$loki end data
+
+      end subroutine driver_no_driver_loop
+
+    end module driver_mod
+    """
+    driver_mod = Module.from_source(
+        fcode, frontend=frontend, definitions=state_module, xmods=[tmp_path]
+    )
+    driver_multiple = driver_mod['driver_multiple_loops']
+    driver_no_loop = driver_mod['driver_no_driver_loop']
+    deviceptr_prefix = 'loki_devptr_prefix_'
+
+    # verify that warnings are raised properly
+    with caplog.at_level(log_levels['WARNING']):
+        offload_trafo = FieldOffloadBlockedTransformation(devptr_prefix=deviceptr_prefix,
+                                                          offload_index='i',
+                                                          field_group_types=['state_type'],
+                                                          block_size=100,
+                                                          asynchronous=1,
+                                                          num_queues=3)
+        assert any('[Loki] FieldOffloadBlockedTransformation: asynchronous kwarg must be a bool' +
+                   ' asynchronous set to False' in r.message for r in caplog.records)
+
+        caplog.clear()
+        driver_multiple.apply(offload_trafo, role='driver', targets=['kernel_routine'])
+        assert any('[Loki] FieldOffloadBlockedTransformation: Multiple driver loops found in ' +
+                   'driver_multiple_loops, discarding all but first' in r.message for r in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(log_levels['ERROR']):
+        with pytest.raises(TransformationError):
+            driver_no_loop.apply(offload_trafo, role='driver', targets=['kernel_routine'])
+            assert any('[Loki] FieldOffloadBlockedTransformation: No driver loops found in ' +
+                    'driver_no_driver_loops' in r.message for r in caplog.records)

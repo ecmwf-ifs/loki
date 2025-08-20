@@ -11,20 +11,58 @@ import numpy as np
 
 from loki import Subroutine
 from loki.jit_build import jit_compile, clean_test
-from loki.expression import Array
+from loki.expression import symbols as sym, Array
 from loki.frontend import available_frontends
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, pragmas_attached
 )
 
 from loki.transformations.utilities import find_driver_loops
-from loki.transformations.loop_blocking import split_loop, block_loop_arrays
-
+from loki.transformations.loop_blocking import (
+    LoopSplittingVariables, split_loop, block_loop_arrays
+)
+from loki.types import SymbolAttributes, BasicType
+from loki.logging import ERROR
 
 """
-Splitting tests. These tests check that loop
+Tests for loop splitting and blocking utilities.
 """
+
+# The number of additional variables created during loop splitting,
+# e.g. new loop index for outer loop, new loop bounds
 LOKI_LOOP_SLIT_VAR_ADDITION = 7
+
+
+def test_loop_splitting_vars(caplog):
+    loop_var = sym.Variable(name='i', type=SymbolAttributes(BasicType.INTEGER))
+
+    # Test init with int block size
+    blk_size = 1
+    loop_splitting_vars = LoopSplittingVariables(loop_var, blk_size)
+    loop_var = loop_splitting_vars.loop_var
+    assert isinstance(loop_var, sym.Scalar) and loop_var.type.dtype == BasicType.INTEGER
+
+    # Test init with scalar
+    blk_size = sym.Variable(name='i', type=SymbolAttributes(BasicType.INTEGER))
+    loop_splitting_vars = LoopSplittingVariables(loop_var, blk_size)
+    loop_var = loop_splitting_vars.loop_var
+    assert isinstance(loop_var, sym.Scalar) and loop_var.type.dtype == BasicType.INTEGER
+
+    # Test init with scalar
+    blk_size = sym.IntLiteral(1)
+    loop_splitting_vars = LoopSplittingVariables(loop_var, blk_size)
+    loop_var = loop_splitting_vars.loop_var
+    assert isinstance(loop_var, sym.Scalar) and loop_var.type.dtype == BasicType.INTEGER
+
+    # Test init with bad value
+    blk_size = 'i'
+    with caplog.at_level(ERROR):
+        with pytest.raises(ValueError):
+            loop_splitting_vars = LoopSplittingVariables(loop_var, blk_size)
+        assert len(caplog.records) == 1
+        assert ("LoopSplittingVariables: Block size argument must be an integer constant or a " +
+                "scalar variable" in caplog.records[0].message)
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [10, 117])
