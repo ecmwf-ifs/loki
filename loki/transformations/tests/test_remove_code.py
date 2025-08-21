@@ -15,7 +15,7 @@ from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.remove_code import (
     do_remove_dead_code, do_remove_marked_regions, do_remove_calls,
-    RemoveCodeTransformation
+    RemoveCodeTransformation, do_remove_unused_vars
 )
 
 
@@ -152,7 +152,10 @@ subroutine kernel(kst, kend, diMs, stRUCt, a, b, c, d)
     type(dims_type), intent(in) :: dIms
     type(some_unused_type), intent(in) :: StrucT
     real, intent(out), dimension(dims%klon) :: a, b, c, d
+    real, dimension(dims%klon) :: used_local, unused_local
     integer :: jrof
+
+    used_local(:) = 0.0
 
     do jrof = kst, kend
       a(jrof) = 0.
@@ -643,3 +646,59 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     else:
         assert not any(v in kernel_vars for v in ['d', 'struct'])
         assert not any(v in driver_calls[0].arguments for v in ['d', 'struct'])
+
+    assert 'used_local' in kernel_vars
+    assert 'unused_local' in kernel_vars
+
+    transformation = RemoveCodeTransformation(remove_unused_vars=True)
+    scheduler.process(transformation=transformation)
+
+    kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
+    assert 'used_local' in kernel_vars
+    assert 'unused_local' not in kernel_vars
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('remove_only_arrays', (True, False))
+def test_remove_code_unused_vars(frontend, remove_only_arrays, tmp_path):
+    fcode_some_type = """
+module some_type_mod
+  type some_type
+    integer :: a
+  end type some_type
+end module some_type_mod
+    """
+
+    fcode = """
+subroutine test_remove_unused_vars(a, b, c, len, flag)
+
+  use some_type_mod, only: some_type
+  implicit none
+
+  real(kind=8), intent(inout) :: a(len, len), b(len), c 
+  integer, intent(in) :: len
+  logical, intent(in) :: flag
+
+  type(some_type) :: some_var, some_vars(len)
+  real(kind=8) :: test1, test2, unused1, unused2(len, len)
+
+  test1 = 2
+  test2 = 2
+
+end subroutine test_remove_unused_vars
+"""
+    module = Module.from_source(fcode_some_type, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, definitions=module, xmods=[tmp_path])
+    do_remove_unused_vars(routine, remove_only_arrays=remove_only_arrays)
+
+    expected_args = ('a', 'b', 'c', 'len', 'flag')
+    routine_args = [arg.name.lower() for arg in routine.arguments]
+    for arg in expected_args:
+        assert arg in routine_args
+    if remove_only_arrays:
+        expected_locals = ('some_var', 'test1', 'test2', 'unused1')
+    else:
+        expected_locals = ('test1', 'test2')
+    routine_locals = [var.clone(dimensions=None) for var in routine.variables]
+    for var in expected_locals:
+        assert var in routine_locals
