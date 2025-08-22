@@ -25,6 +25,7 @@ from loki.transformations.single_column.revector import (
 )
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 from loki.transformations.pragma_model import PragmaModelTransformation
+from loki.transformations.remove_code import RemoveCodeTransformation
 
 __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
@@ -34,6 +35,30 @@ __all__ = [
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
 ]
+
+
+class RemoveUnusedVarTransformation(RemoveCodeTransformation):
+    """
+    A special version of :any:`RemoveCodeTransformation` being a temporary solution
+    that allows to remove unused temporaries/arrays before applying
+    a transformation that handles temporaries on device (hoist, stack)
+
+    The transformation will apply the following methods in order:
+
+    * :any:`do_remove_unused_vars`
+
+    Parameters
+    ----------
+    remove_unused_vars : boolean
+        Remove unused variables/locals from routines.
+    remove_only_arrays : boolean
+        Whether to only remove unused arrays from routines
+        or all variables/locals.
+    """
+    def __init__(self, remove_unused_vars=False, remove_only_arrays=True, **kwargs): # pylint: disable=unused-argument
+        super().__init__(remove_unused_vars=remove_unused_vars, remove_only_arrays=remove_only_arrays,
+                remove_marked_regions=False)
+
 
 SCCVVectorPipeline = partial(
     Pipeline, classes=(
@@ -267,6 +292,7 @@ SCCVStackPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         TemporariesPoolAllocatorTransformation,
         PragmaModelTransformation
     )
@@ -316,6 +342,7 @@ SCCSStackPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         TemporariesPoolAllocatorTransformation,
         PragmaModelTransformation
     )
@@ -362,6 +389,7 @@ SCCVStackFtrPtrPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         FtrPtrStackTransformation,
         PragmaModelTransformation
     )
@@ -411,6 +439,7 @@ SCCSStackFtrPtrPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         FtrPtrStackTransformation,
         PragmaModelTransformation
     )
@@ -457,6 +486,7 @@ SCCVStackDirectIdxPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         DirectIdxStackTransformation,
         PragmaModelTransformation
     )
@@ -510,6 +540,7 @@ SCCSStackDirectIdxPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         DirectIdxStackTransformation,
         PragmaModelTransformation
     )
@@ -559,6 +590,7 @@ SCCVRawStackPipeline = partial(
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
         SCCAnnotateTransformation,
+        RemoveUnusedVarTransformation,
         TemporariesRawStackTransformation,
         PragmaModelTransformation
     )

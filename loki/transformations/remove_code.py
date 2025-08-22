@@ -25,7 +25,7 @@ __all__ = [
     'RemoveCodeTransformation',
     'do_remove_dead_code', 'RemoveDeadCodeTransformer',
     'do_remove_marked_regions', 'RemoveRegionTransformer',
-    'do_remove_calls', 'RemoveCallsTransformer'
+    'do_remove_calls', 'RemoveCallsTransformer', 'do_remove_unused_vars'
 ]
 
 
@@ -40,6 +40,7 @@ class RemoveCodeTransformation(Transformation):
     * :any:`do_remove_calls`
     * :any:`do_remove_marked_regions`
     * :any:`do_remove_dead_code`
+    * :any:`do_remove_unused_vars`
 
     Parameters
     ----------
@@ -67,6 +68,13 @@ class RemoveCodeTransformation(Transformation):
     kernel_only : boolean
         Only apply the configured removal to subroutines marked as
         "kernel"; default: ``False``
+    remove_unused_args : boolean
+        Remove unused dummy arguments from routines.
+    remove_unused_vars : boolean
+        Remove unused variables/locals from routines.
+    remove_only_arrays : boolean
+        Whether to only remove unused arrays from routines
+        or all variables/locals.
     """
 
     _key = 'RemoveCodeTransformation'
@@ -80,7 +88,8 @@ class RemoveCodeTransformation(Transformation):
             remove_dead_code=False, use_simplify=True,
             call_names=None, intrinsic_names=None,
             remove_imports=True, kernel_only=False,
-            remove_unused_args=False
+            remove_unused_args=False, remove_unused_vars=False,
+            remove_only_arrays=True
     ):
         self.remove_marked_regions = remove_marked_regions
         self.mark_with_comment = mark_with_comment
@@ -94,6 +103,9 @@ class RemoveCodeTransformation(Transformation):
 
         self.kernel_only = kernel_only
         self.remove_unused_args = remove_unused_args
+
+        self.remove_unused_vars = remove_unused_vars
+        self.remove_only_arrays = remove_only_arrays
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -116,6 +128,9 @@ class RemoveCodeTransformation(Transformation):
             if self.remove_dead_code:
                 do_remove_dead_code(routine, use_simplify=self.use_simplify)
 
+            if self.remove_unused_vars:
+                do_remove_unused_vars(routine, remove_only_arrays=self.remove_only_arrays)
+
         if self.remove_unused_args and (item := kwargs['item']):
             # collect unused args from successors
             successors = kwargs['sub_sgraph'].successors(item=item)
@@ -125,7 +140,7 @@ class RemoveCodeTransformation(Transformation):
 
             if item.config.get('remove_unused_args', True) and kwargs['role'] == 'kernel':
                 # find unused args
-                unused_args = find_unused_dummy_args(routine)
+                unused_args, _ = find_unused_dummy_args_and_vars(routine)
                 do_remove_unused_dummy_args(routine, unused_args)
                 # store unused args
                 item.trafo_data[self._key] = {'unused_args': unused_args}
@@ -143,12 +158,33 @@ def do_remove_unused_dummy_args(routine, unused_args):
     unused_args : dict
        A dict mapping the unused dummy argument symbol to its position in the
        routine's argument list.This must be retrieved using the
-       :any:`find_unused_dummy_args` utility.
+       :any:`find_unused_dummy_args_and_vars` utility.
     """
 
     routine.variables = [a for a in routine.variables
                          if not a.name.lower() in unused_args]
 
+def do_remove_unused_vars(routine, unused_vars=None, remove_only_arrays=True):
+    """
+    Utility routine to remove unused variables (or only local arrays) from a given routine.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        A :any:`Subroutine` whose unused dummy arguments will be removed.
+    unused_args : dict, optional
+        A list of unused vars. This can be retrieved using the
+       :any:`find_unused_dummy_args_and_vars` utility.
+    remove_only_arrays : bool, optional
+        Whether to only remove arrays or all variables/temporaries
+        that are unused within the routine.
+    """
+    if unused_vars is None:
+        _, unused_vars = find_unused_dummy_args_and_vars(routine)
+    if remove_only_arrays:
+        unused_vars = [var for var in unused_vars if isinstance(var, sym.Array)]
+    routine.variables = [var for var in routine.variables
+                         if not var.name.lower() in unused_vars]
 
 def do_remove_unused_call_args(routine, unused_args_map):
     """
@@ -179,7 +215,7 @@ def do_remove_unused_call_args(routine, unused_args_map):
         call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
 
 
-def find_unused_dummy_args(routine):
+def find_unused_dummy_args_and_vars(routine):
     """
     Utility routine to find all the unused arguments in a :any:`Subroutine`.
 
@@ -207,8 +243,12 @@ def find_unused_dummy_args(routine):
 
         unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
                        if not a.name.lower() in used_or_defined_symbols}
+        routine_arg_names = [arg.name.lower() for arg in routine.arguments]
+        local_vars = [var for var in routine.variables if var.name.lower() not in routine_arg_names]
+        unused_vars = [var.clone(dimensions=None) for var in local_vars
+                if not var.name.lower() in used_or_defined_symbols]
 
-    return unused_args
+    return unused_args, unused_vars
 
 
 def do_remove_dead_code(routine, use_simplify=True):
