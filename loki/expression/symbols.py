@@ -16,77 +16,37 @@ from itertools import chain
 import weakref
 from sys import intern
 import pymbolic.primitives as pmbl
-from pymbolic.mapper.evaluator import UnknownVariableError
 
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 from loki.scope import Scope
-from loki.expression.mappers import ExpressionRetriever
 from loki.config import config
+
+from loki.expression.literals import (
+    _Literal, FloatLiteral, IntLiteral, LogicLiteral, StringLiteral,
+    IntrinsicLiteral, Literal, LiteralList,
+)
+from loki.expression.mixins import StrCompareMixin
+from loki.expression.operations import (
+    Sum, Product, Quotient, Power, Comparison, LogicalAnd,
+    LogicalOr, LogicalNot, StringConcat, Cast, Reference, Dereference
+)
 
 
 __all__ = [
-    'loki_make_stringifier',
-    # Mix-ins
-    'StrCompareMixin',
     # Typed leaf nodes
     'TypedSymbol', 'DeferredTypeSymbol', 'VariableSymbol', 'ProcedureSymbol', 'DerivedTypeSymbol',
     'MetaSymbol', 'Scalar', 'Array', 'Variable',
-    # Non-typed leaf nodes
-    'FloatLiteral', 'IntLiteral', 'LogicLiteral', 'StringLiteral',
-    'IntrinsicLiteral', 'Literal', 'LiteralList', 'InlineDo',
     # Internal nodes
+    'InlineCall', 'InlineDo', 'Range', 'LoopRange', 'RangeIndex',
+    'ArraySubscript', 'StringSubscript',
+    # Literals (imported but exposed here for convenience)
+    '_Literal', 'FloatLiteral', 'IntLiteral', 'LogicLiteral',
+    'StringLiteral', 'IntrinsicLiteral', 'Literal', 'LiteralList',
+    # Operations (imported but exposed here for convenience)
     'Sum', 'Product', 'Quotient', 'Power', 'Comparison', 'LogicalAnd', 'LogicalOr',
-    'LogicalNot', 'InlineCall', 'Cast', 'Range', 'LoopRange', 'RangeIndex', 'ArraySubscript',
-    'StringSubscript',
-    # C/C++ concepts
-    'Reference', 'Dereference',
+    'LogicalNot', 'StringConcat', 'Cast', 'Reference', 'Dereference',
 ]
-
-# pylint: disable=abstract-method,too-many-lines
-
-def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disable=unused-argument
-    """
-    Return a :any:`LokiStringifyMapper` instance that can be used to generate a
-    human-readable representation of :data:`self`.
-
-    This is used as common abstraction for the :meth:`make_stringifier` method in
-    Pymbolic expression nodes.
-    """
-    from loki.expression.mappers import LokiStringifyMapper  # pylint: disable=import-outside-toplevel
-    return LokiStringifyMapper()
-
-
-class StrCompareMixin:
-    """
-    Mixin to enable comparing expressions to strings.
-
-    The purpose of the string comparison override is to reliably and flexibly
-    identify expression symbols from equivalent strings.
-    """
-
-    @staticmethod
-    def _canonical(s):
-        """ Define canonical string representations (lower-case, no spaces) """
-        if config['case-sensitive']:
-            return str(s).replace(' ', '')
-        return str(s).lower().replace(' ', '')
-
-    def __hash__(self):
-        return hash(self._canonical(self))
-
-    def __eq__(self, other):
-        if isinstance(other, (str, type(self))):
-            # Do comparsion based on canonical string representations
-            return self._canonical(self) == self._canonical(other)
-
-        return super().__eq__(other)
-
-    def __contains__(self, other):
-        # Assess containment via a retriver with node-wise string comparison
-        return len(ExpressionRetriever(lambda x: x == other).retrieve(self)) > 0
-
-    make_stringifier = loki_make_stringifier
 
 
 class TypedSymbol:
@@ -648,7 +608,6 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
         return self.type.initial
 
     mapper_method = intern('map_meta_symbol')
-    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return self.symbol.__getinitargs__()
@@ -954,333 +913,7 @@ class Variable:
         return stored_type
 
 
-class _Literal(pmbl.Leaf):
-    """
-    Base class for literals.
-
-    This exists to overcome the problem of a disfunctional
-    :meth:`__getinitargs__` in any:`pymbolic.primitives.Leaf`.
-    """
-
-    def __getinitargs__(self):
-        return ()
-
-
-class FloatLiteral(StrCompareMixin, _Literal):
-    """
-    A floating point constant in an expression.
-
-    Note that its :data:`value` is stored as a string to avoid any
-    representation issues that could stem from converting it to a
-    Python floating point number.
-
-    It can have a specific type associated, which backends can use to cast
-    or annotate the constant to make sure the specified type is used.
-
-    Parameters
-    ----------
-    value : str
-        The value of that literal.
-    kind : optional
-        The kind information for that literal.
-    """
-
-    def __init__(self, value, **kwargs):
-        # We store float literals as strings to make sure no information gets
-        # lost in the conversion
-        self.value = str(value)
-        self.kind = kwargs.pop('kind', None)
-        super().__init__(**kwargs)
-
-    def __hash__(self):
-        return hash((self.value, self.kind))
-
-    def __eq__(self, other):
-        if isinstance(other, FloatLiteral):
-            return self.value == other.value and self.kind == other.kind
-
-        try:
-            return float(self.value) == float(other)
-        except (TypeError, ValueError, UnknownVariableError):
-            return False
-
-    def __lt__(self, other):
-        if isinstance(other, FloatLiteral):
-            return float(self.value) < float(other.value)
-        try:
-            return float(self.value) < float(other)
-        except ValueError:
-            return super().__lt__(other)
-
-    def __le__(self, other):
-        if isinstance(other, FloatLiteral):
-            return float(self.value) <= float(other.value)
-        try:
-            return float(self.value) <= float(other)
-        except ValueError:
-            return super().__le__(other)
-
-    def __gt__(self, other):
-        if isinstance(other, FloatLiteral):
-            return float(self.value) > float(other.value)
-        try:
-            return float(self.value) > float(other)
-        except ValueError:
-            return super().__gt__(other)
-
-    def __ge__(self, other):
-        if isinstance(other, FloatLiteral):
-            return float(self.value) >= float(other.value)
-        try:
-            return float(self.value) >= float(other)
-        except ValueError:
-            return super().__ge__(other)
-
-    init_arg_names = ('value', 'kind')
-
-    def __getinitargs__(self):
-        return (self.value, self.kind)
-
-    mapper_method = intern('map_float_literal')
-
-
-class IntLiteral(StrCompareMixin, _Literal):
-    """
-    An integer constant in an expression.
-
-    It can have a specific type associated, which backends can use to cast
-    or annotate the constant to make sure the specified type is used.
-
-    Parameters
-    ----------
-    value : int
-        The value of that literal.
-    kind : optional
-        The kind information for that literal.
-    """
-
-    def __init__(self, value, **kwargs):
-        self.value = int(value)
-        self.kind = kwargs.pop('kind', None)
-        super().__init__(**kwargs)
-
-    def __hash__(self):
-        return hash((self.value, self.kind))
-
-    def __eq__(self, other):
-        if isinstance(other, IntLiteral):
-            return self.value == other.value and self.kind == other.kind
-        if isinstance(other, (int, float, complex)):
-            return self.value == other
-
-        try:
-            return self.value == int(other)
-        except (TypeError, ValueError):
-            return False
-
-    def __lt__(self, other):
-        if isinstance(other, IntLiteral):
-            return self.value < other.value
-        if isinstance(other, int):
-            return self.value < other
-        return super().__lt__(other)
-
-    def __le__(self, other):
-        if isinstance(other, IntLiteral):
-            return self.value <= other.value
-        if isinstance(other, int):
-            return self.value <= other
-        return super().__le__(other)
-
-    def __gt__(self, other):
-        if isinstance(other, IntLiteral):
-            return self.value > other.value
-        if isinstance(other, int):
-            return self.value > other
-        return super().__gt__(other)
-
-    def __ge__(self, other):
-        if isinstance(other, IntLiteral):
-            return self.value >= other.value
-        if isinstance(other, int):
-            return self.value >= other
-        return super().__ge__(other)
-
-    init_arg_names = ('value', 'kind')
-
-    def __getinitargs__(self):
-        return (self.value, self.kind)
-
-    def __int__(self):
-        return self.value
-
-    def __bool__(self):
-        return bool(self.value)
-
-    mapper_method = intern('map_int_literal')
-
-
-# Register IntLiteral as a constant class in Pymbolic
-pmbl.register_constant_class(IntLiteral)
-
-
-class LogicLiteral(StrCompareMixin, _Literal):
-    """
-    A boolean constant in an expression.
-
-    Parameters
-    ----------
-    value : bool
-        The value of that literal.
-    """
-
-    def __init__(self, value, **kwargs):
-        self.value = str(value).lower() in ('true', '.true.')
-        super().__init__(**kwargs)
-
-    init_arg_names = ('value', )
-
-    def __getinitargs__(self):
-        return (self.value, )
-
-    def __bool__(self):
-        return self.value
-
-    mapper_method = intern('map_logic_literal')
-
-
-class StringLiteral(StrCompareMixin, _Literal):
-    """
-    A string constant in an expression.
-
-    Parameters
-    ----------
-    value : str
-        The value of that literal. Enclosing quotes are removed.
-    """
-
-    def __init__(self, value, **kwargs):
-        # Remove quotation marks
-        if value[0] == value[-1] and value[0] in '"\'':
-            value = value[1:-1]
-
-        self.value = value
-
-        super().__init__(**kwargs)
-
-    def __hash__(self):
-        return hash(self.value)
-
-    def __eq__(self, other):
-        if isinstance(other, StringLiteral):
-            return self.value == other.value
-        if isinstance(other, str):
-            return self.value == other
-        return False
-
-    init_arg_names = ('value', )
-
-    def __getinitargs__(self):
-        return (self.value, )
-
-    mapper_method = intern('map_string_literal')
-
-
-class IntrinsicLiteral(StrCompareMixin, _Literal):
-    """
-    Any literal not represented by a dedicated class.
-
-    Its value is stored as string and returned unaltered.
-    This is currently used for complex and BOZ constants and to retain
-    array constructor expressions with type spec or implied-do.
-
-    Parameters
-    ----------
-    value : str
-        The value of that literal.
-    """
-
-    def __init__(self, value, **kwargs):
-        self.value = value
-        super().__init__(**kwargs)
-
-    init_arg_names = ('value', )
-
-    def __getinitargs__(self):
-        return (self.value, )
-
-    mapper_method = intern('map_intrinsic_literal')
-
-
-class Literal:
-    """
-    Factory class to instantiate the best-matching literal node.
-
-    This always returns a :class:`IntLiteral`, :class:`FloatLiteral`,
-    :class:`StringLiteral`, :class:`LogicLiteral` or, as a fallback,
-    :class:`IntrinsicLiteral`, selected by using any provided :data:`type`
-    information or inspecting the Python data type of :data: value.
-
-    Parameters
-    ----------
-    value :
-        The value of that literal.
-    kind : optional
-        The kind information for that literal.
-    """
-
-    @staticmethod
-    def _from_literal(value, **kwargs):
-
-        cls_map = {BasicType.INTEGER: IntLiteral, BasicType.REAL: FloatLiteral,
-                   BasicType.LOGICAL: LogicLiteral, BasicType.CHARACTER: StringLiteral}
-
-        _type = kwargs.pop('type', None)
-        if _type is None:
-            if isinstance(value, int):
-                _type = BasicType.INTEGER
-            elif isinstance(value, float):
-                _type = BasicType.REAL
-            elif isinstance(value, str):
-                if str(value).lower() in ('.true.', 'true', '.false.', 'false'):
-                    _type = BasicType.LOGICAL
-                else:
-                    _type = BasicType.CHARACTER
-
-        return cls_map[_type](value, **kwargs)
-
-    def __new__(cls, value, **kwargs):
-        try:
-            obj = cls._from_literal(value, **kwargs)
-        except KeyError:
-            obj = IntrinsicLiteral(value, **kwargs)
-
-        # And attach our own meta-data
-        if hasattr(obj, 'kind'):
-            obj.kind = kwargs.get('kind', None)
-        return obj
-
-
-class LiteralList(pmbl.AlgebraicLeaf):
-    """
-    A list of constant literals, e.g., as used in Array Initialization Lists.
-    """
-
-    init_arg_names = ('values', 'dtype')
-
-    def __init__(self, values, dtype=None, **kwargs):
-        self.elements = values
-        self.dtype = dtype
-        super().__init__(**kwargs)
-
-    mapper_method = intern('map_literal_list')
-    make_stringifier = loki_make_stringifier
-
-    def __getinitargs__(self):
-        return (self.elements, self.dtype)
-
-
-class InlineDo(pmbl.AlgebraicLeaf):
+class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
     """
@@ -1292,45 +925,12 @@ class InlineDo(pmbl.AlgebraicLeaf):
         super().__init__(**kwargs)
 
     mapper_method = intern('map_inline_do')
-    make_stringifier = loki_make_stringifier
 
     def __getinitargs__(self):
         return (self.values, self.variable, self.bounds)
 
 
-class Sum(StrCompareMixin, pmbl.Sum):
-    """Representation of a sum."""
-
-
-class Product(StrCompareMixin, pmbl.Product):
-    """Representation of a product."""
-
-
-class Quotient(StrCompareMixin, pmbl.Quotient):
-    """Representation of a quotient."""
-
-
-class Power(StrCompareMixin, pmbl.Power):
-    """Representation of a power."""
-
-
-class Comparison(StrCompareMixin, pmbl.Comparison):
-    """Representation of a comparison operation."""
-
-
-class LogicalAnd(StrCompareMixin, pmbl.LogicalAnd):
-    """Representation of an 'and' in a logical expression."""
-
-
-class LogicalOr(StrCompareMixin, pmbl.LogicalOr):
-    """Representation of an 'or' in a logical expression."""
-
-
-class LogicalNot(StrCompareMixin, pmbl.LogicalNot):
-    """Representation of a negation in a logical expression."""
-
-
-class InlineCall(pmbl.CallWithKwargs):
+class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
     """
@@ -1338,7 +938,7 @@ class InlineCall(pmbl.CallWithKwargs):
     init_arg_names = ('function', 'parameters', 'kw_parameters')
 
     def __getinitargs__(self):
-        return (self.function, self.parameters, self.kw_parameters)
+        return (self.function, self.parameters, as_tuple(self.kw_parameters))
 
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
@@ -1355,16 +955,11 @@ class InlineCall(pmbl.CallWithKwargs):
                          kw_parameters=kw_parameters, **kwargs)
 
     mapper_method = intern('map_inline_call')
-    make_stringifier = loki_make_stringifier
-
-    @property
-    def _canonical(self):
-        return (self.function, self.parameters, as_tuple(self.kw_parameters))
 
     def __hash__(self):
         # A custom `__hash__` function to protect us from unhashasble
         # dicts that `pmbl.CallWithKwargs` uses internally
-        return hash(self._canonical)
+        return hash(self.__getinitargs__())
 
     @property
     def name(self):
@@ -1489,31 +1084,6 @@ class InlineCall(pmbl.CallWithKwargs):
         new_args = tuple(arg[1] for arg in new_kwarguments)
         return self.clone(parameters=self.arguments + new_args, kw_parameters=())
 
-class Cast(pmbl.Call):
-    """
-    Internal representation of a data type cast.
-    """
-
-    init_arg_names = ('name', 'expression', 'kind')
-
-    def __init__(self, name, expression, kind=None, **kwargs):
-        assert kind is None or isinstance(kind, pmbl.Expression)
-        self.kind = kind
-        super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
-
-    def __getinitargs__(self):
-        return (self.name, self.expression, self.kind)
-
-    mapper_method = intern('map_cast')
-
-    @property
-    def name(self):
-        return self.function.name
-
-    @property
-    def expression(self):
-        return self.parameters
-
 
 class Range(StrCompareMixin, pmbl.Slice):
     """
@@ -1617,118 +1187,3 @@ class StringSubscript(StrCompareMixin, pmbl.Subscript):
     @property
     def symbol(self):
         return self.aggregate
-
-class Reference(pmbl.Expression):
-    """
-    Internal representation of a Reference.
-
-    .. warning:: Experimental! Allowing compound
-        ``Reference(Variable(...))`` to appear
-        with behaviour akin to a symbol itself
-        for easier processing in mappers.
-
-    **C/C++ only**, no corresponding concept in Fortran.
-    Referencing refers to taking the address of an
-    existing variable (to set a pointer variable).
-    """
-    init_arg_names = ('expression',)
-
-    def __getinitargs__(self):
-        return (self.expression, )
-
-    def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
-        self.expression = expression
-
-    @property
-    def name(self):
-        """
-        Allowing the compound ``Reference(Variable(name))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.name
-
-    @property
-    def type(self):
-        """
-        Allowing the compound ``Reference(Variable(type))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.type
-
-    @property
-    def scope(self):
-        """
-        Allowing the compound ``Reference(Variable(scope))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.scope
-
-    @property
-    def initial(self):
-        """
-        Allowing the compound ``Reference(Variable(initial))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.initial
-
-    mapper_method = intern('map_c_reference')
-    make_stringifier = loki_make_stringifier
-
-
-class Dereference(pmbl.Expression):
-    """
-    Internal representation of a Dereference.
-
-    .. warning:: Experimental! Allowing compound
-        ``Dereference(Variable(...))`` to appear
-        with behaviour akin to a symbol itself
-        for easier processing in mappers.
-
-    **C/C++ only**, no corresponding concept in Fortran.
-    Dereferencing (a pointer) refers to retrieving the value
-    from a memory address (that is pointed by the pointer).
-    """
-    init_arg_names = ('expression', )
-
-    def __getinitargs__(self):
-        return (self.expression, )
-
-    def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
-        self.expression = expression
-
-    @property
-    def name(self):
-        """
-        Allowing the compound ``Dereference(Variable(name))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.name
-
-    @property
-    def type(self):
-        """
-        Allowing the compound ``Dereference(Variable(type))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.type
-
-    @property
-    def scope(self):
-        """
-        Allowing the compound ``Dereference(Variable(scope))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.scope
-
-    @property
-    def initial(self):
-        """
-        Allowing the compound ``Dereference(Variable(initial))`` to appear
-        with behaviour akin to a symbol itself for easier processing in mappers.
-        """
-        return self.expression.initial
-
-    mapper_method = intern('map_c_dereference')
-    make_stringifier = loki_make_stringifier
