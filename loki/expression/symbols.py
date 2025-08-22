@@ -83,11 +83,8 @@ class TypedSymbol:
         Any other keyword arguments for other parent classes
     """
 
-    init_arg_names = ('name', 'scope', 'parent', 'type', 'case_sensitive', )
-
     def __init__(self, *args, **kwargs):
         self.name = kwargs['name']
-        self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
         self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
 
@@ -99,24 +96,12 @@ class TypedSymbol:
 
     @property
     def name(self):
-        if self.parent:
-            return f'{self.parent.name}%{self._name}'
         return self._name
 
     @name.setter
     def name(self, name):
         self._name = name.split('%')[-1]
 
-    def __getinitargs__(self):
-        """
-        Fixed tuple of initialisation arguments, corresponding to
-        ``init_arg_names`` above.
-
-        Note that this defines the pickling behaviour of pymbolic
-        symbol objects. We do not recurse here, since we own the
-        "name" attribute, which pymbolic will otherwise replicate.
-        """
-        return (self.name, None, self._parent, self._type, self.case_sensitive, )
 
     @property
     def scope(self):
@@ -142,41 +127,7 @@ class TypedSymbol:
         e.g. to distinguish between procedure calls and array subscripts for
         ambiguous derived type components.
         """
-        _type = scope.symbol_attrs.lookup(self.name)
-        if _type and _type.dtype is not BasicType.DEFERRED:
-            # We have a clean entry in the symbol table which is not deferred
-            return _type
-
-        # Try a look-up via parent
-        if self.parent:
-            tdef_var = self.parent.variable_map.get(self.basename)
-            if not tdef_var and self.parent.scope is not scope:
-                # If the parent isn't delivering straight away (may happen e.g. for nested derived types)
-                # we'll try discovering its parent's type via the provided scope
-                parent = self._lookup_parent(scope)
-                if parent:
-                    tdef_var = parent.variable_map.get(self.basename)
-            if tdef_var:
-                return tdef_var.type
-
-        return _type
-
-    def _lookup_parent(self, scope):
-        """
-        Helper method to look-up parent variable using provided :data:`scope`
-        """
-        # Start at the root, i.e. the declared derived type object
-        parent_name = self.name_parts[0]
-        parent_type = scope.symbol_attrs.lookup(parent_name)
-        parent_var = Variable(name=parent_name, scope=scope, type=parent_type)
-        # Walk through nested derived types (if any)...
-        for name in self.name_parts[1:-1]:
-            if not parent_var:
-                # If the look-up fails somewhere we have to bail out
-                return None
-            parent_var = parent_var.variable_map.get(name)  # pylint: disable=no-member
-        # ...until we are at the actual parent
-        return parent_var
+        return scope.symbol_attrs.lookup(self.name)
 
     @property
     def type(self):
@@ -201,40 +152,6 @@ class TypedSymbol:
         elif _type is not self.scope.symbol_attrs.lookup(self.name):
             # Update type if it differs from stored type
             self.scope.symbol_attrs[self.name] = _type
-
-    @property
-    def parent(self):
-        """
-        Parent variable for derived type members
-
-        Returns
-        -------
-        :any:`TypedSymbol` or :any:`MetaSymbol` or `NoneType`
-            The parent variable or None
-        """
-        return self._parent
-
-    @parent.setter
-    def parent(self, parent):
-        assert parent is None or isinstance(parent, (TypedSymbol, MetaSymbol,
-            Reference, Dereference))
-        self._parent = parent
-
-    @property
-    def parents(self):
-        """
-        Variables nodes for all parents
-
-        Returns
-        -------
-        tuple
-            The list of parent variables, e.g., for a variable ``a%b%c%d`` this
-            yields the nodes corresponding to ``(a, a%b, a%b%c)``
-        """
-        parent = self.parent
-        if parent:
-            return parent.parents + (parent,)
-        return ()
 
     @property
     def variables(self):
@@ -353,11 +270,27 @@ class DeferredTypeSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint
         The scope in which the symbol is declared
     """
 
-    def __init__(self, name, scope=None, **kwargs):
+    init_arg_names = ('name', 'parent', 'scope', 'type', 'case_sensitive', )
+
+    def __init__(self, *args, **kwargs):
+        self.parent = kwargs.pop('parent', None)
+
         if kwargs.get('type') is None:
             kwargs['type'] = SymbolAttributes(BasicType.DEFERRED)
         assert kwargs['type'].dtype is BasicType.DEFERRED
-        super().__init__(name=name, scope=scope, **kwargs)
+
+        super().__init__(*args, **kwargs)
+
+    def __getinitargs__(self):
+        """
+        Fixed tuple of initialisation arguments, corresponding to
+        ``init_arg_names`` above.
+
+        Note that this defines the pickling behaviour of pymbolic
+        symbol objects. We do not recurse here, since we own the
+        "name" attribute, which pymbolic will otherwise replicate.
+        """
+        return (self.name, self.parent, None, self._type, self.case_sensitive, )
 
     mapper_method = intern('map_deferred_type_symbol')
 
@@ -388,6 +321,24 @@ class VariableSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: di
         The type of that symbol. Defaults to :any:`SymbolAttributes` with
         :any:`BasicType.DEFERRED`.
     """
+
+    init_arg_names = ('name', 'parent', 'scope', 'type', 'case_sensitive', )
+
+    def __init__(self, *args, **kwargs):
+        self.parent = kwargs.pop('parent', None)
+
+        super().__init__(*args, **kwargs)
+
+    def __getinitargs__(self):
+        """
+        Fixed tuple of initialisation arguments, corresponding to
+        ``init_arg_names`` above.
+
+        Note that this defines the pickling behaviour of pymbolic
+        symbol objects. We do not recurse here, since we own the
+        "name" attribute, which pymbolic will otherwise replicate.
+        """
+        return (self.name, self.parent, None, self._type, self.case_sensitive, )
 
     @property
     def initial(self):
@@ -431,11 +382,30 @@ class ProcedureSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):  # pylint:
         The type of that symbol. Defaults to :any:`BasicType.DEFERRED`.
     """
 
-    def __init__(self, name, scope=None, type=None, **kwargs):
-        # pylint: disable=redefined-builtin
-        assert type is None or isinstance(type.dtype, ProcedureType) or \
-                (isinstance(type.dtype, DerivedType) and name.lower() == type.dtype.name.lower())
-        super().__init__(name=name, scope=scope, type=type, **kwargs)
+    init_arg_names = ('name', 'parent', 'scope', 'type', 'case_sensitive', )
+
+    def __init__(self, *args, **kwargs):
+        self.parent = kwargs.pop('parent', None)
+
+        _type = kwargs.get('type')
+        if _type and isinstance(_type.dtype, DerivedType):
+            # The derived type name is used as a constructor call
+            assert name.lower() == type.dtype.name.lower()
+        else:
+            assert _type is None or isinstance(_type.dtype, ProcedureType)
+
+        super().__init__(*args, **kwargs)
+
+    def __getinitargs__(self):
+        """
+        Fixed tuple of initialisation arguments, corresponding to
+        ``init_arg_names`` above.
+
+        Note that this defines the pickling behaviour of pymbolic
+        symbol objects. We do not recurse here, since we own the
+        "name" attribute, which pymbolic will otherwise replicate.
+        """
+        return (self.name, self.parent, None, self._type, self.case_sensitive, )
 
     mapper_method = intern('map_procedure_symbol')
 
