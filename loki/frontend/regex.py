@@ -23,9 +23,8 @@ from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
 from loki.frontend.util import combine_multiline_pragmas
 from loki.logging import debug
-from loki.scope import SymbolAttributes
 from loki.tools import as_tuple, timeout
-from loki.types import BasicType, ProcedureType, DerivedType
+from loki.types import BasicType, ProcedureType, DerivedType, SymbolAttributes
 
 __all__ = ['RegexParserClass', 'parse_regex_source', 'HAVE_REGEX']
 

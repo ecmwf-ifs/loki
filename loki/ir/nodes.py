@@ -28,9 +28,8 @@ from loki.expression import (
     ExpressionDimensionsMapper
 )
 from loki.frontend.source import Source
-from loki.scope import Scope
 from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
-from loki.types import DataType, BasicType, DerivedType, SymbolAttributes
+from loki.types import DataType, BasicType, DerivedType, SymbolAttributes, Scope
 
 __all__ = [
     # Abstract base classes

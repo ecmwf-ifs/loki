@@ -16,9 +16,8 @@ from loki.ir import (
     nodes as ir, FindNodes, Transformer, ExpressionTransformer
 )
 from loki.logging import debug
-from loki.scope import Scope
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
-from loki.types import BasicType, DerivedType, ProcedureType
+from loki.types import BasicType, DerivedType, ProcedureType, Scope
 
 
 __all__ = ['ProgramUnit']

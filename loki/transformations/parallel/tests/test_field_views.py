@@ -11,8 +11,7 @@ from loki import Subroutine, Dimension
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 from loki.expression import symbols as sym
-from loki.scope import Scope
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, SymbolAttributes, Scope
 from loki.logging import WARNING
 
 from loki.transformations.field_api import (

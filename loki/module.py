@@ -16,10 +16,9 @@ from loki.ir import (
     VariableDeclaration, pragmas_attached, process_dimension_pragmas
 )
 from loki.program_unit import ProgramUnit
-from loki.scope import Scope
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple
-from loki.types import ModuleType, SymbolAttributes
+from loki.types import ModuleType, SymbolAttributes, Scope
 
 
 __all__ = ['Module']

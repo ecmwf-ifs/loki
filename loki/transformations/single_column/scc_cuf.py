@@ -17,8 +17,7 @@ from loki.ir import (
     SubstituteExpressions
 )
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
-from loki.types import BasicType, DerivedType
-from loki.scope import SymbolAttributes
+from loki.types import BasicType, DerivedType, SymbolAttributes
 
 from loki.transformations.array_indexing import resolve_vector_notation
 from loki.transformations.temporaries.hoist_variables import HoistVariablesTransformation
