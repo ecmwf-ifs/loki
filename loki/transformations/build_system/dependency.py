@@ -14,9 +14,8 @@ from loki.ir import (
 )
 from loki.logging import warning
 from loki.module import Module
-from loki.scope import Scope
 from loki.subroutine import Subroutine
-from loki.types import ProcedureType
+from loki.types import ProcedureType, Scope
 from loki.tools import as_tuple
 
 

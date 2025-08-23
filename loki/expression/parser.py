@@ -24,8 +24,8 @@ except ImportError:
     FORTRAN_INTRINSIC_PROCEDURES = ()
 
 from loki.expression import symbols as sym, operations as sym_ops
-from loki.scope import Scope
 from loki.tools.util import CaseInsensitiveDict
+from loki.types.scope import Scope
 
 __all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES']
 

@@ -40,8 +40,7 @@ from loki.logging import debug, detail, info, warning, error
 from loki.tools import (
     as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
 )
-from loki.scope import Scope
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
 

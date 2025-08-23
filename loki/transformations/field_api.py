@@ -15,7 +15,7 @@ from itertools import chain
 
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir
-from loki.scope import Scope
+from loki.types import Scope
 
 
 __all__ = [

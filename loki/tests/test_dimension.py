@@ -11,8 +11,7 @@ from loki import Subroutine, Dimension, FindNodes, Loop
 from loki.batch import SchedulerConfig
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
-from loki.scope import Scope, SymbolAttributes
-from loki.types import BasicType
+from loki.types import BasicType, Scope, SymbolAttributes
 
 
 def test_dimension_properties():

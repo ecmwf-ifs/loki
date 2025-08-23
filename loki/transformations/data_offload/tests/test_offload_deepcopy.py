@@ -15,11 +15,10 @@ from loki.ir import nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attac
 from loki.expression import Variable, RangeIndex, IntLiteral
 from loki.frontend import available_frontends
 from loki.logging import log_levels
-from loki.scope import Scope
 from loki.subroutine import Subroutine
 from loki.tools import gettempdir, flatten, as_tuple
 from loki.transformations import DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, find_driver_loops
-from loki.types import BasicType, DerivedType, SymbolAttributes
+from loki.types import BasicType, DerivedType, SymbolAttributes, Scope
 
 
 @pytest.fixture(scope='module', name='deepcopy_code')

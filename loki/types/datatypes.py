@@ -13,6 +13,7 @@ Collection of classes to represent type information for symbols used throughout
 
 import weakref
 from enum import Enum
+
 from loki.tools import flatten, as_tuple, LazyNodeLookup
 
 

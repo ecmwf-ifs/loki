@@ -18,8 +18,7 @@ from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
-from loki.scope import Scope
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
 from loki.expression.literals import (
