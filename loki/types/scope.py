@@ -13,8 +13,8 @@ Representation of symbol tables and scopes in
 from dataclasses import dataclass, field, InitVar
 import weakref
 
-from loki.types import SymbolAttributes, BasicType
 from loki.tools import WeakrefProperty
+from loki.types.datatypes import SymbolAttributes, BasicType
 
 
 __all__ = ['SymbolTable', 'Scope']

@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki.ir import Loop, FindNodes
-from loki.scope import Scope
-from loki.sourcefile import Sourcefile
 from loki.analyse.util_polyhedron import Polyhedron
 from loki.expression import symbols as sym, parse_expr
+from loki.ir import Loop, FindNodes
+from loki.sourcefile import Sourcefile
+from loki.types import Scope
 
 @pytest.fixture(scope="module", name="here")
 def fixture_here():

@@ -16,8 +16,8 @@ from loki.batch import Transformation
 from loki.expression import symbols as sym,  LokiIdentityMapper
 from loki.ir import nodes as ir, Transformer, NestedTransformer
 from loki.logging import warning
-from loki.scope import SymbolTable
 from loki.tools import dict_override
+from loki.types import SymbolTable
 
 
 __all__ = [

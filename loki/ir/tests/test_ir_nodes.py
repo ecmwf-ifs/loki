@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from loki.expression import symbols as sym, parse_expr
 from loki.function import Function
 from loki.ir import nodes as ir
-from loki.scope import Scope
+from loki.types import Scope
 
 
 @pytest.fixture(name='scope')
