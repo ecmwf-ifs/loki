@@ -57,7 +57,7 @@ class RemoveUnusedVarTransformation(RemoveCodeTransformation):
     """
     def __init__(self, remove_unused_vars=False, remove_only_arrays=True, **kwargs): # pylint: disable=unused-argument
         super().__init__(remove_unused_vars=remove_unused_vars, remove_only_arrays=remove_only_arrays,
-                remove_marked_regions=False)
+                remove_marked_regions=False, kernel_only=True)
 
 
 SCCVVectorPipeline = partial(
@@ -188,6 +188,7 @@ SCCVHoistPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
+        RemoveUnusedVarTransformation,
         HoistTemporaryArraysAnalysis,
         SCCHoistTemporaryArraysTransformation,
         SCCAnnotateTransformation,
@@ -238,6 +239,7 @@ SCCSHoistPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
+        RemoveUnusedVarTransformation,
         HoistTemporaryArraysAnalysis,
         SCCHoistTemporaryArraysTransformation,
         SCCAnnotateTransformation,
