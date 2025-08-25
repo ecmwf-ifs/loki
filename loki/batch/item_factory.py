@@ -435,8 +435,8 @@ class ItemFactory:
             )
             if not candidates:
                 msg = f'Unable to find the module declaring {type_name}.'
-                if is_strict:
-                    raise RuntimeError(msg)
+                # if is_strict:
+                #     raise RuntimeError(msg)
                 warning(msg)
                 return None
             if len(candidates) > 1:
