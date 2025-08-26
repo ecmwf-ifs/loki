@@ -581,17 +581,17 @@ subroutine nested_regions(arg)
 implicit none
 real, intent(inout) :: arg
 
-!$loki remove
+!$LoKi remove
 !$acc kernels
 !$loki end remove
 arg = 5
 !$loki remove
-!$acc end kernels
-!$loki end remove
+!$ACC end kernels
+!$LOKI end remove
 
 !$lokiish print
 print *,'hello world'
-!$lokiish end print
+!$LOKIish end print
 
 end subroutine nested_regions
     """.strip()

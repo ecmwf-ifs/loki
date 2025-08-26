@@ -510,7 +510,7 @@ def get_matching_region_pragmas(pragmas):
         ptok = p.content.lower().split(' ')
         if 'end' not in ptok:
             return False
-        if not start.keyword == p.keyword:
+        if not start.keyword.lower() == p.keyword.lower():
             return False
         idx = ptok.index('end')
         return ptok[idx+1] == stok[idx]
@@ -605,7 +605,7 @@ def attach_pragma_regions(ir, keyword=None):
     """
     pragmas = FindNodes(Pragma).visit(ir)
     if keyword:
-        pragmas = [pragma for pragma in pragmas if pragma.keyword == keyword]
+        pragmas = [pragma for pragma in pragmas if pragma.keyword.lower() == keyword.lower()]
     pragma_pairs = get_matching_region_pragmas(pragmas)
 
     return PragmaRegionAttacher(pragma_pairs=pragma_pairs, inplace=True).visit(ir)
