@@ -341,7 +341,7 @@ def do_remove_marked_regions(routine, mark_with_comment=True):
         mark_with_comment=mark_with_comment
     )
 
-    with pragma_regions_attached(routine):
+    with pragma_regions_attached(routine, keyword='loki'):
         routine.body = transformer.visit(routine.body)
 
 

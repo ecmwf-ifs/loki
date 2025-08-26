@@ -675,7 +675,7 @@ subroutine test_remove_unused_vars(a, b, c, len, flag)
   use some_type_mod, only: some_type
   implicit none
 
-  real(kind=8), intent(inout) :: a(len, len), b(len), c 
+  real(kind=8), intent(inout) :: a(len, len), b(len), c
   integer, intent(in) :: len
   logical, intent(in) :: flag
 
@@ -702,3 +702,29 @@ end subroutine test_remove_unused_vars
     routine_locals = [var.clone(dimensions=None) for var in routine.variables]
     for var in expected_locals:
         assert var in routine_locals
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_remove_code_nested_regions(frontend):
+    fcode = """
+subroutine nested_regions(arg)
+implicit none
+real, intent(inout) :: arg
+
+!$loki remove
+!$acc kernels
+!$loki end remove
+arg = 5
+!$loki remove
+!$acc end kernels
+!$loki end remove
+end subroutine nested_regions
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindNodes(ir.Pragma).visit(routine.body)) == 6
+
+    transformation = RemoveCodeTransformation(remove_marked_regions=True)
+    transformation.apply(routine)
+
+    assert not FindNodes(ir.Pragma).visit(routine.body)
