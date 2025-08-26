@@ -293,8 +293,8 @@ SCCVStackPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         TemporariesPoolAllocatorTransformation,
         PragmaModelTransformation
     )
@@ -343,8 +343,8 @@ SCCSStackPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         TemporariesPoolAllocatorTransformation,
         PragmaModelTransformation
     )
@@ -390,8 +390,8 @@ SCCVStackFtrPtrPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         FtrPtrStackTransformation,
         PragmaModelTransformation
     )
@@ -440,8 +440,8 @@ SCCSStackFtrPtrPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         FtrPtrStackTransformation,
         PragmaModelTransformation
     )
@@ -487,8 +487,8 @@ SCCVStackDirectIdxPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         DirectIdxStackTransformation,
         PragmaModelTransformation
     )
@@ -541,8 +541,8 @@ SCCSStackDirectIdxPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         DirectIdxStackTransformation,
         PragmaModelTransformation
     )
@@ -591,8 +591,8 @@ SCCVRawStackPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
-        SCCAnnotateTransformation,
         RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
         TemporariesRawStackTransformation,
         PragmaModelTransformation
     )
