@@ -584,7 +584,7 @@ class PragmaRegionAttacher(Transformer):
 
 
 @Timer(logger=debug, text=lambda s: f'[Loki::IR] Executed attach_pragma_regions in {s:.2f}s')
-def attach_pragma_regions(ir):
+def attach_pragma_regions(ir, keyword=None):
     """
     Create :any:`PragmaRegion` node objects for all matching pairs of
     region pragmas.
@@ -595,8 +595,17 @@ def attach_pragma_regions(ir):
     The defining :any:`Pragma` nodes are accessible via the ``pragma``
     and ``pragma_post`` attributes of the region object. Insertion
     is performed in-place, without rebuilding any IR nodes.
+
+    Parameters
+    ----------
+    ir : :any:`Node`
+        The IR root node of the tree in which pragma regions are to be formed
+    keyword : str, optional
+        Only create pragma regions for pragmas with the given keyword
     """
     pragmas = FindNodes(Pragma).visit(ir)
+    if keyword:
+        pragmas = [pragma for pragma in pragmas if pragma.keyword == keyword]
     pragma_pairs = get_matching_region_pragmas(pragmas)
 
     return PragmaRegionAttacher(pragma_pairs=pragma_pairs, inplace=True).visit(ir)
@@ -643,7 +652,7 @@ def detach_pragma_regions(ir):
 
 
 @contextmanager
-def pragma_regions_attached(module_or_routine):
+def pragma_regions_attached(module_or_routine, keyword=None):
     """
     Create a context in which :any:`PragmaRegion` node objects are
     inserted into the IR to define code regions marked by matching
@@ -682,11 +691,13 @@ def pragma_regions_attached(module_or_routine):
     ----------
     module_or_routine : :any:`Module` or :any:`Subroutine` in
         which :any:`PragmaRegion` objects are to be inserted.
+    keyword : str, optional
+        Limit pragma attachment to pragmas with the given keyword
     """
     if hasattr(module_or_routine, 'spec'):
-        module_or_routine.spec = attach_pragma_regions(module_or_routine.spec)
+        module_or_routine.spec = attach_pragma_regions(module_or_routine.spec, keyword=keyword)
     if hasattr(module_or_routine, 'body'):
-        module_or_routine.body = attach_pragma_regions(module_or_routine.body)
+        module_or_routine.body = attach_pragma_regions(module_or_routine.body, keyword=keyword)
 
     try:
         yield module_or_routine

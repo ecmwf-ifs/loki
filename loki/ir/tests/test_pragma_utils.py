@@ -568,6 +568,47 @@ end subroutine test_tools_pragmas_attached_region
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('keyword,num_pragmas,num_pragma_regions', [
+    (None, 4, 2), # Default/legacy behaviour: this fails to attach the first Loki region because
+                  # a second pragma region begins within the first, and cannot close the
+                  # ACC region for the same reason
+    ('loki', 4, 2), # Creates two Loki pragma regions, each containing an ACC pragma
+    ('acc', 6, 1), # Create only the ACC kernels region
+])
+def test_tools_pragma_regions_attached_keyword(frontend, keyword, num_pragmas, num_pragma_regions):
+    fcode = """
+subroutine nested_regions(arg)
+implicit none
+real, intent(inout) :: arg
+
+!$loki remove
+!$acc kernels
+!$loki end remove
+arg = 5
+!$loki remove
+!$acc end kernels
+!$loki end remove
+
+!$lokiish print
+print *,'hello world'
+!$lokiish end print
+
+end subroutine nested_regions
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(FindNodes(Pragma).visit(routine.body)) == 8
+    assert not FindNodes(PragmaRegion).visit(routine.body)
+
+    with pragma_regions_attached(routine, keyword=keyword):
+        assert len(FindNodes(Pragma).visit(routine.body)) == num_pragmas
+        assert len(FindNodes(PragmaRegion).visit(routine.body)) == num_pragma_regions
+
+    assert len(FindNodes(Pragma).visit(routine.body)) == 8
+    assert not FindNodes(PragmaRegion).visit(routine.body)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_long_pragmas(frontend):
     """
     Test correct dealing with long pragmas.
