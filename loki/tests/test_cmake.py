@@ -16,7 +16,7 @@ import shutil
 from subprocess import CalledProcessError, run, PIPE, STDOUT
 from contextlib import contextmanager
 import pytest
-import toml
+import tomli_w
 
 from loki import gettempdir, execute, graphviz_present
 
@@ -101,7 +101,7 @@ def fixture_config(tmp_dir):
         }
     }
     filepath = tmp_dir/'test_cmake_loki.config'
-    filepath.write_text(toml.dumps(default_config))
+    filepath.write_text(tomli_w.dumps(default_config))
     yield filepath
     filepath.unlink()
 

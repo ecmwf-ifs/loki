@@ -116,10 +116,10 @@ class SchedulerConfig:
 
     @classmethod
     def from_file(cls, path):
-        import toml  # pylint: disable=import-outside-toplevel
+        import tomli  # pylint: disable=import-outside-toplevel
         # Load configuration file and process options
-        with Path(path).open('r') as f:
-            config = toml.load(f)
+        with Path(path).open('rb') as f:
+            config = tomli.load(f)
 
         return cls.from_dict(config)
 

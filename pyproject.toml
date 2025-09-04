@@ -23,7 +23,7 @@ dependencies = [
   "pcpp",  # essential for preprocessing
   "more-itertools",  # essential for SCC transformation
   "click",  # essential for CLI scripts
-  "toml",  # essential for scheduler configuration
+  "tomli",  # essential for scheduler configuration
   "networkx",  # essential for scheduler and build utilities
   "fparser>=0.0.15",  # (almost) essential as frontend
   "graphviz",  # optional for scheduler callgraph
@@ -43,6 +43,7 @@ tests = [
   "pandas",
   "f90wrap>=0.2.15",
   "nbconvert",
+  "tomli_w",
 ]
 dace = [
   "dace>=1.0; python_version < '3.13'",
