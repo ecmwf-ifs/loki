@@ -215,6 +215,35 @@ end subroutine transform_resolve_vector_notation_common_loops
     assert np.all(vector == np.arange(1, n + 1)*2)
     assert np.all(matrix == np.sum(np.mgrid[1:4,2:8:2], axis=0))
 
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI does not like missing information')]))
+def test_transform_inline_call_resolve_vector_notation(frontend):
+    """
+    Apply and test resolve vector notation utility to not apply to a inline call
+    although Loki needs to assume it is an array.
+    """
+    fcode = """
+subroutine transform_resolve_vector_notation_inline_call(x)
+  use some_mod, only: some_func
+  implicit none
+  integer, parameter :: param1 = 3
+  integer, parameter :: param2 = 5
+  integer, intent(in) :: x(param1, param2)
+  
+  ! should stay like that
+  tmp = some_func(ret1(1, 1))
+
+end subroutine transform_resolve_vector_notation_inline_call
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+    var_map = {var.name.lower(): var for var in FindVariables(unique=False).visit(routine.body)
+            if isinstance(var, sym.Array)}
+    # Fortran's questionable choice of having the same syntax for a inline call and array access ...
+    assert 'some_func' in var_map
+    assert var_map['some_func'].dimensions == ('ret1(1, 1)',)
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('calls_only', (False, True))
 def test_transform_explicit_dimensions(tmp_path, frontend, builder, calls_only):
