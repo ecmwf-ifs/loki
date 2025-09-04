@@ -189,7 +189,10 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
             self._shape_to_range(s) if isinstance(d, sym.RangeIndex) and d == ':' else d
             for i, d, s in zip(count(), expr.dimensions, as_tuple(expr.shape))
         )
-        return expr.clone(dimensions=new_dims)
+        # make sure it is not a inline call that was misread as array access ...
+        if new_dims:
+            return expr.clone(dimensions=new_dims)
+        return expr
 
 
 class IterationRangeIndexMapper(LokiIdentityMapper):
