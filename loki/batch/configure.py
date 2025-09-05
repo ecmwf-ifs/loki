@@ -116,9 +116,13 @@ class SchedulerConfig:
 
     @classmethod
     def from_file(cls, path):
-        import toml  # pylint: disable=import-outside-toplevel
+        try:
+            import tomllib as toml  # pylint: disable=import-outside-toplevel
+        except ModuleNotFoundError:
+            import tomli as toml  # pylint: disable=import-outside-toplevel
+
         # Load configuration file and process options
-        with Path(path).open('r') as f:
+        with Path(path).open('rb') as f:
             config = toml.load(f)
 
         return cls.from_dict(config)
