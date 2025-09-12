@@ -21,7 +21,7 @@ from loki.expression import (
 from loki.transformations.array_indexing import resolve_vector_dimension
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    recursive_expression_map_update, get_integer_variable,
+    find_driver_loops, recursive_expression_map_update, get_integer_variable,
     check_routine_sequential
 )
 
@@ -102,7 +102,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         if role == 'kernel':
             self.process_kernel(routine, item, successors, targets, exclude_arrays)
         if role == 'driver':
-            self.process_driver(routine, successors)
+            self.process_driver(routine, item, successors, targets, exclude_arrays)
 
     @staticmethod
     def _get_parkind_suffix(_type):
@@ -189,7 +189,7 @@ class BlockViewToFieldViewTransformation(Transformation):
             child.ir.enrich(definitions)
             child.trafo_data.update({key: {'definitions': definitions}})
 
-    def process_driver(self, routine, successors):
+    def process_driver(self, routine, item, successors, targets, exclude_arrays):
 
         # create dummy definitions for field_api wrapper types
         field_array_mod_imports = [imp for imp in routine.imports if imp.module.lower() == 'field_array_module']
@@ -201,7 +201,10 @@ class BlockViewToFieldViewTransformation(Transformation):
         routine.enrich(definitions)
         self.propagate_defs_to_children(self._key, definitions, successors)
 
-        #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
+        for loop in find_driver_loops(routine.body, targets):
+            body = self.process_body(loop.body, item, successors, targets, exclude_arrays)
+            body_map = {loop.body: body}
+            Transformer(body_map, inplace=True).visit(loop)
 
     def build_ydvars_global_gfl_ptr(self, var):
         """Replace accesses to thread-local ``YDVARS%GFL_PTR`` with global ``YDVARS%GFL_PTR_G``."""
@@ -360,10 +363,22 @@ class InjectBlockIndexTransformation(Transformation):
             exclude_arrays = item.config.get('exclude_arrays', [])
             force_inject_arrays = item.config.get('force_inject_arrays', [])
 
-        if role == 'kernel':
-            self.process_kernel(routine, targets, exclude_arrays, force_inject_arrays)
+        # we skip routines that do not contain the block index or any known alias
+        variable_map = routine.variable_map
+        if not (block_index := self.get_block_index(routine, variable_map)):
+            return
 
-        #TODO: we also need to process any code inside a loki/acdc parallel pragma at the driver layer
+        # replace strings with variables
+        force_inject_arrays = [routine.resolve_typebound_var(var, variable_map) for var in force_inject_arrays]
+
+        if role == 'kernel':
+            # for kernels we process the entire subroutine body
+            routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays, force_inject_arrays)
+        elif role == 'driver':
+            for loop in find_driver_loops(routine.body, targets):
+                body = self.process_body(loop.body, block_index, targets, exclude_arrays, force_inject_arrays)
+                body_map = {loop.body: body}
+                Transformer(body_map, inplace=True).visit(loop)
 
     @staticmethod
     def get_call_arg_rank(arg):
@@ -431,19 +446,6 @@ class InjectBlockIndexTransformation(Transformation):
 
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
-
-    def process_kernel(self, routine, targets, exclude_arrays, force_inject_arrays):
-
-        # we skip routines that do not contain the block index or any known alias
-        variable_map = routine.variable_map
-        if not (block_index := self.get_block_index(routine, variable_map)):
-            return
-
-        # replace strings with variables
-        force_inject_arrays = [routine.resolve_typebound_var(var, variable_map) for var in force_inject_arrays]
-
-        # for kernels we process the entire subroutine body
-        routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays, force_inject_arrays)
 
 
 class LowerBlockIndexTransformation(Transformation):
