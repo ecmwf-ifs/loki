@@ -453,6 +453,8 @@ class Section(InternalNode, _SectionBase):
         self._update(body=as_tuple(node) + self.body)
 
     def __repr__(self):
+        if self.label is not None:
+            return f'Section:: {self.label}'
         return 'Section::'
 
 
