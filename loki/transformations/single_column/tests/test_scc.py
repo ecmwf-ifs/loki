@@ -295,6 +295,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
     REAL :: tmp(nproma)
     REAL :: e(nlev)
     REAL :: b(nlon,psize)
+    REAL :: f(psize)
     INTEGER, PARAMETER :: psize = 3
     INTEGER :: jl, jk
     REAL :: c
@@ -354,7 +355,7 @@ def test_scc_annotate_openacc(frontend, horizontal, blocking, acc_data):
         kernel_loops = FindNodes(Loop).visit(kernel.ir)
         assert len(kernel_loops) == 3
         assert kernel_loops[0].pragma[0].keyword == 'acc'
-        assert kernel_loops[0].pragma[0].content == 'loop vector private(b)'
+        assert kernel_loops[0].pragma[0].content == 'loop vector'
         assert kernel_loops[1].pragma[0].keyword == 'acc'
         assert kernel_loops[1].pragma[0].content == 'loop seq'
         assert kernel_loops[2].pragma[0].keyword == 'acc'
