@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from collections import defaultdict
+from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import symbols as sym, is_dimension_constant
 from loki.ir import (
@@ -64,25 +65,31 @@ class SCCAnnotateTransformation(Transformation):
         if private_arrays:
             # Log private arrays in vector regions, as these can impact performance
             info(
-                f'[Loki-SCC::Annotate] Marking private arrays in {routine.name}: '
+                f'[Loki-SCC::Annotate] Candidates for array privatisation in {routine.name}: '
                 f'{[a.name for a in private_arrays]}'
             )
 
         with pragmas_attached(routine, ir.Loop):
-            for loop in FindNodes(ir.Loop).visit(routine.body):
-                for pragma in as_tuple(loop.pragma):
-                    if not is_loki_pragma(pragma, starts_with='loop vector'):
-                        continue
-                    if not private_arrays:
-                        continue
-                    if 'reduction' not in (pragma_params := get_pragma_parameters(pragma, starts_with='loop vector')):
-                        # Add private clause
-                        pragma_params['private'] = ', '.join(
-                            v.name
-                            for v in pragma_params.get('private', []) + private_arrays
-                        )
-                        pragma_content = [f'{kw}({val})' if val else kw for kw, val in pragma_params.items()]
-                        pragma._update(content=f'loop vector {" ".join(pragma_content)}'.strip())
+            with dataflow_analysis_attached(routine):
+                for loop in FindNodes(ir.Loop).visit(routine.body):
+                    for pragma in as_tuple(loop.pragma):
+                        if not is_loki_pragma(pragma, starts_with='loop vector'):
+                            continue
+                        if not private_arrays:
+                            continue
+                        pragma_params = get_pragma_parameters(pragma, starts_with='loop vector')
+                        if 'reduction' not in pragma_params:
+                            _private_vars = pragma_params.get('private', []) + private_arrays
+
+                            # filter out read-only arrays
+                            _private_vars = [v for v in _private_vars
+                                if v.name.lower() in loop.defines_symbols
+                            ]
+
+                            # Add private clause
+                            pragma_params['private'] = ', '.join([v.name for v in _private_vars])
+                            pragma_content = [f'{kw}({val})' if val else kw for kw, val in pragma_params.items()]
+                            pragma._update(content=f'loop vector {" ".join(pragma_content)}'.strip())
 
     def warn_vec_within_seq_loops(self, routine):
         """
