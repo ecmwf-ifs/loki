@@ -137,7 +137,7 @@ subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if requ
    type(container_type), intent(inout) :: container
    {'integer, intent(in) :: start, end, nb' if request.param else 'type(dims_type), intent(in) :: bnds'}
 
-   integer :: ibl
+   integer :: ibl, jl
    type(field_2rb_array) :: yla_other
    type(field_3rb_array) :: yla_data
 
@@ -145,6 +145,9 @@ subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if requ
 
    do ibl=1,{'nb' if request.param else 'bnds%nb'}
       {'bnds%kbl = ibl' if not request.param else ''}
+      {'do jl = start,end' if request.param else 'do jl = bnds%start,bnds%end'}
+         yla_data%p(jl,:) = 0.
+      enddo
       call kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yla_data, yla_other)
    enddo
 
@@ -291,6 +294,12 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
         assert f'yda_other%p_field(:,{ibl_expr})' in calls[1].arg_map.values()
     else:
         assert 'yda_other%p_field' in calls[1].arg_map.values()
+
+    # check code in driver loop was transformed correctly
+    driver = scheduler['#driver'].ir
+    assigns = FindNodes(Assignment).visit(driver.body)
+    assign_loc = 1 if aliased_bounds else 0
+    assert assigns[assign_loc].lhs == 'yla_data%p_field(jl,:,ibl)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
@@ -453,7 +462,8 @@ subroutine driver(nlon,nlev,nb,var)
   offset = 1
   !$omp test
   do ibl=loop_start, loop_end
-    call kernel(nlon,nlev,var(:,:,ibl), some_var(:,:,ibl),offset, loop_start, loop_end{', ibl, nb' if block_dim_arg else ''})
+    call kernel(nlon,nlev,var(:,:,ibl), some_var(:,:,ibl),offset, loop_start, &
+    &           loop_end{', ibl, nb' if block_dim_arg else ''})
   enddo
 end subroutine driver
 """

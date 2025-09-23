@@ -205,6 +205,8 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
    do ibl=1,local_dims%ngpblks
      local_dims%kbl = ibl
 
+     variable%vt0_field(:,:,ibl) = 0.
+
      call kernel(geometry, local_dims, struct, variable)
      call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
      call nested_kernel_write(array_arg)
@@ -214,6 +216,8 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 !$loki data private(local_dims) write(struct%c%p)
    do ibl=1,local_dims%ngpblks
      local_dims%kbl = ibl
+
+     variable%vt0_field(:,:,ibl) = 0.
 
      call kernel(geometry, local_dims, struct, variable)
      call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
@@ -243,9 +247,10 @@ end subroutine driver
 def fixture_expected_analysis():
     return {
         'local_dims': {
-            'kbl': 'read',
+            'kbl': 'write',
             'kend': 'read',
-            'kst': 'read'
+            'kst': 'read',
+            'ngpblks': 'read'
         },
         'geometry': {
             'dim': {
@@ -255,7 +260,7 @@ def fixture_expected_analysis():
         },
         'array_arg': 'write',
         'variable' : {
-            'vt0_field' : 'read'
+            'vt0_field' : 'write'
         },
         'struct': {
             'a': {
@@ -465,7 +470,7 @@ def check_other_variable_type(mode, conds, pragmas, routine):
             pragmas = FindNodes(ir.Pragma).visit(cond.body)
 
             calls = [call for call in calls
-                     if call.name.name.lower() == 'variable%f_t0%get_device_data_rdonly'
+                     if call.name.name.lower() == 'variable%f_t0%get_device_data_wronly'
                      and 'variable%vt0_field' in call.arguments]
             pragmas = [pragma for pragma in pragmas
                        if 'unstructured-data attach' in pragma.content and 'variable%vt0_field' in pragma.content]
