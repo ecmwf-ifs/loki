@@ -22,7 +22,7 @@ from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnal
 from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
 from loki.tools import as_tuple
-from loki.types import DerivedType
+from loki.types import BasicType, DerivedType
 from loki.transformations.field_api import (
         FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data
 )
@@ -528,7 +528,10 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 present_vars = ()
                 for loop in driver_loops:
 
-                    analysis = analyses[loop]
+                    # filter out root-level scalars from the analysis as these are thread-private by default
+                    # and should not in any case be copied back to host
+                    analysis = {k: v for k, v in analyses[loop].items()
+                                if not (isinstance(k.type.dtype, BasicType) and isinstance(k, sym.Scalar))}
 
                     # update analysis with manual overrides
                     analysis = self.update_with_manual_overrides(parameters, analysis, routine.symbol_map)
