@@ -196,7 +196,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
    type(geom_type), intent(in) :: geometry
    type(other_variable_type), intent(inout) :: variable
    type(dims_type) :: local_dims
-   integer :: ibl
+   integer :: ibl, ij
 
    local_dims = dims
 
@@ -204,6 +204,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 !$loki data private(local_dims) present(geometry) write(struct%c%p)
    do ibl=1,local_dims%ngpblks
      local_dims%kbl = ibl
+     ij = 0
 
      variable%vt0_field(:,:,ibl) = 0.
 
@@ -216,6 +217,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 !$loki data private(local_dims) write(struct%c%p)
    do ibl=1,local_dims%ngpblks
      local_dims%kbl = ibl
+     ij = 0
 
      variable%vt0_field(:,:,ibl) = 0.
 
@@ -283,7 +285,8 @@ def fixture_expected_analysis():
                     'p': 'readwrite'
                 }
             }
-        }
+        },
+        'ij': 'write'
     }
 
 
@@ -667,6 +670,8 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     if mode == 'offload':
         # check data present region
         with pragma_regions_attached(driver):
+
+            assert not any('update host' in p.content and '(ij)' in p.content for p in pragmas)
 
             region = FindNodes(ir.PragmaRegion).visit(driver.body)[-1]
             assert is_loki_pragma(region.pragma, starts_with='structured-data')
