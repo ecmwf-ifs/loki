@@ -908,6 +908,7 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
       integer :: ist
       integer :: iend
       integer :: kbl
+      integer :: wrk(100)
     end type
 
     contains
@@ -930,6 +931,7 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
            local_dims%ist = 1
            local_dims%iend = dims%klon
            local_dims%kbl = b
+           local_dims%wrk = 0
            call some_kernel(local_dims, local_dims%klon, work(:,b))
         enddo
       !$omp end parallel do
