@@ -297,6 +297,10 @@ class SCCAnnotateTransformation(Transformation):
             structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
             structs = [v for v in structs if not v.type.intent]
             structs = [v for v in structs if not v in arrays]
+
+            # only privatise derived-type parent
+            private_sym = [v for v in private_sym if not v.name_parts[0].lower() in structs]
+
             if (dynamic_structs := [v.name for v in structs if (v.type.pointer or v.type.allocatable)]):
                 warning(f'[Loki-SCC::Annotate] dynamically allocated structs are being privatised: {dynamic_structs}')
 
