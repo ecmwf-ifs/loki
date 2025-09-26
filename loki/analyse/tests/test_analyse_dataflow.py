@@ -172,13 +172,14 @@ end subroutine analyse_read_after_write_vars
 def test_read_after_write_vars_conditionals(frontend):
     fcode = """
 subroutine analyse_read_after_write_vars_conditionals(a, b, c, d, e, f)
+  use iso_fortran_env, only : int32
   integer, intent(in) :: a
   integer, intent(out) :: b, c, d, e, f
 
   b = 1
   d = 0
 !$loki A
-  if (a < 3) then
+  if (a < 3_int32) then
     d = b
 !$loki B
   endif
@@ -210,6 +211,7 @@ end subroutine analyse_read_after_write_vars_conditionals
     assert len(pragmas) == len(vars_at_inspection_node)
 
     with dataflow_analysis_attached(routine):
+        assert not 'int32' in routine.body.uses_symbols
         for pragma in pragmas:
             assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
@@ -417,7 +419,8 @@ end subroutine test
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     with dataflow_analysis_attached(routine):
-        assert 'real64' in routine.body.uses_symbols
+        assert 'real64' not in routine.body.uses_symbols
+        assert 'real64' in routine.spec.uses_symbols
         assert 'real64' not in routine.body.defines_symbols
         assert 'a' in routine.body.defines_symbols
         assert 'a' not in routine.body.uses_symbols
@@ -573,14 +576,15 @@ end subroutine test
 def test_analyse_maskedstatement(frontend):
     fcode = """
 subroutine masked_statements(n, mask, vec1, vec2)
+  use iso_fortran_env, only : int32
   integer, intent(in) :: n
   integer, intent(in), dimension(n) :: mask
   real, intent(out), dimension(n) :: vec1,vec2
 
-  where (mask(:) < -5)
+  where (mask(:) < -5_int32)
     vec1(:) = -5.0
     vec1(:) = vec1(:) -5.0
-  elsewhere (mask(:) > 5)
+  elsewhere (mask(:) > 5_int32)
     vec1(:) =  5.0
   elsewhere
     vec1(:) = 0.0
