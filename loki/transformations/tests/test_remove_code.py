@@ -382,7 +382,8 @@ end subroutine test_dead_code_multiconditional
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('mark_with_comment', [True, False])
-def test_transform_remove_code_pragma_region(frontend, mark_with_comment):
+@pytest.mark.parametrize('replace_with_abort', [True, False])
+def test_transform_remove_code_pragma_region(frontend, mark_with_comment, replace_with_abort):
     """
     Test correct removal of pragma-marked code regions.
     """
@@ -419,7 +420,14 @@ end subroutine test_remove_code
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+    if replace_with_abort:
+        do_remove_marked_regions(
+            routine, mark_with_comment=mark_with_comment,
+            replacement_call='ABOR1', replacement_module='ABOR1_MOD',
+            replacement_msg='Unsupported code path',
+        )
+    else:
+        do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -436,6 +444,25 @@ end subroutine test_remove_code
         if '[Loki] Removed content' in c.text
     ]
     assert len(comments) == (2 if mark_with_comment else 0)
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    if replace_with_abort:
+        assert len(calls) == 2
+        for c in calls:
+            # Check that the replacement calls have been inserted
+            assert c.name == 'ABOR1'
+            assert len(c.arguments) == 1 and not c.kwarguments
+            assert c.arguments[0] == 'Unsupported code path'
+
+        # Check that only one C-import was inserted
+        assert len(imports) == 1
+        assert imports[0].module == 'ABOR1_MOD'
+        assert imports[0].symbols == ('ABOR1',)
+        assert not imports[0].c_import
+    else:
+        assert len(calls) == 0
+        assert len(imports) == 0
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -15,7 +15,9 @@ import operator as op
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
-from loki.ir import Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
+from loki.ir import (
+    nodes as ir, Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
+)
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
 from loki.tools import flatten, as_tuple
 from loki.types import BasicType
@@ -323,10 +325,19 @@ class RemoveDeadCodeTransformer(Transformer):
         return self._rebuild(o, tuple((expr,) + (values,) + (bodies,) + (else_body,)), name=o.name)
 
 
-def do_remove_marked_regions(routine, mark_with_comment=True):
+def do_remove_marked_regions(
+        routine, mark_with_comment=True, replacement_call=None,
+        replacement_msg=None, replacement_module=None
+):
     """
     Utility routine to remove code regions marked with
     ``!$loki remove`` pragmas from a subroutine's body.
+
+    Optionally, any removed region might be marked with a
+    comment and/or a simple single-argument "abort" call. For this,
+    a subroutine name and message can be specified and an optional
+    check for an import can also be defined to ensure the interface
+    for the abort procedure is available.
 
     Parameters
     ----------
@@ -335,14 +346,46 @@ def do_remove_marked_regions(routine, mark_with_comment=True):
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
+    replacement_call : optional, str
+        Name of the "abort" subroutine to call if a replacement call
+        is to be inserted.
+    replacement_msg : optional, str
+        Optional error message that will be passed as a single
+        argument to the replacement call.
+    replacement_module : optional, str
+        Optional name of the module from which to import the
+        replacement subroutine. This will only be inserted if a
+        replacement was perfored and will not replace existing imports
+        of the same module or symbols.
     """
 
     transformer = RemoveRegionTransformer(
-        mark_with_comment=mark_with_comment
+        mark_with_comment=mark_with_comment,
+        replacement_call=replacement_call,
+        replacement_msg=replacement_msg,
     )
 
     with pragma_regions_attached(routine, keyword='loki'):
-        routine.body = transformer.visit(routine.body)
+        routine.body = transformer.visit(routine.body, scope=routine)
+
+    if transformer.replacement_done and replacement_module:
+        # Get newly inject procedure symbol for the replacement call
+        callsym = sym.ProcedureSymbol(replacement_call, scope=routine)
+
+        # Inject the necessary import if replacement was done and
+        # it's missing form the spec.
+        existing_imports = tuple(
+            not i.c_import and i.module == replacement_module
+            for i in FindNodes(ir.Import).visit(routine.spec)
+        )
+        if existing_imports:
+            imprt = existing_imports[0]
+            if not any(s == replacement_call for s in imprt.symbols):
+                existing_imports[0]._update(symbols=imprt.symbols + (callsym,))
+        else:
+            routine.spec.append(ir.Import(
+                module=f'{replacement_module}', symbols=(callsym,), c_import=False)
+            )
 
 
 class RemoveRegionTransformer(Transformer):
@@ -355,29 +398,53 @@ class RemoveRegionTransformer(Transformer):
     example via :meth:`pragma_regions_attached`.
 
     When removing a marked code region the transformer may leave a
-    comment in the source to mark the previous location, or remove the
-    code region entirely.
+    comment or a replacement call to trigger "abort" errors in the
+    source to mark the previous location.
 
     Parameters
     ----------
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
+    replacement_call : optional, str
+        Name of the "abort" subroutine to call if a replacement call
+        is to be inserted.
+    replacement_msg : optional, str
+        Optional error message that will be passed as a single
+        argument to the replacmeent call.
     """
 
-    def __init__(self, mark_with_comment=True, **kwargs):
+    def __init__(
+            self, mark_with_comment=True, replacement_call=None, replacement_msg=None, **kwargs
+    ):
         super().__init__(**kwargs)
+
         self.mark_with_comment = mark_with_comment
+
+        # Replace section with call to trigger abort messages!
+        self.replacement_call = replacement_call
+        self.replacement_msg = replacement_msg
+        self.replacement_done = False
 
     def visit_PragmaRegion(self, o, **kwargs):
         """ Remove :any:`PragmaRegion` nodes with ``!$loki remove`` pragmas """
 
         if is_loki_pragma(o.pragma, starts_with='remove'):
             # Leave a comment to mark the removed region in source
+            replacement = []
             if self.mark_with_comment:
-                return Comment(text='! [Loki] Removed content of pragma-marked region!')
+                replacement.append(Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
-            return None
+            if self.replacement_call:
+                # If requested add a call to a simple subroutine with an error message arg
+                replacement.append(ir.CallStatement(
+                    name=sym.ProcedureSymbol(self.replacement_call, scope=kwargs['scope']),
+                    arguments=sym.Literal(str(self.replacement_msg))
+                ))
+                # Set a flag to trigger import injections
+                self.replacement_done = True
+
+            return as_tuple(replacement)
 
         # Recurse into the pragama region and rebuild
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
