@@ -15,9 +15,7 @@ import operator as op
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
-from loki.ir import (
-    nodes as ir, Conditional, Transformer, Comment, CallStatement, FindNodes, FindVariables
-)
+from loki.ir import nodes as ir, Transformer, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
 from loki.tools import flatten, as_tuple
 from loki.types import BasicType
@@ -204,7 +202,7 @@ def do_remove_unused_call_args(routine, unused_args_map):
        utility.
     """
 
-    for call in FindNodes(CallStatement).visit(routine.body):
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
         if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
             continue
 
@@ -300,7 +298,7 @@ class RemoveDeadCodeTransformer(Transformer):
         if condition == 'False':
             return else_body
 
-        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], Conditional)
+        has_elseif = o.has_elseif and else_body and isinstance(else_body[0], ir.Conditional)
         return self._rebuild(o, tuple((condition,) + (body,) + (else_body,)), has_elseif=has_elseif)
 
     def visit_MultiConditional(self, o, **kwargs):
@@ -433,7 +431,7 @@ class RemoveRegionTransformer(Transformer):
             # Leave a comment to mark the removed region in source
             replacement = []
             if self.mark_with_comment:
-                replacement.append(Comment(text='! [Loki] Removed content of pragma-marked region!'))
+                replacement.append(ir.Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
             if self.replacement_call:
                 # If requested add a call to a simple subroutine with an error message arg
