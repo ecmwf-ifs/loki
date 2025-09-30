@@ -50,6 +50,15 @@ class RemoveCodeTransformation(Transformation):
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
+    replacement_call : optional, str
+        Name of the "abort" subroutine to call if a replacement call
+        is to be inserted in :meth:`do_remove_marked_regions`.
+    replacement_msg : optional, str
+        Optional error message that will be passed as argument to
+        the replacement call in :meth:`do_remove_marked_regions`.
+    replacement_module : optional, str
+        Optional name of the module from which to import the
+        replacement subroutine in :meth:`do_remove_marked_regions`.
     remove_dead_code : boolean
         Flag to trigger the use of :meth:`remove_dead_code`;
         default: ``False``
@@ -85,6 +94,7 @@ class RemoveCodeTransformation(Transformation):
 
     def __init__(
             self, remove_marked_regions=True, mark_with_comment=True,
+            replacement_call=None, replacement_msg=None, replacement_module=None,
             remove_dead_code=False, use_simplify=True,
             call_names=None, intrinsic_names=None,
             remove_imports=True, kernel_only=False,
@@ -93,6 +103,9 @@ class RemoveCodeTransformation(Transformation):
     ):
         self.remove_marked_regions = remove_marked_regions
         self.mark_with_comment = mark_with_comment
+        self.replacement_call = replacement_call
+        self.replacement_msg = replacement_msg
+        self.replacement_module = replacement_module
 
         self.remove_dead_code = remove_dead_code
         self.use_simplify = use_simplify
@@ -121,7 +134,10 @@ class RemoveCodeTransformation(Transformation):
             # Apply marked region removal
             if self.remove_marked_regions:
                 do_remove_marked_regions(
-                    routine, mark_with_comment=self.mark_with_comment
+                    routine, mark_with_comment=self.mark_with_comment,
+                    replacement_call=self.replacement_call,
+                    replacement_msg=self.replacement_msg,
+                    replacement_module=self.replacement_module
                 )
 
             # Apply Dead Code Elimination
@@ -370,18 +386,13 @@ def do_remove_marked_regions(
         # Get newly inject procedure symbol for the replacement call
         callsym = sym.ProcedureSymbol(replacement_call, scope=routine)
 
-        # Inject the necessary import if replacement was done and
-        # it's missing form the spec.
-        existing_imports = tuple(
-            not i.c_import and i.module == replacement_module
-            for i in FindNodes(ir.Import).visit(routine.spec)
-        )
-        if existing_imports:
-            imprt = existing_imports[0]
+        # Inject import of replacement module if it does not exist
+        import_map = {i.module: i for i in routine.imports}
+        if imprt := import_map.get(replacement_module):
             if not any(s == replacement_call for s in imprt.symbols):
-                existing_imports[0]._update(symbols=imprt.symbols + (callsym,))
+                imprt._update(symbols=imprt.symbols + (callsym,))
         else:
-            routine.spec.append(ir.Import(
+            routine.spec.prepend(ir.Import(
                 module=f'{replacement_module}', symbols=(callsym,), c_import=False)
             )
 
