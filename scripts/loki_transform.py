@@ -17,21 +17,12 @@ import sys
 import click
 
 from loki import (
-    config as loki_config, Sourcefile, Frontend, as_tuple,
-    set_excepthook, auto_post_mortem_debugger, info
+    config as loki_config, Sourcefile, Frontend, as_tuple, info
 )
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
+from loki.cli.common import cli
 
 from loki.transformations.build_system import FileWriteTransformation
-
-
-@click.group()
-@click.option('--debug/--no-debug', default=False, show_default=True,
-              help=('Enable / disable debug mode. This automatically attaches '
-                    'a debugger when exceptions occur'))
-def cli(debug):
-    if debug:
-        set_excepthook(hook=auto_post_mortem_debugger)
 
 
 @cli.command()
