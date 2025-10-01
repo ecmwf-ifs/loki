@@ -16,7 +16,9 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
 from loki.ir import nodes as ir, Transformer, FindNodes, FindVariables
-from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
+from loki.ir.pragma_utils import (
+    is_loki_pragma, pragma_regions_attached, get_pragma_parameters
+)
 from loki.program_unit import ProgramUnit
 from loki.tools import flatten, as_tuple
 from loki.types import BasicType
@@ -352,7 +354,9 @@ def do_remove_marked_regions(
     comment and/or a simple single-argument "abort" call. For this,
     a subroutine name and message can be specified and an optional
     check for an import can also be defined to ensure the interface
-    for the abort procedure is available.
+    for the abort procedure is available. To bypass the replacement
+    call insertion for individual pragma regions use
+    ``!$loki remove no-replacement-call``.
 
     Parameters
     ----------
@@ -439,7 +443,10 @@ class RemoveRegionTransformer(Transformer):
     def visit_PragmaRegion(self, o, **kwargs):
         """ Remove :any:`PragmaRegion` nodes with ``!$loki remove`` pragmas """
 
-        if is_loki_pragma(o.pragma, starts_with='remove'):
+        # Skip if the bypass clause is present
+        bypass = 'no-replacement-call' in get_pragma_parameters(o.pragma, starts_with='remove')
+        if is_loki_pragma(o.pragma, starts_with='remove') and not bypass:
+
             # Leave a comment to mark the removed region in source
             replacement = []
             if self.mark_with_comment:
