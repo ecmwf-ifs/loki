@@ -53,13 +53,20 @@ end subroutine
 
     fcode_kernel = """
 module rick_rolled
+  type a_type
+    integer :: b
+  end type
 contains
 subroutine never_gonna_give
     use parkind1, only: jprb
     use yomhook, only : lhook, dr_hook
+    use abor2_mod, only: not_my_abor
     implicit none
 
+    type(a_type) :: a
     real(kind=jprb) :: zhook_handle
+
+    associate(b=>a%b)
     if (lhook) call dr_hook('never_gonna_give',0,zhook_handle)
 
     CALL ABOR1('[SUBROUTINE CALL]')
@@ -70,11 +77,15 @@ subroutine never_gonna_give
 
     call never_gonna_run_around()
 
+    !$loki remove
+    call never_gonna_run_around()
+    !$loki end remove
+
     WRITE(NULOUT,*) "[WRITE INTRINSIC]"
     if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
 
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
-
+    end associate
 contains
 
 subroutine never_gonna_run_around
@@ -382,7 +393,8 @@ end subroutine test_dead_code_multiconditional
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('mark_with_comment', [True, False])
-def test_transform_remove_code_pragma_region(frontend, mark_with_comment):
+@pytest.mark.parametrize('replace_with_abort', [True, False])
+def test_transform_remove_code_pragma_region(frontend, mark_with_comment, replace_with_abort):
     """
     Test correct removal of pragma-marked code regions.
     """
@@ -405,7 +417,9 @@ subroutine test_remove_code(a, b, n, flag)
   end do
   !$loki end remove
 
+  !$loki remove no-replacement-call
   b(:) = 1.0
+  !$loki end remove
 
   !$acc parallel
   do i=1, n
@@ -419,7 +433,14 @@ end subroutine test_remove_code
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+    if replace_with_abort:
+        do_remove_marked_regions(
+            routine, mark_with_comment=mark_with_comment,
+            replacement_call='ABOR1', replacement_module='ABOR1_MOD',
+            replacement_msg='Unsupported code path in {}',
+        )
+    else:
+        do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -436,6 +457,25 @@ end subroutine test_remove_code
         if '[Loki] Removed content' in c.text
     ]
     assert len(comments) == (2 if mark_with_comment else 0)
+
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    imports = FindNodes(ir.Import).visit(routine.spec)
+    if replace_with_abort:
+        assert len(calls) == 2
+        for c in calls:
+            # Check that the replacement calls have been inserted
+            assert c.name == 'ABOR1'
+            assert len(c.arguments) == 1 and not c.kwarguments
+            assert c.arguments[0] == 'Unsupported code path in test_remove_code'
+
+        # Check that only one C-import was inserted
+        assert len(imports) == 1
+        assert imports[0].module == 'ABOR1_MOD'
+        assert imports[0].symbols == ('ABOR1',)
+        assert not imports[0].c_import
+    else:
+        assert len(calls) == 0
+        assert len(imports) == 0
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -539,11 +579,14 @@ end subroutine
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+    skip=[(OMNI, 'Incomplete source tree impossible with OMNI')]
 ))
 @pytest.mark.parametrize('include_intrinsics', (True, False))
 @pytest.mark.parametrize('kernel_only', (True, False))
-def test_remove_code_transformation(frontend, source, include_intrinsics, kernel_only, tmp_path):
+@pytest.mark.parametrize('remove_marked', (True, False))
+def test_remove_code_transformation(
+        frontend, source, include_intrinsics, kernel_only, remove_marked, tmp_path
+):
     """
     Test the use of code removal utilities, in particular the call
     removal, via the scheduler.
@@ -565,7 +608,11 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
     transformation = RemoveCodeTransformation(
         call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT',) if include_intrinsics else (),
-        kernel_only=kernel_only
+        kernel_only=kernel_only,
+        remove_marked_regions=remove_marked,
+        replacement_call='ABOR2' if remove_marked else None,
+        replacement_msg='!!!Unsupported!!!' if remove_marked else None,
+        replacement_module='abor2_mod' if remove_marked else None,
     )
     scheduler.process(transformation=transformation)
 
@@ -576,6 +623,11 @@ def test_remove_code_transformation(frontend, source, include_intrinsics, kernel
     assert '[INLINE CONDITIONAL]' not in transformed
     assert ('dave' not in transformed) == include_intrinsics
     assert ('[WRITE INTRINSIC]' not in transformed) == include_intrinsics
+
+    # Check that `!$loki remove` added replacement call, but did not duplicate import
+    if remove_marked:
+        assert ("CALL ABOR2('!!!Unsupported!!!')" in transformed) == remove_marked
+        assert transformed.count('USE abor2_mod, ONLY: not_my_abor, ABOR2') == 1
 
     for r in routine.members:
         transformed = r.to_fortran()
