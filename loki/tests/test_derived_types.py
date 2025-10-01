@@ -20,6 +20,7 @@ from loki import (
     StringSubscript, Conditional, CallStatement, ProcedureSymbol,
     FindVariables
 )
+from loki.ir import nodes as ir
 from loki.jit_build import jit_compile, jit_compile_lib, Obj
 from loki.frontend import available_frontends, OMNI
 
@@ -1532,3 +1533,57 @@ end module derived_mod
     # With enrichment we obtain the parent type from the parent module
     derived = Module.from_source(fcode_derived, frontend=frontend, xmods=[tmp_path], definitions=[parent])
     assert derived['derived_type'].parent_type is parent['parent_type']
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI does not handle type-bound procedures')]
+))
+def test_derived_type_type_bound_call_proctype(frontend):
+    """
+    Test correct procedure type information on type-bound procedures
+    """
+
+    fcode_functor = """
+module functor_mod
+  implicit none
+  type functor
+    contains
+    procedure :: calc
+  end type functor
+contains
+
+  subroutine calc(this, c)
+    type(functor) :: this
+    real, intent(inout) :: c
+    !$loki routine seq
+    c = c + 1
+  end subroutine calc
+end module functor_mod
+"""
+
+    fcode_kernel = """
+module kernel_mod
+  use functor_mod
+  implicit none
+contains
+
+  subroutine kernel(ncol, istart, iend)
+    integer, intent(in) :: ncol, istart, iend
+    real, intent(inout) :: a(ncol)
+    type(functor) :: f
+
+    do i = istart,iend
+      call f%calc(a(i))
+    end do
+  end subroutine kernel
+end module kernel_mod
+"""
+
+    functor_mod = Module.from_source(fcode_functor, frontend=frontend)
+    kernel_mod = Module.from_source(fcode_kernel, definitions=functor_mod, frontend=frontend)
+    kernel = kernel_mod['kernel']
+
+    calls = FindNodes(ir.CallStatement).visit(kernel.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'f%calc'
+    assert calls[0].routine and calls[0].routine == functor_mod['calc']
