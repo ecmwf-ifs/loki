@@ -5,12 +5,17 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from dataclasses import dataclass, asdict
+from functools import wraps
+from pathlib import Path
+from typing import Tuple
+
 import click
 
 from loki.tools.util import auto_post_mortem_debugger, set_excepthook
 
 
-__all__ = ['cli']
+__all__ = ['cli', 'build_options']
 
 
 @click.group()
@@ -22,3 +27,49 @@ __all__ = ['cli']
 def cli(debug):
     if debug:
         set_excepthook(hook=auto_post_mortem_debugger)
+
+
+@dataclass
+class BuildOptions:
+    """
+    Storage object for build options that can be passed to the :any:`Scheduler`.
+    """
+
+    preprocess: bool = False
+    includes: Tuple[Path] = ()
+    defines: Tuple[str] = ()
+    xmods: Tuple[Path] = ()
+    omni_includes: Tuple[str] = ()
+
+    @property
+    def asdict(self):
+        return asdict(self)
+
+
+def build_options(func):
+    """
+
+    """
+
+    @click.option('--cpp/--no-cpp', default=False,
+              help='Trigger C-preprocessing of source files.')
+    @click.option('--include', '-I', type=click.Path(), multiple=True,
+                  help='Path for additional header file(s)')
+    @click.option('--define', '-D', multiple=True,
+                  help='Additional symbol definitions for the C-preprocessor')
+    @click.option('--xmod', '-M', type=click.Path(), multiple=True,
+                  help='Path for additional .xmod file(s) for OMNI')
+    @click.option('--omni-include', type=click.Path(), multiple=True,
+                  help='Additional path for header files, specifically for OMNI')
+    @click.pass_context
+    @wraps(func)
+    def process_build_options(ctx, *args, **kwargs):
+        buildopts = ctx.ensure_object(BuildOptions)
+        buildopts.preprocess = kwargs.pop('cpp')
+        buildopts.includes = kwargs.pop('include')
+        buildopts.defines = kwargs.pop('define')
+        buildopts.xmods = kwargs.pop('xmod')
+        buildopts.omni_includes = kwargs.pop('omni_include')
+        return ctx.invoke(func, *args, buildopts, **kwargs)
+
+    return process_build_options
