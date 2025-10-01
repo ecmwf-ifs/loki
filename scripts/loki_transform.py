@@ -20,12 +20,13 @@ from loki import (
     config as loki_config, Sourcefile, Frontend, as_tuple, info
 )
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
-from loki.cli.common import cli
+from loki.cli.common import cli, build_options
 
 from loki.transformations.build_system import FileWriteTransformation
 
 
 @cli.command()
+@build_options
 @click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -36,16 +37,6 @@ from loki.transformations.build_system import FileWriteTransformation
               help='Path to search during source exploration.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--define', '-D', multiple=True,
-              help='Additional symbol definitions for the C-preprocessor')
-@click.option('--omni-include', type=click.Path(), multiple=True,
-              help='Additional path for header files, specifically for OMNI')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional .xmod file(s) for OMNI')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
               help='Frontend parser to use (default FP)')
 @click.option('--plan-file', type=click.Path(), default=None,
@@ -58,8 +49,7 @@ from loki.transformations.build_system import FileWriteTransformation
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 def convert(
-        mode, config, build, source, header, cpp, include, define,
-        omni_include, xmod, frontend, plan_file, callgraph, root,
+        build_opts, mode, config, build, source, header, frontend, plan_file, callgraph, root,
         log_level
 ):
     """
@@ -87,14 +77,6 @@ def convert(
     # set default transformation mode in Scheduler config
     config.default['mode'] = mode
 
-    build_args = {
-        'preprocess': cpp,
-        'includes': include,
-        'defines': define,
-        'xmods': xmod,
-        'omni_includes': omni_include,
-    }
-
     frontend = Frontend[frontend.upper()]
     frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
 
@@ -106,8 +88,9 @@ def convert(
     #  in order to allow the scheduler to find the dependencies
     definitions = []
     for h in header:
-        sfile = Sourcefile.from_file(filename=h, frontend=frontend_type, definitions=definitions,
-                **build_args)
+        sfile = Sourcefile.from_file(
+            filename=h, frontend=frontend_type, definitions=definitions, **build_opts.asdict
+        )
         definitions = definitions + list(sfile.definitions)
 
     # Create a scheduler to bulk-apply source transformations
@@ -118,7 +101,7 @@ def convert(
     scheduler = Scheduler(
         paths=paths, config=config, frontend=frontend,
         full_parse=full_parse, definitions=definitions,
-        output_dir=build, **build_args
+        output_dir=build, **build_opts.asdict
     )
 
     # If requested, apply a custom pipeline from the scheduler config
