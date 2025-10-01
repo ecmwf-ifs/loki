@@ -53,6 +53,9 @@ end subroutine
 
     fcode_kernel = """
 module rick_rolled
+  type a_type
+    integer :: b
+  end type
 contains
 subroutine never_gonna_give
     use parkind1, only: jprb
@@ -60,8 +63,10 @@ subroutine never_gonna_give
     use abor2_mod, only: not_my_abor
     implicit none
 
+    type(a_type) :: a
     real(kind=jprb) :: zhook_handle
 
+    associate(b=>a%b)
     if (lhook) call dr_hook('never_gonna_give',0,zhook_handle)
 
     CALL ABOR1('[SUBROUTINE CALL]')
@@ -80,7 +85,7 @@ subroutine never_gonna_give
     if (.not. dave) WRITE(NULOUT, *) "[WRITE INTRINSIC]"
 
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
-
+    end associate
 contains
 
 subroutine never_gonna_run_around
@@ -412,7 +417,9 @@ subroutine test_remove_code(a, b, n, flag)
   end do
   !$loki end remove
 
+  !$loki remove no-replacement-call
   b(:) = 1.0
+  !$loki end remove
 
   !$acc parallel
   do i=1, n
