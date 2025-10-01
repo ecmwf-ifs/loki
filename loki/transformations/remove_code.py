@@ -17,6 +17,7 @@ from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
 from loki.ir import nodes as ir, Transformer, FindNodes, FindVariables
 from loki.ir.pragma_utils import is_loki_pragma, pragma_regions_attached
+from loki.program_unit import ProgramUnit
 from loki.tools import flatten, as_tuple
 from loki.types import BasicType
 
@@ -445,10 +446,15 @@ class RemoveRegionTransformer(Transformer):
                 replacement.append(ir.Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
             if self.replacement_call:
+                # Get the outer scope, to avoid picking associates
+                routine = kwargs['scope']
+                while not isinstance(routine, ProgramUnit):
+                    routine = routine.parent
+
                 # If requested add a call to a simple subroutine with an error message arg
                 replacement.append(ir.CallStatement(
-                    name=sym.ProcedureSymbol(self.replacement_call, scope=kwargs['scope']),
-                    arguments=sym.Literal(str(self.replacement_msg))
+                    name=sym.ProcedureSymbol(self.replacement_call, scope=routine),
+                    arguments=sym.Literal(str(self.replacement_msg.format(routine.name)))
                 ))
                 # Set a flag to trigger import injections
                 self.replacement_done = True

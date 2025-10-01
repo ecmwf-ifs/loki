@@ -430,7 +430,7 @@ end subroutine test_remove_code
         do_remove_marked_regions(
             routine, mark_with_comment=mark_with_comment,
             replacement_call='ABOR1', replacement_module='ABOR1_MOD',
-            replacement_msg='Unsupported code path',
+            replacement_msg='Unsupported code path in {}',
         )
     else:
         do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
@@ -459,7 +459,7 @@ end subroutine test_remove_code
             # Check that the replacement calls have been inserted
             assert c.name == 'ABOR1'
             assert len(c.arguments) == 1 and not c.kwarguments
-            assert c.arguments[0] == 'Unsupported code path'
+            assert c.arguments[0] == 'Unsupported code path in test_remove_code'
 
         # Check that only one C-import was inserted
         assert len(imports) == 1
