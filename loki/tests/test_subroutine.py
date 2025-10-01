@@ -2322,3 +2322,86 @@ end subroutine member_functions
         assert ':: add_to_a(n)' in routine.to_fortran()
     else:
         assert dim_decl in routine.to_fortran()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('ext2_import', [
+    ('use ext2, only: ext2_var1, ext2_var2', ('ext2_var1', 'ext2_var2')),
+    ('use ext2', ()),
+    ('use ext2, ext2_var => ext2_var1', ('ext2_var',)),
+    ('use ext2, only: ext2_var2', ('ext2_var2',))
+    ])
+def test_subroutine_imported_symbols(tmp_path, frontend, ext2_import):
+    """ Test return of imported symbols """
+    fcode_ext1_mod = """
+    module ext1
+      implicit none
+      integer :: ext1_var1, ext1_var2, ext1_var3
+    end module ext1
+    """
+
+    fcode_ext2_mod = """
+    module ext2
+      implicit none
+      integer :: ext2_var1, ext2_var2
+    end module ext2
+    """
+
+    fcode_ext3_mod = """
+    module ext3
+      implicit none
+      integer :: ext3_var1, ext3_var2
+    end module ext3
+    """
+
+    fcode_module = f"""
+module parent_mod
+  use ext1, only: ext1_var1
+  {ext2_import[0]}
+  implicit none
+  contains
+   subroutine routine1(a)
+     use ext1, only: ext1_var2, ext1_var3
+     use ext3
+     integer, intent(inout) :: a(:)
+   end subroutine routine1
+
+   subroutine routine2(b)
+     use ext3, only: ext3_var1, ext3_var2
+     integer, intent(inout) :: b(:)
+   end subroutine routine2
+end module parent_mod
+    """
+
+    ext1_mod = Module.from_source(fcode_ext1_mod, frontend=frontend, xmods=[tmp_path])
+    ext2_mod = Module.from_source(fcode_ext2_mod, frontend=frontend, xmods=[tmp_path])
+    ext3_mod = Module.from_source(fcode_ext3_mod, frontend=frontend, xmods=[tmp_path])
+    module  = Module.from_source(fcode_module, frontend=frontend, xmods=[tmp_path],
+            definitions=[ext1_mod, ext2_mod, ext3_mod])
+    routine1 = module.subroutines[0]
+    routine2 = module.subroutines[1]
+
+    # get imported_symbols and all_imported_symbols
+    mod_imp_symbols = set(module.imported_symbols)
+    mod_all_imp_symbols = set(module.all_imported_symbols)
+    routine1_imp_symbols = set(routine1.imported_symbols)
+    routine1_all_imp_symbols = set(routine1.all_imported_symbols)
+    routine2_imp_symbols = set(routine2.imported_symbols)
+    routine2_all_imp_symbols = set(routine2.all_imported_symbols)
+
+    # check/test results
+    exp_mod_imp_symbols = set(('ext1_var1',) + ext2_import[1])
+    assert mod_imp_symbols == exp_mod_imp_symbols
+    for var in exp_mod_imp_symbols:
+        assert var in module.all_imported_symbol_map
+    exp_routine1_imp_symbols = set(['ext1_var2', 'ext1_var3'])
+    assert routine1_imp_symbols == exp_routine1_imp_symbols
+    exp_routine2_imp_symbols = set(['ext3_var1', 'ext3_var2'])
+    assert routine2_imp_symbols == exp_routine2_imp_symbols
+    assert mod_imp_symbols == mod_all_imp_symbols
+    assert routine1_all_imp_symbols == exp_routine1_imp_symbols | exp_mod_imp_symbols
+    for var in exp_routine1_imp_symbols | exp_mod_imp_symbols:
+        assert var in routine1.all_imported_symbol_map
+    assert routine2_all_imp_symbols == exp_routine2_imp_symbols | exp_mod_imp_symbols
+    for var in exp_routine2_imp_symbols | exp_mod_imp_symbols:
+        assert var in routine2.all_imported_symbol_map
