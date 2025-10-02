@@ -417,8 +417,10 @@ subroutine test_remove_code(a, b, n, flag)
   end do
   !$loki end remove
 
-  !$loki remove no-replacement-call
   b(:) = 1.0
+
+  !$loki remove no-replacement-call
+  b(:) = 42.0
   !$loki end remove
 
   !$acc parallel
@@ -456,7 +458,7 @@ end subroutine test_remove_code
         c for c in FindNodes(ir.Comment).visit(routine.body)
         if '[Loki] Removed content' in c.text
     ]
-    assert len(comments) == (2 if mark_with_comment else 0)
+    assert len(comments) == (3 if mark_with_comment else 0)
 
     calls = FindNodes(ir.CallStatement).visit(routine.body)
     imports = FindNodes(ir.Import).visit(routine.spec)
