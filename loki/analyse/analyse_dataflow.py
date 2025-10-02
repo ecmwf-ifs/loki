@@ -42,13 +42,19 @@ class DataflowAnalysisAttacher(Transformer):
     """
     Analyse and attach in-place the definition, use and live status of
     symbols.
+
+    Parameters
+    ----------
+    include_literal_kinds : bool (default : True)
+       Include kind specifiers for literals in dataflow analysis.
     """
 
     # group of functions that only query memory properties and don't read/write variable value
     _mem_property_queries = ('size', 'lbound', 'ubound', 'present')
 
-    def __init__(self, **kwargs):
+    def __init__(self, include_literal_kinds=True, **kwargs):
         super().__init__(inplace=True, invalidate_source=False, **kwargs)
+        self.include_literal_kinds = include_literal_kinds
 
     # Utility routines
 
@@ -177,10 +183,11 @@ class DataflowAnalysisAttacher(Transformer):
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_call))
         cset = set(v for v in FindVariables().visit(o.condition) if not v in query_args)
 
-        # Filter out any symbols used to qualify literals e.g. 0._JPRB
-        literals = FindLiterals().visit(o.condition)
-        literal_vars = FindVariables().visit(literals)
-        cset -= set(literal_vars)
+        if not self.include_literal_kinds:
+            # Filter out any symbols used to qualify literals e.g. 0._JPRB
+            literals = FindLiterals().visit(o.condition)
+            literal_vars = FindVariables().visit(literals)
+            cset -= set(literal_vars)
 
         condition = self._symbols_from_expr(as_tuple(cset))
         body, defines, uses = self._visit_body(o.body, live=live, uses=condition, **kwargs)
@@ -217,12 +224,12 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
 
-        # Filter out any symbols used to qualify literals e.g. 0._JPRB
-        literals = as_tuple(FindLiterals().visit(o.conditions))
-        literal_vars = FindVariables().visit(literals)
-
         conditions = self._symbols_from_expr(o.conditions)
-        conditions -= set(literal_vars)
+        if not self.include_literal_kinds:
+            # Filter out any symbols used to qualify literals e.g. 0._JPRB
+            literals = as_tuple(FindLiterals().visit(o.conditions))
+            literal_vars = FindVariables().visit(literals)
+            conditions -= set(literal_vars)
 
         body = ()
         defines = set()
@@ -243,10 +250,11 @@ class DataflowAnalysisAttacher(Transformer):
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         rset = set(v for v in FindVariables().visit(o.rhs) if not v in query_args)
 
-        # Filter out any symbols used to qualify literals e.g. 0._JPRB
-        literals = FindLiterals().visit(o.rhs)
-        literal_vars = FindVariables().visit(literals)
-        rset -= set(literal_vars)
+        if not self.include_literal_kinds:
+            # Filter out any symbols used to qualify literals e.g. 0._JPRB
+            literals = FindLiterals().visit(o.rhs)
+            literal_vars = FindVariables().visit(literals)
+            rset -= set(literal_vars)
 
         # The left-hand side variable is defined by this statement
         defines, uses = self._symbols_from_lhs_expr(o.lhs)

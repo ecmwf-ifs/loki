@@ -211,7 +211,7 @@ end subroutine analyse_read_after_write_vars_conditionals
     assert len(pragmas) == len(vars_at_inspection_node)
 
     with dataflow_analysis_attached(routine):
-        assert not 'int32' in routine.body.uses_symbols
+        assert 'int32' in routine.body.uses_symbols
         for pragma in pragmas:
             assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
@@ -419,7 +419,7 @@ end subroutine test
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     with dataflow_analysis_attached(routine):
-        assert 'real64' not in routine.body.uses_symbols
+        assert 'real64' in routine.body.uses_symbols
         assert 'real64' in routine.spec.uses_symbols
         assert 'real64' not in routine.body.defines_symbols
         assert 'a' in routine.body.defines_symbols
@@ -597,9 +597,10 @@ end subroutine masked_statements
     mask = FindNodes(ir.MaskedStatement).visit(routine.body)[0]
     num_bodies = len(mask.bodies)
     with dataflow_analysis_attached(routine):
-        assert len(mask.uses_symbols) == 1
+        assert len(mask.uses_symbols) == 2
         assert len(mask.defines_symbols) == 1
         assert 'mask' in mask.uses_symbols
+        assert 'int32' in mask.uses_symbols
         assert 'vec1' in mask.defines_symbols
 
     assert len(mask.bodies) == num_bodies
