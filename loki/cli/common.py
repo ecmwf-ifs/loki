@@ -13,6 +13,7 @@ from typing import Tuple
 import click
 from click_option_group import optgroup
 
+from loki.frontend import Frontend
 from loki.tools.util import auto_post_mortem_debugger, set_excepthook
 
 
@@ -52,8 +53,10 @@ def build_options(func):
 
     """
 
-    @optgroup.group('Build options',
+    @optgroup.group('Scheduler build options',
                     help='Build options for the batch scheduler.')
+    @optgroup.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
+                     help='Frontend parser to use (default FP)')
     @optgroup.option('--cpp/--no-cpp', default=False,
                      help='Trigger C-preprocessing of source files.')
     @optgroup.option('--include', '-I', type=click.Path(), multiple=True,
@@ -68,6 +71,7 @@ def build_options(func):
     @wraps(func)
     def process_build_options(ctx, *args, **kwargs):
         buildopts = ctx.ensure_object(BuildOptions)
+        buildopts.frontend = Frontend[kwargs.pop('frontend').upper()]
         buildopts.preprocess = kwargs.pop('cpp')
         buildopts.includes = kwargs.pop('include')
         buildopts.defines = kwargs.pop('define')

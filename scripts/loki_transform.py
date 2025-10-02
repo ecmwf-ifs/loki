@@ -37,8 +37,6 @@ from loki.transformations.build_system import FileWriteTransformation
               help='Path to search during source exploration.')
 @click.option('--header', '-h', type=click.Path(), multiple=True,
               help='Path for additional header file(s).')
-@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
-              help='Frontend parser to use (default FP)')
 @click.option('--plan-file', type=click.Path(), default=None,
               help='Process pipeline in planning mode and generate CMake "plan" file.')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
@@ -49,7 +47,7 @@ from loki.transformations.build_system import FileWriteTransformation
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 def convert(
-        build_opts, mode, config, build, source, header, frontend, plan_file, callgraph, root,
+        build_opts, mode, config, build, source, header, plan_file, callgraph, root,
         log_level
 ):
     """
@@ -77,9 +75,6 @@ def convert(
     # set default transformation mode in Scheduler config
     config.default['mode'] = mode
 
-    frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-
     # Note, in order to get function inlinig correct, we need full knowledge
     # of any imported symbols and functions. Since we cannot yet retro-fit that
     # after creation, we need to make sure that the order of definitions can
@@ -99,9 +94,8 @@ def convert(
     # Skip full source parse for planning mode
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend,
-        full_parse=full_parse, definitions=definitions,
-        output_dir=build, **build_opts.asdict
+        paths=paths, config=config, full_parse=full_parse,
+        definitions=definitions, output_dir=build, **build_opts.asdict
     )
 
     # If requested, apply a custom pipeline from the scheduler config
