@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Tuple
 
 import click
+from click_option_group import optgroup
 
 from loki.tools.util import auto_post_mortem_debugger, set_excepthook
 
@@ -51,16 +52,18 @@ def build_options(func):
 
     """
 
-    @click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-    @click.option('--include', '-I', type=click.Path(), multiple=True,
-                  help='Path for additional header file(s)')
-    @click.option('--define', '-D', multiple=True,
-                  help='Additional symbol definitions for the C-preprocessor')
-    @click.option('--xmod', '-M', type=click.Path(), multiple=True,
-                  help='Path for additional .xmod file(s) for OMNI')
-    @click.option('--omni-include', type=click.Path(), multiple=True,
-                  help='Additional path for header files, specifically for OMNI')
+    @optgroup.group('Build options',
+                    help='Build options for the batch scheduler.')
+    @optgroup.option('--cpp/--no-cpp', default=False,
+                     help='Trigger C-preprocessing of source files.')
+    @optgroup.option('--include', '-I', type=click.Path(), multiple=True,
+                     help='Path for additional header file(s)')
+    @optgroup.option('--define', '-D', multiple=True,
+                     help='Additional symbol definitions for the C-preprocessor')
+    @optgroup.option('--xmod', '-M', type=click.Path(), multiple=True,
+                     help='Path for additional .xmod file(s) for OMNI')
+    @optgroup.option('--omni-include', type=click.Path(), multiple=True,
+                     help='Additional path for header files, specifically for OMNI')
     @click.pass_context
     @wraps(func)
     def process_build_options(ctx, *args, **kwargs):
