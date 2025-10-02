@@ -11,6 +11,7 @@ Collection of dataflow analysis schema routines.
 
 from contextlib import contextmanager
 from loki.expression import Array, ProcedureSymbol
+from loki.ir.expr_visitors import FindLiterals
 from loki.tools import as_tuple, flatten
 from loki.types import BasicType
 from loki.ir import (
@@ -41,13 +42,19 @@ class DataflowAnalysisAttacher(Transformer):
     """
     Analyse and attach in-place the definition, use and live status of
     symbols.
+
+    Parameters
+    ----------
+    include_literal_kinds : bool (default : True)
+       Include kind specifiers for literals in dataflow analysis.
     """
 
     # group of functions that only query memory properties and don't read/write variable value
     _mem_property_queries = ('size', 'lbound', 'ubound', 'present')
 
-    def __init__(self, **kwargs):
+    def __init__(self, include_literal_kinds=True, **kwargs):
         super().__init__(inplace=True, invalidate_source=False, **kwargs)
+        self.include_literal_kinds = include_literal_kinds
 
     # Utility routines
 
@@ -176,6 +183,12 @@ class DataflowAnalysisAttacher(Transformer):
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_call))
         cset = set(v for v in FindVariables().visit(o.condition) if not v in query_args)
 
+        if not self.include_literal_kinds:
+            # Filter out any symbols used to qualify literals e.g. 0._JPRB
+            literals = FindLiterals().visit(o.condition)
+            literal_vars = FindVariables().visit(literals)
+            cset -= set(literal_vars)
+
         condition = self._symbols_from_expr(as_tuple(cset))
         body, defines, uses = self._visit_body(o.body, live=live, uses=condition, **kwargs)
         else_body, else_defines, uses = self._visit_body(o.else_body, live=live, uses=uses, **kwargs)
@@ -210,7 +223,13 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_MaskedStatement(self, o, **kwargs):
         live = kwargs.pop('live_symbols', set())
+
         conditions = self._symbols_from_expr(o.conditions)
+        if not self.include_literal_kinds:
+            # Filter out any symbols used to qualify literals e.g. 0._JPRB
+            literals = as_tuple(FindLiterals().visit(o.conditions))
+            literal_vars = FindVariables().visit(literals)
+            conditions -= set(literal_vars)
 
         body = ()
         defines = set()
@@ -230,6 +249,12 @@ class DataflowAnalysisAttacher(Transformer):
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.rhs) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         rset = set(v for v in FindVariables().visit(o.rhs) if not v in query_args)
+
+        if not self.include_literal_kinds:
+            # Filter out any symbols used to qualify literals e.g. 0._JPRB
+            literals = FindLiterals().visit(o.rhs)
+            literal_vars = FindVariables().visit(literals)
+            rset -= set(literal_vars)
 
         # The left-hand side variable is defined by this statement
         defines, uses = self._symbols_from_lhs_expr(o.lhs)
@@ -298,6 +323,8 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_VariableDeclaration(self, o, **kwargs):
         defines = self._symbols_from_expr(o.symbols, condition=lambda v: v.type.initial is not None)
         uses = {v for a in o.symbols if isinstance(a, Array) for v in self._symbols_from_expr(a.dimensions)}
+        if o.symbols[0].type.kind:
+            uses |= {o.symbols[0].type.kind}
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
 
