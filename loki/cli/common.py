@@ -17,7 +17,7 @@ from loki.frontend import Frontend
 from loki.tools.util import auto_post_mortem_debugger, set_excepthook
 
 
-__all__ = ['cli', 'build_options']
+__all__ = ['cli', 'frontend_options']
 
 
 @click.group()
@@ -32,11 +32,12 @@ def cli(debug):
 
 
 @dataclass
-class BuildOptions:
+class FrontendOptions:
     """
-    Storage object for build options that can be passed to the :any:`Scheduler`.
+    Storage object for frontend options that can be passed to the :any:`Scheduler`.
     """
 
+    frontend: Frontend = Frontend.FP
     preprocess: bool = False
     includes: Tuple[Path] = ()
     defines: Tuple[str] = ()
@@ -48,13 +49,13 @@ class BuildOptions:
         return asdict(self)
 
 
-def build_options(func):
+def frontend_options(func):
+    """
+    Option group configuring the Loki frontend options, including preprocessing.
     """
 
-    """
-
-    @optgroup.group('Scheduler build options',
-                    help='Build options for the batch scheduler.')
+    @optgroup.group('Loki frontend options',
+                    help='Frontend parsing options for Loki.')
     @optgroup.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
                      help='Frontend parser to use (default FP)')
     @optgroup.option('--cpp/--no-cpp', default=False,
@@ -69,14 +70,14 @@ def build_options(func):
                      help='Additional path for header files, specifically for OMNI')
     @click.pass_context
     @wraps(func)
-    def process_build_options(ctx, *args, **kwargs):
-        buildopts = ctx.ensure_object(BuildOptions)
-        buildopts.frontend = Frontend[kwargs.pop('frontend').upper()]
-        buildopts.preprocess = kwargs.pop('cpp')
-        buildopts.includes = kwargs.pop('include')
-        buildopts.defines = kwargs.pop('define')
-        buildopts.xmods = kwargs.pop('xmod')
-        buildopts.omni_includes = kwargs.pop('omni_include')
-        return ctx.invoke(func, *args, buildopts, **kwargs)
+    def process_frontend_options(ctx, *args, **kwargs):
+        frontendopts = ctx.ensure_object(FrontendOptions)
+        frontendopts.frontend = Frontend[kwargs.pop('frontend').upper()]
+        frontendopts.preprocess = kwargs.pop('cpp')
+        frontendopts.includes = kwargs.pop('include')
+        frontendopts.defines = kwargs.pop('define')
+        frontendopts.xmods = kwargs.pop('xmod')
+        frontendopts.omni_includes = kwargs.pop('omni_include')
+        return ctx.invoke(func, *args, frontendopts, **kwargs)
 
-    return process_build_options
+    return process_frontend_options
