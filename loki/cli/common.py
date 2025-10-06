@@ -17,7 +17,7 @@ from loki.frontend import Frontend
 from loki.tools.util import auto_post_mortem_debugger, set_excepthook
 
 
-__all__ = ['cli', 'frontend_options']
+__all__ = ['cli', 'frontend_options', 'scheduler_options']
 
 
 @click.group()
@@ -81,3 +81,39 @@ def frontend_options(func):
         return ctx.invoke(func, *args, frontendopts, **kwargs)
 
     return process_frontend_options
+
+
+@dataclass
+class SchedulerOptions:
+    """
+    Storage object for scheduler options to instantiate a :any:`Scheduler`.
+    """
+
+    build: Path = Path.cwd()
+    source: Tuple[Path] = ()
+    header: Tuple[str] = ()
+
+
+def scheduler_options(func):
+    """
+    Option group configuring the Loki batch scheduler..
+    """
+
+    @optgroup.group('Loki batch scheduler options',
+                    help='Batch scheduler options for Loki.')
+    @optgroup.option('--build', '-b', '--out-path', type=click.Path(), default=None,
+                     help='Path to build directory for source generation.')
+    @optgroup.option('--source', '-s', '--path', type=click.Path(), multiple=True,
+                     help='Path to search during source exploration.')
+    @optgroup.option('--header', '-h', type=click.Path(), multiple=True,
+                     help='Path for additional header file(s).')
+    @click.pass_context
+    @wraps(func)
+    def process_scheduler_options(ctx, *args, **kwargs):
+        scheduleropts = ctx.ensure_object(SchedulerOptions)
+        scheduleropts.build = kwargs.pop('build')
+        scheduleropts.source = kwargs.pop('source')
+        scheduleropts.header = kwargs.pop('header')
+        return ctx.invoke(func, *args, scheduleropts, **kwargs)
+
+    return process_scheduler_options
