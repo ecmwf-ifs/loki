@@ -121,22 +121,14 @@ def convert(
 
 
 @cli.command('plan')
+@frontend_options
+@scheduler_options
 @click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Path to source files to transform.')
-@click.option('--build', '-b', type=click.Path(), default=None,
-              help='Path to build directory for source generation.')
 @click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
-              help='Frontend parser to use (default FP)')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
@@ -146,8 +138,8 @@ def convert(
               help='Log level to output during batch processing')
 @click.pass_context
 def plan(
-        ctx, mode, config, header, source, build, root, cpp,
-        frontend, callgraph, plan_file, log_level
+        ctx, frontend_options, scheduler_options, mode, config, root,
+        callgraph, plan_file, log_level
 ):
     """
     Create a "plan", a schedule of files to inject and transform for a
