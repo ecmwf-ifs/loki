@@ -20,13 +20,13 @@ from loki import (
     config as loki_config, Sourcefile, Frontend, as_tuple, info
 )
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
-from loki.cli.common import cli, build_options
+from loki.cli.common import cli, frontend_options
 
 from loki.transformations.build_system import FileWriteTransformation
 
 
 @cli.command()
-@build_options
+@frontend_options
 @click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
@@ -47,7 +47,7 @@ from loki.transformations.build_system import FileWriteTransformation
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 def convert(
-        build_opts, mode, config, build, source, header, plan_file, callgraph, root,
+        frontend_opts, mode, config, build, source, header, plan_file, callgraph, root,
         log_level
 ):
     """
@@ -84,7 +84,7 @@ def convert(
     definitions = []
     for h in header:
         sfile = Sourcefile.from_file(
-            filename=h, frontend=frontend_type, definitions=definitions, **build_opts.asdict
+            filename=h, frontend=frontend_type, definitions=definitions, **frontend_opts.asdict
         )
         definitions = definitions + list(sfile.definitions)
 
@@ -95,7 +95,7 @@ def convert(
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
         paths=paths, config=config, full_parse=full_parse,
-        definitions=definitions, output_dir=build, **build_opts.asdict
+        definitions=definitions, output_dir=build, **frontend_opts.asdict
     )
 
     # If requested, apply a custom pipeline from the scheduler config
