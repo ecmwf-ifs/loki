@@ -445,14 +445,14 @@ class RemoveRegionTransformer(Transformer):
 
         # Skip if the bypass clause is present
         bypass = 'no-replacement-call' in get_pragma_parameters(o.pragma, starts_with='remove')
-        if is_loki_pragma(o.pragma, starts_with='remove') and not bypass:
+        if is_loki_pragma(o.pragma, starts_with='remove'):
 
             # Leave a comment to mark the removed region in source
             replacement = []
             if self.mark_with_comment:
                 replacement.append(ir.Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
-            if self.replacement_call:
+            if self.replacement_call and not bypass:
                 # Get the outer scope, to avoid picking associates
                 routine = kwargs['scope']
                 while not isinstance(routine, ProgramUnit):
