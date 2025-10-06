@@ -63,8 +63,8 @@ examples = [
 ]
 
 [project.scripts]
-"loki-transform.py" = "scripts.loki_transform:cli"
-"loki-lint.py" = "scripts.loki_lint:cli"
+"loki-transform.py" = "loki.cli.loki_transform:cli"
+"loki-lint.py" = "loki.cli.loki_lint:cli"
 
 [tool.setuptools]
 license-files = ["LICENSE", "AUTHORS.md"]
