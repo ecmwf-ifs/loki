@@ -20,23 +20,18 @@ from loki import (
     config as loki_config, Sourcefile, Frontend, as_tuple, info
 )
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
-from loki.cli.common import cli, frontend_options
+from loki.cli.common import cli, frontend_options, scheduler_options
 
 from loki.transformations.build_system import FileWriteTransformation
 
 
 @cli.command()
 @frontend_options
+@scheduler_options
 @click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-@click.option('--build', '-b', '--out-path', type=click.Path(), default=None,
-              help='Path to build directory for source generation.')
-@click.option('--source', '-s', '--path', type=click.Path(), multiple=True,
-              help='Path to search during source exploration.')
-@click.option('--header', '-h', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
 @click.option('--plan-file', type=click.Path(), default=None,
               help='Process pipeline in planning mode and generate CMake "plan" file.')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
@@ -47,8 +42,7 @@ from loki.transformations.build_system import FileWriteTransformation
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 def convert(
-        frontend_opts, mode, config, build, source, header, plan_file, callgraph, root,
-        log_level
+        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -82,20 +76,20 @@ def convert(
     # definitions with new scheduler not necessary anymore. However, "source" need to be adjusted
     #  in order to allow the scheduler to find the dependencies
     definitions = []
-    for h in header:
+    for h in scheduler_opts.header:
         sfile = Sourcefile.from_file(
             filename=h, frontend=frontend_type, definitions=definitions, **frontend_opts.asdict
         )
         definitions = definitions + list(sfile.definitions)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(p) for p in as_tuple(source)]
-    paths += [Path(h).parent for h in as_tuple(header)]
+    paths = [Path(p) for p in as_tuple(scheduler_opts.source)]
+    paths += [Path(h).parent for h in as_tuple(scheduler_opts.header)]
     # Skip full source parse for planning mode
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
         paths=paths, config=config, full_parse=full_parse,
-        definitions=definitions, output_dir=build, **frontend_opts.asdict
+        definitions=definitions, output_dir=scheduler_opts.build, **frontend_opts.asdict
     )
 
     # If requested, apply a custom pipeline from the scheduler config
