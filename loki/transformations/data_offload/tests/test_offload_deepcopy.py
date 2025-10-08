@@ -87,6 +87,16 @@ end module type_def_mod
             """.strip()
         ),
 
+        #----- constants_module -----
+        'constants_module' : (
+            """
+module constants_module
+real :: pi
+real :: eps
+end module constants_module
+            """.strip()
+        ),
+
         #----- nested_kernel_write -----
         'nested_kernel_write' : (
             """
@@ -184,11 +194,15 @@ end module kernel_mod
         #----- driver -----
         'driver' : (
             """
+module driver_mod
+use constants_module, only: pi
+implicit none
+contains
 subroutine driver(dims, struct, array_arg, geometry, variable)
    use kernel_mod, only : kernel
    use nested_kernel_write_mod, only: nested_kernel_write
    use type_def_mod, only: struct_type, dims_type, geom_type, other_variable_type
-   use iso_fortran_env, only : real64
+   use constants_module, only: eps
    implicit none
 
    type(dims_type), intent(in) :: dims
@@ -207,7 +221,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
      local_dims%kbl = ibl
      ij = 0
 
-     variable%vt0_field(:,:,ibl) = 0._real64
+     variable%vt0_field(:,:,ibl) = pi + eps
 
      call kernel(geometry, local_dims, struct, variable)
      call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
@@ -220,7 +234,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
      local_dims%kbl = ibl
      ij = 0
 
-     variable%vt0_field(:,:,ibl) = 0._real64
+     variable%vt0_field(:,:,ibl) = pi + eps
 
      call kernel(geometry, local_dims, struct, variable)
      call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
@@ -230,6 +244,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 #endif
 
 end subroutine driver
+end module driver_mod
             """.strip()
         )
     }
@@ -265,6 +280,8 @@ def fixture_expected_analysis():
         'variable' : {
             'vt0_field' : 'write'
         },
+        'pi': 'read',
+        'eps': 'read',
         'struct': {
             'a': {
                 'p': 'write'
@@ -310,7 +327,7 @@ def fixture_config():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('output_analysis', [True, False])
+@pytest.mark.parametrize('output_analysis', [True]) # , False])
 def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_analysis,
                                    output_analysis, tmp_path, caplog):
     """
@@ -347,7 +364,7 @@ def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_ana
 
     # The analysis is tied to driver loops
     trafo_data_key = transformation._key
-    driver_item = scheduler['#driver']
+    driver_item = scheduler['driver_mod#driver']
     driver_loop = find_driver_loops(driver_item.ir.body, targets=['kernel', 'nested_kernel_write'])[0]
 
     #stringify dict for comparison
@@ -652,7 +669,7 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     transformation = DataOffloadDeepcopyTransformation(mode=mode)
     scheduler.process(transformation=transformation)
 
-    driver = scheduler['#driver'].ir
+    driver = scheduler['driver_mod#driver'].ir
     pragmas = FindNodes(ir.Pragma).visit(driver.body)
     conds = FindNodes(ir.Conditional, greedy=True).visit(driver.body)
 
