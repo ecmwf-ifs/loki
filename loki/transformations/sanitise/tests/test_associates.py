@@ -101,6 +101,50 @@ end subroutine transform_associates_nested
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
+def test_transform_associates_ambiguous(frontend):
+    """
+    Test association resolver with some ambiguity.
+    """
+    fcode = """
+subroutine transform_associates_ambiguous
+  use some_module, only: some_obj
+  use other_module, only: other_obj
+  implicit none
+
+    associate(ndim => some_obj%ndim, ndims => some_obj%ndims, nested_obj => other_obj%nested)
+      nested_obj%ndim = 2
+      nested_obj%ndims(:) = 5
+      call some_func(nested_obj%ndim)
+    end associate
+end subroutine transform_associates_ambiguous
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert assigns[0].lhs == 'nested_obj%ndim' and assigns[0].rhs == '2'
+    assert assigns[1].lhs == 'nested_obj%ndims(:)' and assigns[1].rhs == '5'
+    assert calls[0].arguments[0] == 'nested_obj%ndim'
+
+    # Now apply the association resolver
+    do_resolve_associates(routine)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert assigns[0].lhs == 'other_obj%nested%ndim' and assigns[0].rhs == '2'
+    assert assigns[1].lhs == 'other_obj%nested%ndims(:)' and assigns[1].rhs == '5'
+    assert calls[0].arguments[0] == 'other_obj%nested%ndim'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
 def test_transform_associates_array_call(frontend):
     """
     Test a neat corner case where a component of an associated array

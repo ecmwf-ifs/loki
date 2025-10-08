@@ -156,10 +156,12 @@ class ResolveAssociateMapper(LokiIdentityMapper):
         if parent != expr.parent:
             expr = expr.clone(parent=parent, scope=parent.scope)
 
-        # Find a match in the given inverse map
-        if expr.basename in scope.inverse_map:
-            expr = scope.inverse_map[expr.basename]
-            return self.rec(expr, *args, **kwargs)
+        # Find a match in the given inverse map if the expr has no parent
+        #  which is a prerequisite for a possible replacement and avoids
+        #  false replacement because of some ambiguity
+        if expr.parent is None and expr.basename in scope.inverse_map:
+            expr_candidate = scope.inverse_map[expr.basename]
+            return self.rec(expr_candidate, *args, **kwargs)
 
         # Update the scope, as any inner associates will be removed.
         # For this we count backwards the nested scopes, the tail of
