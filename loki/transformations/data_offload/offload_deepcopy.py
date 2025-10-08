@@ -308,11 +308,12 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         # We make do here (lazily) without a context manager, as this override of the
         # DataflowAnalysisAttacher is not meant for use outside of the current module.
+        dataflow_analysis = DeepcopyDataflowAnalysisAttacher(include_literal_kinds=False)
         if has_spec:
-            DeepcopyDataflowAnalysisAttacher().visit(scope_node.spec, successor_map=successor_map)
-            DeepcopyDataflowAnalysisAttacher().visit(scope_node.body, successor_map=successor_map)
+            dataflow_analysis.visit(scope_node.spec, successor_map=successor_map)
+            dataflow_analysis.visit(scope_node.body, successor_map=successor_map)
         else:
-            DeepcopyDataflowAnalysisAttacher().visit(scope_node, successor_map=successor_map)
+            dataflow_analysis.visit(scope_node, successor_map=successor_map)
 
         #gather used symbols in specification
         if has_spec:

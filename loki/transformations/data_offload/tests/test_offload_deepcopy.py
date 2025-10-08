@@ -188,6 +188,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
    use kernel_mod, only : kernel
    use nested_kernel_write_mod, only: nested_kernel_write
    use type_def_mod, only: struct_type, dims_type, geom_type, other_variable_type
+   use iso_fortran_env, only : real64
    implicit none
 
    type(dims_type), intent(in) :: dims
@@ -206,7 +207,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
      local_dims%kbl = ibl
      ij = 0
 
-     variable%vt0_field(:,:,ibl) = 0.
+     variable%vt0_field(:,:,ibl) = 0._real64
 
      call kernel(geometry, local_dims, struct, variable)
      call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
@@ -219,7 +220,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
      local_dims%kbl = ibl
      ij = 0
 
-     variable%vt0_field(:,:,ibl) = 0.
+     variable%vt0_field(:,:,ibl) = 0._real64
 
      call kernel(geometry, local_dims, struct, variable)
      call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
