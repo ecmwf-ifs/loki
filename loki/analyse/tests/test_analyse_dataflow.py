@@ -11,6 +11,7 @@ from loki import Module, Sourcefile, Subroutine
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
+from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
@@ -169,7 +170,8 @@ end subroutine analyse_read_after_write_vars
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_read_after_write_vars_conditionals(frontend):
+@pytest.mark.parametrize('include_literal_kinds', [True, False])
+def test_read_after_write_vars_conditionals(frontend, include_literal_kinds):
     fcode = """
 subroutine analyse_read_after_write_vars_conditionals(a, b, c, d, e, f)
   use iso_fortran_env, only : int32
@@ -210,10 +212,17 @@ end subroutine analyse_read_after_write_vars_conditionals
     pragmas = FindNodes(ir.Pragma).visit(routine.body)
     assert len(pragmas) == len(vars_at_inspection_node)
 
-    with dataflow_analysis_attached(routine):
+    # We skip the context manager here to test the "include_literal_kinds" option
+    DataflowAnalysisAttacher(include_literal_kinds=include_literal_kinds).visit(routine.body)
+
+    if include_literal_kinds:
         assert 'int32' in routine.body.uses_symbols
-        for pragma in pragmas:
-            assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
+    else:
+        assert not 'int32' in routine.body.uses_symbols
+    for pragma in pragmas:
+        assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
+
+    DataflowAnalysisDetacher().visit(routine.body)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -573,7 +582,8 @@ end subroutine test
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_analyse_maskedstatement(frontend):
+@pytest.mark.parametrize('include_literal_kinds', [True, False])
+def test_analyse_maskedstatement(frontend, include_literal_kinds):
     fcode = """
 subroutine masked_statements(n, mask, vec1, vec2)
   use iso_fortran_env, only : int32
@@ -596,12 +606,21 @@ end subroutine masked_statements
     routine = Subroutine.from_source(fcode, frontend=frontend)
     mask = FindNodes(ir.MaskedStatement).visit(routine.body)[0]
     num_bodies = len(mask.bodies)
-    with dataflow_analysis_attached(routine):
+
+    # We skip the context manager here to test the "include_literal_kinds" option
+    DataflowAnalysisAttacher(include_literal_kinds=include_literal_kinds).visit(routine.body)
+
+    if include_literal_kinds:
         assert len(mask.uses_symbols) == 2
-        assert len(mask.defines_symbols) == 1
-        assert 'mask' in mask.uses_symbols
         assert 'int32' in mask.uses_symbols
-        assert 'vec1' in mask.defines_symbols
+    else:
+        assert len(mask.uses_symbols) == 1
+        assert not 'int32' in mask.uses_symbols
+    assert len(mask.defines_symbols) == 1
+    assert 'mask' in mask.uses_symbols
+    assert 'vec1' in mask.defines_symbols
+
+    DataflowAnalysisDetacher().visit(routine.body)
 
     assert len(mask.bodies) == num_bodies
 
