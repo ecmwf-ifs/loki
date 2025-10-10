@@ -409,7 +409,7 @@ class GlobalVarOffloadTransformation(Transformation):
             if copyout_variables:
                 update_host += (
                     Pragma(keyword='loki',
-                        content=f'end unstructured-data out({", ".join(v.name for v in copyout_variables)})'),
+                        content=f'exit-unstructured-data out({", ".join(v.name for v in copyout_variables)})'),
                 )
             if create_variables:
                 update_device += (

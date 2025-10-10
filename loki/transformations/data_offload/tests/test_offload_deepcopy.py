@@ -426,7 +426,7 @@ def check_variable_type_wipe(var, conds):
         calls = [call for call in calls
                  if call.name.name.lower() == f'{var}%fp%delete_device_data']
         pragmas = [pragma for pragma in pragmas
-                   if 'end unstructured-data detach' in pragma.content and f'{var}%p' in pragma.content
+                   if 'exit-unstructured-data detach' in pragma.content and f'{var}%p' in pragma.content
                    and 'finalize' in pragma.content]
         if calls and pragmas:
             assert cond.body.index(calls[0]) > cond.body.index(pragmas[0])
@@ -454,7 +454,7 @@ def check_other_variable_type(mode, conds, pragmas, routine):
 
         # Check deletion of struct from device
         pragma = [p for p in pragmas if
-                  'end unstructured-data delete' in p.content and '(variable)' in p.content][0]
+                  'exit-unstructured-data delete' in p.content and '(variable)' in p.content][0]
         assert routine.body.body.index(pragma) > routine.body.body.index(conds[-1])
 
         # Check FIELD_API boilerplate for copying to device and wiping device
@@ -466,7 +466,7 @@ def check_other_variable_type(mode, conds, pragmas, routine):
             calls = [call for call in calls
                      if call.name.name.lower() == 'variable%f_t0%delete_device_data']
             pragmas = [pragma for pragma in pragmas
-                       if 'end unstructured-data detach' in pragma.content and 'variable%vt0_field' in pragma.content
+                       if 'exit-unstructured-data detach' in pragma.content and 'variable%vt0_field' in pragma.content
                        and 'finalize' in pragma.content]
             if calls and pragmas:
                 assert cond.body.index(calls[0]) > cond.body.index(pragmas[0])
@@ -509,12 +509,12 @@ def check_geometry(conds, pragmas, routine):
     assert '(geometry%metadata)' in conds[0].body[0].content
 
     # Check deletion of struct from device
-    pragma = [p for p in pragmas if 'end unstructured-data delete' in p.content
+    pragma = [p for p in pragmas if 'exit-unstructured-data delete' in p.content
               and '(geometry)' in p.content and 'finalize' in p.content][0]
     assert routine.body.body.index(pragma) > routine.body.body.index(conds[-1])
 
     # Check deletion of member from device
-    assert 'end unstructured-data delete' in conds[-1].body[0].content
+    assert 'exit-unstructured-data delete' in conds[-1].body[0].content
     assert '(geometry%metadata)' in conds[-1].body[0].content
     assert 'finalize' in conds[-1].body[0].content
 
@@ -547,7 +547,7 @@ def check_struct(mode, conds, pragmas, routine):
 
         # Check deletion of struct from device
         pragma = [p for p in pragmas if
-                  'end unstructured-data delete' in p.content and '(struct)' in p.content][0]
+                  'exit-unstructured-data delete' in p.content and '(struct)' in p.content][0]
         assert routine.body.body.index(pragma) > routine.body.body.index(struct_conds[-1])
 
         check_variable_type_device('struct%a', struct_conds, 'wronly')
@@ -601,7 +601,7 @@ def check_struct_var_ptr(mode, conds):
 
             elif any('delete_device_data' in call.name.name.lower() for call in calls):
                 # last entry in conditional body should be delete pragma
-                assert 'end unstructured-data delete' in cond.body[-1].content
+                assert 'exit-unstructured-data delete' in cond.body[-1].content
                 assert 'finalize' in cond.body[-1].content
                 assert '(struct%var_ptr)' in cond.body[-1].content
 
@@ -613,7 +613,7 @@ def check_struct_var_ptr(mode, conds):
 
                 # finally inside the conditional body we have a FIELD_API DELETE_DEVICE_DATA call
                 # preceded by an detach statement
-                assert 'end unstructured-data detach' in _cond.body[0].content
+                assert 'exit-unstructured-data detach' in _cond.body[0].content
                 assert 'finalize' in _cond.body[0].content
                 assert 'struct%var_ptr(J1)%var%p' in _cond.body[0].content
                 assert fgen(_cond.body[1].name).lower() == 'struct%var_ptr(j1)%var%fp%delete_device_data'
