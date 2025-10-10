@@ -44,7 +44,7 @@ subroutine some_func(ret)
   !$loki create device(tmp1, tmp2)
   !$loki update device(tmp1) host(tmp2)
   !$loki unstructured-data in(tmp1, tmp2) create(tmp3, tmp4) attach(tmp1)
-  !$loki end unstructured-data out(tmp2, tmp3, tmp4) detach(tmp1) delete(tmp1) finalize
+  !$loki exit-unstructured-data out(tmp2, tmp3, tmp4) detach(tmp1) delete(tmp1) finalize
   !$loki structured-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
   !$loki end structured-data in(tmp1) out(tmp2) inout(tmp3) create(tmp4)
   !$loki loop gang private(tmp1) vlength(128)
@@ -144,8 +144,8 @@ end subroutine some_func
         args = (('loki', 'create device(tmp1, tmp2)'),
                 ('loki', ('update', 'device(tmp1)', 'host(tmp2)'), False),
                 ('loki', ('unstructured-data', 'in(tmp1, tmp2)', 'create(tmp3, tmp4)', 'attach(tmp1)', ), False),
-                ('loki', ('end unstructured-data', 'out(tmp2, tmp3, tmp4)', 'detach(tmp1)', 'delete(tmp1)', 'finalize'),
-                          False),
+                ('loki', ('exit-unstructured-data', 'out(tmp2, tmp3, tmp4)', 'detach(tmp1)', 'delete(tmp1)',
+                          'finalize'), False),
                 ('loki', ('structured-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
                 ('loki', ('end structured-data', 'in(tmp1)', 'out(tmp2)', 'inout(tmp3)', 'create(tmp4)'), False),
                 ('loki', ('loop gang', 'private(tmp1)', 'vlength(128)'), False),
