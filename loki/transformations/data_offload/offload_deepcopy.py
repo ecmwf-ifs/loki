@@ -135,7 +135,11 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
         child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis']
         child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
-        defines, uses = set(), set()
+        # Dimensions of array arguments must also be included in uses_symbols set
+        defines = set()
+        array_args = [v for v in o.arg_map.values() if isinstance(v, sym.Array)]
+        uses = set(v for a in array_args
+                   for v in self._symbols_from_expr(a.dimensions))
         for k, v in child_analysis.items():
 
             if 'read' in v:
