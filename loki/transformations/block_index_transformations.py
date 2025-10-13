@@ -233,9 +233,14 @@ class BlockViewToFieldViewTransformation(Transformation):
                           if any(v in d.shape for v in self.horizontal.sizes) and a.parents]
 
         # replace per-block view pointers with full field pointers
-        vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
-                               type=var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type)
-                for var in _vars}
+        vmap = {}
+        for var in _vars:
+            new_type = var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type
+            new_var = var.clone(name=var.name_parts[-1] + '_FIELD', type=new_type)
+            if new_var.shape is None:
+                print(f"new_var: {new_var} | shape is None! shape = {new_var.shape} | dimensions = {new_var.dimensions}")
+                new_var = new_var.clone(type=new_var.type.clone(shape=((RangeIndex((None, None)),) * (len(new_var.dimensions) + 1))))
+            vmap[var] = new_var
 
         # replace thread-private GFL_PTR with global
         if self.global_gfl_ptr:
