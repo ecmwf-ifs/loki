@@ -273,7 +273,7 @@ class Subroutine(ProgramUnit):
         removal from this list will also remove arguments from the subroutine signature.
         """
         # Use the parent's property setter
-        ProgramUnit.variables.__set__(self, variables)
+        ProgramUnit.variables.__set__(self, variables) # pylint: disable=unnecessary-dunder-call,no-member
 
         # Filter the dummy list in case we removed an argument
         varnames = [str(v.name).lower() for v in variables]
