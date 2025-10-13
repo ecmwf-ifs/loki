@@ -336,7 +336,7 @@ class BaseStackTransformation(Transformation):
             pragma_string = ', '.join(pragma_vars)
 
             pragma_data_start = Pragma(keyword='loki', content=f'unstructured-data create({pragma_string})')
-            pragma_data_end = Pragma(keyword='loki', content=f'exit-unstructured-data delete({pragma_string})')
+            pragma_data_end = Pragma(keyword='loki', content=f'exit unstructured-data delete({pragma_string})')
             nodes_to_add += [pragma_data_start]
 
             routine.body.append(pragma_data_end)
@@ -702,7 +702,7 @@ class FtrPtrStackTransformation(BaseStackTransformation):
             & J_Z_SELECTED_REAL_KIND_13_300_STACK_USED, J_LL_STACK_SIZE, LL_STACK(:, b), J_LL_STACK_USED)
           END DO
 
-        !$loki exit-unstructured-data delete( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
+        !$loki exit unstructured-data delete( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
           DEALLOCATE (Z_STACK)
           DEALLOCATE (Z_SELECTED_REAL_KIND_13_300_STACK)
           DEALLOCATE (LL_STACK)
@@ -1049,7 +1049,7 @@ class DirectIdxStackTransformation(BaseStackTransformation):
             & J_Z_SELECTED_REAL_KIND_13_300_STACK_USED, J_LL_STACK_SIZE, LL_STACK(:, b), J_LL_STACK_USED)
           END DO
 
-        !$loki exit-unstructured-data delete( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
+        !$loki exit unstructured-data delete( z_stack, z_selected_real_kind_13_300_stack, ll_stack )
           DEALLOCATE (Z_STACK)
           DEALLOCATE (Z_SELECTED_REAL_KIND_13_300_STACK)
           DEALLOCATE (LL_STACK)

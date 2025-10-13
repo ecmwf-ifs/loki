@@ -628,12 +628,12 @@ class DataOffloadDeepcopyTransformation(Transformation):
     @staticmethod
     def exit_data_detach(var):
         """Generate unstructured data detach instruction."""
-        return as_tuple(ir.Pragma(keyword='loki', content=f'exit-unstructured-data detach({var}) finalize'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'exit unstructured-data detach({var}) finalize'))
 
     @staticmethod
     def exit_data_delete(var):
         """Generate unstructured data delete instruction."""
-        return as_tuple(ir.Pragma(keyword='loki', content=f'exit-unstructured-data delete({var}) finalize'))
+        return as_tuple(ir.Pragma(keyword='loki', content=f'exit unstructured-data delete({var}) finalize'))
 
     @staticmethod
     def update_self(var):
