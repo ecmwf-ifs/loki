@@ -199,11 +199,10 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
    type(dims_type) :: local_dims
    integer :: ibl, ij
 
-   local_dims = dims
-
 #ifdef geometry_present
 !$loki data private(local_dims) present(geometry) write(struct%c%p)
    do ibl=1,local_dims%ngpblks
+     local_dims = dims
      local_dims%kbl = ibl
      ij = 0
 
@@ -217,6 +216,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 #else
 !$loki data private(local_dims) write(struct%c%p)
    do ibl=1,local_dims%ngpblks
+     local_dims = dims
      local_dims%kbl = ibl
      ij = 0
 
@@ -255,6 +255,7 @@ def fixture_expected_analysis():
             'kst': 'read',
             'ngpblks': 'read'
         },
+        'dims': 'read',
         'geometry': {
             'dim': {
                 'nproma': 'read'
@@ -669,6 +670,13 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
         check_geometry(conds, pragmas, driver)
 
     if mode == 'offload':
+        # check dims copyin
+        pragma = [p for p in pragmas if
+                  'unstructured-data in' in p.content and '(dims)' in p.content]
+        assert pragma
+        pragma = [p for p in pragmas if
+                  'unstructured-data delete' in p.content and '(dims)' in p.content]
+
         # check data present region
         with pragma_regions_attached(driver):
 
@@ -679,7 +687,7 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
 
             parameters = get_pragma_parameters(region.pragma)
             present_vars = [v.strip().lower() for v in parameters['present'].split(',')]
-            assert all(v in present_vars for v in ['geometry', 'struct', 'variable'])
+            assert all(v in present_vars for v in ['geometry', 'struct', 'variable', 'dims'])
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
