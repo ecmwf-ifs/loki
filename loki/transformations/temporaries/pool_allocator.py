@@ -19,7 +19,7 @@ from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, Transformer, Intrinsic,
     Assignment, Conditional, CallStatement, Import, Allocation,
     Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
-    SubstituteExpressions
+    SubstituteExpressions, Comment
 )
 from loki.logging import warning, debug
 from loki.tools import as_tuple
@@ -236,6 +236,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 item.trafo_data[self._key]['stack_size'] = stack_size
 
         elif role == 'driver':
+            self.import_ecstack(routine)
             stack_size = self._determine_stack_size(routine, successors, item=item)
             if item:
                 # import variable type specifiers used in stack allocations
@@ -269,6 +270,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             imp = Import(
                 module='ISO_FORTRAN_ENV', symbols=as_tuple(ProcedureSymbol('REAL64', scope=routine)),
                 nature='intrinsic'
+            )
+            routine.spec.prepend(imp)
+        # if not 'ECSTACK' in routine.imported_symbols:
+        #     imp = Import(
+        #             module='ECSTACK_MOD', symbols=as_tuple(Variable(name='ECSTACK')),
+        #     )
+        #     routine.spec.prepend(imp)
+
+    @staticmethod
+    def import_ecstack(routine):
+        if not 'ECSTACK' in routine.imported_symbols:
+            imp = Import(
+                    module='ECSTACK_MOD', symbols=as_tuple(Variable(name='ECSTACK')),
             )
             routine.spec.prepend(imp)
 
@@ -399,7 +413,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         else:
             # Create a variable for the stack size and assign the size
             stack_size_var_type = SymbolAttributes(BasicType.INTEGER, kind=self.stack_int_type_kind)
-            stack_size_var = Variable(name=self.stack_size_name, type=stack_size_var_type)
+            stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER, kind='JPIM')) #stack_size_var_type)
 
             # Retrieve kind parameter of stack storage
             _kind = routine.symbol_map.get('REAL64', None) or Variable(name='REAL64')
@@ -422,7 +436,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 dtype=BasicType.REAL,
                 kind=Variable(name='REAL64', scope=routine),
                 shape=(RangeIndex((None, None)), RangeIndex((None, None))),
-                allocatable=True,
+                # allocatable=True,
+                pointer=True, contiguous=True
             )
             stack_storage = Variable(
                 name=self.stack_storage_name, type=stack_type,
@@ -431,14 +446,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             variables_append += [stack_storage]
 
             block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
-            stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-                stack_size_var, block_size)),))
-            stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
+            # stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
+            #     stack_size_var, block_size)),))
+            stack_alloc_call_name = ProcedureSymbol(name="GET_STACK_PTR", parent=routine.imported_symbol_map['ecstack'], scope=routine) # Variable(name="ECSTACK"))
+            stack_alloc = CallStatement(name=stack_alloc_call_name, arguments=(stack_storage.clone(dimensions=None), stack_size_var, block_size))
+            stack_dealloc = Comment(text='! used to be stack deallocation ...') # Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
 
             body_prepend += [stack_alloc]
             pragma_data_start = Pragma(
                 keyword='loki',
-                content=f'structured-data create({stack_storage.name})' # pylint: disable=no-member
+                content=f'structured-data present({stack_storage.name})' # pylint: disable=no-member
             )
             body_prepend += [pragma_data_start]
             pragma_data_end = Pragma(keyword='loki', content='end structured-data')
