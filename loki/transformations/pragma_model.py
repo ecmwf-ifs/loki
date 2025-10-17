@@ -103,7 +103,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='acc', content=f'enter data{content}')
         return self.default_retval()
 
-    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs):
+    def pmap_exit_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if params_out := parameters.get('out'):
             content += f' copyout({params_out})'
@@ -233,7 +233,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             return Pragma(keyword='omp', content=f'target enter data{content}')
         return self.default_retval()
 
-    def pmap_end_unstructured_data(self, pragma, parameters, **kwargs):
+    def pmap_exit_unstructured_data(self, pragma, parameters, **kwargs):
         content = ''
         if params_out := parameters.get('out'):
             content += f' map(from: {params_out})'
