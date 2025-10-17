@@ -17,6 +17,7 @@ from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.sourcefile import Sourcefile
 from loki.tools import CaseInsensitiveDict, as_tuple
+from loki.types import BasicType
 
 
 __all__ = ['ItemFactory']
@@ -404,7 +405,12 @@ class ItemFactory:
         # NB: For nested derived types, we create multiple such ProcedureBindingItems,
         #     resolving one type at a time, e.g.
         #     my_var%member%procedure -> my_type%member%procedure -> member_type%procedure -> procedure
-        type_name = proc_symbol.parents[0].type.dtype.name
+        dtype = proc_symbol.parents[0].type.dtype
+        if dtype is BasicType.DEFERRED:
+            msg = f'Missing type information for symbol {proc_symbol.parents[0]}'
+            warning(msg)
+            return None
+        type_name = dtype.name
         scope_name = None
 
         # Imported in current or parent scopes?
