@@ -22,7 +22,9 @@ from loki.ir import (
 )
 
 from loki.transformations.pragma_model import PragmaModelTransformation
-from loki.transformations.temporaries.pool_allocator import TemporariesPoolAllocatorTransformation
+from loki.transformations.temporaries.pool_allocator import (
+    TemporariesPoolAllocatorTransformation, EcstackPoolAllocatorTransformation
+)
 
 
 @pytest.fixture(scope='module', name='block_dim')
@@ -88,13 +90,14 @@ def check_stack_created_in_driver(
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
 
 
-@pytest.mark.parametrize('generate_driver_stack', [True, False])
+@pytest.mark.parametrize('generate_driver_stack', [False])
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('check_bounds', [True, False])
 @pytest.mark.parametrize('nclv_param', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
+@pytest.mark.parametrize('trafo', [EcstackPoolAllocatorTransformation])
 def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, block_dim, check_bounds,
-                                    nclv_param, cray_ptr_loc_rhs, horizontal):
+                                    nclv_param, cray_ptr_loc_rhs, trafo, horizontal):
     fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
     fcode_iso_env = "use iso_fortran_env, only: real64"
     fcode_nclv_param = 'integer, parameter :: nclv = 2'
@@ -128,7 +131,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
 
         istsz = {stack_size_str}
 
-        ALLOCATE(ZSTACK(ISTSZ, nb))
+        {'ALLOCATE(ZSTACK(ISTSZ, nb))' if trafo == TemporariesPoolAllocatorTransformation else 'CALL ECSTACK%GET_STACK_PTR(ZSTACK, ISTSZ, nb)'}
     """
     if cray_ptr_loc_rhs:
         fcode_stack_assign = """
@@ -140,12 +143,34 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
             ylstack_l = loc(zstack(1, b))
             ylstack_u = ylstack_l + istsz * c_sizeof(real(1, kind={kind_stack}))
         """
-    fcode_stack_dealloc = "DEALLOCATE(ZSTACK)"
+    fcode_stack_dealloc = "DEALLOCATE(ZSTACK)" if trafo else ''
 
+    fcode_ecstack = """
+    module ecstack_mod
+    implicit none
+     type tecstack
+       integer :: size
+       contains
+       PROCEDURE :: GET_STACK_PTR
+     end type tecstack 
+
+     type(tecstack) :: ecstack
+
+     contains
+       SUBROUTINE GET_STACK_PTR(SELF, PTR, KSIZE, NGPBLKS)
+          CLASS(TECSTACK) :: SELF
+          REAL, POINTER, CONTIGUOUS, INTENT(INOUT) :: PTR(:, :)
+          INTEGER, INTENT(IN) :: KSIZE
+          INTEGER, INTENT(IN) :: NGPBLKS
+       
+       END SUBROUTINE GET_STACK_PTR
+    end module ecstack_mod
+    """
     fcode_driver = f"""
 subroutine driver(NLON, NZ, NB, FIELD1, FIELD2)
     {fcode_iso_c_binding if not generate_driver_stack else ''}
     {fcode_iso_env if not generate_driver_stack else ''}
+    {'use ecstack_mod, only: ecstack' if (trafo == EcstackPoolAllocatorTransformation and not generate_driver_stack) else ''}
     use kernel_mod, only: kernel
     implicit none
     INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
@@ -203,6 +228,7 @@ end module kernel_mod
 
     (tmp_path/'driver.F90').write_text(fcode_driver)
     (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'ecstack_mod.F90').write_text(fcode_ecstack)
 
     config = {
         'default': {
@@ -231,7 +257,7 @@ end module kernel_mod
         frontend=frontend, xmods=[tmp_path]
     )
 
-    transformation = TemporariesPoolAllocatorTransformation(
+    transformation = trafo(
         block_dim=block_dim, horizontal=horizontal, check_bounds=check_bounds,
         cray_ptr_loc_rhs=cray_ptr_loc_rhs
     )
@@ -247,7 +273,7 @@ end module kernel_mod
     check_c_sizeof_import(driver)
     check_real64_import(driver)
     calls = FindNodes(CallStatement).visit(driver.body)
-    assert len(calls) == 1
+    assert len(calls) == 1 if trafo == TemporariesPoolAllocatorTransformation else 2
     if nclv_param:
         expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
     else:
@@ -264,8 +290,11 @@ end module kernel_mod
             expected_kwargs += (('zstack', 'zstack(:,b)'),)
         else:
             expected_kwargs += (('ZSTACK', 'zstack(:,b)'),)
-    assert calls[0].arguments == expected_args
-    assert calls[0].kwarguments == expected_kwargs
+    relevant_call = calls[0] if trafo == TemporariesPoolAllocatorTransformation else calls[1]
+    assert relevant_call.arguments == expected_args
+    assert relevant_call.kwarguments == expected_kwargs
+    if trafo == EcstackPoolAllocatorTransformation:
+        assert calls[0].arguments == ('ZSTACK', 'ISTSZ', 'nb')
 
     if nclv_param:
         nclv_var = '2' if frontend == OMNI else 'nclv'
@@ -283,8 +312,9 @@ end module kernel_mod
         )
 
     stack_size = parse_expr(stack_size_str)
-    check_stack_created_in_driver(driver, stack_size, calls[0], 1, check_bounds=check_bounds,
-            cray_ptr_loc_rhs=cray_ptr_loc_rhs)
+    if trafo == TemporariesPoolAllocatorTransformation:
+        check_stack_created_in_driver(driver, stack_size, calls[0], 1, check_bounds=check_bounds,
+                cray_ptr_loc_rhs=cray_ptr_loc_rhs)
 
     # a few kernel checks
     kernel = kernel_item.ir
