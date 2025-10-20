@@ -90,12 +90,12 @@ def check_stack_created_in_driver(
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
 
 
-@pytest.mark.parametrize('generate_driver_stack', [False])
+@pytest.mark.parametrize('generate_driver_stack', [True, False])
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('check_bounds', [True, False])
 @pytest.mark.parametrize('nclv_param', [False, True])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
-@pytest.mark.parametrize('trafo', [EcstackPoolAllocatorTransformation])
+@pytest.mark.parametrize('trafo', [EcstackPoolAllocatorTransformation, TemporariesPoolAllocatorTransformation])
 def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, block_dim, check_bounds,
                                     nclv_param, cray_ptr_loc_rhs, trafo, horizontal):
     fcode_iso_c_binding = "use, intrinsic :: iso_c_binding, only: c_sizeof"
