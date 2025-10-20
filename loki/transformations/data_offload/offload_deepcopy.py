@@ -719,8 +719,12 @@ class DataOffloadDeepcopyTransformation(Transformation):
             if isinstance(var.type.dtype, DerivedType):
 
                 var_with_parent = var.clone(parent=parent)
-                _copy, _host, _wipe = self.generate_deepcopy(routine, analysis=analysis[var], parent=var_with_parent,
-                                                             **kwargs)
+
+                # If we are directly assigning derived-types, rather than operating on members,
+                # then we are the lowest level of the analysis and don't want to recurse further
+                if not isinstance(analysis[var], str):
+                    _copy, _host, _wipe = self.generate_deepcopy(routine, analysis=analysis[var],
+                                                                 parent=var_with_parent, **kwargs)
 
                 #wrap in loop
                 if var.type.shape:
