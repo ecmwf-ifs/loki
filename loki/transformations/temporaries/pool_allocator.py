@@ -177,6 +177,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Whether to only pass the stack variable as integer to the kernel(s) or
         whether to pass the whole stack array to the driver and the calls to ``LOC()``
         within the kernel(s) itself (default: `False`)
+    stack_size_var_type: :any:`Literal` or :any:`Variable`
+        Defaults to ``'stack_int_type_kind'``, however, can be overriden if necessary.
     """
 
     _key = 'TemporariesPoolAllocatorTransformation'
@@ -190,7 +192,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
             local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
-            check_bounds=True, cray_ptr_loc_rhs=False
+            check_bounds=True, cray_ptr_loc_rhs=False, stack_size_var_type=None
     ):
         self.block_dim = block_dim
         self.horizontal = horizontal
@@ -205,6 +207,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.directive = directive
         self.check_bounds = check_bounds
         self.cray_ptr_loc_rhs = cray_ptr_loc_rhs
+        self.stack_size_var_type = stack_size_var_type or self.stack_int_type_kind
 
         if self.stack_ptr_name == self.stack_end_name:
             raise ValueError(f'"stack_ptr_name": "{self.stack_ptr_name}" and '
@@ -429,7 +432,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         else:
             # Create a variable for the stack size and assign the size
-            stack_size_var = Variable(name=self.stack_size_name, type=SymbolAttributes(BasicType.INTEGER, kind='JPIM'))
+            stack_size_var_type = SymbolAttributes(BasicType.INTEGER, kind=self.stack_size_var_type)
+            stack_size_var = Variable(name=self.stack_size_name, type=stack_size_var_type)
 
             # Retrieve kind parameter of stack storage
             _kind = routine.symbol_map.get('REAL64', None) or Variable(name='REAL64')
