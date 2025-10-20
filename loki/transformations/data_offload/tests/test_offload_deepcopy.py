@@ -73,6 +73,7 @@ module type_def_mod
       integer :: kend
       integer :: kbl
       integer :: ngpblks
+      integer :: m
    end type
 
    type :: geom_dims
@@ -210,7 +211,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
      variable%vt0_field(:,:,ibl) = 0._real64
 
      call kernel(geometry, local_dims, struct, variable)
-     call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
+     call nested_kernel_write(struct%e%p(:,local_dims%m,local_dims%kbl))
      call nested_kernel_write(array_arg)
    enddo
 !$loki end data
@@ -223,7 +224,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
      variable%vt0_field(:,:,ibl) = 0._real64
 
      call kernel(geometry, local_dims, struct, variable)
-     call nested_kernel_write(struct%e%p(:,:,local_dims%kbl))
+     call nested_kernel_write(struct%e%p(:,local_dims%m,local_dims%kbl))
      call nested_kernel_write(array_arg)
    enddo
 !$loki end data
@@ -253,7 +254,8 @@ def fixture_expected_analysis():
             'kbl': 'write',
             'kend': 'read',
             'kst': 'read',
-            'ngpblks': 'read'
+            'ngpblks': 'read',
+            'm': 'read'
         },
         'geometry': {
             'dim': {
