@@ -947,6 +947,38 @@ class EcstackPoolAllocatorTransformation(TemporariesPoolAllocatorTransformation)
     Analog to :any:`TemporariesPoolAllocatorTransformation`, however, instead of
     inserting offload pragmas use an external defined module to get a pointer to
     an offloaded chunk of memory.
+
+    The minimal interface expected from ECSTACK should look like:
+
+    .. code-block:: fortran
+
+        MODULE ECSTACK_MOD
+        
+        IMPLICIT NONE
+        
+        TYPE TECSTACK
+          ...
+        CONTAINS
+          PROCEDURE :: GET_STACK_PTR
+        END TYPE TECSTACK
+        
+        PRIVATE
+        
+        TYPE(TECSTACK) :: ECSTACK
+        PUBLIC :: TECSTACK, ECSTACK
+        
+        CONTAINS
+        
+        SUBROUTINE GET_STACK_PTR(SELF, PTR, KSIZE, NGPBLKS)
+           CLASS(TECSTACK) :: SELF
+           REAL(KIND=JPRD), POINTER, CONTIGUOUS, INTENT(INOUT) :: PTR(:, :)
+           INTEGER(KIND=JPIM), INTENT(IN) :: KSIZE
+           INTEGER(KIND=JPIM), INTENT(IN) :: NGPBLKS
+        
+           ...
+        END SUBROUTINE GET_STACK_PTR
+        
+        END MODULE ECSTACK_MOD
     """
 
     def add_driver_imports(self, routine):
