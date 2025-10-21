@@ -12,7 +12,8 @@ from loki.batch import Pipeline
 from loki.transformations.temporaries import (
         HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
         TemporariesRawStackTransformation,
-        FtrPtrStackTransformation, DirectIdxStackTransformation
+        FtrPtrStackTransformation, DirectIdxStackTransformation,
+        EcstackPoolAllocatorTransformation
 )
 
 from loki.transformations.single_column.base import SCCBaseTransformation
@@ -33,7 +34,8 @@ __all__ = [
     'SCCStackPipeline', 'SCCVStackPipeline', 'SCCSStackPipeline',
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
-    'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline'
+    'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
+    'SCCSEcStackPipeline'
 ]
 
 
@@ -383,6 +385,7 @@ check_bounds : bool, optional
     stack size is not exceeded (default: `True`)
 """
 
+
 SCCVStackFtrPtrPipeline = partial(
     Pipeline, classes=(
         SCCFuseVerticalLoops,
@@ -685,4 +688,101 @@ check_bounds : bool, optional
 driver_horizontal : str, optional
     Override string if a separate variable name should be used for the
     horizontal when allocating the stack in the driver.
+"""
+
+SCCVEcStackPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
+        EcstackPoolAllocatorTransformation,
+        PragmaModelTransformation
+    )
+)
+"""
+SCC-style transformation with "vector-parallel" kernels
+that additionally pre-allocates a "stack"
+pool allocator and associates local arrays with preallocated memory.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCVVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`EcstackPoolAllocatorTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that requests
+a chunk of offloaded memory from an externally defined module.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+"""
+
+# alias for backwards compability
+SCCEcStackPipeline = SCCVStackPipeline
+
+SCCSEcStackPipeline = partial(
+    Pipeline, classes=(
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
+        EcstackPoolAllocatorTransformation,
+        PragmaModelTransformation
+    )
+)
+"""
+SCC-style transformation with sequential kernels
+that additionally pre-allocates a "stack"
+pool allocator and associates local arrays with preallocated memory.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCSVectorPipeline`
+
+In addition, this pipeline will invoke
+:any:`EcstackPoolAllocatorTransformation` to back the remaining
+locally allocated arrays from a "stack" pool allocator that requests
+a chunk of offloaded memory from an externally defined module.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
 """

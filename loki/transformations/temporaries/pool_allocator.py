@@ -28,7 +28,7 @@ from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.transformations.utilities import recursive_expression_map_update
 
 
-__all__ = ['TemporariesPoolAllocatorTransformation']
+__all__ = ['TemporariesPoolAllocatorTransformation', 'EcstackPoolAllocatorTransformation']
 
 
 class TemporariesPoolAllocatorTransformation(Transformation):
@@ -177,6 +177,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Whether to only pass the stack variable as integer to the kernel(s) or
         whether to pass the whole stack array to the driver and the calls to ``LOC()``
         within the kernel(s) itself (default: `False`)
+    stack_size_var_kind: :any:`Literal` or :any:`Variable`
+        Defaults to ``'stack_int_type_kind'``, however, can be overriden if necessary.
     """
 
     _key = 'TemporariesPoolAllocatorTransformation'
@@ -190,7 +192,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
             local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
-            check_bounds=True, cray_ptr_loc_rhs=False
+            check_bounds=True, cray_ptr_loc_rhs=False, stack_size_var_kind=None
     ):
         self.block_dim = block_dim
         self.horizontal = horizontal
@@ -205,6 +207,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.directive = directive
         self.check_bounds = check_bounds
         self.cray_ptr_loc_rhs = cray_ptr_loc_rhs
+        self.stack_size_var_kind = stack_size_var_kind or self.stack_int_type_kind
 
         if self.stack_ptr_name == self.stack_end_name:
             raise ValueError(f'"stack_ptr_name": "{self.stack_ptr_name}" and '
@@ -236,6 +239,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 item.trafo_data[self._key]['stack_size'] = stack_size
 
         elif role == 'driver':
+            self.add_driver_imports(routine)
             stack_size = self._determine_stack_size(routine, successors, item=item)
             if item:
                 # import variable type specifiers used in stack allocations
@@ -243,6 +247,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             self.create_pool_allocator(routine, stack_size)
 
         self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
+
+    def add_driver_imports(self, routine):
+        pass
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -373,6 +380,33 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             scope=routine
         )
 
+    def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
+        stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
+            stack_size_var, block_size)),))
+        return stack_alloc
+
+    def _get_stack_dealloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
+        return Deallocation(variables=(stack_storage.clone(dimensions=None),))
+
+    def _get_pragma_start(self, routine, stack_storage): # pylint: disable=unused-argument
+        pragma = Pragma(
+            keyword='loki',
+            content=f'structured-data create({stack_storage.name})' # pylint: disable=no-member
+        )
+        return pragma
+
+    def _get_pragma_end(self, routine, stack_storage): # pylint: disable=unused-argument
+        return Pragma(keyword='loki', content='end structured-data')
+
+    def _get_stack_type(self, routine):
+        stack_type = SymbolAttributes(
+            dtype=BasicType.REAL,
+            kind=Variable(name='REAL64', scope=routine),
+            shape=(RangeIndex((None, None)), RangeIndex((None, None))),
+            allocatable=True,
+        )
+        return stack_type
+
     def _get_stack_storage_and_size_var(self, routine, stack_size):
         """
         Utility routine to obtain storage array and size variable for the pool allocator
@@ -398,7 +432,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         else:
             # Create a variable for the stack size and assign the size
-            stack_size_var_type = SymbolAttributes(BasicType.INTEGER, kind=self.stack_int_type_kind)
+            stack_size_var_type = SymbolAttributes(BasicType.INTEGER, kind=self.stack_size_var_kind)
             stack_size_var = Variable(name=self.stack_size_name, type=stack_size_var_type)
 
             # Retrieve kind parameter of stack storage
@@ -418,12 +452,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         else:
             # Create a variable for the stack storage array and create corresponding
             # allocation/deallocation statements
-            stack_type = SymbolAttributes(
-                dtype=BasicType.REAL,
-                kind=Variable(name='REAL64', scope=routine),
-                shape=(RangeIndex((None, None)), RangeIndex((None, None))),
-                allocatable=True,
-            )
+            stack_type = self._get_stack_type(routine)
             stack_storage = Variable(
                 name=self.stack_storage_name, type=stack_type,
                 dimensions=stack_type.shape, scope=routine
@@ -431,19 +460,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             variables_append += [stack_storage]
 
             block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
-            stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-                stack_size_var, block_size)),))
-            stack_dealloc = Deallocation(variables=(stack_storage.clone(dimensions=None),))  # pylint: disable=no-member
+            stack_alloc = self._get_stack_alloc(routine, stack_storage, stack_size_var, block_size)
+            stack_dealloc = self._get_stack_dealloc(routine, stack_storage, stack_size_var, block_size)
 
             body_prepend += [stack_alloc]
-            pragma_data_start = Pragma(
-                keyword='loki',
-                content=f'structured-data create({stack_storage.name})' # pylint: disable=no-member
-            )
+            pragma_data_start = self._get_pragma_start(routine, stack_storage)
             body_prepend += [pragma_data_start]
-            pragma_data_end = Pragma(keyword='loki', content='end structured-data')
+            pragma_data_end = self._get_pragma_end(routine, stack_storage)
             body_append += [pragma_data_end]
-            body_append += [stack_dealloc]
+            if stack_dealloc is not None:
+                body_append += [stack_dealloc]
 
         # Inject new variables and body nodes
         if variables_append:
@@ -914,3 +940,83 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         if call_map:
             routine.body = SubstituteExpressions(call_map).visit(routine.body)
+
+
+class EcstackPoolAllocatorTransformation(TemporariesPoolAllocatorTransformation):
+    """
+    Analog to :any:`TemporariesPoolAllocatorTransformation`, however, instead of
+    inserting offload pragmas use an external defined module to get a pointer to
+    an offloaded chunk of memory.
+
+    The minimal interface expected from ECSTACK should look like:
+
+    .. code-block:: fortran
+
+        MODULE ECSTACK_MOD
+        
+        IMPLICIT NONE
+        
+        TYPE TECSTACK
+          ...
+        CONTAINS
+          PROCEDURE :: GET_STACK_PTR
+        END TYPE TECSTACK
+        
+        PRIVATE
+        
+        TYPE(TECSTACK) :: ECSTACK
+        PUBLIC :: TECSTACK, ECSTACK
+        
+        CONTAINS
+        
+        SUBROUTINE GET_STACK_PTR(SELF, PTR, KSIZE, NGPBLKS)
+           CLASS(TECSTACK) :: SELF
+           REAL(KIND=JPRD), POINTER, CONTIGUOUS, INTENT(INOUT) :: PTR(:, :)
+           INTEGER(KIND=JPIM), INTENT(IN) :: KSIZE
+           INTEGER(KIND=JPIM), INTENT(IN) :: NGPBLKS
+        
+           ...
+        END SUBROUTINE GET_STACK_PTR
+        
+        END MODULE ECSTACK_MOD
+    """
+
+    def add_driver_imports(self, routine):
+        self.import_ecstack(routine)
+
+    @staticmethod
+    def import_ecstack(routine):
+        if not 'ECSTACK' in routine.imported_symbols:
+            imp = Import(
+                    module='ECSTACK_MOD', symbols=as_tuple(Variable(name='ECSTACK')),
+            )
+            routine.spec.prepend(imp)
+
+    def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size):
+        stack_alloc_call_name = ProcedureSymbol(name="GET_STACK_PTR",
+                parent=routine.imported_symbol_map['ecstack'], scope=routine)
+        stack_alloc = CallStatement(name=stack_alloc_call_name,
+                arguments=(stack_storage.clone(dimensions=None), stack_size_var, block_size))
+        return stack_alloc
+
+    def _get_stack_dealloc(self, routine, stack_storage, stack_size_var, block_size):
+        return None
+
+    def _get_pragma_start(self, routine, stack_storage):
+        pragma = Pragma(
+            keyword='loki',
+            content=f'structured-data present({stack_storage.name})' # pylint: disable=no-member
+        )
+        return pragma
+
+    def _get_pragma_end(self, routine, stack_storage):
+        return Pragma(keyword='loki', content='end structured-data')
+
+    def _get_stack_type(self, routine):
+        stack_type = SymbolAttributes(
+            dtype=BasicType.REAL,
+            kind=Variable(name='REAL64', scope=routine),
+            shape=(RangeIndex((None, None)), RangeIndex((None, None))),
+            pointer=True, contiguous=True
+        )
+        return stack_type
