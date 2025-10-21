@@ -72,7 +72,7 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
             # Rather than simply decrementing the dynamic reference counter,
             # finalize sets it to zero. This shouldn't be needed, and likely points to an
             # OpenACC runtime bug.
-            pragma_post = ir.Pragma(keyword='loki', content=f'end unstructured-data delete({vnames}) finalize')
+            pragma_post = ir.Pragma(keyword='loki', content=f'exit unstructured-data delete({vnames}) finalize')
 
             # Add comments around standalone pragmas to avoid false attachment
             if not BaseStackTransformation._insert_stack_at_loki_pragma(routine, pragma):
