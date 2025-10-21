@@ -117,7 +117,7 @@ function( loki_transform_plan )
 
     set( options NO_SOURCEDIR CPP )
     set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH PLAN )
-    set( multiValueArgs SOURCES HEADERS )
+    set( multiValueArgs SOURCES HEADERS INCLUDES)
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
 
@@ -156,7 +156,8 @@ function( loki_transform_plan )
 
     # Create a source transformation plan to tell CMake which files will be affected
     ecbuild_info( "[Loki] Creating plan: mode=${_PAR_MODE} frontend=${_PAR_FRONTEND} config=${_PAR_CONFIG}" )
-    ecbuild_debug( "COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}" )
+    ecbuild_info( "_PAR_INCLUDES ${_PAR_INCLUDES}")
+    ecbuild_info( "COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}" )
 
     execute_process(
         COMMAND ${_LOKI_TRANSFORM_EXECUTABLE} plan ${_ARGS}
@@ -323,6 +324,7 @@ function( loki_transform_target )
     endif()
 
     ecbuild_info( "[Loki] Loki scheduler:: target=${_PAR_T_TARGET} mode=${_PAR_T_MODE} frontend=${_PAR_T_FRONTEND}")
+    ecbuild_info( "_PAR_T_INCLUDES ${_PAR_T_INCLUDES}")
 
     # Ensure that changes to the config file trigger the planning stage
     foreach( target ${_PAR_T_TARGET} )
@@ -341,14 +343,16 @@ function( loki_transform_target )
     string(REPLACE ";" "_" CALLGRAPH_NAME "${_PAR_T_TARGET}")
 
     loki_transform_plan(
-        MODE      ${_PAR_T_MODE}
-        CONFIG    ${_PAR_T_CONFIG}
-        FRONTEND  ${_PAR_T_FRONTEND}
-        SOURCES   ${_PAR_T_SOURCES}
-        PLAN      ${_PAR_T_PLAN}
-        CALLGRAPH ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${CALLGRAPH_NAME}
-        BUILDDIR  ${CMAKE_CURRENT_BINARY_DIR}
-        SOURCEDIR ${CMAKE_CURRENT_SOURCE_DIR}
+        MODE        ${_PAR_T_MODE}
+        CONFIG      ${_PAR_T_CONFIG}
+        FRONTEND    ${_PAR_T_FRONTEND}
+        SOURCES     ${_PAR_T_SOURCES}
+        PLAN        ${_PAR_T_PLAN}
+        HEADERS     ${_PAR_T_HEADERS}
+        INCLUDES    ${_PAR_T_INCLUDES}
+        CALLGRAPH   ${CMAKE_CURRENT_BINARY_DIR}/callgraph_${CALLGRAPH_NAME}
+        BUILDDIR    ${CMAKE_CURRENT_BINARY_DIR}
+        SOURCEDIR   ${CMAKE_CURRENT_SOURCE_DIR}
         ${_PLAN_OPTIONS}
     )
 

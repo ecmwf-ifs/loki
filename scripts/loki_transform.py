@@ -171,6 +171,8 @@ def convert(
               help='Path to build directory for source generation.')
 @click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
+@click.option('--include', type=click.Path(), multiple=True,
+              help='Path for additional header file(s)')
 @click.option('--cpp/--no-cpp', default=False,
               help='Trigger C-preprocessing of source files.')
 @click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
@@ -184,8 +186,8 @@ def convert(
               help='Log level to output during batch processing')
 @click.pass_context
 def plan(
-        ctx, mode, config, header, source, build, root, cpp,
-        frontend, callgraph, plan_file, log_level
+        ctx, mode, config, header, source, build, root, include,
+        cpp, frontend, callgraph, plan_file, log_level
 ):
     """
     Create a "plan", a schedule of files to inject and transform for a
