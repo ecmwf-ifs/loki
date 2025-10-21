@@ -143,7 +143,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
             ylstack_l = loc(zstack(1, b))
             ylstack_u = ylstack_l + istsz * c_sizeof(real(1, kind={kind_stack}))
         """
-    fcode_stack_dealloc = "DEALLOCATE(ZSTACK)" if trafo else ''
+    fcode_stack_dealloc = "DEALLOCATE(ZSTACK)" if trafo == TemporariesPoolAllocatorTransformation else ''
 
     fcode_ecstack = """
     module ecstack_mod
