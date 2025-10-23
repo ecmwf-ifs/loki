@@ -6,5 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 """
-Standalone scripts that provide the top-level entry-point to the Loki API.
+Command-line utilities and entry-points for various Loki invocation methods.
 """
+
+from loki.cli.common import *  # noqa
