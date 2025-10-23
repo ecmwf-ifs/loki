@@ -16,9 +16,7 @@ from pathlib import Path
 import sys
 import click
 
-from loki import (
-    config as loki_config, Sourcefile, Frontend, as_tuple, info
-)
+from loki import config as loki_config, Sourcefile, as_tuple, info
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.cli.common import cli, frontend_options, scheduler_options
 
@@ -77,9 +75,7 @@ def convert(
     #  in order to allow the scheduler to find the dependencies
     definitions = []
     for h in scheduler_opts.header:
-        sfile = Sourcefile.from_file(
-            filename=h, frontend=frontend_type, definitions=definitions, **frontend_opts.asdict
-        )
+        sfile = Sourcefile.from_file(filename=h, definitions=definitions, **frontend_opts.asdict)
         definitions = definitions + list(sfile.definitions)
 
     # Create a scheduler to bulk-apply source transformations
@@ -137,10 +133,7 @@ def convert(
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 @click.pass_context
-def plan(
-        ctx, frontend_options, scheduler_options, mode, config, root,
-        callgraph, plan_file, log_level
-):
+def plan(ctx, *_args, **_kwargs):
     """
     Create a "plan", a schedule of files to inject and transform for a
     given configuration.
