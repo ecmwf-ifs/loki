@@ -442,8 +442,27 @@ class DataOffloadDeepcopyTransformation(Transformation):
         targets = kwargs['targets']
 
         if role == 'driver':
+            self.import_sget(routine)
             self.process_driver(routine, item.trafo_data[self._key]['analysis'],
                                 item.trafo_data[self._key]['typedef_configs'], targets)
+
+    @staticmethod
+    def import_sget(routine):
+        """
+        Import Field API accessors.
+        """
+        required_symbols = ('SGET_DEVICE_DATA_RDWR', 'SGET_DEVICE_DATA_RDONLY', 'SGET_DEVICE_DATA_WRONLY',
+                'SGET_HOST_DATA_RDWR', 'SGET_HOST_DATA_RDONLY')
+        missing_symbols = ()
+        imported_symbols = routine.imported_symbols
+        for symbol in required_symbols:
+            if symbol not in imported_symbols:
+                missing_symbols += (symbol,)
+        if missing_symbols:
+            imp = ir.Import(
+                    module='FIELD_ACCESS_MODULE', symbols=as_tuple([sym.ProcedureSymbol(symbol, scope=routine) for symbol in missing_symbols])
+            )
+            routine.spec.prepend(imp)
 
     @staticmethod
     def update_with_manual_overrides(parameters, analysis, variable_map):

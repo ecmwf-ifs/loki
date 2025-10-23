@@ -44,7 +44,6 @@ class FieldAPITransferDirection(Enum):
     def suffix(self):
         return self.value
 
-
 class FieldPointerMap:
     """
     Helper class to map FIELD API pointers to intents and access descriptors.
@@ -232,7 +231,8 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
     ):
         raise TypeError("incorrect transfer_type (WRITE_ONLY) for Field-API get method")
 
-    procedure_name = 'GET_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
+    # procedure_name = 'GET_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
+    procedure_name = 'SGET_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
 
     kwargs = []
     if queue is not None:
@@ -244,8 +244,10 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
 
     kwargs = tuple(kwargs) if len(kwargs) > 0 else None
 
-    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            arguments=(dev_ptr.clone(dimensions=None),), kwarguments=kwargs)
+    # return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+    #                         arguments=(dev_ptr.clone(dimensions=None),), kwarguments=kwargs)
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, scope=scope),
+            arguments=(dev_ptr.clone(dimensions=None), field_ptr), kwarguments=kwargs)
 
 
 def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope,
