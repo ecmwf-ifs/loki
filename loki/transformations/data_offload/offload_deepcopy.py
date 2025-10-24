@@ -255,9 +255,10 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             item.trafo_data[self._key]['analysis'] = {}
             self.process_body(routine.name, item, successors, successor_map, loop)
 
+            symbol_map = routine.symbol_map | routine.all_imported_symbol_map
             layered_dict = {}
             for k, v in item.trafo_data[self._key]['analysis'].items():
-                _temp_dict = create_nested_dict(k, v, routine.symbol_map)
+                _temp_dict = create_nested_dict(k, v, symbol_map)
                 layered_dict = merge_nested_dict(layered_dict, _temp_dict)
 
             loop_analyses[loop] = layered_dict
