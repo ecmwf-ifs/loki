@@ -147,24 +147,26 @@ subroutine driver(dims, StrUct)
     implicit none
     type(dims_type), intent(in) :: dims
     type(some_unused_type), intent(in) :: struct
+    type(some_unused_type) :: structs(10)
     real, dimension(dims%klon) :: a, b, c, d
 
 
-    call kernel(dims%kst, dims%kend, dIms, sTRucT, a, b, c, d)
+    call kernel(dims%kst, dims%kend, dIms, sTRucT, STRucts, a, b, c, d)
 
 end subroutine driver
 """
 
     fcode_kernel = """
-subroutine kernel(kst, kend, diMs, stRUCt, a, b, c, d)
+subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d)
     use types_mod, only : dims_type, some_unused_type
     implicit none
     integer, intent(in) :: kst, kend
     type(dims_type), intent(in) :: dIms
     type(some_unused_type), intent(in) :: StrucT
+    type(some_unused_type), intent(in) :: StrucTS(10)
     real, intent(out), dimension(dims%klon) :: a, b, c, d
     real, dimension(dims%klon) :: used_local, unused_local
-    integer :: jrof
+    integer :: jrof, ji
 
     used_local(:) = 0.0
 
@@ -172,6 +174,10 @@ subroutine kernel(kst, kend, diMs, stRUCt, a, b, c, d)
       a(jrof) = 0.
       b(jrof) = 0.
     enddo
+
+    do ji=1,10
+      strucTs(ji)%a = 1.0
+    end do
 
     !$loki remove
     call an_unused_kernel(stRuCt)
@@ -691,6 +697,8 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
 
     kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
 
+    assert 'structs' in kernel_vars
+    assert 'structs' in driver_calls[0].arguments
     if kernel_override:
         assert not 'struct' in kernel_vars
         assert not 'struct' in driver_calls[0].arguments
