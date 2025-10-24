@@ -48,6 +48,8 @@ module type_def_mod
    type :: other_variable_type
       class(field_3d), pointer :: f_t0 => null()
       real, pointer, contiguous :: vt0_field(:,:,:) => null()
+      class(field_3d), pointer :: f_t1 => null()
+      real, pointer, contiguous :: pt1_field(:,:,:)
    end type
 
    type :: superfluous_type
@@ -159,6 +161,7 @@ subroutine kernel(geometry, bnds, struct, variable)
    call nested_kernel_write(struct%a%p(:,:,bnds%kbl))
    call nested_kernel_read(struct%b%p(:,:,bnds%kbl))
    call nested_kernel_read(variable%vt0_field(:,:,bnds%kbl))
+   call nested_kernel_read(variable%pt1_field(:,:,bnds%kbl))
 
    tmp => struct%c%p !... yes this completely breaks the dataflow analysis
    tmp = 0.
@@ -266,6 +269,7 @@ def fixture_expected_analysis():
         },
         'array_arg': 'write',
         'variable' : {
+            'pt1_field' : 'read',
             'vt0_field' : 'write'
         },
         'struct': {
