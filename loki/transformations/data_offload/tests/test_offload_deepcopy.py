@@ -18,7 +18,10 @@ from loki.logging import log_levels
 from loki.scope import Scope
 from loki.subroutine import Subroutine
 from loki.tools import gettempdir, flatten, as_tuple
-from loki.transformations import DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, find_driver_loops
+from loki.transformations import (
+        DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, find_driver_loops,
+        FieldAPIAccessorType
+)
 from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
@@ -382,14 +385,18 @@ def check_array_arg(mode, pragmas):
         assert not any('array_arg' in p.content for p in pragmas)
 
 
-def check_variable_type_host(var, conds):
+def check_variable_type_host(var, conds, accessor_type):
     """Check generated host pull-back for `type(variable_type)` variables."""
 
     conds = [c for c in conds
              if c.condition.name.lower() == 'associated' and f'{var}%fp' in c.condition.parameters]
     calls = FindNodes(ir.CallStatement).visit(conds)
-    assert any(call.name.name.lower() == f'{var}%fp%get_host_data_rdwr' and f'{var}%p' in call.arguments
-               for call in calls)
+    if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+        assert any(call.name.name.lower() == f'{var}%fp%get_host_data_rdwr' and f'{var}%p' in call.arguments
+                   for call in calls)
+    else:
+        assert any(call.name.name.lower() == 'sget_host_data_rdwr' and f'{var}%p' in call.arguments
+                and f'{var}%fp' in call.arguments for call in calls)
 
 def check_variable_type_device(var, conds, access):
     """Check generated copy to device for `type(variable_type)` variables."""
@@ -402,8 +409,11 @@ def check_variable_type_device(var, conds, access):
         calls = FindNodes(ir.CallStatement).visit(cond.body)
         pragmas = FindNodes(ir.Pragma).visit(cond.body)
 
+        # calls = [call for call in calls
+        #          if call.name.name.lower() == f'{var}%fp%get_device_data_{access}' and f'{var}%p' in call.arguments]
         calls = [call for call in calls
-                 if call.name.name.lower() == f'{var}%fp%get_device_data_{access}' and f'{var}%p' in call.arguments]
+                 # if call.name.name.lower() == f'{var}%fp%get_device_data_{access}' and f'{var}%p' in call.arguments]
+                 if f'get_device_data_{access}' and f'{var}%p' in call.arguments]
         pragmas = [pragma for pragma in pragmas
                    if 'unstructured-data attach' in pragma.content and f'{var}%p' in pragma.content]
         if calls and pragmas:
@@ -435,7 +445,7 @@ def check_variable_type_wipe(var, conds):
     assert _pass == 1
 
 
-def check_other_variable_type(mode, conds, pragmas, routine):
+def check_other_variable_type(mode, conds, pragmas, routine, accessor_type):
     """Check the generated deepcopy for `type(other_variable_type) :: variable`."""
 
     # Check pullback to host
@@ -443,8 +453,12 @@ def check_other_variable_type(mode, conds, pragmas, routine):
              if c.condition.name.lower() == 'associated' and 'variable%f_t0' in c.condition.parameters]
     calls = FindNodes(ir.CallStatement).visit(conds)
 
-    assert any(call.name.name.lower() == 'variable%f_t0%get_host_data_rdwr' and 'variable%vt0_field' in call.arguments
-               for call in calls)
+    if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+        assert any(call.name.name.lower() == 'variable%f_t0%get_host_data_rdwr'
+                and 'variable%vt0_field' in call.arguments for call in calls)
+    else:
+        assert any(call.name.name.lower() == 'sget_host_data_rdwr' and 'variable%vt0_field' in call.arguments
+                and 'variable%f_t0' in call.arguments for call in calls)
 
     if mode == 'offload':
         # Check copy to device of struct
@@ -477,7 +491,8 @@ def check_other_variable_type(mode, conds, pragmas, routine):
             pragmas = FindNodes(ir.Pragma).visit(cond.body)
 
             calls = [call for call in calls
-                     if call.name.name.lower() == 'variable%f_t0%get_device_data_wronly'
+                     # if call.name.name.lower() == 'variable%f_t0%get_device_data_wronly'
+                     if 'get_device_data_wronly' in call.name.name.lower()
                      and 'variable%vt0_field' in call.arguments]
             pragmas = [pragma for pragma in pragmas
                        if 'unstructured-data attach' in pragma.content and 'variable%vt0_field' in pragma.content]
@@ -519,7 +534,7 @@ def check_geometry(conds, pragmas, routine):
     assert 'finalize' in conds[-1].body[0].content
 
 
-def check_struct(mode, conds, pragmas, routine):
+def check_struct(mode, conds, pragmas, routine, accessor_type):
     """Check the generated deepcopy for `type(struct_type)`."""
 
     # Filter out conditions on type(struct_type) :: struct
@@ -530,14 +545,14 @@ def check_struct(mode, conds, pragmas, routine):
             struct_conds.append(cond)
 
     # Check var_ptr member
-    check_struct_var_ptr(mode, struct_conds)
+    check_struct_var_ptr(mode, struct_conds, accessor_type)
 
     # Check host pull-back
-    check_variable_type_host('struct%a', struct_conds)
-    check_variable_type_host('struct%b', struct_conds)
-    check_variable_type_host('struct%c', struct_conds)
-    check_variable_type_host('struct%d', struct_conds)
-    check_variable_type_host('struct%e', struct_conds)
+    check_variable_type_host('struct%a', struct_conds, accessor_type)
+    check_variable_type_host('struct%b', struct_conds, accessor_type)
+    check_variable_type_host('struct%c', struct_conds, accessor_type)
+    check_variable_type_host('struct%d', struct_conds, accessor_type)
+    check_variable_type_host('struct%e', struct_conds, accessor_type)
 
     if mode == 'offload':
         # Check copy to device of struct
@@ -563,7 +578,7 @@ def check_struct(mode, conds, pragmas, routine):
         check_variable_type_wipe('struct%e', struct_conds)
 
 
-def check_struct_var_ptr(mode, conds):
+def check_struct_var_ptr(mode, conds, accessor_type):
     """Check the `var_ptr` member of `type(struct_type) :: struct`."""
 
     # First check host pull-back FIELD_API calls
@@ -572,8 +587,13 @@ def check_struct_var_ptr(mode, conds):
     loops = FindNodes(ir.Loop).visit(conds)
     calls = FindNodes(ir.CallStatement).visit(loops)
 
-    assert any(fgen(call.name).lower() == 'struct%var_ptr(j1)%var%fp%get_host_data_rdwr'
-               and 'struct%var_ptr(J1)%var%p' in call.arguments for call in calls)
+    if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+        assert any(fgen(call.name).lower() == 'struct%var_ptr(j1)%var%fp%get_host_data_rdwr'
+                   and 'struct%var_ptr(J1)%var%p' in call.arguments for call in calls)
+    else:
+        assert any(fgen(call.name).lower() == 'sget_host_data_rdwr'
+                   and 'struct%var_ptr(J1)%var%p' in call.arguments and 'struct%var_ptr(j1)%var%fp' in call.arguments
+                   for call in calls)
 
     if mode == 'offload':
         _pass = 0
@@ -593,7 +613,10 @@ def check_struct_var_ptr(mode, conds):
 
                 # finally inside the conditional body we have a FIELD_API GET_DEVICE_DATA call
                 # and an attach statement
-                assert fgen(_cond.body[0].name).lower() == 'struct%var_ptr(j1)%var%fp%get_device_data_rdwr'
+                if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+                    assert fgen(_cond.body[0].name).lower() == 'struct%var_ptr(j1)%var%fp%get_device_data_rdwr'
+                else:
+                    assert fgen(_cond.body[0].name).lower() == 'sget_device_data_rdwr'
                 assert _cond.body[0].arguments[0] == 'struct%var_ptr(j1)%var%p'
                 assert 'unstructured-data attach' in _cond.body[1].content
                 assert 'struct%var_ptr(J1)%var%p' in _cond.body[1].content
@@ -625,7 +648,9 @@ def check_struct_var_ptr(mode, conds):
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('present', [True, False])
 @pytest.mark.parametrize('mode', ['offload', 'set_pointers'])
-def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, present, mode, tmp_path):
+@pytest.mark.parametrize('accessor_type', ['GET', 'SGET'])
+def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, present, mode, accessor_type,
+        tmp_path):
     """
     Test the generation of host-device deepcopy.
     """
@@ -652,7 +677,7 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     )
 
     scheduler.process(transformation=DataOffloadDeepcopyAnalysis())
-    transformation = DataOffloadDeepcopyTransformation(mode=mode)
+    transformation = DataOffloadDeepcopyTransformation(mode=mode, accessor_type=accessor_type)
     scheduler.process(transformation=transformation)
 
     driver = scheduler['#driver'].ir
@@ -663,10 +688,10 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     check_array_arg(mode, pragmas)
 
     # check other_variable_type
-    check_other_variable_type(mode, conds, pragmas, driver)
+    check_other_variable_type(mode, conds, pragmas, driver, accessor_type=FieldAPIAccessorType(accessor_type.upper()))
 
     # check struct
-    check_struct(mode, conds, pragmas, driver)
+    check_struct(mode, conds, pragmas, driver, accessor_type=FieldAPIAccessorType(accessor_type.upper()))
 
     if not present and mode == 'offload':
         check_geometry(conds, pragmas, driver)
