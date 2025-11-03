@@ -647,21 +647,16 @@ class DataOffloadDeepcopyTransformation(Transformation):
         # where the two are declared separately.
 
         # Strip view pointer prefix
-        var_name = var.name.lower()
+        view_ptr_prefix = typedef_config.get('view_ptr_prefix', '').lower()
+        var_name = var.name.lower().replace(view_ptr_prefix, '')
 
         # Get FIELD object name
         if not (field_object_name := typedef_config['field_ptr_map'].get(var_name, None)):
-            field_object_name = [typedef_config.get('field_prefix', '') + var_name.replace('_field', '')]
-            # deal with e.g., f_t1 <-> pt1_field
-            field_object_name += [typedef_config.get('field_prefix', '') + var_name.replace('_field', '')[1:]]
+            field_object_name = typedef_config.get('field_prefix', '') + var_name.replace('_field', '')
 
         # Create FIELD object
         variable_map = parent.type.dtype.typedef.variable_map
-        field_object = None
-        for _field_object_name in as_tuple(field_object_name):
-            if _field_object_name in variable_map:
-                field_object = variable_map[_field_object_name].clone(parent=parent)
-                break
+        field_object = variable_map[field_object_name].clone(parent=parent)
         field_ptr = var.clone(dimensions=None, parent=parent)
 
         if analysis == 'read':
