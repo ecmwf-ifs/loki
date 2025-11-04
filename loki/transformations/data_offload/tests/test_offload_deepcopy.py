@@ -343,7 +343,7 @@ def fixture_config():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('output_analysis', [True]) # , False])
+@pytest.mark.parametrize('output_analysis', [True, False])
 def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_analysis,
                                    output_analysis, tmp_path, caplog):
     """
