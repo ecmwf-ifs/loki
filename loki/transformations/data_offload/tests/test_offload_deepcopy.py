@@ -439,11 +439,8 @@ def check_variable_type_device(var, conds, access):
         calls = FindNodes(ir.CallStatement).visit(cond.body)
         pragmas = FindNodes(ir.Pragma).visit(cond.body)
 
-        # calls = [call for call in calls
-        #          if call.name.name.lower() == f'{var}%fp%get_device_data_{access}' and f'{var}%p' in call.arguments]
         calls = [call for call in calls
-                 # if call.name.name.lower() == f'{var}%fp%get_device_data_{access}' and f'{var}%p' in call.arguments]
-                 if f'get_device_data_{access}' and f'{var}%p' in call.arguments]
+                 if f'get_device_data_{access}' in call.name.name.lower() and f'{var}%p' in call.arguments]
         pragmas = [pragma for pragma in pragmas
                    if 'unstructured-data attach' in pragma.content and f'{var}%p' in pragma.content]
         if calls and pragmas:
@@ -521,7 +518,6 @@ def check_other_variable_type(mode, conds, pragmas, routine, accessor_type):
             pragmas = FindNodes(ir.Pragma).visit(cond.body)
 
             calls = [call for call in calls
-                     # if call.name.name.lower() == 'variable%f_t0%get_device_data_wronly'
                      if 'get_device_data_wronly' in call.name.name.lower()
                      and 'variable%vt0_field' in call.arguments]
             pragmas = [pragma for pragma in pragmas
@@ -533,7 +529,7 @@ def check_other_variable_type(mode, conds, pragmas, routine, accessor_type):
         assert _pass == 2
 
 
-def check_view_prefix_variable_type(mode, conds, pragmas, routine):
+def check_view_prefix_variable_type(mode, conds, pragmas, routine, accessor_type):
     """Check the generated deepcopy for `type(view_prefix_variable_type) :: another_variable`."""
 
     # Check pullback to host
@@ -541,8 +537,13 @@ def check_view_prefix_variable_type(mode, conds, pragmas, routine):
              'another_variable%f_t1' in c.condition.parameters]
     calls = FindNodes(ir.CallStatement).visit(conds)
 
-    assert any(call.name.name.lower() == 'another_variable%f_t1%get_host_data_rdwr' and
-               'another_variable%pt1_field' in call.arguments for call in calls)
+    if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+        assert any(call.name.name.lower() == 'another_variable%f_t1%get_host_data_rdwr' and
+                   'another_variable%pt1_field' in call.arguments for call in calls)
+    else:
+        var = 'another_variable'
+        assert any(call.name.name.lower() == 'sget_host_data_rdwr' and f'{var}%f_t1' in call.arguments
+                and f'{var}%pt1_field' in call.arguments for call in calls)
 
     if mode == 'offload':
         # Check copy to device of struct
@@ -571,13 +572,20 @@ def check_view_prefix_variable_type(mode, conds, pragmas, routine):
                 assert cond.body.index(calls[0]) > cond.body.index(pragmas[0])
                 _pass += 1
 
+        if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+            call_name = 'another_variable%f_t1%get_device_data_rdonly'
+            call_args = ['another_variable%pt1_field']
+        else:
+            call_name = 'sget_device_data_rdonly'
+            call_args = ['another_variable%pt1_field', 'another_variable%f_t1']
+
         for cond in conds:
             calls = FindNodes(ir.CallStatement).visit(cond.body)
             pragmas = FindNodes(ir.Pragma).visit(cond.body)
 
             calls = [call for call in calls
-                     if call.name.name.lower() == 'another_variable%f_t1%get_device_data_rdonly'
-                     and 'another_variable%pt1_field' in call.arguments]
+                     if call.name.name.lower() == call_name
+                     and all(arg in call.arguments for arg in call_args)]
             pragmas = [pragma for pragma in pragmas
                        if 'unstructured-data attach' in pragma.content
                        and 'another_variable%pt1_field' in pragma.content]
@@ -781,7 +789,7 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     check_other_variable_type(mode, conds, pragmas, driver, accessor_type=FieldAPIAccessorType(accessor_type.upper()))
 
     # check view_prefix_variable_type
-    check_view_prefix_variable_type(mode, conds, pragmas, driver)
+    check_view_prefix_variable_type(mode, conds, pragmas, driver, accessor_type=accessor_type)
 
     # check struct
     check_struct(mode, conds, pragmas, driver, accessor_type=FieldAPIAccessorType(accessor_type.upper()))
