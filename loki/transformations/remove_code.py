@@ -258,7 +258,8 @@ def find_unused_dummy_args_and_vars(routine):
         used_or_defined_array_shapes = [s.shape for s in used_or_defined_symbols if isinstance(s, sym.Array)]
         used_or_defined_symbols |= set(FindVariables().visit(used_or_defined_array_shapes))
 
-        used_or_defined_symbols |= set(variable_map.get(v.name_parts[0], v) for v in used_or_defined_symbols)
+        used_or_defined_symbols |= set(variable_map.get(v.name_parts[0], v).clone(dimensions=None)
+                                       for v in used_or_defined_symbols)
 
         unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
                        if not a.name.lower() in used_or_defined_symbols}
