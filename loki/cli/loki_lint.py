@@ -204,7 +204,3 @@ def check(ctx, include, exclude, basedir, config, fix, backup_suffix, worker,
     with Timer(logger=info, text='Files checking completed in {:.2f}s'):
         checked_count = lint_files(rule_list, config_values)
     info('%d files checked', checked_count)
-
-
-if __name__ == "__main__":
-    cli(obj={})  # pylint: disable=unexpected-keyword-arg,no-value-for-parameter

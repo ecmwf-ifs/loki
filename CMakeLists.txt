@@ -81,8 +81,8 @@ add_subdirectory( cmake )
 install( DIRECTORY cmake DESTINATION ${INSTALL_DATA_DIR} PATTERN "CMakeLists.txt" EXCLUDE )
 
 # The list of Loki frontend scripts
-file( GLOB _LOKI_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/loki_*.py" )
-list( TRANSFORM _LOKI_SCRIPTS REPLACE "scripts/loki_" "scripts/loki-" )
+file( GLOB _LOKI_SCRIPTS "${CMAKE_CURRENT_SOURCE_DIR}/loki/cli/loki_*.py" )
+list( TRANSFORM _LOKI_SCRIPTS REPLACE "loki/cli/loki_" "loki/cli/loki-" )
 set( LOKI_EXECUTABLES "" )
 foreach( _exe IN LISTS _LOKI_SCRIPTS )
     get_filename_component( _exe_name ${_exe} NAME )

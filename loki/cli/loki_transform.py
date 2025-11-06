@@ -16,47 +16,20 @@ from pathlib import Path
 import sys
 import click
 
-from loki import (
-    config as loki_config, Sourcefile, Frontend, as_tuple,
-    set_excepthook, auto_post_mortem_debugger, info
-)
+from loki import config as loki_config, Sourcefile, as_tuple, info
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
+from loki.cli.common import cli, frontend_options, scheduler_options
 
 from loki.transformations.build_system import FileWriteTransformation
 
 
-@click.group()
-@click.option('--debug/--no-debug', default=False, show_default=True,
-              help=('Enable / disable debug mode. This automatically attaches '
-                    'a debugger when exceptions occur'))
-def cli(debug):
-    if debug:
-        set_excepthook(hook=auto_post_mortem_debugger)
-
-
 @cli.command()
+@frontend_options
+@scheduler_options
 @click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', default=None, type=click.Path(),
               help='Path to custom scheduler configuration file')
-@click.option('--build', '-b', '--out-path', type=click.Path(), default=None,
-              help='Path to build directory for source generation.')
-@click.option('--source', '-s', '--path', type=click.Path(), multiple=True,
-              help='Path to search during source exploration.')
-@click.option('--header', '-h', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--include', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s)')
-@click.option('--define', '-D', multiple=True,
-              help='Additional symbol definitions for the C-preprocessor')
-@click.option('--omni-include', type=click.Path(), multiple=True,
-              help='Additional path for header files, specifically for OMNI')
-@click.option('--xmod', '-M', type=click.Path(), multiple=True,
-              help='Path for additional .xmod file(s) for OMNI')
-@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
-              help='Frontend parser to use (default FP)')
 @click.option('--plan-file', type=click.Path(), default=None,
               help='Process pipeline in planning mode and generate CMake "plan" file.')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
@@ -67,9 +40,7 @@ def cli(debug):
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 def convert(
-        mode, config, build, source, header, cpp, include, define,
-        omni_include, xmod, frontend, plan_file, callgraph, root,
-        log_level
+        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -96,17 +67,6 @@ def convert(
     # set default transformation mode in Scheduler config
     config.default['mode'] = mode
 
-    build_args = {
-        'preprocess': cpp,
-        'includes': include,
-        'defines': define,
-        'xmods': xmod,
-        'omni_includes': omni_include,
-    }
-
-    frontend = Frontend[frontend.upper()]
-    frontend_type = Frontend.FP if frontend == Frontend.OMNI else frontend
-
     # Note, in order to get function inlinig correct, we need full knowledge
     # of any imported symbols and functions. Since we cannot yet retro-fit that
     # after creation, we need to make sure that the order of definitions can
@@ -114,20 +74,18 @@ def convert(
     # definitions with new scheduler not necessary anymore. However, "source" need to be adjusted
     #  in order to allow the scheduler to find the dependencies
     definitions = []
-    for h in header:
-        sfile = Sourcefile.from_file(filename=h, frontend=frontend_type, definitions=definitions,
-                **build_args)
+    for h in scheduler_opts.header:
+        sfile = Sourcefile.from_file(filename=h, definitions=definitions, **frontend_opts.asdict)
         definitions = definitions + list(sfile.definitions)
 
     # Create a scheduler to bulk-apply source transformations
-    paths = [Path(p) for p in as_tuple(source)]
-    paths += [Path(h).parent for h in as_tuple(header)]
+    paths = [Path(p) for p in as_tuple(scheduler_opts.source)]
+    paths += [Path(h).parent for h in as_tuple(scheduler_opts.header)]
     # Skip full source parse for planning mode
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
-        paths=paths, config=config, frontend=frontend,
-        full_parse=full_parse, definitions=definitions,
-        output_dir=build, **build_args
+        paths=paths, config=config, full_parse=full_parse,
+        definitions=definitions, output_dir=scheduler_opts.build, **frontend_opts.asdict
     )
 
     # If requested, apply a custom pipeline from the scheduler config
@@ -159,22 +117,14 @@ def convert(
 
 
 @cli.command('plan')
+@frontend_options
+@scheduler_options
 @click.option('--mode', '-m', default='idem', type=click.STRING,
               help='Transformation mode, selecting which code transformations to apply.')
 @click.option('--config', '-c', type=click.Path(),
               help='Path to configuration file.')
-@click.option('--header', '-I', type=click.Path(), multiple=True,
-              help='Path for additional header file(s).')
-@click.option('--source', '-s', type=click.Path(), multiple=True,
-              help='Path to source files to transform.')
-@click.option('--build', '-b', type=click.Path(), default=None,
-              help='Path to build directory for source generation.')
 @click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
-@click.option('--cpp/--no-cpp', default=False,
-              help='Trigger C-preprocessing of source files.')
-@click.option('--frontend', default='fp', type=click.Choice(['fp', 'ofp', 'omni']),
-              help='Frontend parser to use (default FP)')
 @click.option('--callgraph', '-g', type=click.Path(), default=None,
               help='Generate and display the subroutine callgraph.')
 @click.option('--plan-file', type=click.Path(),
@@ -183,16 +133,9 @@ def convert(
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 @click.pass_context
-def plan(
-        ctx, mode, config, header, source, build, root, cpp,
-        frontend, callgraph, plan_file, log_level
-):
+def plan(ctx, *_args, **_kwargs):
     """
     Create a "plan", a schedule of files to inject and transform for a
     given configuration.
     """
     return ctx.forward(convert)
-
-
-if __name__ == "__main__":
-    cli()  # pylint: disable=no-value-for-parameter
