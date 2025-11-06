@@ -139,7 +139,3 @@ def plan(ctx, *_args, **_kwargs):
     given configuration.
     """
     return ctx.forward(convert)
-
-
-if __name__ == "__main__":
-    cli()  # pylint: disable=no-value-for-parameter
