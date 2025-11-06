@@ -61,7 +61,8 @@ def frontend_options(func):
     @optgroup.option('--cpp/--no-cpp', default=False,
                      help='Trigger C-preprocessing of source files.')
     @optgroup.option('--include', '-I', type=click.Path(), multiple=True,
-                     help='Path for additional header file(s)')
+                     help='Path for header file(s) that provide type '
+                     'information without being part of the call tree')
     @optgroup.option('--define', '-D', multiple=True,
                      help='Additional symbol definitions for the C-preprocessor')
     @optgroup.option('--xmod', '-M', type=click.Path(), multiple=True,
