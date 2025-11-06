@@ -5,7 +5,5 @@ Scripts
    :maxdepth: 1
 
    loki_lint
-
+   loki_transform
 ..
-  loki_build
-  loki_transform
