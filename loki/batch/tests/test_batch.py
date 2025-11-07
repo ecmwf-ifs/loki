@@ -671,6 +671,41 @@ end subroutine procedure_item_external_item
     assert [it.origin_cls for it in items] == [ModuleItem, ProcedureItem]
 
 
+@pytest.mark.parametrize('strict', [False, True])
+def test_procedure_item_external_item_intfb(tmp_path, strict, default_config):
+    """
+    Test that dependencies to external procedures are marked as external item
+    """
+    fcode = """
+subroutine procedure_item_external_item
+    implicit none
+#include "external_proc.intfb.h"
+
+    call external_proc(1)
+end subroutine procedure_item_external_item
+    """
+    filepath = tmp_path/'procedure_item_external_item.F90'
+    filepath.write_text(fcode)
+
+    default_config['default']['strict'] = strict
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    item = get_item(
+        ProcedureItem, filepath, '#procedure_item_external_item',
+        RegexParserClass.ProgramUnitClass, scheduler_config
+    )
+    item_factory = ItemFactory()
+    item_factory.item_cache[item.name] = item
+
+    if strict:
+        with pytest.raises(RuntimeError):
+            item.create_dependency_items(item_factory=item_factory, config=scheduler_config)
+    else:
+        items = item.create_dependency_items(item_factory=item_factory, config=scheduler_config)
+        assert items == ('#external_proc',)
+        assert isinstance(items[0], ExternalItem)
+        assert items[0].origin_cls == ProcedureItem
+
+
 def test_procedure_item_from_item1(testdir, default_config):
     proj = testdir/'sources/projBatch'
 
