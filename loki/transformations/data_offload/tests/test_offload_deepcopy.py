@@ -50,6 +50,11 @@ module type_def_mod
       real, pointer, contiguous :: vt0_field(:,:,:) => null()
    end type
 
+   type :: view_prefix_variable_type
+      class(field_3d), pointer :: f_t1 => null()
+      real, pointer, contiguous :: pt1_field(:,:,:) => null()
+   end type
+
    type :: superfluous_type
       type(variable_type) :: var
    end type
@@ -140,17 +145,20 @@ end module other_kernel_mod
             """
 module kernel_mod
 contains
-subroutine kernel(geometry, bnds, struct, variable)
+subroutine kernel(geometry, bnds, struct, variable, another_variable)
    use nested_kernel_write_mod, only: nested_kernel_write
    use nested_kernel_read_mod, only: nested_kernel_read
    use other_kernel_mod, only : other_kernel
-   use type_def_mod, only: struct_type, dims_type, geom_type, other_variable_type
+   use type_def_mod, only: struct_type, dims_type, geom_type, other_variable_type, &
+   &                       view_prefix_variable_type
    implicit none
 
    type(geom_type), intent(in) :: geometry
    type(dims_type), intent(in) :: bnds
    type(struct_type), intent(inout) :: struct
    type(other_variable_type), intent(inout) :: variable
+   type(view_prefix_variable_type), intent(in) :: another_variable
+
 
    integer :: jrof, jfld, j
    real, pointer :: tmp(:,:,:) => null()
@@ -159,6 +167,7 @@ subroutine kernel(geometry, bnds, struct, variable)
    call nested_kernel_write(struct%a%p(:,:,bnds%kbl))
    call nested_kernel_read(struct%b%p(:,:,bnds%kbl))
    call nested_kernel_read(variable%vt0_field(:,:,bnds%kbl))
+   call nested_kernel_read(another_variable%pt1_field(:,:,bnds%kbl))
 
    tmp => struct%c%p !... yes this completely breaks the dataflow analysis
    tmp = 0.
@@ -185,10 +194,11 @@ end module kernel_mod
         #----- driver -----
         'driver' : (
             """
-subroutine driver(dims, struct, array_arg, geometry, variable)
+subroutine driver(dims, struct, array_arg, geometry, variable, another_variable)
    use kernel_mod, only : kernel
    use nested_kernel_write_mod, only: nested_kernel_write
-   use type_def_mod, only: struct_type, dims_type, geom_type, other_variable_type
+   use type_def_mod, only: struct_type, dims_type, geom_type, other_variable_type, &
+   &                       view_prefix_variable_type
    use iso_fortran_env, only : real64
    implicit none
 
@@ -197,6 +207,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
    integer, intent(out) :: array_arg(:,:,:)
    type(geom_type), intent(in) :: geometry
    type(other_variable_type), intent(inout) :: variable
+   type(view_prefix_variable_type), intent(in) :: another_variable
    type(dims_type) :: local_dims
    integer :: ibl, ij
 
@@ -209,7 +220,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 
      variable%vt0_field(:,:,ibl) = 0._real64
 
-     call kernel(geometry, local_dims, struct, variable)
+     call kernel(geometry, local_dims, struct, variable, another_variable)
      call nested_kernel_write(struct%e%p(:,local_dims%m,local_dims%kbl))
      call nested_kernel_write(array_arg)
    enddo
@@ -223,7 +234,7 @@ subroutine driver(dims, struct, array_arg, geometry, variable)
 
      variable%vt0_field(:,:,ibl) = 0._real64
 
-     call kernel(geometry, local_dims, struct, variable)
+     call kernel(geometry, local_dims, struct, variable, another_variable)
      call nested_kernel_write(struct%e%p(:,local_dims%m,local_dims%kbl))
      call nested_kernel_write(array_arg)
    enddo
@@ -267,6 +278,9 @@ def fixture_expected_analysis():
         'array_arg': 'write',
         'variable' : {
             'vt0_field' : 'write'
+        },
+        'another_variable' : {
+            'pt1_field' : 'read',
         },
         'struct': {
             'a': {
@@ -488,6 +502,62 @@ def check_other_variable_type(mode, conds, pragmas, routine):
         assert _pass == 2
 
 
+def check_view_prefix_variable_type(mode, conds, pragmas, routine):
+    """Check the generated deepcopy for `type(view_prefix_variable_type) :: another_variable`."""
+
+    # Check pullback to host
+    conds = [c for c in conds if c.condition.name.lower() == 'associated' and
+             'another_variable%f_t1' in c.condition.parameters]
+    calls = FindNodes(ir.CallStatement).visit(conds)
+
+    assert any(call.name.name.lower() == 'another_variable%f_t1%get_host_data_rdwr' and
+               'another_variable%pt1_field' in call.arguments for call in calls)
+
+    if mode == 'offload':
+        # Check copy to device of struct
+        pragma = [p for p in pragmas if 'unstructured-data in' in p.content and
+                  '(another_variable)' in p.content][0]
+        assert routine.body.body.index(pragma) < routine.body.body.index(conds[0])
+
+        # Check deletion of struct from device
+        pragma = [p for p in pragmas if 'exit unstructured-data delete' in p.content and
+                  '(another_variable)' in p.content][0]
+        assert routine.body.body.index(pragma) > routine.body.body.index(conds[-1])
+
+        # Check FIELD_API boilerplate for copying to device and wiping device
+        _pass = 0
+        for cond in conds:
+            calls = FindNodes(ir.CallStatement).visit(cond.body)
+            pragmas = FindNodes(ir.Pragma).visit(cond.body)
+
+            calls = [call for call in calls
+                     if call.name.name.lower() == 'another_variable%f_t1%delete_device_data']
+            pragmas = [pragma for pragma in pragmas
+                       if 'exit unstructured-data detach' in pragma.content and
+                       'another_variable%pt1_field' in pragma.content and
+                       'finalize' in pragma.content]
+            if calls and pragmas:
+                assert cond.body.index(calls[0]) > cond.body.index(pragmas[0])
+                _pass += 1
+
+        for cond in conds:
+            calls = FindNodes(ir.CallStatement).visit(cond.body)
+            pragmas = FindNodes(ir.Pragma).visit(cond.body)
+
+            calls = [call for call in calls
+                     if call.name.name.lower() == 'another_variable%f_t1%get_device_data_rdonly'
+                     and 'another_variable%pt1_field' in call.arguments]
+            pragmas = [pragma for pragma in pragmas
+                       if 'unstructured-data attach' in pragma.content
+                       and 'another_variable%pt1_field' in pragma.content]
+
+            if calls and pragmas:
+                assert cond.body.index(calls[0]) < cond.body.index(pragmas[0])
+                _pass += 1
+
+        assert _pass == 2
+
+
 def check_geometry(conds, pragmas, routine):
     """Check the generated deepcopy for `type(geom_type) :: geometry`."""
 
@@ -642,6 +712,10 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
             'field_ptr_map': {
                 'vt0_field': 'f_t0'
             }
+        },
+        'view_prefix_variable_type': {
+            'field_prefix': 'f_',
+            'view_ptr_prefix': 'p'
         }
     }
 
@@ -664,6 +738,9 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
 
     # check other_variable_type
     check_other_variable_type(mode, conds, pragmas, driver)
+
+    # check view_prefix_variable_type
+    check_view_prefix_variable_type(mode, conds, pragmas, driver)
 
     # check struct
     check_struct(mode, conds, pragmas, driver)
