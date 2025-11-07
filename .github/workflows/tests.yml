@@ -80,7 +80,7 @@ jobs:
       - name: Run Loki tests
         run: |
           source loki-activate
-          pytest -n 4 --cov=./loki --cov-report=xml --pyargs loki
+          pytest -v -n 4 --cov=./loki --cov-report=xml --pyargs loki
 
       - name: Upload loki coverage report to Codecov
         uses: codecov/codecov-action@v4
@@ -94,7 +94,7 @@ jobs:
       - name: Run lint_rules tests
         run: |
           source loki-activate
-          pytest --cov=./lint_rules/lint_rules --cov-report=xml lint_rules
+          pytest -v --cov=./lint_rules/lint_rules --cov-report=xml lint_rules
 
       - name: Upload lint_rules coverage report to Codecov
         uses: codecov/codecov-action@v4
