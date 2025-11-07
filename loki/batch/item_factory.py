@@ -210,9 +210,8 @@ class ItemFactory:
         scope_item = self.item_cache.get(scope_name)
         if scope_item is None or isinstance(scope_item, ExternalItem):
             warning(f'Module {scope_name} not found in self.item_cache. Marking {item_name} as an external dependency')
-            generated = item_conf.get('generated', []) if item_conf else []
             item = ExternalItem(item_name, source=None, config=item_conf, origin_cls=item_cls,
-                                is_generated=self._is_generated(item_name, generated=generated))
+                                is_generated=self._is_generated(item_name, item_conf))
         else:
             source = scope_item.source
             item = item_cls(item_name, source=source, config=item_conf)
@@ -553,12 +552,21 @@ class ItemFactory:
             return None
         if config and config.is_disabled(item_name):
             return None
-        if item_name not in self.item_cache:
-            if not config or config.default.get('strict', True):
-                raise RuntimeError(f'Procedure {item_name} not found in self.item_cache.')
-            warning(f'Procedure {item_name} not found in self.item_cache.')
-            return None
-        return self.item_cache[item_name]
+        if item_name in self.item_cache:
+            return self.item_cache[item_name]
+
+        # We definitely can't find this item, which may be fine, depending on config...
+        item_conf = config.create_item_config(item_name) if config else None
+        is_generated = self._is_generated(item_name, item_conf)
+
+        if not is_generated and (not config or config.default.get('strict', True)):
+            raise RuntimeError(f'Procedure {item_name} not found in self.item_cache.')
+
+        warning(f'Procedure {item_name} not found in self.item_cache, marking as external dependency')
+        return ExternalItem(
+            item_name, source=None, config=item_conf,
+            origin_cls=ProcedureItem, is_generated=is_generated
+        )
 
     def get_or_create_module_definitions_from_candidates(self, name, config, module_names=None, only=None):
         """
@@ -647,12 +655,12 @@ class ItemFactory:
             otherwise ``False``
         """
         keys = as_tuple(config.disable if config else ()) + as_tuple(ignore)
-        return keys and SchedulerConfig.match_item_keys(
+        return bool(keys and SchedulerConfig.match_item_keys(
             name, keys, use_pattern_matching=True, match_item_parents=True
-        )
+        ))
 
     @staticmethod
-    def _is_generated(name, generated):
+    def _is_generated(name, config=None):
         """
         Utility method to check if a given :data:`name` is build-time generated.
 
@@ -660,18 +668,19 @@ class ItemFactory:
         ----------
         name : str
             The name to check
-        generated : list of str, optional
-            An optional list of names, as typically provided in a config value.
-            These are matched via :any:`SchedulerConfig.match_item_keys` with
-            pattern matching enabled.
+        config : dict, optional
+            A config dictionary for a given item, as created by
+            :any:`SchedulerConfig.create_item_config`. This is queried for the `"generated"`
+            key to obtain a list of names, as typically provided in a scheduler config
+            or injected by a :any:`Transformation`. These are matched via
+            :any:`SchedulerConfig.match_item_keys` with pattern matching enabled.
 
         Returns
         -------
         bool
             ``True`` if matched successfully via :data:`config` otherwise ``False``
         """
-
-        keys = generated if generated else []
-        return keys and SchedulerConfig.match_item_keys(
+        keys = config.get('generated', []) if config else []
+        return bool(keys and SchedulerConfig.match_item_keys(
             name, keys, use_pattern_matching=True, match_item_parents=True
-        )
+        ))
