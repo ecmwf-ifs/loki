@@ -96,4 +96,4 @@ jobs:
           OMP_STACKSIZE: 4G
         run: |
           source loki-activate
-          pytest --pyargs loki.transformations -k 'cloudsc or ecwam'
+          pytest -n 2 --pyargs loki.transformations -k 'cloudsc or ecwam'
