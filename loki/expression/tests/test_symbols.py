@@ -7,8 +7,7 @@
 
 from loki.backend import cgen, fgen
 from loki.expression import symbols as sym
-from loki.scope import Scope
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 
 
 def test_variable_symbols():
