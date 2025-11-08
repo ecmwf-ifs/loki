@@ -39,6 +39,7 @@ dependencies = [
 tests = [
   "pytest",
   "pytest-cov",
+  "pytest-xdist",
   "coverage2clover",
   "pylint!=2.11.0,!=2.11.1",
   "pandas",
