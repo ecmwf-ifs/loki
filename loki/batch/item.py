@@ -9,14 +9,15 @@ from functools import reduce
 import sys
 
 from loki.batch.configure import SchedulerConfig, ItemConfig
-from loki.frontend import REGEX, RegexParserClass
 from loki.expression import (
     TypedSymbol, MetaSymbol, ProcedureSymbol, Variable
 )
+from loki.frontend import REGEX, RegexParserClass
 from loki.ir import (
     Import, CallStatement, TypeDef, ProcedureDeclaration, Interface,
     FindNodes, FindInlineCalls
 )
+from loki.logging import debug, warning
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
@@ -277,6 +278,9 @@ class Item(ItemConfig):
         if not self._depends_class:
             return
         scope = self.scope_ir
+        if not scope:
+            debug('concretize_dependencies: No scope IR for %s', self.name)
+            return
         while scope.parent:
             scope = scope.parent
         if hasattr(scope, 'make_complete'):
@@ -716,26 +720,31 @@ class ProcedureItem(Item):
         :any:`CallStatement`, and :any:`ProcedureSymbol` (to represent
         calls to functions) nodes that constitute dependencies of this item.
         """
-        calls = tuple({call.name.name: call for call in FindNodes(CallStatement).visit(self.ir.ir)}.values())
-        if internal_procedures := [routine.name.lower() for routine in self.ir.routines]:
+        self_ir = self.ir
+        if not self_ir:
+            debug('Failed to resolve IR for item %s - cannot compile dependencies', self.name)
+            return ()
+
+        calls = tuple({call.name.name: call for call in FindNodes(CallStatement).visit(self_ir.ir)}.values())
+        if internal_procedures := [routine.name.lower() for routine in self_ir.routines]:
             calls = tuple(call for call in calls if call.name.name.lower() not in internal_procedures)
         inline_calls = tuple({
             call.function.name: call.function
-            for call in FindInlineCalls().visit(self.ir.ir)
+            for call in FindInlineCalls().visit(self_ir.ir)
             if isinstance(call.function, ProcedureSymbol) and not call.function.type.is_intrinsic
         }.values())
         imports = tuple(
-            imprt for imprt in self.ir.imports
+            imprt for imprt in self_ir.imports
             if not imprt.c_import and str(imprt.nature).lower() != 'intrinsic'
         )
-        interfaces = self.ir.interfaces
+        interfaces = self_ir.interfaces
         typedefs = ()
 
         # Create dependencies on type definitions that may have been declared in or
         # imported via the module scope
         if self.scope:
             type_names = [
-                dtype.name for var in self.ir.variables
+                dtype.name for var in self_ir.variables
                 if isinstance((dtype := var.type.dtype), DerivedType)
             ]
             if type_names:
@@ -890,12 +899,13 @@ class ProcedureBindingItem(Item):
         if not typedef:
             self.scope.make_complete(frontend=REGEX, parser_classes=self._parser_class)
             typedef = self.source[name_parts[0]]
-        for decl in typedef.declarations:
-            # We need to compare here explicitly symbol names as the symbol could be
-            # declared with a dimension
-            for symbol in decl.symbols:
-                if name_parts[1] == symbol.name.lower():
-                    return decl.symbols[decl.symbols.index(symbol)]
+        if typedef:
+            for decl in typedef.declarations:
+                # We need to compare here explicitly symbol names as the symbol could be
+                # declared with a dimension
+                for symbol in decl.symbols:
+                    if name_parts[1] == symbol.name.lower():
+                        return decl.symbols[decl.symbols.index(symbol)]
         raise RuntimeError(f'Declaration for {self.name} not found')
 
     @property
@@ -903,7 +913,19 @@ class ProcedureBindingItem(Item):
         """
         Return the :any:`TypeDef` in which this procedure binding appears.
         """
-        return self.ir.scope
+        try:
+            typedef = self.ir.scope
+        except RuntimeError as excinfo:
+            # The typedef could not be found, it might originate from a transient import
+            scope_name = self.name.split('#')[0]
+            type_name = self.local_name.split('%')[0]
+            scope = self.source[scope_name]
+            if scope and (typedef := scope.imported_symbol_map[type_name]):
+                debug("%s - transient import, using imported symbol", excinfo)
+            else:
+                warning(excinfo)
+                typedef = None
+        return typedef
 
     @property
     def _dependencies(self):
@@ -911,7 +933,13 @@ class ProcedureBindingItem(Item):
         Return the list of :any:`ProcedureSymbol` that correspond to the routine
         binding
         """
-        symbol = self.ir
+        try:
+            symbol = self.ir
+        except RuntimeError as excinfo:
+            # The procedure binding symbol could not be found, it might originate from an import
+            debug("%s - cannot determine dependencies", excinfo)
+            return ()
+
         name_parts = self.local_name.split('%')
         if len(name_parts) == 2:
             if symbol.type.dtype.is_generic:

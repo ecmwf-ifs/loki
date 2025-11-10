@@ -296,7 +296,7 @@ class SGraph:
         for item in self.items:  # We cannot iterate over the graph itself as we plan on changing it
             if (
                 isinstance(item, ProcedureItem) and
-                any('recursive' in prefix.lower() for prefix in item.ir.prefix or [])
+                any('recursive' in prefix.lower() for prefix in getattr(item.ir, 'prefix', []) or [])
             ):
                 try:
                     while True:
