@@ -71,6 +71,20 @@ module variable_mod
 end module variable_mod
 """
         ).strip(),
+        #-------------
+        'model_type_mod': (
+        #-------------
+"""
+module model_type_mod
+  implicit none
+
+  type model_type
+     real, allocatable :: some_rdonly_var(:,:)
+  end type model_type
+
+end module model_type_mod
+"""
+        ).strip(),
         #--------------------
         'field_variables_mod': (
         #--------------------
@@ -122,10 +136,11 @@ end module dims_type_mod
         'driver': (
         #-------
 f"""
-subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if request.param else 'bnds'})
+subroutine driver(data, ydvars, container, nlon, nlev, ydmodel, {'start, end, nb' if request.param else 'bnds'})
    use field_array_module, only: field_2rb_array, field_3rb_array
    use container_type_mod, only: container_type
    use field_variables_mod, only: field_variables
+   use model_type_mod, only: model_type
    {'use dims_type_mod, only: dims_type' if not request.param else ''}
    implicit none
 
@@ -135,6 +150,7 @@ subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if requ
    integer, intent(in) :: nlon, nlev
    type(field_variables), intent(inout) :: ydvars
    type(container_type), intent(inout) :: container
+   type(model_type), intent(inout) :: ydmodel
    {'integer, intent(in) :: start, end, nb' if request.param else 'type(dims_type), intent(in) :: bnds'}
 
    integer :: ibl, jl
@@ -146,7 +162,7 @@ subroutine driver(data, ydvars, container, nlon, nlev, {'start, end, nb' if requ
    do ibl=1,{'nb' if request.param else 'bnds%nb'}
       {'bnds%kbl = ibl' if not request.param else ''}
       {'do jl = start,end' if request.param else 'do jl = bnds%start,bnds%end'}
-         yla_data%p(jl,:) = 0.
+         yla_data%p(jl,:) = ydmodel%some_rdonly_var(jl,ibl)
       enddo
       call kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yla_data, yla_other)
    enddo
@@ -246,7 +262,10 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
                                          force_inject_arrays, tmp_path):
 
     config['routines'] = {
-        'driver': {'role': 'driver'},
+        'driver': {
+            'role': 'driver',
+            'exclude_var_names': ['ydmodel']
+        },
         'empty_kernel': {'role': 'kernel'}
     }
     if force_inject_arrays:
@@ -301,6 +320,9 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
     assign_loc = 1 if aliased_bounds else 0
     assert assigns[assign_loc].lhs == 'yla_data%p_field(jl,:,ibl)'
 
+    # check block-index was not injected in explicitly marked variables
+    assert assigns[assign_loc].rhs == 'ydmodel%some_rdonly_var(jl,ibl)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
                          'OMNI fails to import undefined module.')]))
@@ -309,7 +331,10 @@ def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blo
                                      global_gfl_ptr, tmp_path):
 
     config['routines'] = {
-        'driver': {'role': 'driver'}
+        'driver': {
+            'role': 'driver',
+            'exclude_var_names': ['ydmodel']
+        },
     }
 
     scheduler = Scheduler(

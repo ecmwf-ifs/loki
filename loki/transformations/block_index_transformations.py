@@ -97,12 +97,12 @@ class BlockViewToFieldViewTransformation(Transformation):
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
 
-        exclude_arrays = item.config.get('exclude_arrays', [])
+        exclude_var_names = item.config.get('exclude_var_names', [])
 
         if role == 'kernel':
-            self.process_kernel(routine, item, successors, targets, exclude_arrays)
+            self.process_kernel(routine, item, successors, targets, exclude_var_names)
         if role == 'driver':
-            self.process_driver(routine, item, successors, targets, exclude_arrays)
+            self.process_driver(routine, item, successors, targets, exclude_var_names)
 
     @staticmethod
     def _get_parkind_suffix(_type):
@@ -189,7 +189,7 @@ class BlockViewToFieldViewTransformation(Transformation):
             child.ir.enrich(definitions)
             child.trafo_data.update({key: {'definitions': definitions}})
 
-    def process_driver(self, routine, item, successors, targets, exclude_arrays):
+    def process_driver(self, routine, item, successors, targets, exclude_var_names):
 
         # create dummy definitions for field_api wrapper types
         field_array_mod_imports = [imp for imp in routine.imports if imp.module.lower() == 'field_array_module']
@@ -202,7 +202,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         self.propagate_defs_to_children(self._key, definitions, successors)
 
         for loop in find_driver_loops(routine.body, targets):
-            body = self.process_body(loop.body, item, successors, targets, exclude_arrays)
+            body = self.process_body(loop.body, item, successors, targets, exclude_var_names)
             body_map = {loop.body: body}
             Transformer(body_map, inplace=True).visit(loop)
 
@@ -219,7 +219,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
                          parent=parent, type=_type)
 
-    def process_body(self, body, item, successors, targets, exclude_arrays):
+    def process_body(self, body, item, successors, targets, exclude_var_names):
 
         # build list of type-bound array access using the horizontal index
         _vars = [var for var in FindVariables(unique=False).visit(body)
@@ -232,6 +232,9 @@ class BlockViewToFieldViewTransformation(Transformation):
                 _vars += [a for a, d in _args.items()
                           if any(v in d.shape for v in self.horizontal.sizes) and a.parents]
 
+        # filter out variables marked for exclusion
+        _vars = [v for v in _vars if not any(e in v for e in exclude_var_names)]
+
         # replace per-block view pointers with full field pointers
         vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
                                type=var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type)
@@ -243,9 +246,6 @@ class BlockViewToFieldViewTransformation(Transformation):
                          for v in FindVariables(unique=False).visit(body) if 'ydvars%gfl_ptr' in v.name.lower()})
             vmap = recursive_expression_map_update(vmap)
 
-        # filter out arrays marked for exclusion
-        vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
-
         # propagate dummy field_api wrapper definitions to children
         if item.trafo_data.get(self._key, None):
             definitions = item.trafo_data[self._key]['definitions']
@@ -255,7 +255,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         return SubstituteExpressions(vmap).visit(body)
 
 
-    def process_kernel(self, routine, item, successors, targets, exclude_arrays):
+    def process_kernel(self, routine, item, successors, targets, exclude_var_names):
 
         # Sanitize the subroutine
         do_resolve_associates(routine)
@@ -267,7 +267,7 @@ class BlockViewToFieldViewTransformation(Transformation):
         resolve_vector_dimension(routine, dimension=self.horizontal)
 
         # for kernels we process the entire body
-        routine.body = self.process_body(routine.body, item, successors, targets, exclude_arrays)
+        routine.body = self.process_body(routine.body, item, successors, targets, exclude_var_names)
 
 
 class InjectBlockIndexTransformation(Transformation):
