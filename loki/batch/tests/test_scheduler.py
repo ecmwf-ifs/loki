@@ -54,6 +54,7 @@ from functools import partial
 from pathlib import Path
 import re
 from subprocess import CalledProcessError
+from xml.etree.ElementTree import ParseError
 import pytest
 
 from loki import (
@@ -3314,3 +3315,253 @@ def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_
                 RuntimeErrorTransformation(fail_cls=fail_cls, fail_name=fail_name),
                 proc_strategy=proc_strategy
             )
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('qualified_import', [False, True])
+def test_scheduler_transient_typedef_imports(frontend, qualified_import, tmp_path):
+    """ Test that use of transiently imported typedefs succeeds. """
+
+    fcode_mod_a = """
+module mod_a
+    use mod_b, only: my_type
+    implicit none
+end module mod_a
+"""
+
+    fcode_mod_b = """
+module mod_b
+    implicit none
+    type my_type
+        real(kind=4) :: a, b, x
+
+        contains
+        procedure :: add_a_b => my_type_add_a_b
+    end type my_type
+
+contains
+    subroutine my_type_add_a_b(obj)
+        type(my_type), intent(inout) :: obj
+
+        obj%x = obj%a + obj%b
+    end subroutine my_type_add_a_b
+end module mod_b
+"""
+
+    fcode_driver = f"""
+subroutine test_scheduler()
+    use mod_a {', only: my_type' if qualified_import else ''}
+    implicit none
+
+    type(my_type) :: d
+
+    d%a = 42.0
+    d%a = 66.6
+    call d%add_a_b()
+end subroutine test_scheduler
+"""
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    (src_path/'mod_a.F90').write_text(fcode_mod_a)
+    (src_path/'mod_b.F90').write_text(fcode_mod_b)
+    (src_path/'driver.F90').write_text(fcode_driver)
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True
+        },
+        'routines': {'test_scheduler': {'role': 'driver'}}
+    })
+    if not qualified_import:
+        with pytest.raises(RuntimeError):
+            # NB: This raises a runtime error because we run in strict mode and cannot determine
+            #     that `my_type` is defined via the import due to the absence of a list of
+            #     symbols on the import
+            _ = Scheduler(
+                paths=[src_path], config=config, seed_routines='test_scheduler',
+                frontend=frontend, xmods=[tmp_path], full_parse=False
+            )
+    else:
+        scheduler = Scheduler(
+            paths=[src_path], config=config, seed_routines='test_scheduler',
+            frontend=frontend, xmods=[tmp_path], full_parse=False
+        )
+
+        assert scheduler.items == (
+            '#test_scheduler', 'mod_a', 'mod_a#my_type%add_a_b', 'mod_b#my_type'
+        )
+        assert scheduler.dependencies == (
+            ('#test_scheduler', 'mod_a'),
+            ('#test_scheduler', 'mod_a#my_type%add_a_b'),
+            ('mod_a', 'mod_b#my_type')
+        )
+
+        if frontend == OMNI:
+            with pytest.raises(ParseError):
+                # OMNI fails to read due to missing mod_b xmods
+                scheduler._parse_items()
+        else:
+            scheduler._parse_items()
+
+        call = FindNodes(ir.CallStatement).visit(scheduler['#test_scheduler'].ir.ir)[0]
+        assert call.name == 'd%add_a_b'
+        assert isinstance(call.name.parent.type.dtype, DerivedType)
+        assert call.name.parent.type.dtype.name == 'my_type'
+
+        if qualified_import and frontend == FP:
+            # Enrichment does work correctly in this situation, providing the link to the typedef
+            assert call.name.parent.type.dtype.typedef is scheduler['mod_b#my_type'].ir
+        else:
+            # The interprocedural annotations do _not_ currently enrich the type in this situation
+            assert call.name.parent.type.dtype.typedef == BasicType.DEFERRED
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('qualified_import', [False, True])
+def test_scheduler_transient_procedure_imports(frontend, qualified_import, tmp_path):
+    """ Test that use of transiently imported procedures succeeds. """
+
+    fcode_mod_a = """
+module mod_a
+    use mod_b, only: my_proc
+    implicit none
+end module mod_a
+"""
+
+    fcode_mod_b = """
+module mod_b
+    implicit none
+contains
+    subroutine my_proc
+        print *,'hello world'
+    end subroutine
+end module mod_b
+"""
+
+    fcode_driver = f"""
+subroutine test_scheduler()
+    use mod_a {', only: my_proc' if qualified_import else ''}
+    implicit none
+
+    call my_proc
+end subroutine test_scheduler
+"""
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    (src_path/'mod_a.F90').write_text(fcode_mod_a)
+    (src_path/'mod_b.F90').write_text(fcode_mod_b)
+    (src_path/'driver.F90').write_text(fcode_driver)
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True
+        },
+        'routines': {'test_scheduler': {'role': 'driver'}}
+    })
+
+    if not qualified_import:
+        with pytest.raises(RuntimeError):
+            # NB: This raises a runtime error because we run in strict mode and cannot determine
+            #     that `proc` is defined via the import due to the absence of a list of
+            #     symbols on the import
+            _ = Scheduler(
+                paths=[src_path], config=config, seed_routines='test_scheduler',
+                frontend=frontend, xmods=[tmp_path], full_parse=False
+            )
+    else:
+        scheduler = Scheduler(
+            paths=[src_path], config=config, seed_routines='test_scheduler',
+            frontend=frontend, xmods=[tmp_path], full_parse=False
+        )
+
+        # NB: mod_b is missing from the graph because the transient import does not
+        # incur a dependency. See #630
+        assert scheduler.items == ('#test_scheduler', 'mod_a', 'mod_a#my_proc')
+        assert scheduler.dependencies == (
+            ('#test_scheduler', 'mod_a'), ('#test_scheduler', 'mod_a#my_proc')
+        )
+
+        if frontend == OMNI:
+            with pytest.raises(CalledProcessError):
+                # OMNI fails to read due to missing mod_b xmods
+                scheduler._parse_items()
+        else:
+            scheduler._parse_items()
+
+        # The interprocedural annotations do _not_ currently enrich the call in this situation
+        call = FindNodes(ir.CallStatement).visit(scheduler['#test_scheduler'].ir.ir)[0]
+        assert call.name == 'my_proc'
+        assert call.name.type.imported
+        assert not call.name.type.procedure
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('qualified_import', [False, True])
+def test_scheduler_transient_variable_imports(frontend, qualified_import, tmp_path):
+    """ Test that use of transiently imported variables succeeds. """
+
+    fcode_mod_a = """
+module mod_a
+    use mod_b, only: my_var
+    implicit none
+end module mod_a
+"""
+
+    fcode_mod_b = """
+module mod_b
+    implicit none
+    integer :: my_var
+end module mod_b
+"""
+
+    fcode_driver = f"""
+subroutine test_scheduler()
+    use mod_a {', only: my_var' if qualified_import else ''}
+    implicit none
+    my_var = 1
+end subroutine test_scheduler
+"""
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    (src_path/'mod_a.F90').write_text(fcode_mod_a)
+    (src_path/'mod_b.F90').write_text(fcode_mod_b)
+    (src_path/'driver.F90').write_text(fcode_driver)
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True
+        },
+        'routines': {'test_scheduler': {'role': 'driver'}}
+    })
+
+    scheduler = Scheduler(
+        paths=[src_path], config=config, seed_routines='test_scheduler',
+        frontend=frontend, xmods=[tmp_path], full_parse=False
+    )
+
+    # NB: Global variable imports as a dependency are established directly on the import
+    #     statements, thus the transient dependency is captured
+    assert scheduler.items == ('#test_scheduler', 'mod_a', 'mod_b')
+    assert scheduler.dependencies == (
+        ('#test_scheduler', 'mod_a'), ('mod_a', 'mod_b')
+    )
+
+    scheduler._parse_items()
+
+    # NB: We are able to correctly propagate the type information through
+    #     multiple import layers
+    my_var = scheduler['#test_scheduler'].ir.body.body[0].lhs
+    assert isinstance(my_var, Scalar)
+    assert my_var.type.dtype == BasicType.INTEGER
+    assert my_var.type.imported
+
+    # NB: This links to the module it imports from, not where it is defined
+    assert my_var.type.module is scheduler['mod_a'].ir
+
+    mod_a_var = scheduler['mod_a'].ir.imported_symbol_map['my_var']
+    assert isinstance(mod_a_var, Scalar)
+    assert mod_a_var.type.dtype == BasicType.INTEGER
+    assert mod_a_var.type.imported
+    assert mod_a_var.type.module is scheduler['mod_b'].ir
