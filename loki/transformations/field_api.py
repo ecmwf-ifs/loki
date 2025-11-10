@@ -46,7 +46,20 @@ class FieldAPITransferDirection(Enum):
 
 
 class FieldAPIAccessorType(Enum):
+
+    """
+    Create FIELD_API data access calls using the native type-bound methods e.g.
+    CALL FIELD%GET_HOST/DEVICE_DATA_...()
+    """
     TYPE_BOUND = 'GET'
+
+    """
+    Create FIELD_API data access calls using a generic interface that
+    takes a FIELD as an argument e.g.
+    CALL SGET_HOST/DEVICE_DATA_...(..., FIELD)
+
+    This mode offers additional safety for uninitialised and zero-sized fields.
+    """
     GENERIC = 'SGET'
 
     @property
