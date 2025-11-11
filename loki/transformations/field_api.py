@@ -56,14 +56,17 @@ class FieldAPIAccessorType(Enum):
         CALL FIELD%GET_HOST/DEVICE_DATA_...()
     """
 
+    GENERIC = 'SGET'
     """
     Create FIELD_API data access calls using a generic interface that
     takes a FIELD as an argument e.g.
-    CALL SGET_HOST/DEVICE_DATA_...(..., FIELD)
+    
+    .. code-block:: fortran
+    
+        CALL SGET_HOST/DEVICE_DATA_...(..., FIELD)
 
     This mode offers additional safety for uninitialised and zero-sized fields.
     """
-    GENERIC = 'SGET'
 
     def __str__(self):
         return self.value
