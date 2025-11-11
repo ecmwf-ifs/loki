@@ -426,7 +426,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
     ----------
     mode : str
        Transformation mode, must be either "offload" or "set_pointers".
-    accessor_type : str
+    accessor_type : str or :any:`FieldAPIAccessorType`
        Field API accessor type, must be either "GET" or "SGET"
     """
 
