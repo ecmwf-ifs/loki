@@ -47,11 +47,14 @@ class FieldAPITransferDirection(Enum):
 
 class FieldAPIAccessorType(Enum):
 
+    TYPE_BOUND = 'GET'
     """
     Create FIELD_API data access calls using the native type-bound methods e.g.
-    CALL FIELD%GET_HOST/DEVICE_DATA_...()
+    
+    .. code-block:: fortran
+    
+        CALL FIELD%GET_HOST/DEVICE_DATA_...()
     """
-    TYPE_BOUND = 'GET'
 
     """
     Create FIELD_API data access calls using a generic interface that
