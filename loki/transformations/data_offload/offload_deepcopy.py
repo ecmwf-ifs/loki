@@ -433,9 +433,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
-    def __init__(self, mode, accessor_type="GET"):
+    def __init__(self, mode, accessor_type=FieldAPIAccessorType.TYPE_BOUND):
         self.mode = mode
-        self.accessor_type = FieldAPIAccessorType(accessor_type.upper())
+        self.accessor_type = FieldAPIAccessorType(str(accessor_type).upper())
 
     def transform_subroutine(self, routine, **kwargs):
 

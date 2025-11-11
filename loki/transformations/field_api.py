@@ -62,8 +62,7 @@ class FieldAPIAccessorType(Enum):
     """
     GENERIC = 'SGET'
 
-    @property
-    def prefix(self):
+    def __str__(self):
         return self.value
 
 
@@ -256,7 +255,7 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
     ):
         raise TypeError("incorrect transfer_type (WRITE_ONLY) for Field-API get method")
 
-    procedure_name = f'{accessor_type.prefix}_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
+    procedure_name = f'{accessor_type}_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
 
     kwargs = []
     if queue is not None:

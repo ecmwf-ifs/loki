@@ -742,7 +742,7 @@ def check_struct_var_ptr(mode, conds, accessor_type):
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('present', [True, False])
 @pytest.mark.parametrize('mode', ['offload', 'set_pointers'])
-@pytest.mark.parametrize('accessor_type', ['GET', 'SGET'])
+@pytest.mark.parametrize('accessor_type', [FieldAPIAccessorType.TYPE_BOUND, FieldAPIAccessorType.GENERIC])
 def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, present, mode, accessor_type,
         tmp_path):
     """
@@ -786,13 +786,13 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     check_array_arg(mode, pragmas)
 
     # check other_variable_type
-    check_other_variable_type(mode, conds, pragmas, driver, accessor_type=FieldAPIAccessorType(accessor_type.upper()))
+    check_other_variable_type(mode, conds, pragmas, driver, accessor_type=accessor_type)
 
     # check view_prefix_variable_type
     check_view_prefix_variable_type(mode, conds, pragmas, driver, accessor_type=accessor_type)
 
     # check struct
-    check_struct(mode, conds, pragmas, driver, accessor_type=FieldAPIAccessorType(accessor_type.upper()))
+    check_struct(mode, conds, pragmas, driver, accessor_type=accessor_type)
 
     if not present and mode == 'offload':
         check_geometry(conds, pragmas, driver)
