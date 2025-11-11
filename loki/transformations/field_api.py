@@ -21,7 +21,7 @@ from loki.types import Scope
 __all__ = [
     'FieldAPITransferType', 'FieldPointerMap', 'get_field_type', 'field_get_device_data',
     'field_get_host_data', 'field_sync_device', 'field_sync_host', 'field_create_device_data',
-    'field_delete_device_data', 'field_wait_for_async_queue'
+    'field_delete_device_data', 'field_wait_for_async_queue', 'FieldAPIAccessorType'
 ]
 
 
@@ -42,6 +42,33 @@ class FieldAPITransferDirection(Enum):
 
     @property
     def suffix(self):
+        return self.value
+
+
+class FieldAPIAccessorType(Enum):
+
+    TYPE_BOUND = 'GET'
+    """
+    Create FIELD_API data access calls using the native type-bound methods e.g.
+    
+    .. code-block:: fortran
+    
+        CALL FIELD%GET_HOST/DEVICE_DATA_...()
+    """
+
+    GENERIC = 'SGET'
+    """
+    Create FIELD_API data access calls using a generic interface that
+    takes a FIELD as an argument e.g.
+    
+    .. code-block:: fortran
+    
+        CALL SGET_HOST/DEVICE_DATA_...(..., FIELD)
+
+    This mode offers additional safety for uninitialised and zero-sized fields.
+    """
+
+    def __str__(self):
         return self.value
 
 
@@ -189,7 +216,8 @@ def get_field_type(a: sym.Array) -> sym.DerivedType:
 
 def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
                     transfer_direction: FieldAPITransferDirection,
-                    scope: Scope, queue=None, blk_bounds=None, offset=None):
+                    scope: Scope, queue=None, blk_bounds=None, offset=None,
+                    accessor_type: FieldAPIAccessorType=FieldAPIAccessorType.TYPE_BOUND):
     """
     Internal function to generate FIELD API ``GET DATA`` calls.
 
@@ -216,7 +244,8 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
         ``BLK_BOUNDS`` optional argument
     offset: integer
         ``OFFSET`` optional argument
-
+    accessor_type: :any:`FieldAPIAccessorType`
+        Type of accessor to be used, e.g., 'get_' type bound method or 'sget'
     """
     if not isinstance(transfer_type, FieldAPITransferType):
         raise TypeError("transfer_type must be of type FieldAPITransferType, " +
@@ -232,7 +261,7 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
     ):
         raise TypeError("incorrect transfer_type (WRITE_ONLY) for Field-API get method")
 
-    procedure_name = 'GET_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
+    procedure_name = f'{accessor_type}_' + transfer_direction.suffix + '_DATA_' + transfer_type.suffix
 
     kwargs = []
     if queue is not None:
@@ -244,12 +273,16 @@ def _field_get_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
 
     kwargs = tuple(kwargs) if len(kwargs) > 0 else None
 
-    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
-                            arguments=(dev_ptr.clone(dimensions=None),), kwarguments=kwargs)
+    if accessor_type == FieldAPIAccessorType.TYPE_BOUND:
+        return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, parent=field_ptr, scope=scope),
+                                arguments=(dev_ptr.clone(dimensions=None),), kwarguments=kwargs)
+    return ir.CallStatement(name=sym.ProcedureSymbol(procedure_name, scope=scope),
+            arguments=(dev_ptr.clone(dimensions=None), field_ptr), kwarguments=kwargs)
 
 
 def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope,
-                          queue=None, blk_bounds=None, offset=None):
+                          queue=None, blk_bounds=None, offset=None,
+                          accessor_type: FieldAPIAccessorType=FieldAPIAccessorType.TYPE_BOUND):
     """
     Utility function to generate a :any:`CallStatement` corresponding to a Field API
     ``GET_DEVICE_DATA`` call.
@@ -270,14 +303,16 @@ def field_get_device_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferTyp
         ``BLK_BOUNDS`` optional argument
     offset: integer
         ``OFFSET`` optional argument
-
+    accessor_type: :any:`FieldAPIAccessorType`
+        Type of accessor to be used, e.g., 'get_' type bound method or 'sget'
     """
     return _field_get_data(field_ptr, dev_ptr, transfer_type, FieldAPITransferDirection.HOST_TO_DEVICE,
-                           scope, queue=queue, blk_bounds=blk_bounds, offset=offset)
+                           scope, queue=queue, blk_bounds=blk_bounds, offset=offset, accessor_type=accessor_type)
 
 
 def field_get_host_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType, scope: Scope,
-                        queue=None, blk_bounds=None, offset=None):
+                        queue=None, blk_bounds=None, offset=None,
+                        accessor_type: FieldAPIAccessorType=FieldAPIAccessorType.TYPE_BOUND):
     """
     Utility function to generate a :any:`CallStatement` corresponding to a Field API
     ``GET_HOST_DATA`` call.
@@ -298,9 +333,11 @@ def field_get_host_data(field_ptr, dev_ptr, transfer_type: FieldAPITransferType,
         ``BLK_BOUNDS`` optional argument
     offset: integer
         ``OFFSET`` optional argument
+    accessor_type: :any:`FieldAPIAccessorType`
+        Type of accessor to be used, e.g., 'get_' type bound method or 'sget'
     """
     return _field_get_data(field_ptr, dev_ptr, transfer_type, FieldAPITransferDirection.DEVICE_TO_HOST,
-                           scope, queue=queue, blk_bounds=blk_bounds, offset=offset)
+                           scope, queue=queue, blk_bounds=blk_bounds, offset=offset, accessor_type=accessor_type)
 
 
 def _field_sync(field_ptr, transfer_type: FieldAPITransferType,

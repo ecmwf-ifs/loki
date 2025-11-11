@@ -24,7 +24,8 @@ from loki.logging import warning
 from loki.tools import as_tuple
 from loki.types import BasicType, DerivedType
 from loki.transformations.field_api import (
-        FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data
+        FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data,
+        FieldAPIAccessorType
 )
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
@@ -425,13 +426,16 @@ class DataOffloadDeepcopyTransformation(Transformation):
     ----------
     mode : str
        Transformation mode, must be either "offload" or "set_pointers".
+    accessor_type : str or :any:`FieldAPIAccessorType`
+       Field API accessor type, must be either "GET" or "SGET"
     """
 
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
-    def __init__(self, mode):
+    def __init__(self, mode, accessor_type=FieldAPIAccessorType.TYPE_BOUND):
         self.mode = mode
+        self.accessor_type = FieldAPIAccessorType(str(accessor_type).upper())
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -667,9 +671,11 @@ class DataOffloadDeepcopyTransformation(Transformation):
         else:
             access_mode = FieldAPITransferType.WRITE_ONLY
 
-        device = as_tuple(field_get_device_data(field_object, field_ptr, access_mode, scope))
+        device = as_tuple(field_get_device_data(field_object, field_ptr, access_mode, scope,
+            accessor_type=self.accessor_type))
         device += self.enter_data_attach(field_ptr)
-        host = as_tuple(field_get_host_data(field_object, field_ptr, FieldAPITransferType.READ_WRITE, scope))
+        host = as_tuple(field_get_host_data(field_object, field_ptr, FieldAPITransferType.READ_WRITE, scope,
+            accessor_type=self.accessor_type))
         wipe = self.exit_data_detach(field_ptr)
         wipe += as_tuple(field_delete_device_data(field_object, scope))
 
