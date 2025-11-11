@@ -920,7 +920,7 @@ class ProcedureBindingItem(Item):
             scope_name = self.name.split('#')[0]
             type_name = self.local_name.split('%')[0]
             scope = self.source[scope_name]
-            if scope and (typedef := scope.imported_symbol_map[type_name]):
+            if scope and (typedef := scope.imported_symbol_map.get(type_name)):
                 debug("%s - transient import, using imported symbol", excinfo)
             else:
                 warning(excinfo)

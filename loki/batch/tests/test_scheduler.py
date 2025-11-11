@@ -3317,13 +3317,13 @@ def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_
             )
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('qualified_import', [False, True])
+@pytest.mark.parametrize('qualified_import', ['driver', 'module', 'both', 'none'])
 def test_scheduler_transient_typedef_imports(frontend, qualified_import, tmp_path):
     """ Test that use of transiently imported typedefs succeeds. """
 
-    fcode_mod_a = """
+    fcode_mod_a = f"""
 module mod_a
-    use mod_b, only: my_type
+    use mod_b{', only: my_type' if qualified_import in ('module', 'both') else ''}
     implicit none
 end module mod_a
 """
@@ -3349,7 +3349,7 @@ end module mod_b
 
     fcode_driver = f"""
 subroutine test_scheduler()
-    use mod_a {', only: my_type' if qualified_import else ''}
+    use mod_a {', only: my_type' if qualified_import in ('driver', 'both') else ''}
     implicit none
 
     type(my_type) :: d
@@ -3372,7 +3372,7 @@ end subroutine test_scheduler
         },
         'routines': {'test_scheduler': {'role': 'driver'}}
     })
-    if not qualified_import:
+    if qualified_import not in ('driver', 'both'):
         with pytest.raises(RuntimeError):
             # NB: This raises a runtime error because we run in strict mode and cannot determine
             #     that `my_type` is defined via the import due to the absence of a list of
@@ -3387,14 +3387,24 @@ end subroutine test_scheduler
             frontend=frontend, xmods=[tmp_path], full_parse=False
         )
 
-        assert scheduler.items == (
-            '#test_scheduler', 'mod_a', 'mod_a#my_type%add_a_b', 'mod_b#my_type'
-        )
-        assert scheduler.dependencies == (
-            ('#test_scheduler', 'mod_a'),
-            ('#test_scheduler', 'mod_a#my_type%add_a_b'),
-            ('mod_a', 'mod_b#my_type')
-        )
+        if qualified_import == 'both':
+            assert scheduler.items == (
+                '#test_scheduler', 'mod_a', 'mod_a#my_type%add_a_b', 'mod_b#my_type'
+            )
+            assert scheduler.dependencies == (
+                ('#test_scheduler', 'mod_a'),
+                ('#test_scheduler', 'mod_a#my_type%add_a_b'),
+                ('mod_a', 'mod_b#my_type')
+            )
+        else:
+            assert scheduler.items == (
+                '#test_scheduler', 'mod_a', 'mod_a#my_type%add_a_b', 'mod_b'
+            )
+            assert scheduler.dependencies == (
+                ('#test_scheduler', 'mod_a'),
+                ('#test_scheduler', 'mod_a#my_type%add_a_b'),
+                ('mod_a', 'mod_b')
+            )
 
         if frontend == OMNI:
             with pytest.raises(ParseError):
@@ -3408,22 +3418,24 @@ end subroutine test_scheduler
         assert isinstance(call.name.parent.type.dtype, DerivedType)
         assert call.name.parent.type.dtype.name == 'my_type'
 
-        if qualified_import and frontend == FP:
+        if qualified_import in ('driver', 'both') and frontend == FP:
             # Enrichment does work correctly in this situation, providing the link to the typedef
-            assert call.name.parent.type.dtype.typedef is scheduler['mod_b#my_type'].ir
+            assert call.name.parent.type.dtype.typedef is (
+                getattr(scheduler['mod_b#my_type'], 'ir', None) or scheduler['mod_b'].ir['my_type']
+            )
         else:
             # The interprocedural annotations do _not_ currently enrich the type in this situation
             assert call.name.parent.type.dtype.typedef == BasicType.DEFERRED
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('qualified_import', [False, True])
+@pytest.mark.parametrize('qualified_import', ['driver', 'module', 'both', 'none'])
 def test_scheduler_transient_procedure_imports(frontend, qualified_import, tmp_path):
     """ Test that use of transiently imported procedures succeeds. """
 
-    fcode_mod_a = """
+    fcode_mod_a = f"""
 module mod_a
-    use mod_b, only: my_proc
+    use mod_b{', only: my_proc' if qualified_import in ('module', 'both') else ''}
     implicit none
 end module mod_a
 """
@@ -3440,7 +3452,7 @@ end module mod_b
 
     fcode_driver = f"""
 subroutine test_scheduler()
-    use mod_a {', only: my_proc' if qualified_import else ''}
+    use mod_a {', only: my_proc' if qualified_import in ('driver', 'both') else ''}
     implicit none
 
     call my_proc
@@ -3460,7 +3472,7 @@ end subroutine test_scheduler
         'routines': {'test_scheduler': {'role': 'driver'}}
     })
 
-    if not qualified_import:
+    if qualified_import in ('module', 'none'):
         with pytest.raises(RuntimeError):
             # NB: This raises a runtime error because we run in strict mode and cannot determine
             #     that `proc` is defined via the import due to the absence of a list of
@@ -3477,12 +3489,19 @@ end subroutine test_scheduler
 
         # NB: mod_b is missing from the graph because the transient import does not
         # incur a dependency. See #630
-        assert scheduler.items == ('#test_scheduler', 'mod_a', 'mod_a#my_proc')
-        assert scheduler.dependencies == (
-            ('#test_scheduler', 'mod_a'), ('#test_scheduler', 'mod_a#my_proc')
-        )
+        if qualified_import == 'both':
+            assert scheduler.items == ('#test_scheduler', 'mod_a', 'mod_a#my_proc')
+            assert scheduler.dependencies == (
+                ('#test_scheduler', 'mod_a'), ('#test_scheduler', 'mod_a#my_proc')
+            )
+        else:
+            assert scheduler.items == ('#test_scheduler', 'mod_a', 'mod_a#my_proc', 'mod_b')
+            assert scheduler.dependencies == (
+                ('#test_scheduler', 'mod_a'), ('#test_scheduler', 'mod_a#my_proc'),
+                ('mod_a', 'mod_b')
+            )
 
-        if frontend == OMNI:
+        if frontend == OMNI and qualified_import == 'both':
             with pytest.raises(CalledProcessError):
                 # OMNI fails to read due to missing mod_b xmods
                 scheduler._parse_items()
@@ -3497,13 +3516,13 @@ end subroutine test_scheduler
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('qualified_import', [False, True])
+@pytest.mark.parametrize('qualified_import', ['driver', 'module', 'both', 'none'])
 def test_scheduler_transient_variable_imports(frontend, qualified_import, tmp_path):
     """ Test that use of transiently imported variables succeeds. """
 
-    fcode_mod_a = """
+    fcode_mod_a = f"""
 module mod_a
-    use mod_b, only: my_var
+    use mod_b{', only: my_var' if qualified_import in ('module', 'both') else ''}
     implicit none
 end module mod_a
 """
@@ -3517,7 +3536,7 @@ end module mod_b
 
     fcode_driver = f"""
 subroutine test_scheduler()
-    use mod_a {', only: my_var' if qualified_import else ''}
+    use mod_a {', only: my_var' if qualified_import in ('driver', 'both') else ''}
     implicit none
     my_var = 1
 end subroutine test_scheduler
@@ -3560,8 +3579,10 @@ end subroutine test_scheduler
     # NB: This links to the module it imports from, not where it is defined
     assert my_var.type.module is scheduler['mod_a'].ir
 
-    mod_a_var = scheduler['mod_a'].ir.imported_symbol_map['my_var']
-    assert isinstance(mod_a_var, Scalar)
-    assert mod_a_var.type.dtype == BasicType.INTEGER
-    assert mod_a_var.type.imported
-    assert mod_a_var.type.module is scheduler['mod_b'].ir
+    if qualified_import in ('module', 'both'):
+        # The symbol only exists in mod_a if it's listed on the import
+        mod_a_var = scheduler['mod_a'].ir.imported_symbol_map['my_var']
+        assert isinstance(mod_a_var, Scalar)
+        assert mod_a_var.type.dtype == BasicType.INTEGER
+        assert mod_a_var.type.imported
+        assert mod_a_var.type.module is scheduler['mod_b'].ir
