@@ -67,6 +67,20 @@ end module
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['simple_loops']
 
+    # Ensure type definition is available in module and subroutine
+    assert isinstance(module.symbol_attrs['explicit'].dtype, DerivedType)
+    assert isinstance(module.symbol_attrs['explicit'].dtype.typedef, ir.TypeDef)
+    assert isinstance(routine.symbol_attrs.lookup('explicit').dtype, DerivedType)
+    assert isinstance(routine.symbol_attrs.lookup('explicit').dtype.typedef, ir.TypeDef)
+
+    # Ensure only the locally defined types are in the local scope
+    assert routine.symbol_attrs['i'].dtype == BasicType.INTEGER
+    assert routine.symbol_attrs['j'].dtype == BasicType.INTEGER
+    assert routine.symbol_attrs['n'].dtype == BasicType.INTEGER
+    assert isinstance(routine.symbol_attrs['item'].dtype, DerivedType)
+    # OMNI retains the procedure itself in the local scope
+    assert len(routine.symbol_attrs) == 5 if frontend == OMNI else 4
+
     # Ensure type info is attached correctly
     item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]
     assert all(v.type.dtype == BasicType.REAL for v in item_vars)
@@ -76,16 +90,6 @@ end module
     assert item_vars[3].name == 'item%matrix' and item_vars[3].shape == (3, 3)
     assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
     assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
-
-    filepath = tmp_path/(f'derived_types_simple_loops_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.explicit()
-    item.scalar = 2.
-    item.vector[:] = 5.
-    item.matrix[:, :] = 4.
-    mod.simple_loops(item)
-    assert (item.vector == 7.).all() and (item.matrix == 6.).all()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

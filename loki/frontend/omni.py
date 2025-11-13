@@ -1156,11 +1156,11 @@ class OMNI2IR(GenericVisitor):
     def visit_FmemberRef(self, o, **kwargs):
         parent = self.visit(o.find('varRef'), **kwargs)
         name = f'{parent.name}%{o.attrib["member"]}'
-        variable = sym.Variable(name=name, parent=parent)
+        variable = sym.Variable(name=name, parent=parent, scope=parent.type.dtype)
         return variable
 
     def visit_name(self, o, **kwargs):
-        return sym.Variable(name=o.text)
+        return sym.Variable(name=o.text, scope=kwargs.get('scope'))
 
     visit_Var = visit_name
 
