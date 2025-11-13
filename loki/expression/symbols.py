@@ -251,7 +251,7 @@ class TypedSymbol:
             if _type.dtype.typedef is BasicType.DEFERRED:
                 return ()
             return tuple(
-                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, type=v.type, parent=self)
+                v.clone(name=f'{self.name}%{v.name}', scope=_type.dtype, type=v.type, parent=self)
                 for v in _type.dtype.typedef.variables
             )
         return None

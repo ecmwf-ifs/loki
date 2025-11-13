@@ -8,12 +8,13 @@
 """ Representation of a derived type with local symbol table. """
 
 from loki.types.datatypes import BasicType, DataType
+from loki.types.scope import Scope
 
 
 __all__ = ['DerivedType']
 
 
-class DerivedType(DataType):
+class DerivedType(DataType, Scope):
     """
     Representation of derived data types that may have an associated :any:`TypeDef`
 
@@ -28,8 +29,8 @@ class DerivedType(DataType):
         The definition of the derived type. Takes precedence over :data:`name`
     """
 
-    def __init__(self, name=None, typedef=None):
-        super().__init__()
+    def __init__(self, name=None, typedef=None, scope=None):
+        super().__init__(parent=scope)
         assert name or typedef
         self._name = name
         self.typedef = typedef if typedef is not None else BasicType.DEFERRED

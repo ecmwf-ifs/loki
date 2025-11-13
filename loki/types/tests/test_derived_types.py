@@ -70,13 +70,13 @@ end module my_types_mod
 
     vs = list(FindVariables().visit(routine.body))
     assert vs[0] == 'rick' == rick
-    assert vs[1] == 'rick%red_herring' and vs[1].scope == routine
-    assert vs[2] == 'rick%was' and vs[2].parent == rick and vs[2].scope == routine
-    assert vs[3] == 'rick%was%here' and vs[3].parent == vs[2] and vs[3].scope == routine
+    assert vs[1] == 'rick%red_herring' and vs[1].scope == rick.type.dtype
+    assert vs[2] == 'rick%was' and vs[2].parent == rick and vs[2].scope == rick.type.dtype
+    assert vs[3] == 'rick%was%here' and vs[3].parent == vs[2] and vs[3].scope == vs[2].type.dtype
     assert vs[4] == 'dave' == dave
-    assert vs[5] == 'dave%red_herring' and vs[5].scope == routine
-    assert vs[6] == 'dave%was' and vs[6].parent == dave and vs[6].scope == routine
-    assert vs[7] == 'dave%was%here' and vs[7].parent == vs[6] and vs[7].scope == routine
+    assert vs[5] == 'dave%red_herring' and vs[5].scope == dave.type.dtype
+    assert vs[6] == 'dave%was' and vs[6].parent == dave and vs[6].scope == dave.type.dtype
+    assert vs[7] == 'dave%was%here' and vs[7].parent == vs[6] and vs[7].scope == vs[6].type.dtype
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -131,6 +131,20 @@ end module
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = module['simple_loops']
+
+    # Ensure type definition is available in module and subroutine
+    assert isinstance(module.symbol_attrs['explicit'].dtype, DerivedType)
+    assert isinstance(module.symbol_attrs['explicit'].dtype.typedef, ir.TypeDef)
+    assert isinstance(routine.symbol_attrs.lookup('explicit').dtype, DerivedType)
+    assert isinstance(routine.symbol_attrs.lookup('explicit').dtype.typedef, ir.TypeDef)
+
+    # Ensure only the locally defined types are in the local scope
+    assert routine.symbol_attrs['i'].dtype == BasicType.INTEGER
+    assert routine.symbol_attrs['j'].dtype == BasicType.INTEGER
+    assert routine.symbol_attrs['n'].dtype == BasicType.INTEGER
+    assert isinstance(routine.symbol_attrs['item'].dtype, DerivedType)
+    # OMNI retains the procedure itself in the local scope
+    assert len(routine.symbol_attrs) == 9 if frontend == OMNI else 7
 
     # Ensure type info is attached correctly
     item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]

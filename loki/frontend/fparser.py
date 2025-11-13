@@ -466,7 +466,7 @@ class FParser2IR(GenericVisitor):
                 # We know there's a parent, but we cannot trust the auto-generation of the type,
                 # since the type lookup via parents can create mismatched DeferredTypeSymbols.
                 var = var.clone(
-                    name=f'{parent.name}%{var.name}', parent=parent, scope=parent.scope, type=None
+                    name=f'{parent.name}%{var.name}', parent=parent, scope=parent.type.dtype, type=None
                 )
         return var
 
