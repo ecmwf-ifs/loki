@@ -926,7 +926,8 @@ end module derived_type_linked_list
         assert 'next' in variables
 
         variables = module.variable_map[name].variables
-        assert all(v.scope is module for v in variables)
+        assert all(v.scope is v.parent.type.dtype for v in variables)
+        assert all(v.parent.scope is module for v in variables)
         assert f'{name}%payload' in variables
         assert f'{name}%next' in variables
 
@@ -938,7 +939,7 @@ end module derived_type_linked_list
 
         assert 'payload' in var.variable_map
         assert 'next' in var.variable_map
-        assert all(v.scope is var.scope for v in var.variables)
+        assert all(v.scope is var.type.dtype for v in var.variables)
 
     # Test on-the-fly creation of variable lists
     # Chase the next-chain to the limit with a buffer

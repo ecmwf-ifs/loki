@@ -393,11 +393,15 @@ class FParser2IR(GenericVisitor):
         name = o.tostr()
         scope = kwargs.get('scope', None)
         parent = kwargs.get('parent')
-        if parent:
-            scope = parent.scope
+        _type = None
         if scope:
             scope = scope.get_symbol_scope(name)
-        return sym.Variable(name=name, parent=parent, scope=scope)
+        if parent:
+            scope = parent.type.dtype
+        # TODO: Can we move this mechanic into the core IR?
+        if isinstance(scope, DerivedType):
+            _type = scope.symbol_attrs.lookup(name)
+        return sym.Variable(name=name, parent=parent, scope=scope, type=_type)
 
     def visit_Type_Name(self, o, **kwargs):
         """
@@ -428,7 +432,7 @@ class FParser2IR(GenericVisitor):
         # Fparser wrongfully interprets function calls as Part_Ref sometimes
         # This should go away once fparser has a basic symbol table, see
         # https://github.com/stfc/fparser/issues/201 for some details
-        _type = kwargs['scope'].symbol_attrs.lookup(name.name)
+        _type = name.type
         if _type is None and (definition := self.definitions.get(name.name)):
             # We don't have any type information for this, which means it has
             # not been declared locally. Check the definitions for enriched
