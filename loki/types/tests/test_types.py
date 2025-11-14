@@ -205,9 +205,9 @@ end module test_type_derived_type_mod
         assert len(var_getter(a)) == 2
         assert len(var_getter(b)) == 2
         assert len(var_getter(c)) == 2
-    assert all(v.scope is routine for v in a.variables)
-    assert all(v.scope is routine for v in b.variables)
-    assert all(v.scope is routine for v in c.variables)
+    assert all(v.scope is a.type.dtype for v in a.variables)
+    assert all(v.scope is b.type.dtype for v in b.variables)
+    assert all(v.scope is c.type.dtype for v in c.variables)
 
     # Ensure all member variable have an entry in the local symbol table
     assert routine.symbol_attrs['a%a'].shape == (':',)
