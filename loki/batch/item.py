@@ -796,6 +796,15 @@ class TypeDefItem(Item):
             typedefs = tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
             imports = tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
 
+            def _trim_import_symbol_list(imprt):
+                # Trim the import symbol list to relevant names only
+                symbols = tuple(symbol for symbol in imprt.symbols if symbol in type_names)
+                if symbols == imprt.symbols:
+                    return imprt
+                return imprt.clone(symbols=symbols)
+
+            imports = tuple(_trim_import_symbol_list(imprt) for imprt in imports)
+
         return tuple(dict.fromkeys(imports + typedefs))
 
     @property
