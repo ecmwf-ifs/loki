@@ -10,6 +10,10 @@ module tt_mod
     contains
         procedure :: proc
     end type tt
+
+    interface intf
+        module procedure proc
+    end interface
 contains
     subroutine proc(this)
         class(tt), intent(inout) :: this

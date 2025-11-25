@@ -1,5 +1,5 @@
 module t_mod
-    use tt_mod, only: tt
+    use tt_mod, only: tt, intf, proc
     use a_mod, only: a
     implicit none
 
