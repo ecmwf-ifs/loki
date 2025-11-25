@@ -3591,7 +3591,7 @@ end subroutine test_scheduler
 def test_scheduler_module_interface_import(frontend, tmp_path):
     """ Test module-level imports of interface routines. """
 
-    fcode_mod_a = f"""
+    fcode_mod_a = """
 module mod_a
     use mod_b, only: inner_type, intfb_routine
     implicit none
