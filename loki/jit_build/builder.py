@@ -10,6 +10,7 @@ from collections import deque
 from operator import attrgetter
 import networkx as nx
 
+from loki.config import config
 from loki.logging import default_logger
 from loki.tools import as_tuple, delete, load_module
 from loki.jit_build.compiler import _default_compiler
@@ -30,10 +31,13 @@ class Builder:
     """
 
     def __init__(self, source_dirs=None, include_dirs=None, root_dir=None,
-                 build_dir=None, compiler=None, logger=None, workers=3):
+                 build_dir=None, compiler=None, logger=None, workers=None):
         self.compiler = compiler or _default_compiler
         self.logger = logger or default_logger
-        self.workers = workers
+        if workers is None:
+            self.workers = config['jit-build-workers']
+        else:
+            self.workers = workers
 
         # Source dirs for auto-detection and include dis for preprocessing
         self.source_dirs = [Path(p).resolve() for p in as_tuple(source_dirs)]
