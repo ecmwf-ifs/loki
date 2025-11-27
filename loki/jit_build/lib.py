@@ -95,26 +95,34 @@ class Lib:
         # Generate the dependncy graph implied by .mod files
         dep_graph = builder.get_dependency_graph(self.objs, depgen=attrgetter('dependencies'))
 
-        # Execute the object build in parallel via a queue of worker processes
-        with workqueue(workers=workers, logger=logger) as q:
-
+        def _build_objs(queue=None):
             # Traverse the dependency tree in reverse topological order
             topo_nodes = list(reversed(list(nx.topological_sort(dep_graph))))
+            print(topo_nodes)
             for obj in tqdm(topo_nodes):
                 if obj.source_path and obj.q_task is None:
 
                     # Wait for dependencies to complete before scheduling item
-                    for dep in obj.obj_dependencies:
-                        wait_and_check(dep.q_task, logger=logger)
+                    if queue:
+                        for dep in obj.obj_dependencies:
+                            wait_and_check(dep.q_task, logger=logger)
 
                     # Schedule object compilation on the workqueue
                     obj.build(builder=builder, compiler=compiler, logger=logger,
-                              workqueue=q, force=force, include_dirs=include_dirs)
+                            workqueue=queue, force=force, include_dirs=include_dirs)
 
-            # Ensure all build tasks have finished
-            for obj in dep_graph.nodes:
-                if obj.q_task is not None:
-                    wait_and_check(obj.q_task, logger=logger)
+            if queue:
+                # Ensure all build tasks have finished
+                for obj in dep_graph.nodes:
+                    if obj.q_task is not None:
+                        wait_and_check(obj.q_task, logger=logger)
+
+        if workers > 1:
+            # Execute the object build in parallel via a queue of worker processes
+            with workqueue(workers=workers, logger=logger) as q:
+                _build_objs(q)
+        else:
+            _build_objs()
 
         # Link the final library
         objs = [Path(o).resolve() for o in external_objs or []]

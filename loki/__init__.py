@@ -78,6 +78,9 @@ config.register('case-sensitive', False, env_variable='LOKI_CASE_SENSITIVE',
 # Specify a timeout for the REGEX frontend to catch catastrophic backtracking
 config.register('regex-frontend-timeout', 30, env_variable='LOKI_REGEX_FRONTEND_TIMEOUT', preprocess=int)
 
+# The number of worker threads to use in the jit compilation package
+config.register('jit-build-workers', 3, env_variable='LOKI_JIT_BUILD_WORKERS', preprocess=lambda i: int(i))
+
 # Trigger configuration initialisation, including
 # a scan of the current environment variables
 config.initialize()
