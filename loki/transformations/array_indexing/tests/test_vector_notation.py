@@ -229,7 +229,7 @@ subroutine transform_resolve_vector_notation_inline_call(x)
   integer, parameter :: param1 = 3
   integer, parameter :: param2 = 5
   integer, intent(in) :: x(param1, param2)
-  
+
   ! should stay like that
   tmp = some_func(ret1(1, 1))
 

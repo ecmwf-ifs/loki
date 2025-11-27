@@ -69,9 +69,11 @@ class Obj:
         debug('Clearing Obj cache')
         cls._Obj__xnew_cached_.cache_clear()
 
-    def __init__(self, name=None, source_path=None):  # pylint: disable=unused-argument
-        self.path = None  # The eventual .o path
+    def __init__(self, name=None, source_path=None):
         self.q_task = None  # The parallel worker task
+
+        if not hasattr(self, 'name'):
+            self.name = name
 
         if not hasattr(self, 'source_path'):
             # If this is the first time, establish the source path
