@@ -310,7 +310,6 @@ subroutine transp_der_type(a_struct)
     a_struct%c = a_struct%c + 6.
 end subroutine transp_der_type
     """.strip()
-    builder.clean()
 
     module = Module.from_source(fcode_type, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode_routine, definitions=module, frontend=frontend, xmods=[tmp_path])
@@ -1557,7 +1556,6 @@ end subroutine transpile_optional_args
     def init_out_vars():
         return np.array(0), np.array(0)
 
-    builder.clean()
     # for testing purposes
     in_var = 10
 

@@ -194,3 +194,4 @@ end module import_mod
         'module_mod', 'iso_fortran_env', 'other_Mod', 'third_mod', 'fourth_mod',
         'very_condensed', 'fifth_mod'
     )
+    Obj.clear_cache()
