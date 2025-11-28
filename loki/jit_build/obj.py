@@ -70,7 +70,6 @@ class Obj:
         cls._Obj__xnew_cached_.cache_clear()
 
     def __init__(self, name=None, source_path=None):  # pylint: disable=unused-argument
-        self.path = None  # The eventual .o path
         self.q_task = None  # The parallel worker task
 
         if not hasattr(self, 'source_path'):

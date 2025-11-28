@@ -79,7 +79,11 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
     builder : :any:`Builder`, optional
         Builder object to use for lib compilation and linking
     """
-    builder = builder or Builder(source_dirs=path, build_dir=path)
+    if builder is None:
+        builder_provided = False
+        builder = Builder(source_dirs=path, build_dir=path)
+    else:
+        builder_provided = True
     sourcefiles = []
 
     for source in sources:
@@ -101,7 +105,10 @@ def jit_compile_lib(sources, path, name, wrap=None, builder=None):
     lib = Lib(name=name, objs=objects, shared=False)
     lib.build(builder=builder)
     wrap = wrap or sourcefiles
-    return lib.wrap(modname=name, sources=wrap, builder=builder, kind_map=_f90wrap_kind_map)
+    pymod = lib.wrap(modname=name, sources=wrap, builder=builder, kind_map=_f90wrap_kind_map)
+    if not builder_provided:
+        Obj.clear_cache()
+    return pymod
 
 
 def clean_test(filepath):

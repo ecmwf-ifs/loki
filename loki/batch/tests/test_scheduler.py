@@ -3586,3 +3586,73 @@ end subroutine test_scheduler
         assert mod_a_var.type.dtype == BasicType.INTEGER
         assert mod_a_var.type.imported
         assert mod_a_var.type.module is scheduler['mod_b'].ir
+
+
+def test_scheduler_module_interface_import(frontend, tmp_path):
+    """ Test module-level imports of interface routines. """
+
+    fcode_mod_a = """
+module mod_a
+    use mod_b, only: inner_type, intfb_routine
+    implicit none
+    type outer_type
+        type(inner_type) :: da
+    end type outer_type
+end module mod_a
+"""
+
+    fcode_mod_b = """
+module mod_b
+    implicit none
+    type inner_type
+        integer :: da, db
+    end type inner_type
+
+    interface intfb_routine
+    module procedure routine_a, routine_b
+    end interface intfb_routine
+
+    contains
+    subroutine routine_a
+    end subroutine routine_a
+
+    subroutine routine_b
+    end subroutine routine_b
+end module mod_b
+"""
+
+    fcode_driver = """
+subroutine test_scheduler()
+    use mod_a, only: outer_type
+    implicit none
+    type(outer_type) :: da
+
+    da%da%da = 42.0
+end subroutine test_scheduler
+"""
+    src_path = tmp_path/'src'
+    src_path.mkdir()
+    (src_path/'mod_a.F90').write_text(fcode_mod_a)
+    (src_path/'mod_b.F90').write_text(fcode_mod_b)
+    (src_path/'driver.F90').write_text(fcode_driver)
+
+    # Create the Scheduler
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel', 'expand': True, 'strict': True, 'enable_imports': True
+        },
+        'routines': {'test_scheduler': {'role': 'driver'}}
+    })
+
+    scheduler = Scheduler(
+        paths=[src_path], config=config, seed_routines='test_scheduler',
+        frontend=frontend, xmods=[tmp_path], full_parse=False
+    )
+
+    assert scheduler.items == (
+        '#test_scheduler', 'mod_a#outer_type', 'mod_b#inner_type'
+    )
+    assert scheduler.dependencies == (
+        ('#test_scheduler', 'mod_a#outer_type'),
+        ('mod_a#outer_type', 'mod_b#inner_type')
+    )
