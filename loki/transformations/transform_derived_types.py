@@ -636,6 +636,9 @@ class TypeboundProcedureCallTransformer(Transformer):
     current_module : str
         The name of the enclosing module. This is used to determine whether the
         resolved procedure needs to be added as an import.
+    nopass : bool (default `False`)
+        Assume that tbps are marked nopass and type objects already are passed as first
+        arguments in calls.
 
     Attributes
     ----------
@@ -645,10 +648,11 @@ class TypeboundProcedureCallTransformer(Transformer):
         as a consequence of the replacement.
     """
 
-    def __init__(self, routine_name, current_module, **kwargs):
+    def __init__(self, routine_name, current_module, nopass=False, **kwargs):
         super().__init__(inplace=True, **kwargs)
         self.routine_name = routine_name
         self.current_module = current_module
+        self.nopass = nopass
         self.new_procedure_imports = defaultdict(set)
         self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall) and e.function.parent)
 
@@ -668,7 +672,8 @@ class TypeboundProcedureCallTransformer(Transformer):
 
             if new_proc_symbol:
                 # Add the derived type as first argument to the call
-                rebuilt['arguments'] = (rebuilt['name'].parent, ) + rebuilt['arguments']
+                if not self.nopass:
+                    rebuilt['arguments'] = (rebuilt['name'].parent, ) + rebuilt['arguments']
 
                 # Add the subroutine to the list of symbols that need to be imported
                 if isinstance(new_proc_symbol.scope, Module):
@@ -743,12 +748,16 @@ class TypeboundProcedureCallTransformation(Transformation):
         unchanged copy.
     fix_intent : bool
         Update intent on polymorphic dummy arguments missing an intent as ``INOUT``.
+    nopass : bool (default `False`)
+        Assume that tbps are marked nopass and type objects already are passed as first
+        arguments in calls.
     """
 
-    def __init__(self, duplicate_typebound_kernels=False, fix_intent=True, **kwargs):
+    def __init__(self, duplicate_typebound_kernels=False, fix_intent=True, nopass=False, **kwargs):
         super().__init__(**kwargs)
         self.duplicate_typebound_kernels = duplicate_typebound_kernels
         self.fix_intent = fix_intent
+        self.nopass = nopass
 
     def apply_default_polymorphic_intent(self, routine):
         """
@@ -804,7 +813,7 @@ class TypeboundProcedureCallTransformation(Transformation):
 
         # Traverse the routine's body and replace all calls to typebound procedures by
         # direct calls to the procedures they refer to
-        transformer = TypeboundProcedureCallTransformer(routine.name, current_module)
+        transformer = TypeboundProcedureCallTransformer(routine.name, current_module, self.nopass)
         routine.body = transformer.visit(routine.body, scope=routine)
         new_procedure_imports = transformer.new_procedure_imports
 
