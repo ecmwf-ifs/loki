@@ -1352,6 +1352,60 @@ def test_scheduler_item_dependencies(testdir, tmp_path):
     assert not scheduler['subroutines_mod#device2'].dependencies
 
 
+def test_scheduler_multiple_driver(testdir, tmp_path):
+    """
+    Make sure children are correct and unique for items
+    """
+    config = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'mode': 'default', 'replicate': True},
+        'routines': {
+            'driver': {'role': 'driver', 'mode': 'default'},
+            'another_driver': {'role': 'driver', 'mode': 'whatever'}
+        },
+        'transformations': {
+            'Idem': {'classname': 'IdemTransformation', 'module': 'loki.transformations'}
+        },
+        'pipelines': {
+            'default': {'transformations': {'Idem'}}
+        },
+        'pipelines': {
+            'whatever': {'transformations': {'Idem'}}
+        },
+    })
+
+    proj_hoist = testdir/'sources/projHoist2'
+
+    scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path])
+    print(f"scheduler.config:\n  {scheduler.config.pipelines}\n  {scheduler.config.transformations}")
+    items = scheduler.items
+
+    roles = set([item.role for item in scheduler.items])
+    modes = set([item.mode for item in scheduler.items])
+    print(f"roles: {roles}")
+    print(f"modes: {modes}")
+
+    from loki.transformations import IdemTransformation, CMakePlanTransformation, FileWriteTransformation
+    from loki.batch import ProcessingStrategy
+    # scheduler.process(IdemTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+    for item in items:
+        print(f"item {item} | role: {item.role} | mode: {item.mode} | inherited_mode: {item.inherited_mode}")
+    # print(f"scheduler.items: {scheduler.items}")
+    # scheduler.write_cmake_plan('plan_file', '/perm/nams/ifs-bundle-small-kernels-postITT/source/loki')
+    # scheduler.callgraph('/perm/nams/ifs-bundle-small-kernels-postITT/source/loki/callgraph')
+    # Run the planning transformation pipeline
+    scheduler.process(
+        transformation=FileWriteTransformation(),
+        proc_strategy=ProcessingStrategy.PLAN
+    )
+    plan_trafo = CMakePlanTransformation(rootpath=proj_hoist)
+    scheduler.process(
+        transformation=plan_trafo,
+        proc_strategy=ProcessingStrategy.PLAN
+    )
+    # planfile = tmp_path/'build/plan.cmake'
+    planfile = '/perm/nams/ifs-bundle-small-kernels-postITT/source/loki/planfile' 
+    plan_trafo.write_plan(planfile)
+
 @pytest.fixture(name='loki_69_dir')
 def fixture_loki_69_dir(testdir):
     """

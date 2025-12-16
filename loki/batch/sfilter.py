@@ -40,7 +40,7 @@ class SFilter:
         Do not skip :any:`ExternalItem` in the iterator
     """
 
-    def __init__(self, sgraph, item_filter=None, reverse=False, exclude_ignored=False, include_external=False):
+    def __init__(self, sgraph, item_filter=None, reverse=False, exclude_ignored=False, include_external=False, mode=None):
         self.sgraph = sgraph
         self.reverse = reverse
         if item_filter:
@@ -49,6 +49,7 @@ class SFilter:
             self.item_filter = Item
         self.exclude_ignored = exclude_ignored
         self.include_external = include_external
+        self.mode = mode
 
     def __iter__(self):
         if self.reverse:
@@ -68,5 +69,10 @@ class SFilter:
                 node_cls = type(node)
             if issubclass(node_cls, self.item_filter) and not (self.exclude_ignored and node.is_ignored):
                 # We found the next item matching the filter (and which is not ignored, if applicable)
-                break
+                if self.mode is None:
+                    break
+                else:
+                    print(f"[SFilter] {node} | mode: {self.mode} | node.mode: {node.mode} | {node.config.get('new_mode', None)}")
+                    if node.mode == self.mode:
+                        break
         return node

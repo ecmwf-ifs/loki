@@ -164,6 +164,17 @@ class SGraph:
         list of :any:`Item`
             The list of new items that have been added to the graph
         """
+
+        def _propagate_mod_to_module_and_file_item(item, mode):
+            module_item = item_factory.item_cache.get(item.scope_name)
+            if module_item:
+                module_item.config['mode'] = mode
+                module_item.config['new_mode'] = mode
+            file_item = item_factory.get_file_item_from_source(item.source)
+            if file_item:
+                file_item.config['mode'] = mode
+                file_item.config['new_mode'] = mode
+
         dependencies = as_tuple(dependencies)
         for dependency in item.create_dependency_items(item_factory=item_factory, config=config):
             if not (dependency in dependencies or SchedulerConfig.match_item_keys(dependency.name, item.block)):
@@ -180,6 +191,26 @@ class SGraph:
         # propagate 'lib' attribute (the compile unit the item belongs to)
         for new_item in new_items:
             new_item.config['lib'] = item.config.get('lib', None)
+            mode = item.config.get('mode', None)
+            new_item.config['mode'] = mode
+            if mode is not None:
+                _propagate_mod_to_module_and_file_item(item, mode)
+                _propagate_mod_to_module_and_file_item(new_item, mode)
+
+            # print(f"new_item: {new_item} | {new_item.mode}")
+            # module_item = item_factory.item_cache.get(new_item.scope_name)
+            # if module_item:
+            #     module_item.config['mode'] = mode
+            #     module_item.config['new_mode'] = mode
+            #     print(f"  module_item: {module_item} | {module_item.mode}")
+            # # file_item = item_factory.get_or_create_file_item_from_source(new_item.source, config)
+            # file_item = item_factory.get_file_item_from_source(new_item.source)
+            # if file_item:
+            #     file_item.config['mode'] = mode
+            #     file_item.config['new_mode'] = mode
+            #     print(f"  file_item: {file_item} | {file_item.mode}")
+
+            # print(f"new_item.scope_name: {new_item.scope_name} | module_item: {module_item} | file_item: {file_item}")
 
         # Careful not to include cycles (from recursive TypeDefs)
         self.add_edges((item, item_) for item_ in dependencies if not item == item_)
@@ -242,6 +273,7 @@ class SGraph:
         # Add the file nodes for each of the items matching the filter criterion
         for item in SFilter(sgraph, item_filter, exclude_ignored=exclude_ignored):
             file_item = item_factory.get_or_create_file_item_from_source(item.source, config)
+            print(f"populate_filegraph: {file_item} | {file_item.mode} | item: {item} | {item.mode}")
             item_2_file_item_map[item.name] = file_item
             file_item_2_item_map[file_item.name] += [item]
             if file_item not in self._graph:

@@ -99,7 +99,8 @@ def convert(
     info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
     info(str(config.pipelines[mode]))
 
-    scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
+    # scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
+    scheduler.process_config(proc_strategy=processing_strategy)
 
     mode = mode.replace('-', '_')  # Sanitize mode string
 

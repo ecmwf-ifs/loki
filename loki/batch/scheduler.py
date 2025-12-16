@@ -445,7 +445,12 @@ class Scheduler:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
             raise RuntimeError(f'Could not batch process {transformation}')
 
-    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT):
+    def process_config(self, proc_strategy=ProcessingStrategy.DEFAULT):
+        modes = set([item.mode for item in self.items])
+        for mode_ in modes: # self.config.pipelines[mode_]:
+            self.process_pipeline(pipeline=self.config.pipelines[mode_], proc_strategy=proc_strategy, mode=mode_)
+
+    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """
         Process a given :any:`Pipeline` by applying its assocaited
         transformations in turn.
@@ -459,9 +464,9 @@ class Scheduler:
             :data:`pipeline` to the scheduler's graph.
         """
         for transformation in pipeline.transformations:
-            self.process_transformation(transformation, proc_strategy=proc_strategy)
+            self.process_transformation(transformation, proc_strategy=proc_strategy, mode=mode)
 
-    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT):
+    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -514,6 +519,13 @@ class Scheduler:
 
         trafo_name = transformation.__class__.__name__
         log = f'[Loki::Scheduler] Applied transformation <{trafo_name}>' + ' in {:.2f}s'
+        traversals = {}
+        if mode is None:
+            modes = as_tuple(set([item.mode for item in self.items]))
+        else:
+            modes = as_tuple(mode)
+        # print(f"[SCHEDULER] modes: {modes}")
+        print(f"SCHEDULER: process_transformation - mode {mode}")
         with Timer(logger=info, text=log):
 
             # Extract the graph iteration properties from the transformation
@@ -525,18 +537,25 @@ class Scheduler:
                     exclude_ignored=not transformation.process_ignored_items
                 )
                 sgraph_items = sgraph.items
-                traversal = SFilter(
-                    graph, reverse=transformation.reverse_traversal,
-                    include_external=self.config.default.get('strict', True)
-                )
+                for mode_ in modes: # ['default', 'whatever']:
+                    traversal = SFilter(
+                        graph, reverse=transformation.reverse_traversal,
+                        include_external=self.config.default.get('strict', True),
+                        mode=mode_ # _
+                    )
+                    traversals[mode_] = traversal
             else:
                 graph = self.sgraph
                 sgraph_items = graph.items
-                traversal = SFilter(
-                    graph, item_filter=item_filter, reverse=transformation.reverse_traversal,
-                    exclude_ignored=not transformation.process_ignored_items,
-                    include_external=self.config.default.get('strict', True)
-                )
+                for mode_ in modes: # ['default', 'whatever']:
+                    traversal = SFilter(
+                        graph, item_filter=item_filter, reverse=transformation.reverse_traversal,
+                        exclude_ignored=not transformation.process_ignored_items,
+                        include_external=self.config.default.get('strict', True),
+                        mode=mode_ # _ # 'default'
+                    )
+                    traversals[mode_] = traversal
+
 
             # Collect common transformation arguments
             kwargs = {
@@ -549,18 +568,20 @@ class Scheduler:
                 kwargs['item_factory'] = self.item_factory
                 kwargs['scheduler_config'] = self.config
 
-            for _item in traversal:
-                if isinstance(_item, ExternalItem):
-                    if kwargs['plan_mode'] and _item.is_generated:
-                        continue
-                    raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+            for mode_, traversal in traversals.items():
+                for _item in traversal:
+                    if isinstance(_item, ExternalItem):
+                        if kwargs['plan_mode'] and _item.is_generated:
+                            continue
+                        raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
 
-                transformation.apply(
-                    _item.transformation_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
-                    sub_sgraph=graph.get_sub_sgraph(_item, item_filter=item_filter),
-                    role=_item.role, mode=_item.mode, targets=_item.targets,
-                    **kwargs
-                )
+                    transformation.apply(
+                        _item.transformation_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
+                        sub_sgraph=graph.get_sub_sgraph(_item, item_filter=item_filter),
+                        # role=_item.role, mode=_item.mode, targets=_item.targets,
+                        role=_item.role, mode=mode_, targets=_item.targets,
+                        **kwargs
+                    )
 
         if transformation.renames_items:
             self.rekey_item_cache()
