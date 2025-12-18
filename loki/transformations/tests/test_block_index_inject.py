@@ -167,6 +167,13 @@ subroutine driver(data, ydvars, container, nlon, nlev, ydmodel, {'start, end, nb
       call kernel(nlon, nlev, {'start, end, ibl' if request.param else 'bnds'}, ydvars, container, yla_data, yla_other)
    enddo
 
+   !$loki driver-loop
+   do ibl=1,{'nb' if request.param else 'bnds%nb'}
+      {'do jl = start,end' if request.param else 'do jl = bnds%start,bnds%end'}
+         yla_data%p(jl,:) = 1.
+      enddo
+   enddo
+
    call yla_data%final()
 
 end subroutine driver
@@ -316,12 +323,19 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
 
     # check code in driver loop was transformed correctly
     driver = scheduler['#driver'].ir
-    assigns = FindNodes(Assignment).visit(driver.body)
+    loops = FindNodes(ir.Loop, greedy=True).visit(driver.body)
+    assert len(loops) == 2
+    assigns = FindNodes(Assignment).visit(loops[0].body)
     assign_loc = 1 if aliased_bounds else 0
     assert assigns[assign_loc].lhs == 'yla_data%p_field(jl,:,ibl)'
 
     # check block-index was not injected in explicitly marked variables
     assert assigns[assign_loc].rhs == 'ydmodel%some_rdonly_var(jl,ibl)'
+
+    # now check if loop without target calls has been transformed correctly
+    assigns = FindNodes(Assignment).visit(loops[1].body)
+    assert assigns[0].lhs == 'yla_data%p_field(jl,:,ibl)'
+    assert assigns[0].rhs == '1.'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
