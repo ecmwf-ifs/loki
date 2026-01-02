@@ -43,7 +43,7 @@ tests = [
   "coverage2clover",
   "pylint!=2.11.0,!=2.11.1",
   "pandas",
-  "f90wrap>=0.2.15",
+  "f90wrap>=0.2.15,<0.3.0",
   "nbconvert",
   "tomli_w",
 ]
