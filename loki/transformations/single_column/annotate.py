@@ -163,6 +163,17 @@ class SCCAnnotateTransformation(Transformation):
         targets = as_tuple(kwargs.get('targets'))
 
         if role == 'kernel':
+
+            driver_loops = ()
+            with pragma_regions_attached(routine):
+                with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                    # Find variables with existing OpenACC data declarations
+                    acc_vars = self.find_acc_vars(routine, targets)
+
+                    driver_loops = find_driver_loops(section=routine.body, targets=targets)
+                    for loop in driver_loops:
+                        self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+           
             # Bail if this routine has been processed before
             for p in FindNodes(ir.Pragma).visit(routine.ir):
                 # Check if `!$acc routine` has already been added,

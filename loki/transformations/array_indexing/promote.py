@@ -27,7 +27,7 @@ __all__ = [
 ]
 
 
-def promote_variables(routine, variable_names, pos, index=None, size=None):
+def promote_variables(routine, variable_names, pos, index=None, size=None, ignore_index_undefined=False):
     """
     Promote a list of variables by inserting new array dimensions of given size
     and updating all uses of these variables with a given index expression.
@@ -74,14 +74,16 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
             for node, var_list in FindVariables(unique=False, with_ir_node=True).visit(routine.body):
                 # All the variables marked for promotion that appear in this IR node
                 var_list = [v for v in var_list if v.name.lower() in variable_names]
-
                 if not var_list:
                     continue
 
                 # We use the given index expression in this node if all
                 # variables therein are defined, otherwise we use `:`
-                node_index = tuple(i if v <= node.live_symbols else sym.RangeIndex((None, None))
-                                   for i, v in zip(index, index_vars))
+                if not ignore_index_undefined:
+                    node_index = tuple(i if v <= node.live_symbols else sym.RangeIndex((None, None))
+                                       for i, v in zip(index, index_vars))
+                else:
+                    node_index = tuple(i for i, v in zip(index, index_vars))
 
                 var_map = {}
                 for var in var_list:

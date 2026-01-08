@@ -19,14 +19,21 @@ from loki.transformations.temporaries import (
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
+from loki.transformations.single_column.promote import SCCPromoteTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
 from loki.transformations.single_column.devector import SCCDevectorTransformation
 from loki.transformations.single_column.revector import (
-    SCCVecRevectorTransformation, SCCSeqRevectorTransformation
+    SCCVecRevectorTransformation, SCCSeqRevectorTransformation,
+    SCCBlockVecRevectorTransformation
 )
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
+from loki.transformations.block_index_transformations import (
+        LowerBlockLoopTransformation, InjectBlockIndexTransformation,
+        LowerBlockIndexTransformation, LowerBlockLoopTransformation2
+)
+from loki.transformations.array_indexing import LowerConstantArrayIndices
 
 __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
@@ -35,7 +42,8 @@ __all__ = [
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
-    'SCCSEcStackPipeline'
+    'SCCSEcStackPipeline', 'SCCTestPipeline',
+    'SCCTest2Pipeline',
 ]
 
 
@@ -60,6 +68,77 @@ class RemoveUnusedVarTransformation(RemoveCodeTransformation):
     def __init__(self, remove_unused_vars=False, remove_only_arrays=True, **kwargs): # pylint: disable=unused-argument
         super().__init__(remove_unused_vars=remove_unused_vars, remove_only_arrays=remove_only_arrays,
                 remove_marked_regions=False, kernel_only=True)
+
+
+SCCTestPipeline = partial(
+    Pipeline, classes=(
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        # LowerBlockLoopTransformation,
+        LowerConstantArrayIndices,
+        LowerBlockIndexTransformation,
+        InjectBlockIndexTransformation,
+        # LowerBlockLoopTransformation,
+        # SCCAnnotateTransformation,
+        LowerBlockLoopTransformation2,
+        # SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCPromoteTransformation,
+        # LowerConstantArrayIndices,
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        # LowerBlockLoopTransformation,
+        # # LowerBlockLoopTransformation
+        # SCCVecRevectorTransformation,
+        SCCBlockVecRevectorTransformation,
+        SCCAnnotateTransformation,
+        PragmaModelTransformation
+    )
+)
+
+# SCCTestPipeline = partial(
+#     Pipeline, classes=(
+#         # LowerBlockIndexTransformation,
+#         # InjectBlockIndexTransformation,
+#         # LowerBlockLoopTransformation,
+#         SCCFuseVerticalLoops,
+#         SCCBaseTransformation,
+#         SCCDevectorTransformation,
+#         SCCDemoteTransformation,
+#         # LowerConstantArrayIndices,
+#         # LowerBlockIndexTransformation,
+#         # InjectBlockIndexTransformation,
+#         # LowerBlockLoopTransformation,
+#         # # LowerBlockLoopTransformation
+#         # SCCVecRevectorTransformation,
+#         # SCCAnnotateTransformation,
+#         # PragmaModelTransformation
+#     )
+# )
+
+SCCTest2Pipeline = partial(
+    Pipeline, classes=(
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        # LowerBlockLoopTransformation,
+        SCCFuseVerticalLoops,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        # LowerConstantArrayIndices,
+        # LowerBlockIndexTransformation,
+        # InjectBlockIndexTransformation,
+        # LowerBlockLoopTransformation,
+        # # LowerBlockLoopTransformation
+        # SCCVecRevectorTransformation,
+        # TemporariesPoolAllocatorTransformation,
+        # SCCAnnotateTransformation,
+        # PragmaModelTransformation
+    )
+)
+
 
 
 SCCVVectorPipeline = partial(

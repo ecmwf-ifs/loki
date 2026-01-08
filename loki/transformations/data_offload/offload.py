@@ -6,7 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation
-from loki.expression import Array
+from loki.types import DerivedType
+from loki.expression import Array, DerivedTypeSymbol
 from loki.ir import (
     FindNodes, PragmaRegion, CallStatement, Pragma, Transformer,
     pragma_regions_attached, get_pragma_parameters
@@ -131,11 +132,11 @@ class DataOffloadTransformation(Transformation):
                         continue
 
                     for param, arg in call.arg_iter():
-                        if isinstance(param, Array) and param.type.intent.lower() == 'in':
+                        if isinstance(param, Array) or isinstance(param.type.dtype, DerivedType) and param.type.intent.lower() == 'in':
                             inargs += (str(arg.name).lower(),)
-                        if isinstance(param, Array) and param.type.intent.lower() == 'inout':
+                        if isinstance(param, Array) or isinstance(param.type.dtype, DerivedType) and param.type.intent.lower() == 'inout':
                             inoutargs += (str(arg.name).lower(),)
-                        if isinstance(param, Array) and param.type.intent.lower() == 'out':
+                        if isinstance(param, Array) or isinstance(param.type.dtype, DerivedType) and param.type.intent.lower() == 'out':
                             outargs += (str(arg.name).lower(),)
 
                 # Sanitize data access categories to avoid double-counting variables

@@ -759,7 +759,7 @@ class LowerBlockLoopTransformation(Transformation):
 
                         # 4. Inject the loop body into the called routine
                         call.routine.arguments += tuple(additional_kwargs[call.routine.name].values())
-                        routine_body = Transformer({c: c.routine.body for c in\
+                        routine_body = Transformer({c: (prefix,) + c.routine.body + (postfix,) for c in\
                             FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)
                         routine_body = AttachScopes().visit(routine_body, scope=call.routine)
                         call.routine.body = ir.Section(body=as_tuple(routine_body))
@@ -769,5 +769,223 @@ class LowerBlockLoopTransformation(Transformation):
                         self.local_var(call, defined_symbols_loop + [loop.variable])
                         self.update_call_signature(call, loop, defined_symbols_loop,
                                 additional_kwargs[call.routine.name])
-                    driver_loop_map[loop] = loop.body
+                    
+                    prefix = ir.Pragma(keyword='loki', content='former-driver-loop')
+                    postfix = ir.Pragma(keyword='loki', content='end former-driver-loop')
+                    driver_loop_map[loop] = (prefix,) + loop.body + (postfix,)
+                routine.body = Transformer(driver_loop_map).visit(routine.body)
+
+
+class LowerBlockLoopTransformation2(Transformation):
+    """
+    Lower the block loop to calls within this loop.
+
+    For example, the following code:
+
+    .. code-block:: fortran
+
+        subroutine driver(nblks, ...)
+            ...
+            integer, intent(in) :: nblks
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            do ibl=1,nblks
+                call kernel2(var,...,nblks,ibl)
+            enddo
+            ...
+        end subroutine driver
+
+        subroutine kernel(var, ..., nblks, ibl)
+            ...
+            real :: var(jlon,nlev,nblks)
+
+            do jl=1,...
+                do jk=1,...
+                    var(jk,jl,ibl) = ...
+                end do
+            end do
+        end subroutine kernel
+
+    is transformed to:
+
+    .. code-block:: fortran
+
+        subroutine driver(nblks, ...)
+            ...
+            integer, intent(in) :: nblks
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            call kernel2(var,..., nblks)
+            ...
+        end subroutine driver
+
+        subroutine kernel(var, ..., nblks)
+            ...
+            integer :: ibl
+            real :: var(jlon,nlev,nblks)
+
+            do ibl=1,nblks
+                do jl=1,...
+                    do jk=1,...
+                        var(jk,jl,ibl) = ...
+                    end do
+                end do
+            end do
+        end subroutine kernel
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object describing the variable conventions used in code
+        to define the blocking data dimension and iteration space.
+    """
+    # This trafo only operates on procedures
+    item_filter = (ProcedureItem,)
+
+    def __init__(self, block_dim):
+        self.block_dim = block_dim
+
+    def transform_subroutine(self, routine, **kwargs):
+        role = kwargs['role']
+        item = kwargs.get('item', None)
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
+        # item.trafo_data['LowerBlockLoop'] = {}
+        if role == 'driver':
+            self.process_driver(routine, targets, item, successors)
+
+    @staticmethod
+    def arg_to_local_var(routine, var):
+        new_args = tuple(arg for arg in routine.arguments if arg.name.lower() != var.name.lower())
+        routine.arguments = new_args
+        routine.variables += (routine.variable_map[var.name].clone(scope=routine,
+            type=routine.variable_map[var.name].type.clone(intent=None)),)
+
+    def local_var(self, call, variables):
+        inv_call_arg_map = {v: k for k, v in call.arg_map.items()}
+        call_routine_variables = call.routine.variables
+        for var in variables:
+            if var in inv_call_arg_map:
+                self.arg_to_local_var(call.routine, inv_call_arg_map[var])
+            else:
+                if var not in call_routine_variables:
+                    call.routine.variables += (var.clone(scope=call.routine),)
+
+    @staticmethod
+    def generate_pragma(loop):
+        return ir.Pragma(keyword="loki", content=f"removed_loop var({loop.variable}) \
+                    lower({loop.bounds.lower}) upper({loop.bounds.upper}) \
+                    step({loop.bounds.step if loop.bounds.step else 1})")
+
+    def update_call_signature(self, call, loop, loop_defined_symbols, additional_kwargs):
+        ignore_symbols = [loop.variable.name.lower()] +\
+            [symbol.name.lower() for symbol in loop_defined_symbols]
+        _arguments = tuple(arg for arg in call.arguments\
+                if not (hasattr(arg, 'name') and arg.name.lower() in ignore_symbols))
+        _kwarguments = tuple(kwarg for kwarg in call.kwarguments \
+                if kwarg[1].name.lower() not in ignore_symbols) + as_tuple(additional_kwargs.items())
+        call_pragmas = (self.generate_pragma(loop),)
+        call._update(arguments=_arguments, kwarguments=_kwarguments,
+                pragma=(call.pragma if call.pragma else ()) + call_pragmas)
+
+    def process_driver(self, routine, targets, item, successors):
+        successor_map = {
+            successor.local_name: successor
+            for successor in successors if isinstance(successor, ProcedureItem)
+        }
+        # find block loops
+        with pragma_regions_attached(routine):
+            with pragmas_attached(routine, ir.Loop):
+                loops = FindNodes(ir.Loop).visit(routine.body)
+                loops = [loop for loop in loops if loop.variable in self.block_dim.indices]
+
+                # Remove parallel regions around block loops
+                pragma_region_map = {}
+                for pragma_region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                    for loop in loops:
+                        if loop in pragma_region.body:
+                            pragma_region_map[pragma_region] = pragma_region.body
+                # routine.body = Transformer(pragma_region_map, inplace=True).visit(routine.body)
+
+                driver_loop_map = {}
+                processed_routines = ()
+                calls = ()
+                additional_kwargs = {}
+                for loop in loops:
+                    target_calls = [call for call in FindNodes(ir.CallStatement).visit(loop.body)
+                            if str(call.name).lower() in targets]
+                    target_calls = [call for call in target_calls if call.routine is not BasicType.DEFERRED]
+                    if not target_calls:
+                        continue
+                    calls += tuple(target_calls)
+                    # driver_loop_map[loop] = loop.body
+                    prefix = ir.Pragma(keyword='loki', content='former-driver-loop-whatever')
+                    postfix = ir.Pragma(keyword='loki', content='end former-driver-loop')
+                    driver_loop_map[loop] = (prefix, ir.Comment('')) + loop.body + (ir.Comment(''), postfix,)
+                    defined_symbols_loop = [assign.lhs for assign in FindNodes(ir.Assignment).visit(loop.body)]
+                    for call in target_calls:
+                        if call.routine.name in processed_routines:
+                            self.update_call_signature(call, loop, defined_symbols_loop,
+                                    additional_kwargs[call.routine.name])
+                            continue
+                        # 1. Create a copy of the loop with all other call statements removed
+                        other_calls = {c: None for c in FindNodes(ir.CallStatement).visit(loop) if c is not call}
+                        loop_to_lower = Transformer(other_calls).visit(loop)
+
+                        # 2. Replace all variables according to the caller-callee argument map
+                        call_arg_map = dict((v, k) for k, v in call.arg_map.items())
+                        loop_to_lower = SubstituteExpressions(call_arg_map).visit(loop_to_lower)
+
+                        # loop_to_lower = loop_to_lower.clone(pragma=(ir.Pragma(keyword='loki', content='driver-loop'),))
+
+                        # 3. Identify local variables that need to be provided as additional arguments to the call
+                        call_routine_variables = {v.name.lower() for v in FindVariables().visit(call.routine.body)}
+                        call_routine_variables |= {v.name.lower() for v in call.routine.variables}
+                        loop_variables = FindVariables().visit(loop_to_lower.body)
+                        loop_variables = [
+                            v for v in FindVariables().visit(loop_to_lower.body)
+                            if v.name.lower() != loop.variable and v.name.lower() not in call_routine_variables
+                            and v not in call_arg_map and isinstance(v, sym.Scalar) and v not in defined_symbols_loop
+                        ]
+                        additional_kwargs[call.routine.name] = {var.name: var for var in loop_variables}
+
+                        assignments = FindNodes(ir.Assignment).visit(loop_to_lower.body)
+                        from loki import fgen
+                        assignment_map = {assignment: ir.Pragma(keyword='loki', content=f'block-loop-assignment({fgen(assignment)})') for assignment in assignments}
+                        loop_to_lower = loop_to_lower.clone(body=Transformer(assignment_map).visit(loop_to_lower.body))
+                        # item.trafo_data['LowerBlockLoop'].setdefault('assignments', []).extend(list(assignments))
+                        if 'LowerBlockLoop' not in successor_map[call.name].trafo_data:
+                            successor_map[call.name].trafo_data['LowerBlockLoop'] = {'assignments': []}
+                        # successor_map[call.name].trafo_data['LowerBlockLoop'].setdefault('assignments', []).extend(list(assignments))
+                        successor_map[call.name].trafo_data['LowerBlockLoop']['assignments'].extend(list(assignments))
+                        hints = (ir.Pragma(keyword='loki', content=f'loop-variable ({loop_to_lower.variable})'),
+                                ir.Pragma(keyword='loki', content=f'loop-lower ({loop_to_lower.bounds.lower})'),
+                                ir.Pragma(keyword='loki', content=f'loop-upper ({loop_to_lower.bounds.upper})'))
+                        if loop_to_lower.bounds.step:
+                            hints += (ir.Pragma(keyword='loki', content=f'loop-step ({loop_to_lower.bounds.step})'),)
+                        successor_map[call.name].trafo_data['LowerBlockLoop'] = {'variable': loop_to_lower.variable,
+                                'lower': loop_to_lower.bounds.lower, 'upper': loop_to_lower.bounds.upper,
+                                'step': loop_to_lower.bounds.step, 'assignments': assignments}
+
+                        # 4. Inject the loop body into the called routine
+                        call.routine.arguments += tuple(additional_kwargs[call.routine.name].values())
+                        # routine_body = Transformer({c: c.routine.body for c in\
+                        #     FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower)
+                        routine_body = Transformer({c: hints + (ir.Comment(''), c.routine.body) for c in\
+                            FindNodes(ir.CallStatement).visit(loop_to_lower)}).visit(loop_to_lower.body)
+                        routine_body = AttachScopes().visit(routine_body, scope=call.routine)
+                        routine_body = Transformer({section: section.body for section in FindNodes(ir.Section).visit(routine_body)}).visit(routine_body)
+                        call.routine.body = ir.Section(body=as_tuple(routine_body))
+
+                        # 5. Update the call on the caller side
+                        processed_routines += (call.routine.name,)
+                        self.local_var(call, defined_symbols_loop + [loop.variable])
+                        self.update_call_signature(call, loop, defined_symbols_loop,
+                                additional_kwargs[call.routine.name])
+                    prefix = ir.Pragma(keyword='loki', content='former-driver-loop')
+                    postfix = ir.Pragma(keyword='loki', content='end former-driver-loop')
+                    driver_loop_map[loop] = (prefix, ir.Comment('! test')) + loop.body + (ir.Comment('! end test'), postfix,)
                 routine.body = Transformer(driver_loop_map).visit(routine.body)

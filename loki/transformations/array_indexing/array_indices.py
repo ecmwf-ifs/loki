@@ -259,7 +259,7 @@ class LowerConstantArrayIndices(Transformation):
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
 
-    def __init__(self, recurse_to_kernels=True, inline_external_only=True):
+    def __init__(self, recurse_to_kernels=False, inline_external_only=True):
         self.recurse_to_kernels = recurse_to_kernels
         self.inline_external_only = inline_external_only
 
