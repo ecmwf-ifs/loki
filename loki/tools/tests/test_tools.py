@@ -28,7 +28,7 @@ from loki.config import config_override
 from loki.tools import (
     JoinableStringList, truncate_string, binary_insertion_sort, is_subset,
     optional, yaml_include_constructor, execute, timeout, dict_override,
-    LokiTempdir, stdchannel_is_captured, stdchannel_redirected
+    LokiTempdir, stdchannel_is_captured, stdchannel_redirected, OrderedSet
 )
 
 
@@ -406,3 +406,104 @@ def test_loki_tempdir(here):
     # But the parent directory should not be deleted
     assert test_tmpdir.exists()
     test_tmpdir.rmdir()
+
+
+@pytest.mark.parametrize('a,b', [
+    (None, None),
+    ([], []),
+    (['a'], []),
+    ([1], [2]),
+    ([1, 2], [2]),
+    (list(range(100)), list(range(10, 200))),
+])
+def test_ordered_set(a, b):
+    a_set = set(a) if a is not None else set()
+    b_set = set(b) if b is not None else set()
+    a_oset = OrderedSet(a) if a is not None else OrderedSet()
+    b_oset = OrderedSet(b) if b is not None else OrderedSet()
+
+    if a is None:
+        a = []
+    if b is None:
+        b = []
+
+    if a:
+        assert repr(a_oset) == f'OrderedSet({a})'
+    else:
+        assert repr(a_oset) == 'OrderedSet()'
+
+    assert len(a_oset) == len(a_set)
+    assert len(b_oset) == len(b_set)
+
+    assert a_oset == a_set
+    assert b_oset == b_set
+    assert a_oset == a
+    assert b_oset == b
+
+    assert all(value in a_oset for value in a)
+    assert all(value in b_oset for value in b)
+    assert not any(value in a_oset for value in b if value not in a)
+    assert all(value in a for value in a_oset)
+    assert all(value in b for value in b_oset)
+
+    assert all(v1 == v2 for v1, v2 in zip(a, a_oset))
+    assert all(v1 == v2 for v1, v2 in zip(b, b_oset))
+
+    assert all(v1 == v2 for v1, v2 in zip(reversed(a), reversed(a_oset)))
+    assert all(v1 == v2 for v1, v2 in zip(reversed(b), reversed(b_oset)))
+
+    assert all(v1 == v2 for v1, v2 in zip(OrderedSet(reversed(a)), reversed(a)))
+    assert all(v1 == v2 for v1, v2 in zip(OrderedSet(reversed(b)), reversed(b)))
+
+    assert (a_oset <= b_oset) == (a_set <= b_set)
+    assert (a_oset < b_oset) == (a_set < b_set)
+    assert (a_oset >= b_oset) == (a_set >= b_set)
+    assert (a_oset > b_oset) == (a_set > b_set)
+
+    if len(a) > 1:
+        assert (a_oset <= OrderedSet(reversed(a))) and a_oset != OrderedSet(reversed(a))
+
+    assert (a_oset | b_oset) == OrderedSet(a + b)
+    assert (a_oset | b_oset) == OrderedSet(a + [value for value in b if value not in a])
+    assert (a_oset & b_oset) == OrderedSet(
+        [value for value in a if value in b] + [value for value in b if value in a]
+    )
+    assert (a_oset - b_oset) == OrderedSet([value for value in a if value not in b])
+    assert (a_oset ^ b_oset) == OrderedSet(
+        [value for value in a if value not in b] + [value for value in b if value not in a]
+    )
+
+    assert (a_oset | b_oset) == OrderedSet.union(a_oset, b_oset)
+
+    oset = OrderedSet(a)
+    oset.update(b_oset)
+    assert oset == (a_oset | b_oset)
+
+    assert a_oset.copy() == a_oset
+    assert a_oset.copy() is not a_oset
+
+    if a:
+        assert a[0] in a_oset
+        a_oset.add(a[0])
+        assert a_oset == OrderedSet(a)
+
+        a_oset.remove(a[0])
+        assert a[0] not in a_oset
+
+        with pytest.raises(KeyError):
+            a_oset.remove(a[0])
+
+    if b:
+        assert b[0] in b_oset
+        b_oset.discard(b[0])
+        assert b[0] not in b_oset
+        assert len(b_oset) == len(b) - 1
+
+        b_oset.discard(b[0])
+        assert len(b_oset) == len(b) - 1
+
+    if a_oset:
+        assert a_oset.pop() == a[-1]
+    else:
+        with pytest.raises(KeyError):
+            a_oset.pop()

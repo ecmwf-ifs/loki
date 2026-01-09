@@ -5,20 +5,21 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import signal
-import sys
+from collections import OrderedDict, defaultdict
+from collections.abc import MutableSet, Sequence
+from contextlib import contextmanager
+from functools import lru_cache
+import io
+from itertools import groupby
 import operator as op
 import os
-import io
-import weakref
-from functools import lru_cache
-from collections import OrderedDict, defaultdict
-from collections.abc import Sequence
-from shlex import split
-from subprocess import run, PIPE, STDOUT, CalledProcessError
-from contextlib import contextmanager
 from pathlib import Path
-from itertools import groupby
+from shlex import split
+import signal
+from subprocess import run, PIPE, STDOUT, CalledProcessError
+import sys
+import weakref
+
 from more_itertools import replace
 
 try:
@@ -39,7 +40,8 @@ __all__ = [
     'auto_post_mortem_debugger', 'set_excepthook', 'timeout',
     'WeakrefProperty', 'group_by_class', 'replace_windowed',
     'dict_override', 'stdchannel_redirected',
-    'stdchannel_is_captured', 'graphviz_present'
+    'stdchannel_is_captured', 'graphviz_present',
+    'OrderedSet'
 ]
 
 
@@ -820,3 +822,81 @@ def graphviz_present():
         return False
 
     return True
+
+
+class OrderedSet(MutableSet):
+    """
+    A :any:`set` implementation that remembers the insertion order of its items
+
+    Implementation is based on a dictionary without using its values, inspired by
+    the recipe linked in the Python documentation:
+    https://code.activestate.com/recipes/576694/
+
+    Parameters
+    ----------
+    iterable :
+        An iterable to initalize the OrderedSet from
+    """
+
+    def __init__(self, iterable=()):
+        if iterable:
+            self._storage = dict.fromkeys(iterable)
+        else:
+            self._storage = {}
+
+    def __len__(self):
+        """Return the number of items in the set"""
+        return len(self._storage)
+
+    def __contains__(self, value):
+        """Return `true` if :data:`value` is in the set, otherwise return `false`"""
+        return value in self._storage
+
+    def add(self, value):
+        """Add :data:`value` to the set"""
+        self._storage.setdefault(value)
+
+    def remove(self, value):
+        """Remove :data:`value` from the set. Raises :any:`KeyError` if not contained in the set."""
+        self._storage.pop(value)
+
+    def discard(self, value):
+        """Remove :data:`value` from the set if present."""
+        if value in self._storage:
+            self._storage.pop(value)
+
+    def __iter__(self):
+        yield from self._storage
+
+    def __reversed__(self):
+        yield from reversed(self._storage)
+
+    def pop(self):
+        """Remove and return an element from the set. Elements are returned in LIFO order."""
+        return self._storage.popitem()[0]
+
+    def __repr__(self):
+        if not self:
+            return f'{self.__class__.__name__}()'
+        return f'{self.__class__.__name__}({list(self)})'
+
+    def __eq__(self, other):
+        if isinstance(other, OrderedSet):
+            return len(self) == len(other) and list(self) == list(other)
+        return set(self) == set(other)
+
+    def copy(self):
+        """Return a shallow copy of the set."""
+        return self.__class__(list(self))
+
+    def union(self, *others):
+        """Return the union of the set with :data:`others`"""
+        oset = self.copy()
+        for o in others:
+            oset |= o
+        return oset
+
+    def update(self, *others):
+        """Update the set, adding elements from all :data:`others`"""
+        for o in others:
+            self |= o
