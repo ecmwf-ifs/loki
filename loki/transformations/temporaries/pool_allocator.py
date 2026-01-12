@@ -22,7 +22,7 @@ from loki.ir import (
     SubstituteExpressions
 )
 from loki.logging import warning, debug
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 from loki.types import SymbolAttributes, BasicType, DerivedType
 
 from loki.transformations.utilities import recursive_expression_map_update
@@ -284,14 +284,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         Import all the variable types used in allocations.
         """
 
-        new_imports = defaultdict(set)
+        new_imports = defaultdict(OrderedSet)
         for s, m in item.trafo_data[self._key]['kind_imports'].items():
-            new_imports[m] |= set(as_tuple(s))
+            new_imports[m] |= OrderedSet(as_tuple(s))
 
         import_map = {i.module.lower(): i for i in routine.imports}
         for mod, symbs in new_imports.items():
             if mod in import_map:
-                import_map[mod]._update(symbols=as_tuple(set(import_map[mod].symbols + as_tuple(symbs))))
+                import_map[mod]._update(symbols=as_tuple(OrderedSet(import_map[mod].symbols + as_tuple(symbs))))
             else:
                 _symbs = [s for s in symbs if not (s.name.lower() in routine.variable_map or
                                                    s.name.lower() in routine.imported_symbol_map)]
@@ -953,31 +953,31 @@ class EcstackPoolAllocatorTransformation(TemporariesPoolAllocatorTransformation)
     .. code-block:: fortran
 
         MODULE ECSTACK_MOD
-        
+
         IMPLICIT NONE
-        
+
         TYPE TECSTACK
           ...
         CONTAINS
           PROCEDURE :: GET_STACK_PTR
         END TYPE TECSTACK
-        
+
         PRIVATE
-        
+
         TYPE(TECSTACK) :: ECSTACK
         PUBLIC :: TECSTACK, ECSTACK
-        
+
         CONTAINS
-        
+
         SUBROUTINE GET_STACK_PTR(SELF, PTR, KSIZE, NGPBLKS)
            CLASS(TECSTACK) :: SELF
            REAL(KIND=JPRD), POINTER, CONTIGUOUS, INTENT(INOUT) :: PTR(:, :)
            INTEGER(KIND=JPIM), INTENT(IN) :: KSIZE
            INTEGER(KIND=JPIM), INTENT(IN) :: NGPBLKS
-        
+
            ...
         END SUBROUTINE GET_STACK_PTR
-        
+
         END MODULE ECSTACK_MOD
     """
 

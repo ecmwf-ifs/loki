@@ -20,7 +20,7 @@ from loki.ir.pragma_utils import (
     is_loki_pragma, pragma_regions_attached, get_pragma_parameters
 )
 from loki.program_unit import ProgramUnit
-from loki.tools import flatten, as_tuple
+from loki.tools import flatten, as_tuple, OrderedSet
 from loki.types import BasicType
 
 
@@ -256,10 +256,10 @@ def find_unused_dummy_args_and_vars(routine):
 
         # we search for symbols used to define array sizes
         used_or_defined_array_shapes = [s.shape for s in used_or_defined_symbols if isinstance(s, sym.Array)]
-        used_or_defined_symbols |= set(FindVariables().visit(used_or_defined_array_shapes))
+        used_or_defined_symbols |= FindVariables(unique=True).visit(used_or_defined_array_shapes)
 
-        used_or_defined_symbols |= set(variable_map.get(v.name_parts[0], v).clone(dimensions=None)
-                                       for v in used_or_defined_symbols)
+        used_or_defined_symbols |= OrderedSet(variable_map.get(v.name_parts[0], v).clone(dimensions=None)
+                                              for v in used_or_defined_symbols)
 
         unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
                        if not a.name.lower() in used_or_defined_symbols}

@@ -15,7 +15,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindExpressions, Transformer,
     FindVariables, SubstituteExpressions, FindInlineCalls
 )
-from loki.tools import as_tuple, dict_override
+from loki.tools import as_tuple, dict_override, OrderedSet
 from loki.types import SymbolAttributes, BasicType
 
 from loki.transformations.utilities import (
@@ -125,7 +125,7 @@ def resolve_vector_notation(routine):
     routine.body = transformer.visit(routine.body)
 
     # Add declarations for all newly create loop index variables
-    routine.variables += tuple(set(transformer.index_vars))
+    routine.variables += tuple(OrderedSet(transformer.index_vars))
 
 
 def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False):
@@ -162,7 +162,7 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False):
     routine.body = transformer.visit(routine.body)
 
     # Add declarations for all newly create loop index variables
-    routine.variables += tuple(set(transformer.index_vars))
+    routine.variables += tuple(OrderedSet(transformer.index_vars))
 
 
 class IterationRangeShapeMapper(LokiIdentityMapper):
@@ -290,7 +290,7 @@ class ResolveVectorNotationTransformer(Transformer):
 
         self.scope = scope
         self.loop_map = {} if loop_map is None else loop_map
-        self.index_vars = set()
+        self.index_vars = OrderedSet()
 
         self.map_unknown_ranges = map_unknown_ranges
         self.derive_qualified_ranges = derive_qualified_ranges

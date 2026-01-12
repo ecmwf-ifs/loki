@@ -14,7 +14,7 @@ from loki.ir import (
     is_loki_pragma, pragmas_attached,
     get_pragma_parameters, FindVariables
 )
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict, OrderedSet
 from loki.transformations.transform_loop import do_loop_fusion, do_loop_interchange
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.utilities import get_local_arrays
@@ -89,12 +89,14 @@ class SCCFuseVerticalLoops(Transformation):
         # loop interchange to expose vertical loops as outermost loops
         do_loop_interchange(routine)
         # handle initialization of arrays "jk +/- 1" arrays
-        multilevel_relevant_local_arrays_names = set(arr.name.lower() for arr in multilevel_relevant_local_arrays)
+        multilevel_relevant_local_arrays_names = OrderedSet(
+            arr.name.lower() for arr in multilevel_relevant_local_arrays
+        )
         self.correct_init_of_multilevel_arrays(routine, multilevel_relevant_local_arrays_names)
         # fuse vertical loops
         do_loop_fusion(routine)
         # demote in vertical dimension if possible
-        relevant_local_arrays_names = set(arr.name.lower() for arr in relevant_local_arrays)
+        relevant_local_arrays_names = OrderedSet(arr.name.lower() for arr in relevant_local_arrays)
         demote_candidates = relevant_local_arrays_names - multilevel_relevant_local_arrays_names
         # check which variables are safe to demote in the vertical
         safe_to_demote = self.check_safe_to_demote(routine, demote_candidates)

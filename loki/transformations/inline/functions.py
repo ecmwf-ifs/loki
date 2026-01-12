@@ -16,7 +16,7 @@ from loki.ir import (
 )
 from loki.subroutine import Subroutine
 from loki.types import BasicType
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 
 from loki.transformations.inline.mapper import InlineSubstitutionMapper
 from loki.transformations.inline.procedures import map_call_to_procedure_body
@@ -240,7 +240,7 @@ def _get_callee_result_var(routine):
     """
     Get or create the result variable for a function, necessary/useful
     since there are multiple ways of specifying the return variable/type.
-    
+
     Parameters
     ----------
     routine : :any:`Subroutine`
@@ -342,7 +342,7 @@ def inline_function_calls(routine, calls, callee, nodes, allowed_aliases=None):
     routine.spec.append(decls)
 
     # Handle result/return var/value
-    new_symbols = set()
+    new_symbols = OrderedSet()
     result_var_map = {}
     adapted_calls = []
     rename_result_var = not len(nodes) == len(set(nodes))

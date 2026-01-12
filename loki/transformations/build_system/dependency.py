@@ -16,7 +16,7 @@ from loki.logging import warning
 from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.types import ProcedureType, Scope
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 
 
 __all__ = ['DependencyTransformation']
@@ -297,7 +297,7 @@ class DependencyTransformation(Transformation):
         # We don't want to rename module variable imports, so we build
         # a list of calls to further filter the targets
         if isinstance(source, Module):
-            calls = set()
+            calls = OrderedSet()
             for routine in source.subroutines:
                 calls |= {str(c.name).lower() for c in FindNodes(CallStatement).visit(routine.body)}
                 calls |= {str(c.name).lower() for c in FindInlineCalls().visit(routine.body)}
@@ -307,7 +307,7 @@ class DependencyTransformation(Transformation):
 
         # Import statements still point to unmodified call names
         calls = {call.replace(f'{self.suffix.lower()}', '') for call in calls}
-        call_targets = {call for call in calls if call in targets}
+        call_targets = {call for call in calls if call in as_tuple(targets)}
 
         # We go through the IR, as C-imports can be attributed to the body
         import_map = {}
@@ -347,8 +347,8 @@ class DependencyTransformation(Transformation):
     def rename_access_spec_names(self, access_spec, targets=None, active_nodes=None, routines=None):
         """
         Rename target names in an access spec
-        
-        For all names in the access spec that are contained in :data:`targets`, rename them as 
+
+        For all names in the access spec that are contained in :data:`targets`, rename them as
         ``{name}{self.suffix}``. If :data:`active_nodes` are given, then all names
         that are not in the list of active nodes, are being removed from the list.
         Parameters

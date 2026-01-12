@@ -21,7 +21,7 @@ from loki.ir.expr_visitors import FindVariables, SubstituteExpressions
 from loki.ir.nodes import Assignment, CallStatement, Pragma
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 from loki.types import BasicType, SymbolAttributes
 
 
@@ -385,7 +385,7 @@ class TemporariesRawStackTransformation(Transformation):
 
 
         stack_dict = {}
-        stack_set = set()
+        stack_set = OrderedSet()
 
 
         for (dtype, kind_dict) in temporary_array_dict.items():

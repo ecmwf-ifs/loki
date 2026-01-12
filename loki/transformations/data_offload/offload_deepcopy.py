@@ -21,7 +21,7 @@ from loki.expression import symbols as sym
 from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 from loki.types import BasicType, DerivedType
 from loki.transformations.field_api import (
         FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data,
@@ -136,10 +136,10 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
         child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis']
         child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
-        # Dimensions of array arguments must also be included in uses_symbols set
-        defines = set()
+        # Dimensions of array arguments must also be included in uses_symbols OrderedSet
+        defines = OrderedSet()
         array_args = [v for v in o.arg_map.values() if isinstance(v, sym.Array)]
-        uses = set(v for a in array_args
+        uses = OrderedSet(v for a in array_args
                    for v in self._symbols_from_expr(a.dimensions))
         for k, v in child_analysis.items():
 
@@ -154,8 +154,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
     """
     A transformation pass to analyse the usage of subroutine arguments in a call-tree.
 
-    The resulting analysis is a nested dict, of nesting depth equal to the longest 
-    derived-type expression, containing the access mode of all the arguments used 
+    The resulting analysis is a nested dict, of nesting depth equal to the longest
+    derived-type expression, containing the access mode of all the arguments used
     in a call-tree. For example, the following assignments:
 
     .. code-block:: fortran
@@ -173,7 +173,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             }
           },
           d: 'write',
-          e: 'read' 
+          e: 'read'
        }
 
     The analysis is stored in the :any:`Item.trafo_data` of the :any:`Item` corresponding to the driver layer
@@ -185,7 +185,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
     ----------
     output_analysis : bool
        If enabled, the analysis is written to disk as yaml files. For kernels, the files are named
-       routine.name_dataoffload_analysis.yaml. For drivers, the files are named 
+       routine.name_dataoffload_analysis.yaml. For drivers, the files are named
        driver_target-name_offload_analysis.yaml, where "target-name" is the name of the first target
        routine in a given driver loop.
     """
@@ -325,7 +325,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if has_spec:
             spec_uses_symbols = scope_node.body.uses_symbols
         else:
-            spec_uses_symbols = set()
+            spec_uses_symbols = OrderedSet()
 
         if has_spec:
             for v in scope_node.spec.uses_symbols:
@@ -479,7 +479,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
         return [v.strip() for v in parameters.get(category, '').split(',')]
 
     def insert_deepcopy_instructions(self, region, mode, copy, host, wipe, present_vars):
-        """Insert the generated deepcopy instructions and wrap the driver loop in 
+        """Insert the generated deepcopy instructions and wrap the driver loop in
            a `data present` pragma region if applicable."""
 
         if mode == 'offload':
