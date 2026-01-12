@@ -14,7 +14,7 @@ from pymbolic.primitives import Expression
 from loki.ir.nodes import Node
 from loki.ir.visitor import Visitor
 from loki.ir.transformer import Transformer
-from loki.tools import flatten, as_tuple, dict_override
+from loki.tools import flatten, as_tuple, dict_override, OrderedSet
 from loki.expression.mappers import (
     SubstituteExpressionsMapper, ExpressionRetriever,
     AttachScopesMapper, LokiIdentityMapper
@@ -52,7 +52,7 @@ class ExpressionFinder(Visitor):
     Parameters
     ----------
     unique : bool, optional
-        If `True` the visitor will return a `set` of unique sub-expression
+        If `True` the visitor will return a `OrderedSet` of unique sub-expression
         instead of a list of possibly repeated instances.
     with_ir_node : bool, optional
         If `True` the visitor will return tuples which contain the
@@ -88,7 +88,7 @@ class ExpressionFinder(Visitor):
 
         if self.unique:
             var_dict = {dict_key(var): var for var in variables}
-            return set(var_dict.values())
+            return OrderedSet(var_dict.values())
         return variables
 
     @classmethod

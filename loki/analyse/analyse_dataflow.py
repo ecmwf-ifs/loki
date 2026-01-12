@@ -12,7 +12,7 @@ Collection of dataflow analysis schema routines.
 from contextlib import contextmanager
 from loki.expression import Array, ProcedureSymbol
 from loki.ir.expr_visitors import FindLiterals
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, OrderedSet
 from loki.types import BasicType
 from loki.ir import (
     Visitor, Transformer, FindVariables, FindInlineCalls, FindTypedSymbols
@@ -64,11 +64,11 @@ class DataflowAnalysisAttacher(Transformer):
         uses along the way.
         """
         if live is None:
-            live = set()
+            live = OrderedSet()
         if defines is None:
-            defines = set()
+            defines = OrderedSet()
         if uses is None:
-            uses = set()
+            uses = OrderedSet()
         visited = []
         for i in flatten(body):
             visited += [self.visit(i, live_symbols=live|defines, **kwargs)]
@@ -112,28 +112,28 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Node(self, o, **kwargs):
         # Live symbols are determined on InternalNode handler levels and
         # get passed down to all child nodes
-        o._update(_live_symbols=kwargs.get('live_symbols', set()))
+        o._update(_live_symbols=kwargs.get('live_symbols', OrderedSet()))
 
         # Symbols defined or used by this node are determined by their individual
         # handler routines and passed on to visitNode from there
-        o._update(_defines_symbols=kwargs.get('defines_symbols', set()))
-        o._update(_uses_symbols=kwargs.get('uses_symbols', set()))
+        o._update(_defines_symbols=kwargs.get('defines_symbols', OrderedSet()))
+        o._update(_uses_symbols=kwargs.get('uses_symbols', OrderedSet()))
         return o
 
     # Internal nodes
 
     def visit_Interface(self, o, **kwargs):
         # Subroutines/functions calls defined in an explicit interface
-        defines = set()
+        defines = OrderedSet()
         for b in o.body:
             if isinstance(b, Subroutine):
-                defines = defines | set(as_tuple(b.procedure_symbol))
+                defines = defines | OrderedSet(as_tuple(b.procedure_symbol))
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
     def visit_InternalNode(self, o, **kwargs):
         # An internal node defines all symbols defined by its body and uses all
         # symbols used by its body before they are defined in the body
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
         body, defines, uses = self._visit_body(o.body, live=live, **kwargs)
         o._update(body=body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
@@ -141,21 +141,21 @@ class DataflowAnalysisAttacher(Transformer):
     def visit_Associate(self, o, **kwargs):
         # An associate block defines all symbols defined by its body and uses all
         # symbols used by its body before they are defined in the body
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
         body, defines, uses = self._visit_body(o.body, live=live, **kwargs)
         o._update(body=body)
 
         # reverse the mapping of names before assinging lives, defines, uses sets for Associate node itself
         invert_assoc = CaseInsensitiveDict({v.name: k for k, v in o.associations})
-        _live = set(invert_assoc[v.name] if v.name in invert_assoc else v for v in live)
-        _defines = set(invert_assoc[v.name] if v.name in invert_assoc else v for v in defines)
-        _uses = set(invert_assoc[v.name] if v.name in invert_assoc else v for v in uses)
+        _live = OrderedSet(invert_assoc[v.name] if v.name in invert_assoc else v for v in live)
+        _defines = OrderedSet(invert_assoc[v.name] if v.name in invert_assoc else v for v in defines)
+        _uses = OrderedSet(invert_assoc[v.name] if v.name in invert_assoc else v for v in uses)
 
         return self.visit_Node(o, live_symbols=_live, defines_symbols=_defines, uses_symbols=_uses, **kwargs)
 
     def visit_Loop(self, o, **kwargs):
         # A loop defines the induction variable for its body before entering it
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.bounds) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         uses = self._symbols_from_expr(o.bounds)
@@ -169,25 +169,25 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_WhileLoop(self, o, **kwargs):
         # A while loop uses variables in its condition
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
         uses = self._symbols_from_expr(o.condition)
         body, defines, uses = self._visit_body(o.body, live=live, uses=uses, **kwargs)
         o._update(body=body)
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_Conditional(self, o, **kwargs):
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
 
         # exclude arguments to functions that just check the memory attributes of a variable
         mem_call = as_tuple(i for i in FindInlineCalls().visit(o.condition) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_call))
-        cset = set(v for v in FindVariables().visit(o.condition) if not v in query_args)
+        cset = OrderedSet(v for v in FindVariables().visit(o.condition) if not v in query_args)
 
         if not self.include_literal_kinds:
             # Filter out any symbols used to qualify literals e.g. 0._JPRB
             literals = FindLiterals().visit(o.condition)
             literal_vars = FindVariables().visit(literals)
-            cset -= set(literal_vars)
+            cset -= OrderedSet(literal_vars)
 
         condition = self._symbols_from_expr(as_tuple(cset))
         body, defines, uses = self._visit_body(o.body, live=live, uses=condition, **kwargs)
@@ -196,20 +196,20 @@ class DataflowAnalysisAttacher(Transformer):
         return self.visit_Node(o, live_symbols=live, defines_symbols=defines|else_defines, uses_symbols=uses, **kwargs)
 
     def visit_MultiConditional(self, o, **kwargs):
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
 
         # exclude arguments to functions that just check the memory attributes of a variable
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.expr) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
-        eset = set(v for v in FindVariables().visit(o.expr) if not v in query_args)
+        eset = OrderedSet(v for v in FindVariables().visit(o.expr) if not v in query_args)
 
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.values) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
-        vset = set(v for v in FindVariables().visit(o.values) if not v in query_args)
+        vset = OrderedSet(v for v in FindVariables().visit(o.values) if not v in query_args)
 
         uses = self._symbols_from_expr(as_tuple(eset)) | self._symbols_from_expr(as_tuple(vset))
         body = ()
-        defines = set()
+        defines = OrderedSet()
         for b in o.bodies:
             _b, _d, uses = self._visit_body(b, live=live, uses=uses, **kwargs)
             body += (as_tuple(_b),)
@@ -222,18 +222,18 @@ class DataflowAnalysisAttacher(Transformer):
     visit_TypeConditional = visit_MultiConditional
 
     def visit_MaskedStatement(self, o, **kwargs):
-        live = kwargs.pop('live_symbols', set())
+        live = kwargs.pop('live_symbols', OrderedSet())
 
         conditions = self._symbols_from_expr(o.conditions)
         if not self.include_literal_kinds:
             # Filter out any symbols used to qualify literals e.g. 0._JPRB
             literals = as_tuple(FindLiterals().visit(o.conditions))
             literal_vars = FindVariables().visit(literals)
-            conditions -= set(literal_vars)
+            conditions -= OrderedSet(literal_vars)
 
         body = ()
-        defines = set()
-        uses = set(conditions)
+        defines = OrderedSet()
+        uses = OrderedSet(conditions)
         for b in o.bodies:
             _b, defines, uses = self._visit_body(b, live=live, uses=uses, defines=defines, **kwargs)
             body += (_b,)
@@ -248,13 +248,13 @@ class DataflowAnalysisAttacher(Transformer):
         # exclude arguments to functions that just check the memory attributes of a variable
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.rhs) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
-        rset = set(v for v in FindVariables().visit(o.rhs) if not v in query_args)
+        rset = OrderedSet(v for v in FindVariables().visit(o.rhs) if not v in query_args)
 
         if not self.include_literal_kinds:
             # Filter out any symbols used to qualify literals e.g. 0._JPRB
             literals = FindLiterals().visit(o.rhs)
             literal_vars = FindVariables().visit(literals)
-            rset -= set(literal_vars)
+            rset -= OrderedSet(literal_vars)
 
         # The left-hand side variable is defined by this statement
         defines, uses = self._symbols_from_lhs_expr(o.lhs)
@@ -275,12 +275,12 @@ class DataflowAnalysisAttacher(Transformer):
             # With a call context provided we can determine which arguments
             # are potentially defined and which are definitely only used by
             # this call
-            defines, uses = set(), set()
+            defines, uses = OrderedSet(), OrderedSet()
             outvals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'out')]
             invals = [val for arg, val in o.arg_iter() if str(arg.type.intent).lower() in ('inout', 'in')]
 
             arrays = [v for v in FindVariables().visit(outvals) if isinstance(v, Array)]
-            dims = set(v for a in arrays for v in self._symbols_from_expr(a.dimensions))
+            dims = OrderedSet(v for a in arrays for v in self._symbols_from_expr(a.dimensions))
             for val in outvals:
                 exprs = self._symbols_from_expr(val)
                 defines |= {e for e in exprs if not e in dims}
@@ -294,7 +294,7 @@ class DataflowAnalysisAttacher(Transformer):
             arrays = [v for v in FindVariables().visit(o.arguments) if isinstance(v, Array)]
             arrays += [v for arg, val in o.kwarguments for v in FindVariables().visit(val) if isinstance(v, Array)]
 
-            dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
+            dims = OrderedSet(v for a in arrays for v in FindVariables().visit(a.dimensions))
             defines = self._symbols_from_expr(o.arguments, condition=lambda x: x not in dims)
             for arg, val in o.kwarguments:
                 defines |= self._symbols_from_expr(val, condition=lambda x: x not in dims)
@@ -304,7 +304,7 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_Allocation(self, o, **kwargs):
         arrays = [v for v in FindVariables().visit(o.variables) if isinstance(v, Array)]
-        dims = set(v for a in arrays for v in FindVariables().visit(a.dimensions))
+        dims = OrderedSet(v for a in arrays for v in FindVariables().visit(a.dimensions))
         defines = self._symbols_from_expr(o.variables, condition=lambda x: x not in dims)
         uses = self._symbols_from_expr(o.data_source or ()) | dims
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
@@ -316,7 +316,7 @@ class DataflowAnalysisAttacher(Transformer):
     visit_Nullify = visit_Deallocation
 
     def visit_Import(self, o, **kwargs):
-        defines = set(s.clone(dimensions=None) for s in FindTypedSymbols().visit(o.symbols or ())
+        defines = OrderedSet(s.clone(dimensions=None) for s in FindTypedSymbols().visit(o.symbols or ())
                       if isinstance(s, ProcedureSymbol))
         return self.visit_Node(o, defines_symbols=defines, **kwargs)
 
@@ -356,7 +356,7 @@ def attach_dataflow_analysis(module_or_routine):
     The IR nodes are updated in-place and thus existing references to IR
     nodes remain valid.
     """
-    live_symbols = set()
+    live_symbols = OrderedSet()
     if hasattr(module_or_routine, 'arguments'):
         live_symbols = DataflowAnalysisAttacher._symbols_from_expr(
             module_or_routine.arguments,
@@ -469,12 +469,12 @@ class FindReads(Visitor):
     def __init__(self, start=None, stop=None, active=False,
                  candidate_set=None, clear_candidates_on_write=False, **kwargs):
         super().__init__(**kwargs)
-        self.start = set(as_tuple(start))
-        self.stop = set(as_tuple(stop))
+        self.start = OrderedSet(as_tuple(start))
+        self.stop = OrderedSet(as_tuple(stop))
         self.active = active
         self.candidate_set = candidate_set
         self.clear_candidates_on_write = clear_candidates_on_write
-        self.reads = set()
+        self.reads = OrderedSet()
 
     @staticmethod
     def _symbols_from_expr(expr):
@@ -552,11 +552,11 @@ class FindWrites(Visitor):
     def __init__(self, start=None, stop=None, active=False,
                  candidate_set=None, **kwargs):
         super().__init__(**kwargs)
-        self.start = set(as_tuple(start))
-        self.stop = set(as_tuple(stop))
+        self.start = OrderedSet(as_tuple(start))
+        self.stop = OrderedSet(as_tuple(stop))
         self.active = active
         self.candidate_set = candidate_set
-        self.writes = set()
+        self.writes = OrderedSet()
 
     @staticmethod
     def _symbols_from_expr(expr):
