@@ -92,7 +92,7 @@ class GlobalVariableAnalysis(Transformation):
         item = kwargs['item']
 
         # Gather all module variables and filter out parameters
-        variables = {var for var in module.variables if not var.type.parameter}
+        variables = OrderedSet(var for var in module.variables if not var.type.parameter)
 
         # Initialize and store trafo data
         item.trafo_data[self._key] = {
@@ -120,22 +120,26 @@ class GlobalVariableAnalysis(Transformation):
 
         with dataflow_analysis_attached(routine):
             # Gather read and written symbols that have been imported
-            uses_imported_symbols = {
+            uses_imported_symbols = OrderedSet(
                 var for var in routine.body.uses_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
-            }
-            uses_imported_symbols |= {
+            )
+            uses_imported_symbols |= OrderedSet(
                 var for var in routine.spec.uses_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
-            }
-            defines_imported_symbols = {
+            )
+            defines_imported_symbols = OrderedSet(
                 var for var in routine.body.defines_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
-            }
+            )
 
             # Filter out type and procedure imports by restricting to Scalar and Array symbols
-            uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
-            defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
+            uses_imported_symbols = OrderedSet(
+                var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))
+            )
+            defines_imported_symbols = OrderedSet(
+                var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))
+            )
 
             def _map_var_to_module(var):
                 if var.parent:
@@ -154,12 +158,12 @@ class GlobalVariableAnalysis(Transformation):
 
             # Store symbol lists in trafo data
             item.trafo_data[self._key] = {}
-            item.trafo_data[self._key]['uses_symbols'] = {
+            item.trafo_data[self._key]['uses_symbols'] = OrderedSet(
                 _map_var_to_module(var) for var in uses_imported_symbols
-            }
-            item.trafo_data[self._key]['defines_symbols'] = {
+            )
+            item.trafo_data[self._key]['defines_symbols'] = OrderedSet(
                 _map_var_to_module(var) for var in defines_imported_symbols
-            }
+            )
 
         # Amend analysis data with data from successors
         # Note: This is a temporary workaround for the incomplete list of successor items
@@ -282,10 +286,10 @@ class GlobalVarOffloadTransformation(Transformation):
         ]))
 
         # Build list of symbols to be offloaded (discard variables being parameter)
-        offload_variables = {
+        offload_variables = OrderedSet(
             var.parents[0] if var.parent else var
             for var in item.trafo_data[self._key].get('offload', ()) if not var.type.parameter
-        }
+        )
 
         if (invalid_vars := offload_variables - OrderedSet(module.variables)):
             raise RuntimeError(f'Invalid variables in offload analysis: {", ".join(v.name for v in invalid_vars)}')
@@ -368,22 +372,22 @@ class GlobalVarOffloadTransformation(Transformation):
                     f'Automatic offloading of nested derived types not implemented: {var} in {routine.name}'
                 ))
 
-        uses_symbols = {
+        uses_symbols = OrderedSet(
             (var, module) for var, module in uses_symbols
             if var not in exclude_symbols and not (var.parent and var.parents[0] in exclude_symbols)
-        }
-        defines_symbols = {
+        )
+        defines_symbols = OrderedSet(
             (var, module) for var, module in defines_symbols
             if var not in exclude_symbols and not (var.parent and var.parents[0] in exclude_symbols)
-        }
+        )
 
         # All variables that are used in a kernel need a host-to-device transfer
         if uses_symbols:
-            update_variables = {
+            update_variables = OrderedSet(
                 v for v, _ in uses_symbols
                 if not (v.parent or isinstance(v.type.dtype, DerivedType))
-            }
-            copyin_variables = {v for v, _ in uses_symbols if v.parent}
+            )
+            copyin_variables = OrderedSet(v for v, _ in uses_symbols if v.parent)
             if update_variables:
                 update_device += (
                     Pragma(keyword='loki', content=f'update device({", ".join(v.name for v in update_variables)})'),
@@ -399,12 +403,12 @@ class GlobalVarOffloadTransformation(Transformation):
 
         # All variables that are written in a kernel need a device-to-host transfer
         if defines_symbols:
-            update_variables = {v for v, _ in defines_symbols if not v.parent}
-            copyout_variables = {v for v, _ in defines_symbols if v.parent}
-            create_variables = {
+            update_variables = OrderedSet(v for v, _ in defines_symbols if not v.parent)
+            copyout_variables = OrderedSet(v for v, _ in defines_symbols if v.parent)
+            create_variables = OrderedSet(
                 v for v in copyout_variables
                 if v not in uses_symbols and v.type.allocatable
-            }
+            )
             if update_variables:
                 update_host += (
                     Pragma(keyword='loki', content=f'update host({", ".join(v.name for v in update_variables)})'),
@@ -444,7 +448,7 @@ class GlobalVarOffloadTransformation(Transformation):
 
         missing_imports_map = defaultdict(OrderedSet)
         for module, variables in offload_map.items():
-            missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
+            missing_imports_map[module] |= OrderedSet(var for var in variables if var.name not in import_map)
 
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
@@ -603,7 +607,7 @@ class GlobalVarHoistTransformation(Transformation):
             scope = scope.parent
         missing_imports_map = defaultdict(OrderedSet)
         for module, variables in symbol_map.items():
-            missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
+            missing_imports_map[module] |= OrderedSet(var for var in variables if var.name not in import_map)
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarHoistTransformation] ---------------------------------------'

@@ -81,11 +81,11 @@ class DataflowAnalysisAttacher(Transformer):
         """
         Return set of symbols found in an expression.
         """
-        variables = {strip_nested_dimensions(v) for v in FindVariables().visit(expr)}
-        parents = {p for var in variables for p in var.parents}
+        variables = OrderedSet(strip_nested_dimensions(v) for v in FindVariables().visit(expr))
+        parents = OrderedSet(p for var in variables for p in var.parents)
         variables -= parents
         if condition is not None:
-            return {v for v in variables if condition(v)}
+            return OrderedSet(v for v in variables if condition(v))
         return variables
 
     @classmethod
@@ -159,7 +159,7 @@ class DataflowAnalysisAttacher(Transformer):
         mem_calls = as_tuple(i for i in FindInlineCalls().visit(o.bounds) if i.function in self._mem_property_queries)
         query_args = as_tuple(flatten(FindVariables().visit(i.parameters) for i in mem_calls))
         uses = self._symbols_from_expr(o.bounds)
-        uses = {v for v in uses if not v in query_args}
+        uses = OrderedSet(v for v in uses if not v in query_args)
         body, defines, uses = self._visit_body(o.body, live=live|{o.variable.clone()}, uses=uses, **kwargs)
         o._update(body=body)
         # Make sure the induction variable is not considered outside the loop
@@ -283,10 +283,10 @@ class DataflowAnalysisAttacher(Transformer):
             dims = OrderedSet(v for a in arrays for v in self._symbols_from_expr(a.dimensions))
             for val in outvals:
                 exprs = self._symbols_from_expr(val)
-                defines |= {e for e in exprs if not e in dims}
+                defines |= OrderedSet(e for e in exprs if not e in dims)
                 uses |= dims
 
-            uses |= {s for val in invals for s in self._symbols_from_expr(val)}
+            uses |= OrderedSet(s for val in invals for s in self._symbols_from_expr(val))
         else:
             # We don't know the intent of any of these arguments and thus have
             # to assume all of them are potentially used or defined by this
@@ -322,7 +322,7 @@ class DataflowAnalysisAttacher(Transformer):
 
     def visit_VariableDeclaration(self, o, **kwargs):
         defines = self._symbols_from_expr(o.symbols, condition=lambda v: v.type.initial is not None)
-        uses = {v for a in o.symbols if isinstance(a, Array) for v in self._symbols_from_expr(a.dimensions)}
+        uses = OrderedSet(v for a in o.symbols if isinstance(a, Array) for v in self._symbols_from_expr(a.dimensions))
         if o.symbols[0].type.kind:
             uses |= {o.symbols[0].type.kind}
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
