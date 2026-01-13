@@ -305,11 +305,15 @@ class Item(ItemConfig):
         tuple
             The list of :any:`Item` nodes
         """
+        if definitions := self.definitions:
+            scope_ir = self.scope_ir
         items = as_tuple(flatten(
-            item_factory.create_from_ir(node, self.scope_ir, config)
-            for node in self.definitions
+                item_factory.create_from_ir(node, scope_ir, config)
+                for node in definitions
         ))
         items = as_tuple(item for item in items if item is not None)
+        else:
+            items = ()
         if only:
             items = tuple(item for item in items if isinstance(item, only))
         return items
@@ -336,10 +340,11 @@ class Item(ItemConfig):
         ignore = [*self.disable, *self.block]
         items = as_tuple(self.plan_data.get('additional_dependencies'))
         if (dependencies := self.dependencies):
+            scope_ir = self.scope_ir
             items += tuple(
                 item
                 for node in dependencies
-                for item in as_tuple(item_factory.create_from_ir(node, self.scope_ir, config, ignore=ignore))
+                for item in as_tuple(item_factory.create_from_ir(node, scope_ir, config, ignore=ignore))
                 if item is not None
             )
         if self.disable:
