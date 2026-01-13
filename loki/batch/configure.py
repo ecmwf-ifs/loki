@@ -170,8 +170,10 @@ class SchedulerConfig:
             scope_name, local_name = '', name_parts[0]
         elif len(name_parts) == 2:
             scope_name, local_name = name_parts
+        elif len(name_parts) == 3:
+            scope_name, local_name = name_parts[0], f'{name_parts[1]}#{name_parts[2]}'
         else:
-            raise ValueError(f'Invalid item name {item_name}: More than one `#` in the name.')
+            raise ValueError(f'Invalid item name {item_name}: Only one or two `#` are allowed in the name.')
 
         # Build the variations of item name to match
         item_names = {item_name, local_name}
@@ -493,6 +495,13 @@ class ItemConfig:
         Flag controlling whether the item is ignored during processing
         """
         return self.config.get('is_ignored', False)
+
+    @property
+    def ignore_internal_procedures(self):
+        """
+        Flag controlling the inclusion of internal procedures as dependencies
+        """
+        return self.config.get('ignore_internal_procedures', True)
 
     @classmethod
     def match_symbol_or_name(cls, symbol_or_name, keys, scope=None):

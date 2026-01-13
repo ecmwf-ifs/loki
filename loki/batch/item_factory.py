@@ -206,8 +206,14 @@ class ItemFactory:
         if item_name in self.item_cache:
             return self.item_cache[item_name]
 
-        item_conf = config.create_item_config(item_name) if config else None
+        if not scope_name and item_name.count('#') == 2:
+            # For an internal procedure that is contained in a procedure that
+            # is not a module procedure, we use the parent procedure as scope
+            # in the lookup
+            scope_name = item_name.rsplit('#', maxsplit=1)[0]
         scope_item = self.item_cache.get(scope_name)
+
+        item_conf = config.create_item_config(item_name) if config else None
         if scope_item is None or isinstance(scope_item, ExternalItem):
             warning(f'Module {scope_name} not found in self.item_cache. Marking {item_name} as an external dependency')
             item = ExternalItem(item_name, source=None, config=item_conf, origin_cls=item_cls,
@@ -487,13 +493,14 @@ class ItemFactory:
                     return None
                 return self.get_or_create_item(ProcedureBindingItem, item_name, scope_name, config)
 
-            if (
-                isinstance(scope_ir, Subroutine) and
-                any(r.name.lower() == proc_name for r in scope_ir.subroutines)
-            ):
-                # This is a call to an internal member procedure
-                # TODO: Make it configurable whether to include these in the callgraph
-                return None
+            if isinstance(scope_ir, Subroutine) and proc_name in scope_ir.subroutine_map:
+                # This is an internal procedure
+                current_module = scope_ir.parent
+                scope_name = current_module.name.lower() if current_module else ''
+                item_name = f'{scope_name}#{scope_ir.name}#{proc_name}'.lower()
+                if self._is_ignored(item_name, config, ignore):
+                    return None
+                return self.get_or_create_item(ProcedureItem, item_name, scope_name, config)
 
         # Recursively search for the enclosing module
         current_module = None
