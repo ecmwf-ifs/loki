@@ -11,7 +11,10 @@ import yaml
 
 from loki.backend import fgen
 from loki.batch import Scheduler
-from loki.ir import nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attached, get_pragma_parameters
+from loki.ir import (
+    nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attached, get_pragma_parameters,
+    pragmas_attached
+)
 from loki.expression import Variable, RangeIndex, IntLiteral
 from loki.frontend import available_frontends
 from loki.logging import log_levels
@@ -259,6 +262,33 @@ subroutine driver(dims, struct, array_arg, geometry, variable, another_variable)
 
 end subroutine driver
 end module driver_mod
+            """.strip()
+        ),
+        #----- simple driver -----
+        'simple_driver' : (
+            """
+module simple_driver_mod
+implicit none
+contains
+subroutine simple_driver(ngpblks, variable)
+   use type_def_mod, only: other_variable_type
+   implicit none
+
+   integer, intent(in) :: ngpblks
+   type(other_variable_type), intent(inout) :: variable
+   integer :: ibl
+
+!$loki data 
+!$loki driver-loop
+   do ibl=1,ngpblks
+
+     variable%vt0_field(:,:,ibl) = 0.
+
+   enddo
+!$loki end data
+
+end subroutine simple_driver
+end module simple_driver_mod
             """.strip()
         )
     }
@@ -890,3 +920,60 @@ def test_dummy_field_array_typdef_config(rank, suff):
         'field_ptr_map': {}
     }
     assert typedef_config == ref_config
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('accessor_type', [FieldAPIAccessorType.TYPE_BOUND, FieldAPIAccessorType.GENERIC])
+def test_offload_deepcopy_simple_driver(frontend, config, deepcopy_code, accessor_type, tmp_path):
+    """
+    Test the generation of host-device deepcopy for a simple driver loop.
+    """
+
+    config['routines'] = {
+        'simple_driver': {'role': 'driver'},
+        'other_variable_type': {
+            'field_prefix': 'f_',
+            'view_prefix': 'v',
+            'field_ptr_map': {
+                'vt0_field': 'f_t0'
+            }
+        },
+    }
+
+    scheduler = Scheduler(
+        paths=deepcopy_code, config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=tmp_path, preprocess=True
+    )
+
+    ######............ check analysis
+    transformation = DataOffloadDeepcopyAnalysis(output_analysis=True)
+    scheduler.process(transformation=transformation)
+
+    # The analysis is tied to driver loops
+    trafo_data_key = transformation._key
+    driver_item = scheduler['simple_driver_mod#simple_driver']
+    driver = scheduler['simple_driver_mod#simple_driver'].ir
+    with pragmas_attached(driver, ir.Loop):
+        driver_loop = find_driver_loops(driver.body, targets=[])[0]
+
+    #stringify dict for comparison
+    stringified_dict = transformation.stringify_dict(driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop])
+    expected_analysis = {
+        'ngpblks' : 'read',
+        'variable' : {
+            'vt0_field' : 'write'
+        }
+    }
+    assert stringified_dict == expected_analysis
+
+    with open(tmp_path/'driver_simple_driver_dataoffload_analysis.yaml', 'r') as file:
+        _dict = yaml.safe_load(file)
+    assert _dict == expected_analysis
+
+    ######............ check transformation
+    transformation = DataOffloadDeepcopyTransformation(mode='offload', accessor_type=accessor_type)
+    scheduler.process(transformation=transformation)
+
+    pragmas = FindNodes(ir.Pragma).visit(driver.body)
+    conds = FindNodes(ir.Conditional, greedy=True).visit(driver.body)
+    check_other_variable_type('offload', conds, pragmas, driver, accessor_type=accessor_type)
