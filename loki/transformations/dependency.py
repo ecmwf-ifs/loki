@@ -9,8 +9,105 @@ from loki.batch import Transformation
 from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 
-__all__ = ['DuplicateKernel', 'RemoveKernel']
+__all__ = ['DuplicateKernel', 'RemoveKernel', 'ReplaceKernel']
 
+
+class ReplaceKernel(Transformation):
+    creates_items = True
+    reverse_traversal = True
+
+    def __init__(self, replace_map):
+        self.replace_map = replace_map
+
+    def transform_subroutine(self, routine, **kwargs):
+        call_map = {
+            call: None for call in FindNodes(ir.CallStatement).visit(routine.body)
+            if str(call.name).lower() in self.replace_map # self.remove_kernels
+        }
+        routine.body = Transformer(call_map).visit(routine.body)
+
+    def transform_subroutine(self, routine, **kwargs):
+        item = kwargs.get('item')
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        item_factory = kwargs.get('item_factory')
+        item_cache = {}
+        repl_map = {}
+        _item_cache = dict(item_factory.item_cache)
+        original_successors = item.trafo_data.get('original_successors', ())
+        trafo_data_repl_map = item.trafo_data.get('replacement_map', {})
+
+        for key, val in _item_cache.items():
+            item_cache[key] = val
+            item_cache[key.split('#')[-1]] = val
+        
+        for child in successors:
+            if child.local_name in self.replace_map:
+                replacement_candidate = self.replace_map[child.local_name]
+                if replacement_candidate in item_cache:
+                    replacement = item_cache[replacement_candidate]
+                    repl_map[child] = replacement
+                else:
+                    print(f"CAN'T FIND REPLACEMENT for {child.local_name} although in replacement_map")
+
+        item.plan_data.setdefault('removed_dependencies', ())
+        item.plan_data.setdefault('additional_dependencies', ())
+        item.plan_data['removed_dependencies'] += tuple(repl_map.keys())
+        item.plan_data['additional_dependencies'] += tuple(repl_map.values())
+
+        repl_map |= trafo_data_repl_map
+
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
+        successor_call_map = CaseInsensitiveDict((_item, _item.local_name) for _item in successors + original_successors)
+        repl_call_map = CaseInsensitiveDict((successor_call_map[k], v) for k, v in repl_map.items())
+
+        call_map = {
+            call: call.clone(name=repl_call_map[str(call.name).lower()].ir.procedure_symbol.rescope(scope=routine))
+            for call in calls
+            if str(call.name).lower() in repl_call_map
+        }
+        added = [repl_call_map[str(call.name).lower()] for call in calls if str(call.name).lower() in repl_call_map]
+        for _added in added:
+            routine.spec.prepend(ir.Import(module=_added.scope.name, symbols=(_added.ir.procedure_symbol.rescope(scope=routine),)))
+
+        imports = routine.imports
+        imp_map = {}
+        for imp in imports:
+            for symbol in imp.symbols:
+                if symbol in repl_call_map:
+                    imp_map[imp] = None
+                    break
+
+        routine.spec = Transformer(imp_map).visit(routine.spec)
+        routine.body = Transformer(call_map).visit(routine.body)
+
+    def plan_subroutine(self, routine, **kwargs):
+        item = kwargs.get('item')
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
+        item_factory = kwargs.get('item_factory')
+        _item_cache = dict(item_factory.item_cache)
+        item_cache = {}
+        repl_map = {}
+        for key, val in _item_cache.items():
+            item_cache[key] = val
+            item_cache[key.split('#')[-1]] = val
+
+        for child in successors:
+            if child.local_name in self.replace_map:
+                replacement_candidate = self.replace_map[child.local_name]
+                if replacement_candidate in item_cache:
+                    replacement = item_cache[replacement_candidate]
+                    repl_map[child] = replacement
+                else:
+                    print(f"CAN'T FIND REPLACEMENT for {child.local_name} although in replacement_map")
+
+        item.trafo_data['replacement_map'] = repl_map
+        item.trafo_data['original_successors'] = successors
+        item.plan_data.setdefault('removed_dependencies', ())
+        item.plan_data.setdefault('additional_dependencies', ())
+        item.plan_data['removed_dependencies'] += tuple(repl_map.keys())
+        item.plan_data['additional_dependencies'] += tuple(repl_map.values())
 
 class DuplicateKernel(Transformation):
     """

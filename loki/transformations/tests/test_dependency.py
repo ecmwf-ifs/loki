@@ -20,7 +20,7 @@ from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 from loki.tools import as_tuple
 from loki.transformations.dependency import (
-        DuplicateKernel, RemoveKernel
+        DuplicateKernel, RemoveKernel, ReplaceKernel
 )
 from loki.transformations.build_system import FileWriteTransformation
 
@@ -46,6 +46,7 @@ def fixture_config():
             'role': 'kernel',
             'expand': True,
             'strict': False,
+            # 'ignore': ['alternative_kernel_mod', 'alternative_kernel', 'compute_1']
         },
         'routines': {
             'driver': {
@@ -726,3 +727,97 @@ def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix
             imports = [(imp.module.lower(), [symb.name.lower() for symb in imp.symbols]) for imp in routine.imports]
             assert calls == expected_calls[item_name]
             assert imports == expected_imports[item_name]
+
+@pytest.mark.usefixtures('fcode_as_module_extended')
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('full_parse', (True,)) # (True, False))
+@pytest.mark.parametrize('planning_step', (True, False))
+@pytest.mark.parametrize('ignore_replaced_kernel', (True, False))
+def test_dependency_replace_call(tmp_path, frontend, config, full_parse, planning_step, ignore_replaced_kernel):
+
+    fcode_alternative_kernel = """
+module alternative_kernel_mod
+    implicit none
+contains
+    subroutine alternative_kernel(klon, field1)
+        use iso_fortran_env, only: real64
+        use kernel_nested_mod, only: kernel_nested_vector, kernel_nested_seq
+        implicit none
+        integer, intent(in) :: klon
+        integer, intent(inout) :: field1(klon)
+        integer :: tmp1(klon)
+        integer :: jl
+
+        call kernel_nested_vector(klon, field1)
+
+        do jl=1,klon
+            call kernel_nested_seq(field1(jl))
+            ! call compute_2(field1(jl))
+            ! call compute_2_1(field1(jl))
+            tmp1(jl) = 0
+            field1(jl) = tmp1(jl)
+            ! call compute_3(field1(jl))
+        end do
+
+    end subroutine alternative_kernel
+end module alternative_kernel_mod
+    """.strip()
+
+    (tmp_path/'alternative_kernel_mod.F90').write_text(fcode_alternative_kernel)
+
+    # config['routines']['kernel'] = {'role': 'kernel', 'ignore': ['compute_2_1', 'compute_3']}
+    if ignore_replaced_kernel:
+        config['default']['ignore'] = ['alternative_kernel_mod', 'alternative_kernel']    
+    
+    config['routines']['alternative_kernel'] = {}
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path], full_parse=full_parse
+    )
+    print(f"scheduler.item_cache: {scheduler.item_factory.item_cache}")
+
+    pipeline = Pipeline(classes=(ReplaceKernel, FileWriteTransformation),
+            replace_map={'kernel': 'alternative_kernel'})
+    # pipeline = Pipeline(classes=(FileWriteTransformation,),
+    #         replace_map={'kernel': 'alternative_kernel'})
+
+    if planning_step:
+        plan_file = tmp_path/'plan.cmake'
+        # plan_file = '/perm/nams/loki-replace-call/plan.cmake'
+        scheduler.process(pipeline, proc_strategy=ProcessingStrategy.PLAN)
+        scheduler.write_cmake_plan(filepath=plan_file, rootpath=tmp_path)
+    
+        loki_plan = plan_file.read_text()
+        plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+        plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+        plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+   
+        if ignore_replaced_kernel:
+            assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'driver'}
+            assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'driver'}
+            assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {'driver.idem'}
+        else:
+            assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == {'kernel_nested_mod', 'compute_1_mod', 'alternative_kernel_mod', 'driver'}
+            assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == {'kernel_nested_mod', 'compute_1_mod', 'alternative_kernel_mod', 'driver'}
+            assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {'compute_1_mod.idem', 'kernel_nested_mod.idem', 'driver.idem', 'alternative_kernel_mod.idem'}
+
+        # print(f"plan_dict['LOKI_SOURCES_TO_TRANSFORM']: {plan_dict['LOKI_SOURCES_TO_TRANSFORM']}")
+        # print(f"plan_dict['LOKI_SOURCES_TO_REMOVE']:    {plan_dict['LOKI_SOURCES_TO_REMOVE']}")
+        # print(f"plan_dict['LOKI_SOURCES_TO_APPEND']:    {plan_dict['LOKI_SOURCES_TO_APPEND']}")
+
+    scheduler.process(pipeline)
+    driver = scheduler["#driver"].ir
+    # print(f"driver: {driver}")
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
+    imports = FindNodes(ir.Import).visit(driver.spec)
+    print(f"calls: {calls}")
+    print(f"imports: {imports}")
+    assert len(calls) == 1
+    call = calls[0]
+    assert str(call.name).lower() == 'alternative_kernel'
+    assert len(imports) == 1
+    imp = imports[0]
+    assert imp.module.lower() == 'alternative_kernel_mod'
+    assert len(imp.symbols) == 1
+    assert imp.symbols[0].name.lower() == 'alternative_kernel'
