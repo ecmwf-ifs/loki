@@ -32,6 +32,54 @@ def fixture_builder(tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_symbols_nested(tmp_path, frontend):
+    """ Test basic scoping behaviour of nested derived types """
+
+    fcode_mod = """
+module my_types_mod
+  implicit none
+
+  type inner
+    integer :: here
+  end type inner
+
+  type outer
+    type(inner) :: was
+    real(kind=4) :: red_herring
+  end type outer
+contains
+
+  subroutine test_der_type(rick, dave)
+    type(outer), intent(inout) :: rick, dave
+
+    rick%red_herring = 42.0
+    rick%was%here = 67
+
+    dave%red_herring = 66.6
+    dave%was%here = 6711
+  end subroutine test_der_type
+end module my_types_mod
+"""
+    module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    routine = module['test_der_type']
+
+    assert len(routine.variables) == 2
+    rick = routine.variable_map['rick']
+    dave = routine.variable_map['dave']
+    assert rick and dave and rick.type.dtype == dave.type.dtype
+
+    vs = list(FindVariables().visit(routine.body))
+    assert vs[0] == 'rick' == rick
+    assert vs[1] == 'rick%red_herring' and vs[1].scope == routine
+    assert vs[2] == 'rick%was' and vs[2].parent == rick and vs[2].scope == routine
+    assert vs[3] == 'rick%was%here' and vs[3].parent == vs[2] and vs[3].scope == routine
+    assert vs[4] == 'dave' == dave
+    assert vs[5] == 'dave%red_herring' and vs[5].scope == routine
+    assert vs[6] == 'dave%was' and vs[6].parent == dave and vs[6].scope == routine
+    assert vs[7] == 'dave%was%here' and vs[7].parent == vs[6] and vs[7].scope == routine
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_simple_loops(tmp_path, frontend):
     """
     Test simple vector/matrix arithmetic with a derived type
