@@ -24,7 +24,7 @@ from loki.ir import (
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
-from loki.tools import CaseInsensitiveDict, as_tuple
+from loki.tools import CaseInsensitiveDict, as_tuple, OrderedSet
 from loki.types import SymbolAttributes, BasicType, DerivedType, ProcedureType
 from loki.config import config_override
 from loki.logging import warning
@@ -228,10 +228,10 @@ def used_names_from_symbol(symbol, modifier=str.lower):
     we may encounter.
     """
     if isinstance(symbol, str):
-        return {modifier(symbol)}
+        return OrderedSet([modifier(symbol)])
 
     if isinstance(symbol, (sym.TypedSymbol, sym.MetaSymbol)):
-        return {modifier(symbol.name)} | used_names_from_symbol(symbol.type, modifier=modifier)
+        return OrderedSet([modifier(symbol.name)]) | used_names_from_symbol(symbol.type, modifier=modifier)
 
     if isinstance(symbol, SymbolAttributes):
         if isinstance(symbol.dtype, BasicType) and symbol.kind is not None:
@@ -239,9 +239,9 @@ def used_names_from_symbol(symbol, modifier=str.lower):
         return used_names_from_symbol(symbol.dtype, modifier=modifier)
 
     if isinstance(symbol, (DerivedType, ProcedureType)):
-        return {modifier(symbol.name)}
+        return OrderedSet([modifier(symbol.name)])
 
-    return set()
+    return OrderedSet()
 
 
 def eliminate_unused_imports(module_or_routine, used_symbols):
@@ -285,11 +285,11 @@ def find_and_eliminate_unused_imports(routine):
             return ()
 
     # Find all used symbols
-    used_symbols = set.union(*[used_names_from_symbol(s)
+    used_symbols = OrderedSet.union(*[used_names_from_symbol(s)
                                for s in SymbolRetriever().visit([routine.spec, routine.body])])
-    used_symbols |= set.union(*[used_names_from_symbol(s) for s in routine.variables])
+    used_symbols |= OrderedSet.union(*[used_names_from_symbol(s) for s in routine.variables])
     for typedef in FindNodes(TypeDef).visit(routine.spec):
-        used_symbols |= set.union(*[used_names_from_symbol(s) for s in typedef.variables])
+        used_symbols |= OrderedSet.union(*[used_names_from_symbol(s) for s in typedef.variables])
 
     # Recurse for contained subroutines/functions
     for member in routine.members:
@@ -310,7 +310,7 @@ def sanitise_imports(module_or_routine):
     if isinstance(module_or_routine, Subroutine):
         find_and_eliminate_unused_imports(module_or_routine)
     elif isinstance(module_or_routine, Module):
-        used_symbols = set()
+        used_symbols = OrderedSet()
         for routine in module_or_routine.subroutines:
             used_symbols |= find_and_eliminate_unused_imports(routine)
         eliminate_unused_imports(module_or_routine, used_symbols)
@@ -481,7 +481,7 @@ def replace_selected_kind(routine):
             if imprt.module.lower() == 'iso_fortran_env':
                 # Update the existing iso_fortran_env import
                 imprt_symbols = {str(s).lower() for s in imprt.symbols}
-                missing_symbols = set(mapper.used_names.keys()) - imprt_symbols
+                missing_symbols = OrderedSet(mapper.used_names.keys()) - imprt_symbols
                 symbols = as_tuple(imprt.symbols) + tuple(mapper.used_names[s] for s in missing_symbols)
 
                 # Flush the change through the spec

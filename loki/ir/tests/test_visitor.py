@@ -9,14 +9,15 @@ import pytest
 from pymbolic.primitives import Expression
 
 from loki import Module, Subroutine
+from loki.expression import (
+    symbols as sym, ExpressionCallbackMapper, ExpressionRetriever
+)
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, is_parent_of, is_child_of, FindNodes, FindScopes,
     FindVariables, ExpressionFinder
 )
-from loki.expression import (
-    symbols as sym, ExpressionCallbackMapper, ExpressionRetriever
-)
+from loki.tools import OrderedSet
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -148,7 +149,7 @@ end subroutine routine_simple
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     variables = FindVariables().visit(routine.body)
-    assert isinstance(variables, set)
+    assert isinstance(variables, OrderedSet)
     assert len(variables) == 5
     assert all(isinstance(v, Expression) for v in variables)
 

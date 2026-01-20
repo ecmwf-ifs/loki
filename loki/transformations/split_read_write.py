@@ -8,11 +8,11 @@
 
 from loki.batch import Transformation, ProcedureItem
 from loki.expression import Array
-from loki.tools import as_tuple
 from loki.ir import (
     nodes as ir, pragma_regions_attached, is_loki_pragma, FindNodes,
     Transformer, SubstituteExpressions
 )
+from loki.tools import as_tuple, OrderedSet
 
 __all__ = ['SplitReadWriteTransformation']
 
@@ -163,5 +163,5 @@ class SplitReadWriteTransformation(Transformation):
 
         # add declarations for temporaries
         if tmp_vars:
-            tmp_vars = set(var.clone(dimensions=var.type.shape) for var in tmp_vars)
+            tmp_vars = OrderedSet(var.clone(dimensions=var.type.shape) for var in tmp_vars)
             routine.variables += as_tuple(tmp_vars)

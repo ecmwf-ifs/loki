@@ -14,7 +14,7 @@ from loki.ir import (
 )
 from loki.logging import info
 from loki.subroutine import Subroutine
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 from loki.types import BasicType
 
 
@@ -70,11 +70,11 @@ def outline_region(region, name, imports, intent_map=None):
     """
     intent_map = intent_map or {}
     imports = as_tuple(imports)
-    imported_symbols = {var for imp in imports for var in imp.symbols}
+    imported_symbols = OrderedSet(var for imp in imports for var in imp.symbols)
     # Special-case for IFS-style C-imports
-    imported_symbols |= {
+    imported_symbols |= OrderedSet(
         str(imp.module).split('.', maxsplit=1)[0] for imp in imports if imp.c_import
-    }
+    )
 
     # Create the external subroutine containing the routine's imports and the region's body
     spec = Section(body=imports)
@@ -82,8 +82,8 @@ def outline_region(region, name, imports, intent_map=None):
     region_routine = Subroutine(name, spec=spec, body=body)
 
     # Filter derived-type component accesses and only use the root parent
-    region_uses_symbols = {s.parents[0] if s.parent else s for s in region.uses_symbols}
-    region_defines_symbols = {s.parents[0] if s.parent else s for s in region.defines_symbols}
+    region_uses_symbols = OrderedSet(s.parents[0] if s.parent else s for s in region.uses_symbols)
+    region_defines_symbols = OrderedSet(s.parents[0] if s.parent else s for s in region.defines_symbols)
 
     # Use dataflow analysis to find in, out and inout variables to that region
     # (ignoring any symbols that are external imports)
@@ -92,12 +92,12 @@ def outline_region(region, name, imports, intent_map=None):
     region_out_args = region_defines_symbols - region_uses_symbols - imported_symbols
 
     # Remove any parameters from in args
-    region_in_args = {arg for arg in region_in_args if not arg.type.parameter}
+    region_in_args = OrderedSet(arg for arg in region_in_args if not arg.type.parameter)
 
     # Extract arguments given in pragma annotations
-    pragma_in_args = {v.clone(scope=region_routine) for v in intent_map['in']}
-    pragma_inout_args = {v.clone(scope=region_routine) for v in intent_map['inout']}
-    pragma_out_args = {v.clone(scope=region_routine) for v in intent_map['out']}
+    pragma_in_args = OrderedSet(v.clone(scope=region_routine) for v in intent_map['in'])
+    pragma_inout_args = OrderedSet(v.clone(scope=region_routine) for v in intent_map['inout'])
+    pragma_out_args = OrderedSet(v.clone(scope=region_routine) for v in intent_map['out'])
 
     # Override arguments according to pragma annotations
     region_in_args = (region_in_args - (pragma_inout_args | pragma_out_args)) | pragma_in_args

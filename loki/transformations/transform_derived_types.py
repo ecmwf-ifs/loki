@@ -27,7 +27,7 @@ from loki.ir import (
 )
 from loki.logging import warning, debug
 from loki.module import Module
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict, OrderedSet
 from loki.types import BasicType, DerivedType, ProcedureType
 
 from loki.transformations.utilities import recursive_expression_map_update
@@ -305,8 +305,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
         nested_parents = [var.parent for var in vars_to_expand if var.parent in vars_to_expand]
         vars_to_expand = [var for var in vars_to_expand if var not in nested_parents]
 
-        expansion_map = defaultdict(set)
-        non_expansion_map = defaultdict(set)
+        expansion_map = defaultdict(OrderedSet)
+        non_expansion_map = defaultdict(OrderedSet)
         vmap = {}
         for var in vars_to_expand:
             declared_var, expansion, local_use = self.expand_derived_type_member(var)
@@ -441,7 +441,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 f'Cannot insert import for symbol "{symbol.name}" in {scope.name}. No type information available.'
             ))
 
-        new_imports = defaultdict(set)
+        new_imports = defaultdict(OrderedSet)
         for symbol in FindVariables().visit(expr):
             if symbol.name in symbol_map:
                 continue
@@ -477,7 +477,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         symbol_map.update(routine.symbol_map)
 
         # Check for derived types, kind, or shape dimensions declared via parameters among new arguments
-        new_imports = defaultdict(set)
+        new_imports = defaultdict(OrderedSet)
         for arg in new_arguments:
             type_ = arg.type
             if isinstance(type_.dtype, DerivedType) and type_.dtype.name not in symbol_map:
@@ -649,7 +649,7 @@ class TypeboundProcedureCallTransformer(Transformer):
         super().__init__(inplace=True, **kwargs)
         self.routine_name = routine_name
         self.current_module = current_module
-        self.new_procedure_imports = defaultdict(set)
+        self.new_procedure_imports = defaultdict(OrderedSet)
         self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall) and e.function.parent)
 
     def retrieve(self, o):

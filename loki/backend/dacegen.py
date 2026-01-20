@@ -10,6 +10,7 @@ from loki.backend.style import DefaultStyle
 
 from loki.expression import symbols as sym, ExpressionRetriever
 from loki.ir import is_loki_pragma
+from loki.tools import OrderedSet
 from loki.types import BasicType
 
 __all__ = ['dacegen', 'DaceCodegen']
@@ -51,11 +52,11 @@ class DaceCodegen(PyCodegen):
 
         # Generate header with argument signature
         retriever = ExpressionRetriever(lambda e: isinstance(e, sym.Scalar))
-        symbols = set()
+        symbols = OrderedSet()
         for arg in o.arguments:
             if isinstance(arg, sym.Array):
                 shape_vars = retriever.retrieve(arg.shape)
-                symbols |= set(v.name.lower() for v in shape_vars)
+                symbols |= OrderedSet(v.name.lower() for v in shape_vars)
         arguments = [f'{arg.name.lower()}: {self.visit(arg.type, **kwargs)}'
                      for arg in o.arguments if arg.name.lower() not in symbols]
         header += [self.format_line('{name} = dace.symbol("{name}")'.format(name=s))

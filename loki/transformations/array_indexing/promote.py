@@ -18,7 +18,7 @@ from loki.ir import (
     SubstituteExpressions
 )
 from loki.logging import info
-from loki.tools import as_tuple
+from loki.tools import as_tuple, OrderedSet
 
 
 __all__ = [
@@ -65,7 +65,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
     # Insert new index dimension
     if index is not None:
         index = as_tuple(index)
-        index_vars = [set(FindVariables().visit(i)) for i in index]
+        index_vars = [OrderedSet(FindVariables().visit(i)) for i in index]
 
         # Create a copy of the tree and apply promotion in-place
         routine.body = Transformer().visit(routine.body)
