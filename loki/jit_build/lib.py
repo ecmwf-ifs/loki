@@ -98,7 +98,6 @@ class Lib:
         def _build_objs(queue=None):
             # Traverse the dependency tree in reverse topological order
             topo_nodes = list(reversed(list(nx.topological_sort(dep_graph))))
-            print(topo_nodes)
             for obj in tqdm(topo_nodes):
                 if obj.source_path and obj.q_task is None:
 
