@@ -63,7 +63,7 @@ def fixture_comp1_expected_dependencies():
         '#comp2': ('header_mod', 't_mod#t', 'a_mod#a', 'b_mod#b', 't_mod#t%yay%proc'),
         'a_mod#a': ('header_mod',),
         'b_mod#b': (),
-        't_mod': ('tt_mod#tt',),
+        't_mod': ('tt_mod#tt', 'tt_mod#intf'),
         't_mod#t': ('tt_mod#tt', 't_mod#t1'),
         't_mod#t1': (),
         't_mod#t%proc': ('t_mod#t_proc',),
@@ -75,6 +75,7 @@ def fixture_comp1_expected_dependencies():
         'tt_mod#tt': (),
         'tt_mod#tt%proc': ('tt_mod#proc',),
         'tt_mod#proc': ('tt_mod#tt',),
+        'tt_mod#intf': ('tt_mod#proc',),
         'header_mod': (),
     }
 
@@ -797,14 +798,17 @@ def test_typedef_item(testdir):
         isinstance(_item, ExternalItem) and _item.origin_cls is ProcedureBindingItem
         for _item in item.create_definition_items(item_factory=ItemFactory())
     )
-    assert item.dependencies == (item.scope.import_map['tt'], item.ir.parent['t1'])
+    tt_import = item.scope.import_map['tt'].clone(symbols=item.scope.import_map['tt'].symbols[:1])
+    assert item.dependencies == (tt_import, item.ir.parent['t1'])
 
     # Without module items in the cache, the dependency items will be externals
     item_factory = ItemFactory()
     item_factory.item_cache[item.name] = item
+    items = item.create_dependency_items(item_factory=ItemFactory())
+    assert items == ('tt_mod', 't_mod#t1')
     assert all(
         isinstance(_item, ExternalItem) and _item.origin_cls in (ModuleItem, TypeDefItem)
-        for _item in item.create_dependency_items(item_factory=ItemFactory())
+        for _item in items
     )
 
     # Need to add the modules of the dependent types
@@ -1161,17 +1165,17 @@ def test_sgraph_from_seed(tmp_path, testdir, default_config, seed, dependencies_
     ('#comp1', ('comp2', 'a'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
         't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
-        't_mod#t1%way', 't_mod#my_way', 'tt_mod#tt', 't_mod#t1'
+        't_mod#t1%way', 't_mod#my_way', 'tt_mod#tt', 't_mod#t1', 'tt_mod#intf'
     )),
     ('#comp1', ('comp2', 'a', 't_mod#t%no%way'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc',
         't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
-        'tt_mod#tt', 't_mod#t1'
+        'tt_mod#tt', 't_mod#t1', 'tt_mod#intf'
     )),
     ('#comp1', ('#comp2', 't1%way'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
         't_mod#t_proc', 't_mod#t%yay%proc', 'tt_mod#tt%proc', 'tt_mod#proc',
-        'tt_mod#tt', 't_mod#t1', 'a_mod#a'
+        'tt_mod#tt', 't_mod#t1', 'a_mod#a', 'tt_mod#intf'
     )),
     ('t_mod#t_proc', ('t_mod#t1', 'proc'), (
         't_mod#t_proc', 't_mod#t', 'tt_mod#tt', 'a_mod#a', 'header_mod',

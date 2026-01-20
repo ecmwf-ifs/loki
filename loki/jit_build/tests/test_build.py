@@ -51,8 +51,6 @@ def test_build_object(here, testdir, builder):
     """
     Test basic object compilation and wrapping via f90wrap.
     """
-    builder.clean()
-
     obj = Obj(source_path=here/'base.f90')
     obj.build(builder=builder)
     assert (builder.build_dir/'base.o').exists()
@@ -61,12 +59,13 @@ def test_build_object(here, testdir, builder):
     assert base.Base.a_times_b_plus_c(a=2, b=3, c=1) == 7
 
 
-def test_build_lib(here, testdir, builder):
+@pytest.mark.parametrize('workers', [None, 1, 3])
+def test_build_lib(here, tmp_path, testdir, workers):
     """
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
     """
-    builder.clean()
+    builder = Builder(source_dirs=here, build_dir=tmp_path, workers=workers)
 
     # Create library with explicit dependencies
     base = Obj(source_path=here/'base.f90')
@@ -86,8 +85,6 @@ def test_build_lib_with_c(here, testdir, builder):
     Test basic library compilation and wrapping via f90wrap
     from a specific list of source objects.
     """
-    builder.clean()
-
     # Create library with explicit dependencies
     # objects = ['wrapper.f90', 'c_util.c']
     wrapper = Obj(source_path=here/'wrapper.f90')
@@ -101,12 +98,10 @@ def test_build_lib_with_c(here, testdir, builder):
     assert wrap.wrapper.mult_add_external(2., 3., 1.) == 7.
 
 
-def test_build_obj_dependencies(builder):
+def test_build_obj_dependencies():
     """
     Test dependency resolution in a non-trivial module tree.
     """
-    builder.clean()
-
     # # Wrap obj without specifying dependencies
     # test = builder.Obj('extension.f90').wrap()
     # assert test.library_test(1, 2, 3) == 12
@@ -194,3 +189,4 @@ end module import_mod
         'module_mod', 'iso_fortran_env', 'other_Mod', 'third_mod', 'fourth_mod',
         'very_condensed', 'fifth_mod'
     )
+    Obj.clear_cache()
