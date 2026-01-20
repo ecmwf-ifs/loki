@@ -17,7 +17,10 @@ from loki.ir import (
     FindInlineCalls, SubstituteExpressions
 )
 from loki.logging import warning
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict
+from loki.tools import (
+    as_tuple, flatten, CaseInsensitiveDict, CaseInsensitiveDefaultDict,
+    OrderedSet
+)
 from loki.types import DerivedType
 
 
@@ -53,13 +56,13 @@ class GlobalVariableAnalysis(Transformation):
     The generated trafo_data has the following schema::
 
         ModuleItem: {
-            'declares': set(Variable, Variable, ...),
-            'offload': set(Variable, ...)
+            'declares': OrderedSet(Variable, Variable, ...),
+            'offload': OrderedSet(Variable, ...)
         }
 
         ProcedureItem: {
-            'uses_symbols': set( (Variable, '<module_name>'), (Variable, '<module_name>'), ...),
-            'defines_symbols': set((Variable, '<module_name>'), (Variable, '<module_name>'), ...)
+            'uses_symbols': OrderedSet( (Variable, '<module_name>'), (Variable, '<module_name>'), ...),
+            'defines_symbols': OrderedSet((Variable, '<module_name>'), (Variable, '<module_name>'), ...)
         }
 
     Parameters
@@ -89,12 +92,12 @@ class GlobalVariableAnalysis(Transformation):
         item = kwargs['item']
 
         # Gather all module variables and filter out parameters
-        variables = {var for var in module.variables if not var.type.parameter}
+        variables = OrderedSet(var for var in module.variables if not var.type.parameter)
 
         # Initialize and store trafo data
         item.trafo_data[self._key] = {
             'declares': variables,
-            'offload': set()
+            'offload': OrderedSet()
         }
 
     def transform_subroutine(self, routine, **kwargs):
@@ -117,22 +120,26 @@ class GlobalVariableAnalysis(Transformation):
 
         with dataflow_analysis_attached(routine):
             # Gather read and written symbols that have been imported
-            uses_imported_symbols = {
+            uses_imported_symbols = OrderedSet(
                 var for var in routine.body.uses_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
-            }
-            uses_imported_symbols |= {
+            )
+            uses_imported_symbols |= OrderedSet(
                 var for var in routine.spec.uses_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
-            }
-            defines_imported_symbols = {
+            )
+            defines_imported_symbols = OrderedSet(
                 var for var in routine.body.defines_symbols
                 if var.name in import_map or (var.parent and var.parents[0].name in import_map)
-            }
+            )
 
             # Filter out type and procedure imports by restricting to Scalar and Array symbols
-            uses_imported_symbols = {var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))}
-            defines_imported_symbols = {var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))}
+            uses_imported_symbols = OrderedSet(
+                var for var in uses_imported_symbols if isinstance(var, (Scalar, Array))
+            )
+            defines_imported_symbols = OrderedSet(
+                var for var in defines_imported_symbols if isinstance(var, (Scalar, Array))
+            )
 
             def _map_var_to_module(var):
                 if var.parent:
@@ -151,12 +158,12 @@ class GlobalVariableAnalysis(Transformation):
 
             # Store symbol lists in trafo data
             item.trafo_data[self._key] = {}
-            item.trafo_data[self._key]['uses_symbols'] = {
+            item.trafo_data[self._key]['uses_symbols'] = OrderedSet(
                 _map_var_to_module(var) for var in uses_imported_symbols
-            }
-            item.trafo_data[self._key]['defines_symbols'] = {
+            )
+            item.trafo_data[self._key]['defines_symbols'] = OrderedSet(
                 _map_var_to_module(var) for var in defines_imported_symbols
-            }
+            )
 
         # Amend analysis data with data from successors
         # Note: This is a temporary workaround for the incomplete list of successor items
@@ -273,18 +280,18 @@ class GlobalVarOffloadTransformation(Transformation):
         # Check for already declared offloads
         acc_pragmas = [pragma for pragma in FindNodes(Pragma).visit(module.spec) if pragma.keyword.lower() == 'acc']
         acc_pragma_parameters = get_pragma_parameters(acc_pragmas, starts_with='declare', only_loki_pragmas=False)
-        declared_variables = set(flatten([
+        declared_variables = OrderedSet(flatten([
             v.replace(' ','').lower().split()
             for v in as_tuple(acc_pragma_parameters.get('create'))
         ]))
 
         # Build list of symbols to be offloaded (discard variables being parameter)
-        offload_variables = {
+        offload_variables = OrderedSet(
             var.parents[0] if var.parent else var
             for var in item.trafo_data[self._key].get('offload', ()) if not var.type.parameter
-        }
+        )
 
-        if (invalid_vars := offload_variables - set(module.variables)):
+        if (invalid_vars := offload_variables - OrderedSet(module.variables)):
             raise RuntimeError(f'Invalid variables in offload analysis: {", ".join(v.name for v in invalid_vars)}')
 
         # Add ACC declare pragma for offload variables that are not yet declared
@@ -336,18 +343,18 @@ class GlobalVarOffloadTransformation(Transformation):
         update_host = ()
 
         # Combine analysis data across successor items
-        defines_symbols = set()
-        uses_symbols = set()
+        defines_symbols = OrderedSet()
+        uses_symbols = OrderedSet()
         for item in successors:
-            defines_symbols |= item.trafo_data.get(self._key, {}).get('defines_symbols', set())
-            uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+            defines_symbols |= item.trafo_data.get(self._key, {}).get('defines_symbols', OrderedSet())
+            uses_symbols |= item.trafo_data.get(self._key, {}).get('uses_symbols', OrderedSet())
             # discard variables being parameter
             parameters = {(var, module) for var, module in uses_symbols if var.type.parameter}
             uses_symbols ^= parameters
 
         # Filter out arrays of derived types and nested derived types
         # For these, automatic offloading is currently not supported
-        exclude_symbols = set()
+        exclude_symbols = OrderedSet()
         for var_, module in chain(defines_symbols, uses_symbols):
             var = var_.parents[0] if var_.parent else var_
             if not isinstance(var.type.dtype, DerivedType):
@@ -365,22 +372,22 @@ class GlobalVarOffloadTransformation(Transformation):
                     f'Automatic offloading of nested derived types not implemented: {var} in {routine.name}'
                 ))
 
-        uses_symbols = {
+        uses_symbols = OrderedSet(
             (var, module) for var, module in uses_symbols
             if var not in exclude_symbols and not (var.parent and var.parents[0] in exclude_symbols)
-        }
-        defines_symbols = {
+        )
+        defines_symbols = OrderedSet(
             (var, module) for var, module in defines_symbols
             if var not in exclude_symbols and not (var.parent and var.parents[0] in exclude_symbols)
-        }
+        )
 
         # All variables that are used in a kernel need a host-to-device transfer
         if uses_symbols:
-            update_variables = {
+            update_variables = OrderedSet(
                 v for v, _ in uses_symbols
                 if not (v.parent or isinstance(v.type.dtype, DerivedType))
-            }
-            copyin_variables = {v for v, _ in uses_symbols if v.parent}
+            )
+            copyin_variables = OrderedSet(v for v, _ in uses_symbols if v.parent)
             if update_variables:
                 update_device += (
                     Pragma(keyword='loki', content=f'update device({", ".join(v.name for v in update_variables)})'),
@@ -396,12 +403,12 @@ class GlobalVarOffloadTransformation(Transformation):
 
         # All variables that are written in a kernel need a device-to-host transfer
         if defines_symbols:
-            update_variables = {v for v, _ in defines_symbols if not v.parent}
-            copyout_variables = {v for v, _ in defines_symbols if v.parent}
-            create_variables = {
+            update_variables = OrderedSet(v for v, _ in defines_symbols if not v.parent)
+            copyout_variables = OrderedSet(v for v, _ in defines_symbols if v.parent)
+            create_variables = OrderedSet(
                 v for v in copyout_variables
                 if v not in uses_symbols and v.type.allocatable
-            }
+            )
             if update_variables:
                 update_host += (
                     Pragma(keyword='loki', content=f'update host({", ".join(v.name for v in update_variables)})'),
@@ -429,7 +436,7 @@ class GlobalVarOffloadTransformation(Transformation):
         routine.body = Transformer(pragma_map).visit(routine.body)
 
         # Add imports for offload variables
-        offload_map = defaultdict(set)
+        offload_map = defaultdict(OrderedSet)
         for var, module in chain(uses_symbols, defines_symbols):
             offload_map[module].add(var.parents[0] if var.parent else var)
 
@@ -439,9 +446,9 @@ class GlobalVarOffloadTransformation(Transformation):
             import_map.update(scope.import_map)
             scope = scope.parent
 
-        missing_imports_map = defaultdict(set)
+        missing_imports_map = defaultdict(OrderedSet)
         for module, variables in offload_map.items():
-            missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
+            missing_imports_map[module] |= OrderedSet(var for var in variables if var.name not in import_map)
 
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
@@ -584,10 +591,10 @@ class GlobalVarHoistTransformation(Transformation):
         self._append_call_arguments(routine, uses_symbols, defines_symbols)
 
         # combine/collect symbols disregarding routine
-        all_defines_symbols = set.union(*defines_symbols.values(), set())
-        all_uses_symbols = set.union(*uses_symbols.values(), set())
+        all_defines_symbols = OrderedSet.union(*defines_symbols.values(), OrderedSet())
+        all_uses_symbols = OrderedSet.union(*uses_symbols.values(), OrderedSet())
         # add imports for symbols hoisted
-        symbol_map = defaultdict(set)
+        symbol_map = defaultdict(OrderedSet)
         for var, module in chain(all_uses_symbols, all_defines_symbols):
             # filter modules that are supposed to be ignored
             if module.lower() in self.ignore_modules:
@@ -598,9 +605,9 @@ class GlobalVarHoistTransformation(Transformation):
         while scope:
             import_map.update(scope.import_map)
             scope = scope.parent
-        missing_imports_map = defaultdict(set)
+        missing_imports_map = defaultdict(OrderedSet)
         for module, variables in symbol_map.items():
-            missing_imports_map[module] |= {var for var in variables if var.name not in import_map}
+            missing_imports_map[module] |= OrderedSet(var for var in variables if var.name not in import_map)
         if missing_imports_map:
             routine.spec.prepend(Comment(text=(
                 '![Loki::GlobalVarHoistTransformation] ---------------------------------------'
@@ -632,10 +639,10 @@ class GlobalVarHoistTransformation(Transformation):
         self._append_call_arguments(routine, uses_symbols, defines_symbols)
 
         # get symbols for this routine/kernel
-        kernel_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
-        kernel_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+        kernel_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', OrderedSet())
+        kernel_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', OrderedSet())
         # remove imports for symbols hoisted
-        symbol_map = defaultdict(set)
+        symbol_map = defaultdict(OrderedSet)
         for var, module in chain(kernel_uses_symbols, kernel_defines_symbols):
             # filter modules that are supposed to be ignored
             if module.lower() in self.ignore_modules:
@@ -644,7 +651,7 @@ class GlobalVarHoistTransformation(Transformation):
         import_map = CaseInsensitiveDict(
             (s.name, imprt) for imprt in routine.all_imports[::-1] for s in imprt.symbols
         )
-        redundant_imports_map = defaultdict(set)
+        redundant_imports_map = defaultdict(OrderedSet)
         for module, variables in symbol_map.items():
             redundant = [var.parent[0] if var.parent else var for var in variables]
             redundant = {var.clone(dimensions=None) for var in redundant if var.name in import_map}
@@ -654,7 +661,7 @@ class GlobalVarHoistTransformation(Transformation):
         for _import in imports:
             new_symbols = tuple(
                 var.clone(dimensions=None, scope=routine)
-                for var in set(_import.symbols)-redundant_imports_map[_import.module.lower()]
+                for var in OrderedSet(_import.symbols)-redundant_imports_map[_import.module.lower()]
             )
             if new_symbols:
                 import_map[_import] = _import.clone(symbols=new_symbols)
@@ -671,10 +678,10 @@ class GlobalVarHoistTransformation(Transformation):
         for item in successors:
             if not isinstance(item, ProcedureItem):
                 continue
-            defines_symbols[item.local_name] = set()
-            uses_symbols[item.local_name] = set()
-            defines_symbols[item.local_name] = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
-            uses_symbols[item.local_name] = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+            defines_symbols[item.local_name] = OrderedSet()
+            uses_symbols[item.local_name] = OrderedSet()
+            defines_symbols[item.local_name] = item.trafo_data.get(self._key, {}).get('defines_symbols', OrderedSet())
+            uses_symbols[item.local_name] = item.trafo_data.get(self._key, {}).get('uses_symbols', OrderedSet())
             # remove parameters if hoist_parameters is False
             if not self.hoist_parameters:
                 parameters = {(var, module) for var, module in uses_symbols[item.local_name] if var.type.parameter}
@@ -685,7 +692,7 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Helper to append variables to the call(s) (arguments).
         """
-        symbol_map = CaseInsensitiveDefaultDict(set)
+        symbol_map = CaseInsensitiveDefaultDict(OrderedSet)
         for key, _ in uses_symbols.items():
             all_symbols = uses_symbols[key]|defines_symbols[key]
             for var, module in all_symbols:
@@ -720,9 +727,9 @@ class GlobalVarHoistTransformation(Transformation):
         """
         Helper to append variables to the routine (arguments).
         """
-        all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', set())
+        all_defines_symbols = item.trafo_data.get(self._key, {}).get('defines_symbols', OrderedSet())
         all_defines_vars = [var.parents[0] if var.parent else var for var, _ in all_defines_symbols]
-        all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', set())
+        all_uses_symbols = item.trafo_data.get(self._key, {}).get('uses_symbols', OrderedSet())
         # remove parameters if hoist_parameters is False
         if not self.hoist_parameters:
             parameters = {(var, module) for var, module in all_uses_symbols if var.type.parameter}
@@ -734,7 +741,7 @@ class GlobalVarHoistTransformation(Transformation):
             if module.lower() in self.ignore_modules:
                 continue
             new_arguments.append(var.parents[0] if var.parent else var)
-        new_arguments = set(new_arguments) # remove duplicates
+        new_arguments = OrderedSet(new_arguments) # remove duplicates
         new_arguments = [
             arg.clone(scope=routine, type=arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',

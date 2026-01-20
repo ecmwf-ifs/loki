@@ -18,6 +18,7 @@ from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars,
     loop_carried_dependencies
 )
+from loki.batch import Transformation
 from loki.expression import (
     symbols as sym, simplify, is_constant, symbolic_op, parse_expr,
     IntLiteral, get_pyrange, LoopRange
@@ -31,12 +32,11 @@ from loki.ir import (
 from loki.logging import info, warning
 from loki.tools import (
     flatten, as_tuple, CaseInsensitiveDict, binary_insertion_sort,
-    optional
+    optional, OrderedSet
 )
 from loki.transformations.array_indexing import (
     promotion_dimensions_from_loop_nest, promote_nonmatching_variables
 )
-from loki.batch import Transformation
 
 
 __all__ = ['do_loop_interchange', 'do_loop_fusion', 'do_loop_fission', 'do_loop_unroll',
@@ -498,7 +498,7 @@ class FissionTransformer(NestedMaskedTransformer):
                 self.start = _start.copy() | {start_node}
                 self.mapper[start_node] = None
             # we stop when encountering this or any previously defined stop nodes
-            self.stop = _stop.copy() | set(as_tuple(stop_node))
+            self.stop = _stop.copy() | OrderedSet(as_tuple(stop_node))
             body = flatten(self.visit(o.body, **kwargs))
             if start_node is not None:
                 self.mapper.pop(start_node)
@@ -608,7 +608,7 @@ def do_loop_fission(routine, promote=True, warn_loop_carries=True):
                 # The loop before the pragma has to read the variable ...
                 broken_loop_carries = loop_carries & loop.uses_symbols
                 # ... but it is written after the pragma
-                broken_loop_carries &= set.union(*[l.defines_symbols for l in remainder])
+                broken_loop_carries &= OrderedSet.union(*[l.defines_symbols for l in remainder])
 
                 if broken_loop_carries:
                     if pragma.source and pragma.source.lines:

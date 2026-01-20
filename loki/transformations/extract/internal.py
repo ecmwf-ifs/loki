@@ -11,6 +11,7 @@ from loki.ir import (
     CallStatement, Transformer, FindNodes, FindVariables,
     FindInlineCalls, SubstituteExpressions
 )
+from loki.tools import OrderedSet
 from loki.types import DerivedType
 
 
@@ -170,7 +171,7 @@ def extract_internal_procedure(procedure, name):
             # Have already encountered module name, modify existing.
             matching_import = matching_import[0]
             imports_to_add.remove(matching_import)
-            newimport = matching_import.clone(symbols=tuple(set(matching_import.symbols + imp.symbols)))
+            newimport = matching_import.clone(symbols=tuple(OrderedSet(matching_import.symbols + imp.symbols)))
         else:
             # Have not encountered the module yet, add new one.
             newsyms = tuple(s for s in imp.symbols if s.name == val.name)

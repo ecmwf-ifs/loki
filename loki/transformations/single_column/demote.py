@@ -8,7 +8,7 @@
 from loki.batch import Transformation
 from loki.expression import is_dimension_constant, Array
 from loki.ir import nodes as ir, FindNodes, FindInlineCalls
-from loki.tools import flatten, as_tuple
+from loki.tools import flatten, as_tuple, OrderedSet
 
 from loki.transformations.array_indexing import demote_variables
 from loki.transformations.utilities import get_local_arrays
@@ -71,7 +71,7 @@ class SCCDemoteTransformation(Transformation):
 
         # Create an index into all variable uses per vector-level section
         vars_per_section = {
-            s: set(
+            s: OrderedSet(
                 v.name.lower() for v in get_local_arrays(routine, s, unique=False)
             ) for s in sections
         }

@@ -88,7 +88,9 @@ from loki.ir import (
     CallStatement, Allocation, Deallocation, Transformer, FindNodes, Comment, Import,
     Assignment, FindVariables, FindInlineCalls, SubstituteExpressions
 )
-from loki.tools.util import is_iterable, as_tuple, CaseInsensitiveDict, flatten
+from loki.tools.util import (
+    is_iterable, as_tuple, CaseInsensitiveDict, flatten, OrderedSet
+)
 from loki.types import BasicType
 from loki.logging import warning
 
@@ -320,7 +322,7 @@ class HoistVariablesTransformation(Transformation):
                     )
 
         # Add imports used to define hoisted
-        missing_imports_map = defaultdict(set)
+        missing_imports_map = defaultdict(OrderedSet)
         import_map = routine.import_map
         for module, var in item.trafo_data[self._key]["imported_sizes"]:
             if not var.name in import_map:
@@ -364,7 +366,7 @@ class HoistVariablesTransformation(Transformation):
     def driver_variable_declaration_dim_remapping(routine, variables):
         """
         Take a list of variables and remap their dimensions for those being
-        arrays to account for possibly uninitialized variables/dimensions. 
+        arrays to account for possibly uninitialized variables/dimensions.
 
         Parameters
         ----------

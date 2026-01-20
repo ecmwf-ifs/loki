@@ -25,7 +25,7 @@ from loki.expression import Array, symbols as sym, simplify
 from loki.ir import (
     FindNodes, CallStatement, Transformer, FindVariables, SubstituteExpressions
 )
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict, OrderedSet
 from loki.types import BasicType
 
 
@@ -173,7 +173,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
                 imported_symbols += callee.parent.imported_symbols
 
             # Collect all potential dimension variables and filter for scalar integers
-            dims = set(d for arg in callee.arguments if isinstance(arg, Array) for d in arg.shape)
+            dims = OrderedSet(d for arg in callee.arguments if isinstance(arg, Array) for d in arg.shape)
             dim_vars = tuple(d for d in FindVariables().visit(as_tuple(dims)))
 
             # Add all new dimension arguments to the callee signature

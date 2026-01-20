@@ -9,7 +9,7 @@ from loki.batch import Transformation
 from loki.transformations.remove_code import do_remove_dead_code
 
 from loki.ir import pragmas_attached, CallStatement, FindNodes, is_loki_pragma
-from loki.tools.util import as_tuple, CaseInsensitiveDict
+from loki.tools.util import as_tuple, CaseInsensitiveDict, OrderedSet
 from loki.transformations.inline.constants import inline_constant_parameters
 from loki.transformations.inline.functions import (
     inline_elemental_functions, inline_statement_functions
@@ -141,8 +141,8 @@ class InlineTransformation(Transformation):
         )
         # look for call statements with pragmas attached
         with pragmas_attached(routine, node_type=CallStatement):
-            inline_calls = set()
-            not_inline_calls = set()
+            inline_calls = OrderedSet()
+            not_inline_calls = OrderedSet()
             calls = FindNodes(CallStatement).visit(routine.ir)
             # for all calls sort those having '!$loki inline' and those not having it
             for call in calls:
@@ -177,4 +177,4 @@ class InlineTransformation(Transformation):
                 for inlined_successor in inlined_successors:
                     if inlined_successor not in inline_item.plan_data.get('removed_dependencies', ()):
                         additional_dep += (inlined_successor,)
-            item.plan_data['additional_dependencies'] += as_tuple(set(additional_dep))
+            item.plan_data['additional_dependencies'] += as_tuple(OrderedSet(additional_dep))
