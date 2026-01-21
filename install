@@ -31,7 +31,7 @@ venv_path=
 with_jdk=false
 with_omni=false
 with_docs=false
-with_dace=true
+with_dace=false
 with_tests=true
 with_examples=true
 

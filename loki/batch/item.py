@@ -305,11 +305,15 @@ class Item(ItemConfig):
         tuple
             The list of :any:`Item` nodes
         """
-        items = as_tuple(flatten(
-            item_factory.create_from_ir(node, self.scope_ir, config)
-            for node in self.definitions
-        ))
-        items = as_tuple(item for item in items if item is not None)
+        if definitions := self.definitions:
+            scope_ir = self.scope_ir
+            items = as_tuple(flatten(
+                item_factory.create_from_ir(node, scope_ir, config)
+                for node in definitions
+            ))
+            items = as_tuple(item for item in items if item is not None)
+        else:
+            items = ()
         if only:
             items = tuple(item for item in items if isinstance(item, only))
         return items
@@ -336,10 +340,11 @@ class Item(ItemConfig):
         ignore = [*self.disable, *self.block]
         items = as_tuple(self.plan_data.get('additional_dependencies'))
         if (dependencies := self.dependencies):
+            scope_ir = self.scope_ir
             items += tuple(
                 item
                 for node in dependencies
-                for item in as_tuple(item_factory.create_from_ir(node, self.scope_ir, config, ignore=ignore))
+                for item in as_tuple(item_factory.create_from_ir(node, scope_ir, config, ignore=ignore))
                 if item is not None
             )
         if self.disable:
@@ -726,7 +731,8 @@ class ProcedureItem(Item):
             return ()
 
         calls = tuple({call.name.name: call for call in FindNodes(CallStatement).visit(self_ir.ir)}.values())
-        if internal_procedures := [routine.name.lower() for routine in self_ir.routines]:
+        internal_procedures = [routine.name.lower() for routine in self_ir.routines]
+        if internal_procedures and self.ignore_internal_procedures:
             calls = tuple(call for call in calls if call.name.name.lower() not in internal_procedures)
         inline_calls = tuple({
             call.function.name: call.function
@@ -753,6 +759,14 @@ class ProcedureItem(Item):
                 typedefs += tuple(typedef for type_name in type_names if (typedef := typedef_map.get(type_name)))
                 imports += tuple(imprt for type_name in type_names if (imprt := import_map.get(type_name)))
         return imports + interfaces + typedefs + calls + inline_calls
+
+    @property
+    def ir(self):
+        # For internal procedures we have to do a two-stage lookup here
+        local_name = self.local_name
+        if (sep := local_name.find('#')) != -1:
+            return self.source[local_name[:sep]][local_name[sep+1:]]
+        return self.source[local_name]
 
 
 class TypeDefItem(Item):

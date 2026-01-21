@@ -1665,12 +1665,14 @@ def test_scheduler_traversal_order(tmp_path, testdir, config, frontend, use_file
 
 @pytest.mark.parametrize('use_file_graph', [False, True])
 @pytest.mark.parametrize('reverse', [False, True])
-def test_scheduler_member_routines(tmp_path, config, frontend, use_file_graph, reverse):
+@pytest.mark.parametrize('ignore_internal_procedures', [True, False])
+@pytest.mark.parametrize('ignore_internal_procedures_driver', [None, True, False])
+def test_scheduler_member_routines(tmp_path, config, frontend, use_file_graph, reverse,
+                                   ignore_internal_procedures, ignore_internal_procedures_driver):
     """
     Make sure that transformation processing works also for contained member routines
-
-    Notably, this does currently _NOT_ work and this test is tmp_path to document that fact and
-    serve as the test base for when this has been corrected.
+    if enabled in the config. This includes internal procedures in module routines as well
+    as free routines, and selective config overwrites to allow for fine-grained control of this behaviour
     """
     fcode_mod = """
 module member_mod
@@ -1710,6 +1712,10 @@ end subroutine kernel
     (tmp_path/'member_mod.F90').write_text(fcode_mod)
     (tmp_path/'kernel.F90').write_text(fcode_kernel)
 
+    config['default']['ignore_internal_procedures'] = ignore_internal_procedures
+    if ignore_internal_procedures_driver is not None:
+        config['routines']['member_mod#driver'] = {'ignore_internal_procedures': ignore_internal_procedures_driver}
+
     scheduler = Scheduler(
         paths=[tmp_path], config=config, seed_routines=['member_mod#driver'],
         frontend=frontend, xmods=[tmp_path]
@@ -1742,23 +1748,35 @@ end subroutine kernel
             f'{tmp_path/"kernel.F90"!s}'.lower() + '::kernel.F90'
         ]
     else:
-        # The commented lines are the dependencies that would be incurred if
-        # we were to chase dependencies into internal member procedures and are
-        # retained here as an FYI. From a technical point of view, the internal
-        # procedures are fully contained (no pun intended) in the parent item,
-        # therefore declaring them as a dependency would not make any sense.
-        # These are therefore filtered from the list of calls in the ProcedureItem's
-        # _dependencies method.
-        expected = [
-            'member_mod#driver::driver',
-            # 'member_mod#driver#my_member::my_member',
-            # 'member_mod#my_routine::my_routine',
-            '#kernel::kernel',
-            # '#kernel#my_member::my_member'
-        ]
+        expected = ['member_mod#driver::driver']
+        expected_dependencies_driver = ['kernel']
 
-        assert [dep.name for dep in scheduler['member_mod#driver'].dependencies] == ['kernel']
-        assert not scheduler['#kernel'].dependencies
+        # Slightly awkward logic to capture the cases that
+        #   1) we include internal procedures without any special config overrides for the driver
+        #   2) we override the config for the driver to include internal procedures
+        #   3) we include internal procedures but disable it for the driver
+        # and mark the corresponding excpected dependencies in case 1 and 2
+        include_driver_my_member = (
+            (ignore_internal_procedures_driver is None and not ignore_internal_procedures) or
+            ignore_internal_procedures_driver is False
+        )
+
+        if include_driver_my_member:
+            expected += ['member_mod#driver#my_member::my_member']
+            expected_dependencies_driver = ['my_member', *expected_dependencies_driver]
+
+        expected += ['#kernel::kernel']
+        expected_dependencies_kernel = []
+
+        if include_driver_my_member:
+            expected += ['member_mod#my_routine::my_routine']
+
+        if not ignore_internal_procedures:
+            expected += ['#kernel#my_member::my_member']
+            expected_dependencies_kernel += ['my_member']
+
+        assert [dep.name for dep in scheduler['member_mod#driver'].dependencies] == expected_dependencies_driver
+        assert [dep.name for dep in scheduler['#kernel'].dependencies] == expected_dependencies_kernel
 
     if reverse:
         expected = expected[::-1]
