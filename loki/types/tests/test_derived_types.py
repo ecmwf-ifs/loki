@@ -80,159 +80,8 @@ end module my_types_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_simple_loops(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a derived type
-    """
-
-    fcode = """
-module derived_types_mod
-  integer, parameter :: jprb = selected_real_kind(13,300)
-
-  type explicit
-    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
-    real(kind=jprb) :: red_herring
-  end type explicit
-contains
-
-  subroutine simple_loops(item)
-    type(explicit), intent(inout) :: item
-    integer :: i, j, n
-
-    n = 3
-    do i=1, n
-       item%vector(i) = item%vector(i) + item%scalar
-    end do
-
-    do j=1, n
-       do i=1, n
-          item%matrix(i, j) = item%matrix(i, j) + item%scalar
-       end do
-    end do
-  end subroutine simple_loops
-end module
-"""
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    routine = module['simple_loops']
-
-    # Ensure type info is attached correctly
-    item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]
-    assert all(v.type.dtype == BasicType.REAL for v in item_vars)
-    assert item_vars[0].name == 'item%vector' and item_vars[0].shape == (3,)
-    assert item_vars[1].name == 'item%vector' and item_vars[1].shape == (3,)
-    assert item_vars[2].name == 'item%scalar' and item_vars[2].type.shape is None
-    assert item_vars[3].name == 'item%matrix' and item_vars[3].shape == (3, 3)
-    assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
-    assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
-
-    filepath = tmp_path/(f'derived_types_simple_loops_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.explicit()
-    item.scalar = 2.
-    item.vector[:] = 5.
-    item.matrix[:, :] = 4.
-    mod.simple_loops(item)
-    assert (item.vector == 7.).all() and (item.matrix == 6.).all()
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_explicit(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a derived type
-    """
-
-    fcode = """
-module derived_types_mod
-  integer, parameter :: jprb = selected_real_kind(13,300)
-
-  type explicit
-    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
-    real(kind=jprb) :: red_herring
-  end type explicit
-contains
-
-  subroutine array_indexing_explicit(item)
-    type(explicit), intent(inout) :: item
-    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
-    integer :: i
-
-    item%vector(:) = 666.
-    do i=1, 3
-       item%matrix(:, i) = vals(i)
-    end do
-  end subroutine array_indexing_explicit
-end module
-"""
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_array_indexing_explicit_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.explicit()
-    mod.array_indexing_explicit(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_deferred(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a derived type
-    with dynamically allocated arrays.
-    """
-
-    fcode = """
-module derived_types_mod
-  integer, parameter :: jprb = selected_real_kind(13,300)
-
-  type deferred
-    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
-    real(kind=jprb), allocatable :: red_herring
-  end type deferred
-contains
-
-  subroutine alloc_deferred(item)
-    type(deferred), intent(inout) :: item
-    allocate(item%vector(3))
-    allocate(item%matrix(3, 3))
-  end subroutine alloc_deferred
-
-  subroutine free_deferred(item)
-    type(deferred), intent(inout) :: item
-    deallocate(item%vector)
-    deallocate(item%matrix)
-  end subroutine free_deferred
-
-  subroutine array_indexing_deferred(item)
-    type(deferred), intent(inout) :: item
-    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
-    integer :: i
-
-    item%vector(:) = 666.
-
-    do i=1, 3
-       item%matrix(:, i) = vals(i)
-    end do
-  end subroutine array_indexing_deferred
-end module
-"""
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_array_indexing_deferred_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.deferred()
-    mod.alloc_deferred(item)
-    mod.array_indexing_deferred(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-    mod.free_deferred(item)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_nested(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a nested derived type
-    """
+def test_derived_type_arithmetic(tmp_path, frontend):
+    """ Test simple vector/matrix arithmetic with a derived type via a JIT compile """
 
     fcode = """
 module derived_types_mod
@@ -249,37 +98,81 @@ module derived_types_mod
   end type nested
 contains
 
-  subroutine array_indexing_nested(item)
-    type(nested), intent(inout) :: item
+  subroutine simple_loops(item, item2, item3)
+    type(explicit), intent(inout) :: item, item2
+    type(nested), intent(inout) :: item3
     real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
-    integer :: i
+    integer :: i, j, n
 
-    item%a_vector(:) = 666.
-    item%another_item%vector(:) = 999.
-
-    do i=1, 3
-       item%another_item%matrix(:, i) = vals(i)
+    n = 3
+    do i=1, n  ! Explicit vector loop
+       item%vector(i) = item%vector(i) + item%scalar
     end do
-  end subroutine array_indexing_nested
+
+    do j=1, n  ! Explicit two-level vector loops
+       do i=1, n
+          item%matrix(i, j) = item%matrix(i, j) + item%scalar
+       end do
+    end do
+
+    item2%vector(:) = 666.
+    do i=1, 3  ! Use of vector notations
+       item2%matrix(:, i) = vals(i)
+    end do
+
+    ! Test vector notation on nested derived types
+    item3%a_vector(:) = 666.
+    item3%another_item%vector(:) = 999.
+    do i=1, 3
+       item3%another_item%matrix(:, i) = vals(i)
+    end do
+  end subroutine simple_loops
 end module
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_array_indexing_nested_{frontend}.f90')
+    routine = module['simple_loops']
+
+    # Ensure type info is attached correctly
+    item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]
+    assert all(v.type.dtype is BasicType.REAL or isinstance(v.type.dtype, DerivedType) for v in item_vars)
+    assert item_vars[0].name == 'item%vector' and item_vars[0].shape == (3,)
+    assert item_vars[1].name == 'item%vector' and item_vars[1].shape == (3,)
+    assert item_vars[2].name == 'item%scalar' and item_vars[2].type.shape is None
+    assert item_vars[3].name == 'item%matrix' and item_vars[3].shape == (3, 3)
+    assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
+    assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
+    assert item_vars[6].name == 'item2%vector' and item_vars[6].shape == (3,)
+    assert item_vars[7].name == 'item2%matrix' and item_vars[7].shape == (3, 3)
+    assert item_vars[8].name == 'item3%a_vector' and item_vars[8].shape == (3,)
+    assert item_vars[9].name == 'item3%another_item' and item_vars[9].type.dtype.typedef == module['explicit']
+    assert item_vars[10].name == 'item3%another_item%vector' and item_vars[10].shape == (3,)
+    assert item_vars[11].name == 'item3%another_item' and item_vars[11].type.dtype.typedef == module['explicit']
+    assert item_vars[12].name == 'item3%another_item%matrix' and item_vars[12].shape == (3, 3)
+
+    # JIT-compile the module and create input objects
+    filepath = tmp_path/(f'derived_types_simple_loops_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
-    item = mod.nested()
-    mod.array_indexing_nested(item)
-    assert (item.a_vector == 666.).all()
-    assert (item.another_item.vector == 999.).all()
-    assert (item.another_item.matrix == np.array([[1., 2., 3.],
-                                                  [1., 2., 3.],
-                                                  [1., 2., 3.]])).all()
+    item, item2, item3 = mod.explicit(), mod.explicit(), mod.nested()
+    item.scalar = 2.
+    item.vector[:] = 5.
+    item.matrix[:, :] = 4.
+
+    # Execute compiled code and check constructed outputs
+    mod.simple_loops(item, item2, item3)
+    assert (item.vector == 7.).all() and (item.matrix == 6.).all()
+    assert (item2.vector == 666.).all()
+    assert (item2.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    assert (item3.a_vector == 666.).all()
+    assert (item3.another_item.vector == 999.).all()
+    assert (item3.another_item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_deferred_array(tmp_path, frontend):
+def test_derived_type_deferred_arrays(tmp_path, frontend):
     """
-    Test simple vector/matrix with an array of derived types
+    Test simple vector/matrix arithmetic with a derived type
+    with dynamically allocated arrays via JIT-compilation.
     """
 
     fcode = """
@@ -304,7 +197,19 @@ contains
     deallocate(item%matrix)
   end subroutine free_deferred
 
-  subroutine deferred_array(item)
+  subroutine test_deferred_arrays(item)
+    type(deferred), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
+    item%vector(:) = 666.
+
+    do i=1, 3
+       item%matrix(:, i) = vals(i)
+    end do
+  end subroutine test_deferred_arrays
+
+  subroutine test_deferred_arrays_with_temporary(item)
     type(deferred), intent(inout) :: item
     type(deferred), allocatable :: item2(:)
     real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
@@ -314,9 +219,7 @@ contains
 
     do j=1, 4
       call alloc_deferred(item2(j))
-
       item2(j)%vector(:) = 666.
-
       do i=1, 3
         item2(j)%matrix(:, i) = vals(i)
       end do
@@ -324,31 +227,35 @@ contains
 
     item%vector(:) = 0.
     item%matrix(:,:) = 0.
-
     do j=1, 4
       item%vector(:) = item%vector(:) + item2(j)%vector(:)
-
       do i=1, 3
           item%matrix(:,i) = item%matrix(:,i) + item2(j)%matrix(:,i)
       end do
-
       call free_deferred(item2(j))
     end do
 
     deallocate(item2)
-  end subroutine deferred_array
+  end subroutine test_deferred_arrays_with_temporary
 end module
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_deferred_array_{frontend}.f90')
+    filepath = tmp_path/(f'derived_types_array_indexing_deferred_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.deferred()
     mod.alloc_deferred(item)
-    mod.deferred_array(item)
-    assert (item.vector == 4 * 666.).all()
-    assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    mod.test_deferred_arrays(item)
+    assert (item.vector == 666.).all()
+    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     mod.free_deferred(item)
+
+    item2 = mod.deferred()
+    mod.alloc_deferred(item2)
+    mod.test_deferred_arrays_with_temporary(item2)
+    assert (item2.vector == 4 * 666.).all()
+    assert (item2.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    mod.free_deferred(item2)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
