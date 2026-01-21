@@ -80,6 +80,61 @@ end module my_types_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_derived_type_symbols_deferred(tmp_path, frontend):
+    """ Test basic scoping behaviour of nested derived types without type info"""
+    fcode_mod = """
+module my_types_mod
+  implicit none
+  type base
+    integer :: here
+  end type base
+
+  type inner
+    type(base) :: was
+    real(kind=4) :: red_herring
+  end type inner
+
+  type outer
+    type(base) :: was
+    real(kind=4) :: red_herring
+  end type outer
+end module my_types_mod
+"""
+
+    fcode = """
+subroutine test_der_type(rick, dave)
+  use my_types_mod, only: outer
+  implicit none
+  type(outer), intent(inout) :: rick, dave
+
+  rick%red_herring = 42.0
+  rick%was%here = 67
+
+  dave%red_herring = 66.6
+  dave%was%here = 6711
+end subroutine test_der_type
+"""
+    module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
+    assert len(routine.variables) == 2
+    rick = routine.variable_map['rick']
+    dave = routine.variable_map['dave']
+    assert rick and dave and rick.type.dtype == dave.type.dtype
+    assert not rick.type.dtype is dave.type.dtype
+
+    vs = list(FindVariables().visit(routine.body))
+    assert vs[0] == 'rick' == rick and rick.scope == routine
+    assert vs[1] == 'rick%red_herring' and vs[1].scope == rick.type.dtype
+    assert vs[2] == 'rick%was' and vs[2].parent == rick and vs[2].scope == rick.type.dtype
+    assert vs[3] == 'rick%was%here' and vs[3].parent == vs[2] and vs[3].scope == vs[2].type.dtype
+    assert vs[4] == 'dave' == dave and dave.scope == routine
+    assert vs[5] == 'dave%red_herring' and vs[5].scope == dave.type.dtype
+    assert vs[6] == 'dave%was' and vs[6].parent == dave and vs[6].scope == dave.type.dtype
+    assert vs[7] == 'dave%was%here' and vs[7].parent == vs[6] and vs[7].scope == vs[6].type.dtype
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_arithmetic(tmp_path, frontend):
     """ Test simple vector/matrix arithmetic with a derived type via a JIT compile """
 
