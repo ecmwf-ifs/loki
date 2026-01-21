@@ -201,10 +201,11 @@ class BlockViewToFieldViewTransformation(Transformation):
         routine.enrich(definitions)
         self.propagate_defs_to_children(self._key, definitions, successors)
 
-        for loop in find_driver_loops(routine.body, targets):
-            body = self.process_body(loop.body, item, successors, targets, exclude_var_names)
-            body_map = {loop.body: body}
-            Transformer(body_map, inplace=True).visit(loop)
+        with pragmas_attached(routine, ir.Loop):
+            for loop in find_driver_loops(routine.body, targets):
+                body = self.process_body(loop.body, item, successors, targets, exclude_var_names)
+                body_map = {loop.body: body}
+                Transformer(body_map, inplace=True).visit(loop)
 
     def build_ydvars_global_gfl_ptr(self, var):
         """Replace accesses to thread-local ``YDVARS%GFL_PTR`` with global ``YDVARS%GFL_PTR_G``."""
@@ -375,10 +376,11 @@ class InjectBlockIndexTransformation(Transformation):
             # for kernels we process the entire subroutine body
             routine.body = self.process_body(routine.body, block_index, targets, exclude_arrays, force_inject_arrays)
         elif role == 'driver':
-            for loop in find_driver_loops(routine.body, targets):
-                body = self.process_body(loop.body, block_index, targets, exclude_arrays, force_inject_arrays)
-                body_map = {loop.body: body}
-                Transformer(body_map, inplace=True).visit(loop)
+            with pragmas_attached(routine, ir.Loop):
+                for loop in find_driver_loops(routine.body, targets):
+                    body = self.process_body(loop.body, block_index, targets, exclude_arrays, force_inject_arrays)
+                    body_map = {loop.body: body}
+                    Transformer(body_map, inplace=True).visit(loop)
 
     @staticmethod
     def get_call_arg_rank(arg):
