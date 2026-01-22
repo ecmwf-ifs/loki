@@ -7,6 +7,7 @@
 
 from loki.backend import cgen, fgen
 from loki.expression import symbols as sym
+from loki.ir import nodes as ir
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 
 
@@ -128,6 +129,30 @@ def test_procedure_symbols():
     assert cgen(deref) == ' (*g)'
     assert deref.type.dtype == BasicType.REAL and deref.type.kind == 'rick'
     assert deref.scope == scope and deref.initial == 9.81
+
+
+def test_derived_type_symbols():
+    """ Test the creation of nested derived-type symbols from known and unknow types. """
+    scope = Scope()
+    int_type = SymbolAttributes(BasicType.INTEGER)
+    real_type = SymbolAttributes(BasicType.REAL, kind=sym.Literal(4))
+    deferred_type = SymbolAttributes(BasicType.DEFERRED)
+
+    # Create the TypeDef that backs the derived type
+    typedef = ir.TypeDef(name='DerDieDas', body=(), parent=scope)
+    vector = sym.Variable(
+        name='vector', type=real_type, dimensions=(sym.Literal(3),), scope=typedef
+    )
+    typedef._update(body=(ir.VariableDeclaration(symbols=(vector,)),))
+    dtype = DerivedType(name='DerDieDas', typedef=typedef, scope=scope)
+    p = sym.Variable(name='p', type=SymbolAttributes(dtype), scope=scope)
+    v = sym.Variable(name='p%vector', scope=scope)
+
+    # Create a nested derived-type variable with unknown type
+    dtype_deferred = DerivedType(name='TheOther', typedef=BasicType.DEFERRED, scope=scope)
+    q = sym.Variable(name='p', type=SymbolAttributes(dtype_deferred), scope=scope)
+    y = sym.Variable(name='q%x%y', scope=scope)
+    from IPython import embed; embed()
 
 
 def test_symbol_recreation():
