@@ -25,7 +25,7 @@ except ImportError:
 
 from loki.expression import symbols as sym, operations as sym_ops
 from loki.tools.util import CaseInsensitiveDict
-from loki.types.scope import Scope
+from loki.types import Scope, DerivedType, DEFERRED
 
 __all__ = ['ExpressionParser', 'parse_expr', 'FORTRAN_INTRINSIC_PROCEDURES']
 
@@ -117,6 +117,14 @@ class PymbolicMapper(Mapper):
 
     def map_variable(self, expr, *args, **kwargs):
         parent = kwargs.pop('parent', None)
+
+        if parent and parent.type.dtype == DEFERRED:
+            # This is an unknown component reference
+            # (eg. 'b' in 'a%b%c' with no type info for 'a')
+            # For this, we create an intermediate "UNKNOWN" `DerivedType`.
+            dertype = DerivedType(name='UNKNOWN', scope=parent.scope)
+            parent = parent.clone(type=parent.type.clone(dtype=dertype), scope=parent.scope)
+
         return sym.Variable(name=expr.name, parent=parent)
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):

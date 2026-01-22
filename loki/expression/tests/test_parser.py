@@ -263,7 +263,7 @@ end module external_mod
     assert to_str(parsed) == '-some_type%val'
     parsed = parse_expr(convert_to_case('some_type%another_type%val', mode=case))
     assert isinstance(parsed, sym.DeferredTypeSymbol)
-    assert isinstance(parsed.parent, sym.DeferredTypeSymbol)
+    assert isinstance(parsed.parent, sym.Scalar)
     assert isinstance(parsed.parent.parent, sym.DeferredTypeSymbol)
     assert to_str(parsed) == 'some_type%another_type%val'
     parsed = parse_expr(convert_to_case('some_type%arr(a, b)', mode=case))
