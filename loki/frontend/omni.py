@@ -1156,8 +1156,15 @@ class OMNI2IR(GenericVisitor):
     def visit_FmemberRef(self, o, **kwargs):
         parent = self.visit(o.find('varRef'), **kwargs)
         name = f'{parent.name}%{o.attrib["member"]}'
-        variable = sym.Variable(name=name, parent=parent, scope=parent.type.dtype)
-        return variable
+
+        if parent.type.dtype == BasicType.DEFERRED:
+            # This is an unknown component reference
+            # (eg. 'b' in 'a%b%c' with no type info for 'a')
+            # For this, we create an intermediate "UNKNOWN" `DerivedType`.
+            dertype = DerivedType(name='UNKNOWN', scope=parent.scope)
+            parent = parent.clone(type=parent.type.clone(dtype=dertype), scope=parent.scope)
+
+        return sym.Variable(name=name, parent=parent, scope=parent.type.dtype)
 
     def visit_name(self, o, **kwargs):
         return sym.Variable(name=o.text, scope=kwargs.get('scope'))
