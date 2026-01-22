@@ -458,20 +458,24 @@ class FParser2IR(GenericVisitor):
         var = self.visit(o.children[0], **kwargs)
         for c in o.children[1:]:
             parent = var
+
+            if parent.type.dtype == BasicType.DEFERRED:
+                # This is an unknown component reference
+                # (eg. 'b' in 'a%b%c' with no type info for 'a')
+                # For this, we create an intermediate "UNKNOWN" `DerivedType`.
+               dertype = DerivedType(name='UNKNOWN', scope=parent.scope)
+               parent = parent.clone(type=parent.type.clone(dtype=dertype), scope=parent.scope)
+
             kwargs['parent'] = parent
+            kwargs['scope'] = parent.type.dtype
             var = self.visit(c, **kwargs)
+
             if isinstance(var, sym.InlineCall):
                 # This is a function call with a type-bound procedure, so we need to
                 # update the name slightly different
                 function = var.function.clone(name=f'{parent.name}%{var.function.name}', parent=parent)
                 var = var.clone(function=function)
-            else:
-                # Hack: Need to force re-evaluation of the type from parent here via `type=None`
-                # We know there's a parent, but we cannot trust the auto-generation of the type,
-                # since the type lookup via parents can create mismatched DeferredTypeSymbols.
-                var = var.clone(
-                    name=f'{parent.name}%{var.name}', parent=parent, scope=parent.type.dtype, type=None
-                )
+
         return var
 
     #
