@@ -609,7 +609,11 @@ class FParser2IR(GenericVisitor):
         * :class:`fparser.two.Fortran2003.Attr_Spec_List`
         * :class:`fparser.two.Fortran2003.Entity_Decl_List`
         """
-        # First, obtain data type and attributes
+        source = kwargs.get('source')
+        label = kwargs.get('label')
+        scope = kwargs.get('scope')
+
+        # First, obtain data type and basic declaration attributes
         _type = self.visit(o.children[0], **kwargs)
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
         attrs = dict(attrs)
@@ -618,7 +622,8 @@ class FParser2IR(GenericVisitor):
         _type = _type.clone(**attrs)
 
         # Last, instantiate declared variables
-        variables = as_tuple(self.visit(o.children[2], **kwargs))
+        with dict_override(kwargs, {'type': _type}):
+            variables = as_tuple(self.visit(o.children[2], **kwargs))
 
         # DIMENSION is called shape for us
         if _type.dimension:
@@ -627,34 +632,20 @@ class FParser2IR(GenericVisitor):
             # representation of variables in declarations
             variables = as_tuple(v.clone(dimensions=_type.shape) for v in variables)
 
-        # Make sure KIND and INITIAL (which can be a name) are in the right scope
-        scope = kwargs['scope']
-        if _type.kind is not None:
-            kind = AttachScopesMapper()(_type.kind, scope=scope)
-            _type = _type.clone(kind=kind)
-        if _type.initial is not None:
-            initial = AttachScopesMapper()(_type.initial, scope=scope)
-            _type = _type.clone(initial=initial)
-
         # EXTERNAL attribute means this is actually a function or subroutine
         # Since every symbol refers to a different function we have to update the
         # type definition for every symbol individually
         if _type.external:
             for var in variables:
-                type_kwargs = _type.__dict__.copy()
                 return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
-                external_type = scope.symbol_attrs.lookup(var.name)
-                if external_type is None:
-                    type_kwargs['dtype'] = ProcedureType(
-                        var.name, is_function=return_type is not None, return_type=return_type
-                    )
-                else:
-                    type_kwargs['dtype'] = external_type.dtype
-                scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
+                proc_type = ProcedureType(
+                    var.name, is_function=return_type is not None, return_type=return_type
+                )
+                scope.update(var.name, dtype=proc_type)
 
-            variables = tuple(var.rescope(scope=scope) for var in variables)
+            variables = tuple(var.clone(scope=scope) for var in variables)
             return ir.ProcedureDeclaration(
-                symbols=variables, external=True, source=kwargs.get('source'), label=kwargs.get('label')
+                symbols=variables, external=True, source=source, label=label
             )
 
         # Update symbol table entries and rescope
@@ -662,8 +653,7 @@ class FParser2IR(GenericVisitor):
         variables = tuple(var.rescope(scope=scope) for var in variables)
 
         return ir.VariableDeclaration(
-            symbols=variables, dimensions=_type.shape,
-            source=kwargs.get('source'), label=kwargs.get('label')
+            symbols=variables, dimensions=_type.shape, source=source, label=label
         )
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
@@ -837,12 +827,13 @@ class FParser2IR(GenericVisitor):
         * char length (:class:`fparser.two.Fortran2003.Char_Length`)
         * init (:class:`fparser.two.Fortran2003.Initialization`)
         """
+        _type = kwargs.get('type', {})
+        scope = kwargs.get('scope')
 
-        # Do not pass scope down, as it might alias with previously
-        # created symbols. Instead, let the rescope in the Declaration
-        # assign the right scope, always!
-        with dict_override(kwargs, {'scope': None}):
-            var = self.visit(o.children[0], **kwargs)
+        # Declare basic variable type and create variable symbol
+        vname = o.children[0].tostr()
+        scope.declare(vname, **dict(_type.__dict__), fail=False)
+        var = self.visit(o.children[0], **kwargs)
 
         if o.children[1]:
             dimensions = as_tuple(self.visit(o.children[1], **kwargs))
