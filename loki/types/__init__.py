@@ -11,5 +11,7 @@ The Loki type system to store and shared type information on symbols and IR node
 
 from loki.types.datatypes import *  # noqa
 from loki.types.derived_type import *  # noqa
+from loki.types.module_type import *  # noqa
+from loki.types.procedure_type import *  # noqa
 from loki.types.scope import *  # noqa
 from loki.types.symbol_table import *  # noqa
