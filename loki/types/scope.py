@@ -14,7 +14,8 @@ from dataclasses import dataclass, field, InitVar
 import weakref
 
 from loki.tools import WeakrefProperty
-from loki.types.symbol_table import SymbolTable
+from loki.types.datatypes import DataType
+from loki.types.symbol_table import SymbolTable, SymbolAttributes
 
 
 __all__ = ['Scope']
@@ -162,3 +163,41 @@ class Scope:
 
         if self.parent is not None:
             self.symbol_attrs.parent = self.parent.symbol_attrs
+
+    def declare(self, name, dtype, fail=True, **kwargs):
+
+        # Ensure `dtype` defines a known type
+        assert isinstance(dtype, (DataType, str))
+
+        if fail and name in self.symbol_attrs:
+            raise ValueError(f'[Loki::Scope] Tyring to re-declare already declared symbol name: {name}')
+
+        self.symbol_attrs[name] = SymbolAttributes(dtype, **kwargs)
+
+    def update(self, name, fail=True, **kwargs):
+
+        # Ensure `dtype` defines a known type
+        if 'dtype' in kwargs:
+            assert isinstance(kwargs['dtype'], (DataType, str))
+
+        if fail and name not in self.symbol_attrs:
+            raise ValueError(f'[Loki::Scope] Tyring to update undeclared symbol name: {name}')
+
+        if name in self.symbol_attrs:
+            self.symbol_attrs[name] = self.symbol_attrs[name].clone(**kwargs)
+        else:
+            self.symbol_attrs[name] = SymbolAttributes(**kwargs)
+
+    def get_type(self, name, recursive=True, fail=True):
+
+        _type = self.symbol_attrs.lookup(name, recursive=recursive)
+
+        # Check results and fail hard if requested
+        if fail and _type is None:
+            raise KeyError(f'[Loki::Scope] Cannot get type for undeclared symbol name: {name}')
+
+        return _type
+
+    def get_dtype(self, name, recursive=True, fail=True):
+
+        return self.get_type(name, recursive=recursive, fail=fail).dtype
