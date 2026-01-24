@@ -1914,6 +1914,15 @@ class FParser2IR(GenericVisitor):
         (routine, return_type) = self.visit(function_stmt, **kwargs)
         kwargs['scope'] = routine
 
+        # Define the return type in the local scope before parsing spec.
+        # If the return type is impliicit (function name), we need to
+        # put a dummy declaration here, so that the spec does not see the
+        # ProcedureType the parent has for this Function.
+        if return_type:
+            routine.symbol_attrs[routine.result_name] = return_type
+        else:
+            routine.declare(routine.result_name, dtype=BasicType.DEFERRED, fail=False)
+
         # Extract source object for construct
         source = self.get_source(function_stmt, end_node=end_function_stmt)
 
@@ -1945,10 +1954,6 @@ class FParser2IR(GenericVisitor):
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
         spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
-
-        # If the return type is given, inject it into the symbol table
-        if return_type:
-            routine.symbol_attrs[routine.result_name] = return_type
 
         # Now all declarations are well-defined and we can parse the member routines
         contains = self.visit(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
