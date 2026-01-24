@@ -8,9 +8,10 @@
 import pytest
 
 from loki import Subroutine, fgen
-from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends
 from loki.ir import FindVariables, FindInlineCalls
+from loki.jit_build import jit_compile, clean_test
+from loki.types import INTEGER
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -214,3 +215,45 @@ end subroutine
     assert other_internal.symbol_attrs.parent is None
     assert other_internal.parent is None
     assert other_internal.symbol_attrs.parent is None
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_internal_procedures_alias(frontend):
+    """ Test local variable aliases in internal subroutine and function """
+    fcode = """
+subroutine outer_routine(in, out)
+  implicit none
+  integer, intent(in) :: in
+  integer, intent(out) :: out
+  integer :: a, b(2, 2)
+
+  b(1, 1) = in
+
+  call internal_routine(in, out)
+contains
+
+  subroutine internal_routine(in, out)
+    integer, intent(in) :: in
+    integer, intent(out) :: out
+    integer :: a(3, 4)
+
+    a(1, 2) = 3
+    out = a(1, 2) + b(1, 1) + in
+  end subroutine internal_routine
+end subroutine outer_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    internal = routine['internal_routine']
+
+    a_outer = routine.get_type('a')
+    assert a_outer.dtype == INTEGER
+    assert not a_outer.shape
+
+    b_outer = routine.get_type('b')
+    assert b_outer.dtype == INTEGER
+    assert b_outer.dtype == INTEGER
+    assert b_outer.shape == (2, 2)
+
+    a_inner = internal.get_type('a')
+    assert a_inner.dtype == INTEGER
+    assert a_inner.shape == (3, 4)
