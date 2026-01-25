@@ -84,20 +84,9 @@ class SymbolAttributes:
             if isinstance(v, bool):
                 if v:
                     parameters += [str(k)]
-            elif k == 'parent' and v is not None:
-                typename = 'Type' if isinstance(v, SymbolAttributes) else 'Variable'
-                parameters += [f'parent={typename}({v.name})']
             else:
                 parameters += [f'{k}={str(v)}']
         return f'<{self.__class__.__name__} {", ".join(parameters)}>'
-
-    def __getinitargs__(self):
-        args = [self.dtype]
-        for k, v in self.__dict__.items():
-            if k in ['dtype', 'source']:
-                continue
-            args += [(k, v)]
-        return tuple(args)
 
     def __eq__(self, other):
         """
