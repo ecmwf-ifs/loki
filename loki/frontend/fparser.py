@@ -37,9 +37,7 @@ from loki.expression.operations import (
 )
 from loki.expression import AttachScopesMapper
 from loki.logging import debug, detail, info, warning, error
-from loki.tools import (
-    as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
-)
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict, dict_override
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
@@ -3358,17 +3356,7 @@ class FParser2IR(GenericVisitor):
             )
 
             if could_be_a_statement_func:
-                def _create_stmt_func_type(stmt_func):
-                    name = str(stmt_func.variable)
-                    procedure = LazyNodeLookup(
-                        anchor=kwargs['scope'],
-                        query=lambda x: [
-                            f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
-                        ][0]
-                    )
-                    proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
-                    return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
-
+                # Create the procedure symbol and statement function IR node
                 f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
                 stmt_func = ir.StatementFunction(
                     variable=f_symbol, arguments=lhs.dimensions,
@@ -3377,7 +3365,8 @@ class FParser2IR(GenericVisitor):
                 )
 
                 # Update the type in the local scope and return stmt func node
-                symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
+                proc_type = ProcedureType(name=lhs.name, procedure=stmt_func, is_function=True)
+                kwargs['scope'].declare(lhs.name, dtype=proc_type, is_stmt_func=True, fail=False)
                 return stmt_func
 
         # Return Assignment node if we don't have to deal with the stupid side of Fortran!
