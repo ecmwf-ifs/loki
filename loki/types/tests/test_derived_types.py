@@ -13,16 +13,12 @@ import re
 import pytest
 import numpy as np
 
-from loki import (
-    Module, Subroutine, BasicType, DerivedType, TypeDef, fgen,
-    FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment, InlineCall, Builder,
-    StringSubscript, Conditional, CallStatement, ProcedureSymbol,
-    FindVariables
-)
-from loki.ir import nodes as ir
-from loki.jit_build import jit_compile, jit_compile_lib, Obj
+from loki import Module, Subroutine, fgen
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes, FindVariables
+from loki.jit_build import Builder, jit_compile, jit_compile_lib, Obj
+from loki.types import BasicType, DerivedType, ProcedureType
 
 
 @pytest.fixture(name='builder')
@@ -510,7 +506,7 @@ end module derived_type_private_comp_mod
     some_private_comp_type = module.typedef_map['some_private_comp_type']
     type_bound_proc_type = module.typedef_map['type_bound_proc_type']
 
-    intrinsic_nodes = FindNodes(Intrinsic).visit(type_bound_proc_type.body)
+    intrinsic_nodes = FindNodes(ir.Intrinsic).visit(type_bound_proc_type.body)
     assert len(intrinsic_nodes) == 2
     assert intrinsic_nodes[0].text.lower() == 'contains'
     assert intrinsic_nodes[1].text.lower() == 'private'
@@ -521,7 +517,7 @@ end module derived_type_private_comp_mod
 
     # OMNI gets the below wrong as it doesn't retain the private statement for components
     if frontend != OMNI:
-        intrinsic_nodes = FindNodes(Intrinsic).visit(some_private_comp_type.body)
+        intrinsic_nodes = FindNodes(ir.Intrinsic).visit(some_private_comp_type.body)
         assert len(intrinsic_nodes) == 2
         assert intrinsic_nodes[0].text.lower() == 'private'
         assert intrinsic_nodes[1].text.lower() == 'contains'
@@ -592,11 +588,11 @@ end subroutine derived_type_procedure_designator
         assert name in routine.symbol_attrs
         assert routine.symbol_attrs[name].imported is True
         assert isinstance(routine.symbol_attrs[name].dtype, DerivedType)
-        assert isinstance(routine.symbol_attrs[name].dtype.typedef, TypeDef)
+        assert isinstance(routine.symbol_attrs[name].dtype.typedef, ir.TypeDef)
 
     # Make sure type-bound procedure declarations exist
     some_type = module.typedef_map['some_type']
-    proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(some_type.body)
     assert len(proc_decls) == 3
     assert all(decl.interface is None for decl in proc_decls)
 
@@ -618,15 +614,15 @@ end subroutine derived_type_procedure_designator
     assert isinstance(self.type.dtype, DerivedType)
     assert self.type.dtype.typedef is some_type
     assert self.type.polymorphic is True
-    decls = FindNodes(VariableDeclaration).visit(some_type_some_proc.spec)
+    decls = FindNodes(ir.VariableDeclaration).visit(some_type_some_proc.spec)
     assert 'CLASS(SOME_TYPE)' in fgen(decls[0]).upper()
 
     # Verify type representation in using routine
     assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
-    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
+    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, ir.TypeDef)
     assert routine.symbol_attrs['tp'].polymorphic is None
     assert routine.symbol_attrs['tp'].dtype.typedef is some_type
-    decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert 'TYPE(SOME_TYPE)' in fgen(decls[1]).upper()
 
     # TODO: verify correct type association of calls to type-bound procedures
@@ -680,7 +676,7 @@ end module derived_types_bind_attrs_mod
 
     some_type = module.typedef_map['some_type']
 
-    proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(some_type.body)
     assert len(proc_decls) == 3
     assert all(decl.interface is None for decl in proc_decls)
 
@@ -807,7 +803,7 @@ end module derived_type_final_generic_mod
 
     mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     hdf5_file = mod.typedef_map['hdf5_file']
-    proc_decls = FindNodes(ProcedureDeclaration).visit(hdf5_file.body)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(hdf5_file.body)
     assert len(proc_decls) == 5
 
     assert all(decl.final is False for decl in proc_decls[:-1])
@@ -983,13 +979,13 @@ end module derived_type_nested_proc_call_mod
 
     mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    assignment = FindNodes(Assignment).visit(mod['exists'].body)
+    assignment = FindNodes(ir.Assignment).visit(mod['exists'].body)
     assert len(assignment) == 1
     assignment = assignment[0]
-    assert isinstance(assignment.rhs, InlineCall)
+    assert isinstance(assignment.rhs, sym.InlineCall)
     assert fgen(assignment.rhs).lower() == 'this%file%exists(var_name)'
 
-    assert isinstance(assignment.rhs.function, ProcedureSymbol)
+    assert isinstance(assignment.rhs.function, sym.ProcedureSymbol)
     assert isinstance(assignment.rhs.function.type.dtype, ProcedureType)
     assert assignment.rhs.function.parent and isinstance(assignment.rhs.function.parent.type.dtype, DerivedType)
     assert assignment.rhs.function.parent.type.dtype.name == 'netcdf_file_raw'
@@ -1171,8 +1167,8 @@ end module derived_type_char_arr_mod
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    conditionals = FindNodes(Conditional).visit(module['some_routine'].body)
-    assert all(isinstance(c.condition.left, StringSubscript) for c in conditionals)
+    conditionals = FindNodes(ir.Conditional).visit(module['some_routine'].body)
+    assert all(isinstance(c.condition.left, sym.StringSubscript) for c in conditionals)
     assert [fgen(c.condition.left) for c in conditionals] == [
       'config%some_name(i)(1:1)', 'config%some_name(i)(strlen - 2:strlen)'
     ]
@@ -1217,7 +1213,7 @@ end module derived_types_nested_subscript
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    calls = FindNodes(CallStatement).visit(module['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(module['driver'].body)
     assert len(calls) == 1
     assert str(calls[0].name) == 'outers(i)%inner(j)%some_routine'
     assert fgen(calls[0].name) == 'outers(i)%inner(j)%some_routine'
@@ -1272,7 +1268,7 @@ end subroutine driver
 
     other_routine = module['other_routine']
     call = other_routine.body.body[0]
-    assert isinstance(call, CallStatement)
+    assert isinstance(call, ir.CallStatement)
     assert isinstance(call.name.type.dtype, ProcedureType)
     assert call.name.parent and isinstance(call.name.parent.type.dtype, DerivedType)
     assert call.name.parent.type.dtype.name == 'some_type'
@@ -1281,7 +1277,7 @@ end subroutine driver
     assert call.name.parent.parent.type.dtype.name == 'other_type'
     assert call.name.parent.parent.type.dtype.typedef is module['other_type']
 
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 2
     for call in calls:
         assert isinstance(call.name.type.dtype, ProcedureType)
@@ -1297,7 +1293,7 @@ end subroutine driver
     assert calls[1].name.parent.parent.type.dtype.typedef is module['other_type']
 
     assignment = driver.body.body[-1]
-    assert isinstance(assignment, Assignment)
+    assert isinstance(assignment, ir.Assignment)
     assert assignment.rhs.type.dtype is BasicType.INTEGER
     assert assignment.rhs.parent and isinstance(assignment.rhs.parent.type.dtype, DerivedType)
     assert assignment.rhs.parent.type.dtype.name == 'some_type'
@@ -1337,7 +1333,7 @@ end module some_mod
     assert typedef.abstract is True
     assert typedef.variables == ('some_proc', 'other_proc')
     for symbol in typedef.variables:
-        assert isinstance(symbol, ProcedureSymbol)
+        assert isinstance(symbol, sym.ProcedureSymbol)
         assert isinstance(symbol.type.dtype, ProcedureType)
         assert symbol.type.dtype.name.lower() == symbol.name.lower()
         assert symbol.type.bind_names == (symbol,)
