@@ -15,7 +15,7 @@ from loki.batch import Transformation, TypeDefItem, ProcedureItem
 from loki.ir import (
         nodes as ir, FindNodes, SubstituteExpressions, Transformer,
         pragma_regions_attached, get_pragma_parameters, SubstitutePragmaStrings,
-        is_loki_pragma
+        is_loki_pragma, pragmas_attached
 )
 from loki.expression import symbols as sym
 from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
@@ -238,7 +238,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         item.trafo_data[self._key] = defaultdict(dict)
 
-        driver_loops = find_driver_loops(routine.body, targets)
+        with pragmas_attached(routine, ir.Loop):
+            driver_loops = find_driver_loops(routine.body, targets)
         loop_analyses = {}
 
         for loop in driver_loops:
@@ -267,7 +268,11 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             if self.output_analysis:
                 str_layered_dict = self.stringify_dict(layered_dict)
                 base_dir = Path(kwargs['build_args']['output_dir'])
-                with open(base_dir/f'driver_{list(successor_map.keys())[0].name}_dataoffload_analysis.yaml', 'w') as f:
+                if successor_map:
+                    target_routine_name = list(successor_map.keys())[0].name
+                else:
+                    target_routine_name = routine.name
+                with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
                     yaml.dump(str_layered_dict, f)
 
         # We store the collected analyses on item.trafo_data
@@ -522,7 +527,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     continue
 
                 parameters = get_pragma_parameters(region.pragma, starts_with='data')
-                driver_loops = find_driver_loops(region.body, targets)
+                with pragmas_attached(routine, ir.Loop):
+                    driver_loops = find_driver_loops(region.body, targets)
 
                 # skip the deepcopy for variables previously marked as present/private
                 present = self.get_pragma_vars(parameters, 'present')
