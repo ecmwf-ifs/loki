@@ -111,15 +111,6 @@ class ProcedureType(DataType):
         return self._procedure()
 
     @property
-    def parameters(self):
-        """
-        The tuple of procedure arguments, if :attr:`procedure` is available
-        """
-        if self.procedure is BasicType.DEFERRED:
-            return tuple()
-        return self.procedure.arguments
-
-    @property
     def is_function(self):
         """
         Return `True` if the procedure is a function, otherwise `False`
