@@ -3361,7 +3361,8 @@ class FParser2IR(GenericVisitor):
                 stmt_func = ir.StatementFunction(
                     variable=f_symbol, arguments=lhs.dimensions,
                     rhs=rhs, return_type=symbol_attrs[lhs.name],
-                    label=kwargs.get('label'), source=kwargs.get('source')
+                    parent=kwargs['scope'], label=kwargs.get('label'),
+                    source=kwargs.get('source')
                 )
 
                 # Update the type in the local scope and return stmt func node
