@@ -34,14 +34,12 @@ from loki.logging import debug, error
 __all__ = [
     'as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
     'execute', 'CaseInsensitiveDict', 'CaseInsensitiveDefaultDict',
-    'strip_inline_comments',
-    'binary_insertion_sort', 'cached_func', 'optional',
-    'LazyNodeLookup', 'yaml_include_constructor',
+    'strip_inline_comments', 'binary_insertion_sort', 'cached_func',
+    'optional', 'yaml_include_constructor',
     'auto_post_mortem_debugger', 'set_excepthook', 'timeout',
     'WeakrefProperty', 'group_by_class', 'replace_windowed',
     'dict_override', 'stdchannel_redirected',
-    'stdchannel_is_captured', 'graphviz_present',
-    'OrderedSet'
+    'stdchannel_is_captured', 'graphviz_present', 'OrderedSet'
 ]
 
 
@@ -431,54 +429,6 @@ def optional(condition, context_manager, *args, **kwargs):
             yield y
     else:
         yield
-
-
-class LazyNodeLookup:
-    """
-    Utility class for indirect, :any:`weakref`-style lookups
-
-    References to IR nodes are usually not stable as the IR may be
-    rebuilt at any time. This class offers a way to refer to a node
-    in an IR by encoding how it can be found instead.
-
-    .. note::
-       **Example:**
-       Reference a declaration node that contains variable "a"
-
-       .. code-block::
-
-          from loki import LazyNodeLookup, FindNodes, Declaration
-          # Assume this has been initialized before
-          # routine = ...
-
-          # Create the reference
-          query = lambda x: [d for d in FindNodes(VariableDeclaration).visit(x.spec) if 'a' in d.symbols][0]
-          decl_ref = LazyNodeLookup(routine, query)
-
-          # Use the reference (this carries out the query)
-          decl = decl_ref()
-
-    Parameters
-    ----------
-    anchor :
-        The "stable" anchor object to which :attr:`query` is applied to find the object.
-        This is stored internally as a :any:`weakref`.
-    query :
-        A function object that accepts a single argument and should return the lookup
-        result. To perform the lookup, :attr:`query` is called with :attr:`anchor`
-        as argument.
-    """
-
-    def __init__(self, anchor, query):
-        self._anchor = weakref.ref(anchor)
-        self.query = query
-
-    @property
-    def anchor(self):
-        return self._anchor()
-
-    def __call__(self):
-        return self.query(self.anchor)
 
 
 def yaml_include_constructor(loader, node):
