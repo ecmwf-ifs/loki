@@ -1571,9 +1571,12 @@ class _StatementFunctionBase():
 
 
 @dataclass_strict(frozen=True)
-class StatementFunction(LeafNode, _StatementFunctionBase):
+class StatementFunction(ScopedNode, LeafNode, _StatementFunctionBase):
     """
-    Internal representation of Fortran statement function statements
+    Internal representation of Fortran statement function statements.
+
+    Internally, this is considered a :any:`ScopedNode` with an empty
+    body, because it may be the target of a :any:`ProcedureType`.
 
     Parameters
     ----------
@@ -1589,8 +1592,10 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
 
     _traversable = ['variable', 'arguments', 'rhs']
 
-    def __post_init__(self):
-        super().__post_init__()
+    def __post_init__(self, parent=None):
+        super(ScopedNode, self).__post_init__(parent=parent)
+        super(LeafNode, self).__post_init__()
+
         assert isinstance(self.variable, Expression)
         assert is_iterable(self.arguments) and all(isinstance(a, Expression) for a in self.arguments)
         assert isinstance(self.return_type, SymbolAttributes)
@@ -1598,6 +1603,10 @@ class StatementFunction(LeafNode, _StatementFunctionBase):
     @property
     def name(self):
         return str(self.variable)
+
+    @property
+    def variables(self):
+        return self.arguments
 
     @property
     def is_function(self):
