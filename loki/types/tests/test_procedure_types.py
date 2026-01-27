@@ -10,12 +10,12 @@ import pytest
 from loki import Function, Module, Subroutine
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, Transformer
 from loki.types import ProcedureType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_procedure_type(tmp_path, frontend):
+def test_procedure_type_procedures(tmp_path, frontend):
     """ Test `ProcedureType` links to the procedure when it is defined. """
 
     fcode_mod = """
@@ -82,3 +82,47 @@ end module my_mod
         assert isinstance(sftype, ProcedureType)
         assert str(sftype) == 'pants' and repr(sftype) == '<ProcedureType pants>'
         assert sftype.procedure == stmtfuncs[0]
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'Statement functions not supported with OMNI')]
+))
+def test_procedure_type_stmt_func(frontend):
+    """ Test `ProcedureType` keeps its link to `StatementFunction` when transformed. """
+    fcode_mod = """
+subroutine test_routine(n, a)
+  implicit none
+  integer, intent(in) :: n
+  real(kind=4), intent(inout) :: a(3)
+  real(kind=4) :: pants, on, fire
+  pants(on, fire) = on + fire
+
+  a(1) = pants(a(1), a(2))
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode_mod, frontend=frontend)
+
+    stmtfuncs = FindNodes(ir.StatementFunction).visit(routine.spec)
+    assert len(stmtfuncs) == 1
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+
+    # Check origianl stmt func is fine and linked
+    sftype = stmtfuncs[0].variable.type.dtype
+    assert isinstance(sftype, ProcedureType)
+    assert sftype.procedure == stmtfuncs[0]
+
+    assert isinstance(assigns[0].rhs, sym.InlineCall)
+    assert isinstance(assigns[0].rhs.function.type.dtype, ProcedureType)
+    assert assigns[0].rhs.function.type.dtype.procedure == stmtfuncs[0]
+
+    # Safe the original IR node and run a no-op Transformer over the spec
+    original = stmtfuncs[0]
+    routine.spec = Transformer().visit(routine.spec)
+
+    # Re-generate the spec via Transformer and check the re-build stmt func
+    new_stmtfunc = FindNodes(ir.StatementFunction).visit(routine.spec)[0]
+    assert original is new_stmtfunc
+
+    assert routine.get_dtype('pants').procedure is new_stmtfunc
+    assert assigns[0].rhs.function.type.dtype.procedure is new_stmtfunc
