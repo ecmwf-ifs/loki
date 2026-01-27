@@ -9,7 +9,6 @@
 
 import weakref
 
-from loki.tools import LazyNodeLookup
 from loki.types.datatypes import BasicType, DataType
 
 
@@ -35,14 +34,9 @@ class ModuleType(DataType):
         from loki.module import Module  # pylint: disable=import-outside-toplevel,cyclic-import
         super().__init__()
         assert name or isinstance(module, Module)
-        if module is None or isinstance(module, LazyNodeLookup):
-            self._module = module
-            self._name = name
-        else:
-            self._module = weakref.ref(module)
-            # Cache all properties for when module link becomes inactive
-            assert name is None or name.lower() == self.module.name.lower()
-            self._name = self.module.name
+
+        self.module = module
+        self._name = module.name if module else name
 
     @property
     def name(self):
@@ -67,6 +61,13 @@ class ModuleType(DataType):
         if self._module() is None:
             return BasicType.DEFERRED
         return self._module()
+
+    @module.setter
+    def module(self, mod):
+        # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.module import Module
+        assert mod is None or isinstance(mod, Module)
+        self._module = None if mod is None else weakref.ref(mod)
 
     def __str__(self):
         return self.name
