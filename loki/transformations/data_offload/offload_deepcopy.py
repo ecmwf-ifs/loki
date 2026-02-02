@@ -9,7 +9,11 @@ from collections import defaultdict
 from pathlib import Path
 
 import re
-import yaml
+try:
+    import yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
 
 from loki.batch import Transformation, TypeDefItem, ProcedureItem
 from loki.ir import (
@@ -265,15 +269,19 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
             loop_analyses[loop] = layered_dict
 
-            if self.output_analysis:
-                str_layered_dict = self.stringify_dict(layered_dict)
-                base_dir = Path(kwargs['build_args']['output_dir'])
-                if successor_map:
-                    target_routine_name = list(successor_map.keys())[0].name
-                else:
-                    target_routine_name = routine.name
-                with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
-                    yaml.dump(str_layered_dict, f)
+            if HAVE_YAML:
+                if self.output_analysis:
+                    str_layered_dict = self.stringify_dict(layered_dict)
+                    base_dir = Path(kwargs['build_args']['output_dir'])
+                    if successor_map:
+                        target_routine_name = list(successor_map.keys())[0].name
+                    else:
+                        target_routine_name = routine.name
+                    with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
+                        yaml.dump(str_layered_dict, f)
+            else:
+                warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
+
 
         # We store the collected analyses on item.trafo_data
         for loop in driver_loops:
@@ -292,16 +300,19 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         self.process_body(routine.name, item, successors, successor_map, routine)
 
-        if self.output_analysis:
-            layered_dict = {}
-            for k, v in item.trafo_data[self._key]['analysis'].items():
-                _temp_dict = create_nested_dict(k, v, routine.symbol_map)
-                layered_dict = merge_nested_dict(layered_dict, _temp_dict)
+        if HAVE_YAML:
+            if self.output_analysis:
+                layered_dict = {}
+                for k, v in item.trafo_data[self._key]['analysis'].items():
+                    _temp_dict = create_nested_dict(k, v, routine.symbol_map)
+                    layered_dict = merge_nested_dict(layered_dict, _temp_dict)
 
-            base_dir = Path(kwargs['build_args']['output_dir'])
-            with open(base_dir/f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
-                str_layered_dict = self.stringify_dict(layered_dict)
-                yaml.dump(str_layered_dict, file)
+                base_dir = Path(kwargs['build_args']['output_dir'])
+                with open(base_dir/f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
+                    str_layered_dict = self.stringify_dict(layered_dict)
+                    yaml.dump(str_layered_dict, file)
+        else:
+            warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
     def process_body(self, routine_name, item, successors, successor_map, scope_node):
         # gather typedef configs from successors
