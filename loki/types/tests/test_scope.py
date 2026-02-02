@@ -30,6 +30,9 @@ def test_symbol_attributes():
     delattr(_type, 'foofoo')
     assert _type.foofoo is None
 
+    _type.b = None
+    assert _type.b is None
+
 
 def test_symbol_attributes_compare():
     """
