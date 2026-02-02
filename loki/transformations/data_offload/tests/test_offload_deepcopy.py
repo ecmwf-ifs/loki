@@ -793,6 +793,11 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
     if not present and mode == 'offload':
         check_geometry(conds, pragmas, driver)
 
+    # check FIELD_ACCESS_MODULE host accessor imports
+    assert any(_import.module.lower() == 'field_access_module' for _import in driver.imports)
+    imported_symbols = driver.imported_symbols
+    assert 'sget_host_data_rdwr' in imported_symbols
+
     if mode == 'offload':
         # check dims copyin
         pragma = [p for p in pragmas if
@@ -800,6 +805,10 @@ def test_offload_deepcopy_transformation(frontend, config, deepcopy_code, presen
         assert pragma
         pragma = [p for p in pragmas if
                   'unstructured-data delete' in p.content and '(dims)' in p.content]
+
+        # check FIELD_ACCESS_MODULE device accessor imports
+        assert all(f'sget_device_data_{access}' in imported_symbols
+                   for access in ['rdwr', 'rdonly', 'wronly'])
 
         # check data present region
         with pragma_regions_attached(driver):
