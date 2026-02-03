@@ -491,3 +491,44 @@ class SGraph:
             graph.render(path, view=False)
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
+
+    def descendants(self, item, item_factory, include_module_items=False, include_file_items=False):
+        """
+        Get all descendants of a given :data:`item`.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item node in the dependency graph for which to determine the successors
+        item_factory : :any:`ItemFactory`
+            The item factory to use.
+        include_module_items : bool, optional
+            Whether to include module items.
+        include_file_items : bool, optional
+            Whether to include file items.
+        """
+        item_descendants = list(nx.descendants(self._graph, item))
+        module_items = []
+        file_items = []
+        if include_module_items:
+            module_items = [item_factory.item_cache.get(_item.scope_name)
+                    for _item in item_descendants if not _item.is_ignored]
+        if include_file_items:
+            file_items = [item_factory.get_file_item_from_source(_item.source)
+                    for _item in item_descendants if not _item.is_ignored]
+        return item_descendants + module_items + file_items
+
+    def get_corresponding_module_and_file_item(self, item, item_factory):
+        """
+        Get corresponding module and file item of a given :data:`item`.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item node in the dependency graph for which to determine the successors
+        item_factory : :any:`ItemFactory`
+            The item factory to use.
+        """
+        _items = (item_factory.item_cache.get(item.scope_name),)
+        _items += (item_factory.get_file_item_from_source(item.source),)
+        return _items
