@@ -290,6 +290,7 @@ class ItemFactory:
 
             # Create a new FileItem for the new source
             new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
+            new_source.orig_path = item.path
             file_item = self.get_or_create_file_item_from_source(new_source, config=config)
 
             # Get the definition items for the FileItem and return the new item
