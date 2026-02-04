@@ -445,9 +445,24 @@ class Scheduler:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
             raise RuntimeError(f'Could not batch process {transformation}')
 
-    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT):
+    def process_config(self, proc_strategy=ProcessingStrategy.DEFAULT):
         """
-        Process a given :any:`Pipeline` by applying its assocaited
+        Process a given config by applying pipelines in dependence
+        of the given mode (per (driver) item).
+
+        Parameters
+        ----------
+        proc_strategy : :any:`ProcessingStrategy`
+            The processing strategy to use when applying the given
+            :data:`pipeline` to the scheduler's graph.
+        """
+        modes = {item.mode for item in self.items}
+        for mode_ in modes:
+            self.process_pipeline(pipeline=self.config.pipelines[mode_], proc_strategy=proc_strategy, mode=mode_)
+
+    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
+        """
+        Process a given :any:`Pipeline` by applying its associated
         transformations in turn.
 
         Parameters
@@ -457,11 +472,14 @@ class Scheduler:
         proc_strategy : :any:`ProcessingStrategy`
             The processing strategy to use when applying the given
             :data:`pipeline` to the scheduler's graph.
+        mode : str, optional
+            Transformation mode, selecting which code transformations/pipeline on which graph to apply.
+            Default: `None`, thus mode agnostic.
         """
         for transformation in pipeline.transformations:
-            self.process_transformation(transformation, proc_strategy=proc_strategy)
+            self.process_transformation(transformation, proc_strategy=proc_strategy, mode=mode)
 
-    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT):
+    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -489,6 +507,9 @@ class Scheduler:
         proc_strategy : :any:`ProcessingStrategy`
             The processing strategy to use when applying the given
             :data:`transformation` to the scheduler's graph.
+        mode : str, optional
+            Transformation mode, selecting which code transformations on which graph to apply.
+            Default: `None`, thus mode agnostic.
         """
         def _get_definition_items(_item, sgraph_items):
             # For backward-compatibility with the DependencyTransform and LinterTransformation
@@ -527,7 +548,8 @@ class Scheduler:
                 sgraph_items = sgraph.items
                 traversal = SFilter(
                     graph, reverse=transformation.reverse_traversal,
-                    include_external=self.config.default.get('strict', True)
+                    include_external=self.config.default.get('strict', True),
+                    mode=mode
                 )
             else:
                 graph = self.sgraph
@@ -535,7 +557,8 @@ class Scheduler:
                 traversal = SFilter(
                     graph, item_filter=item_filter, reverse=transformation.reverse_traversal,
                     exclude_ignored=not transformation.process_ignored_items,
-                    include_external=self.config.default.get('strict', True)
+                    include_external=self.config.default.get('strict', True),
+                    mode=mode
                 )
 
             # Collect common transformation arguments
