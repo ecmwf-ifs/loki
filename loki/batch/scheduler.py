@@ -25,6 +25,7 @@ from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 
 from loki.logging import info, perf, warning, error
+from loki.transformations.dependency import SeparateModesKernel
 
 __all__ = ['ProcessingStrategy', 'Scheduler']
 
@@ -201,6 +202,37 @@ class Scheduler:
 
             # Attach interprocedural call-tree information
             self._enrich()
+
+    def propagate_and_separate_modes(self, proc_strategy=ProcessingStrategy.DEFAULT):
+        self._propagate_modes()
+        self.process_transformation(SeparateModesKernel(), proc_strategy=proc_strategy)
+        self._propagate_modes_set()
+        modes = {item.mode for item in self.items}
+        return as_tuple(modes)
+
+
+    def _propagate_modes(self):
+        driver_items = [item for item in self.items if item.role == 'driver']
+        for item in driver_items:
+            module_file_items = self.sgraph.get_corresponding_module_and_file_item(item, self.item_factory)
+            for _item in module_file_items:
+                if _item is not None:
+                    _item.config['mode'] = item.mode
+            descendants = self.sgraph.descendants(item, self.item_factory,
+                    include_module_items=True, include_file_items=True)
+            for descendant in descendants:
+                if descendant is not None:
+                    descendant.config.setdefault('inherited_mode', set()).add(item.mode)
+
+    def _propagate_modes_set(self):
+        driver_items = [item for item in self.items if item.role == 'driver']
+        for item in driver_items:
+            descendants = self.sgraph.descendants(item, self.item_factory,
+                    include_module_items=True, include_file_items=True)
+            for descendant in descendants:
+                if descendant is not None:
+                    descendant.config['mode'] = item.mode
+                    descendant.config['inherited_mode'] = set()
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
