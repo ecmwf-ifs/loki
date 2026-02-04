@@ -76,9 +76,9 @@ from loki.ir import (
     nodes as ir, FindNodes, FindInlineCalls, FindVariables
 )
 from loki.transformations import (
-    DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation
+    DependencyTransformation, ModuleWrapTransformation, FileWriteTransformation,
+    CMakePlanTransformation
 )
-
 
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
@@ -3674,3 +3674,206 @@ end subroutine test_scheduler
         ('#test_scheduler', 'mod_a#outer_type'),
         ('mod_a#outer_type', 'mod_b#inner_type')
     )
+
+@pytest.mark.parametrize('as_modules', [False, True])
+@pytest.mark.parametrize('reinit_scheduler', [True, False])
+def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules):
+    """
+    Make sure children are correct and unique for items
+    """
+    config = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': False, 'mode': 'm1', 'replicate': True},
+        'routines': {
+            'driver_0': {'role': 'driver', 'mode': 'm1', 'replicate': False},
+            'driver_1': {'role': 'driver', 'mode': 'm1', 'replicate': False},
+            'driver_2': {'role': 'driver', 'mode': 'm2', 'replicate': False},
+            'driver_3': {'role': 'driver', 'mode': 'm3', 'replicate': False},
+            'driver_4': {'role': 'driver', 'mode': 'm3', 'replicate': False},
+            'nested_subroutine_3': {'ignore': ['test1', 'test2']}
+        },
+        'transformations': {
+            'Idem1': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+            'Idem2': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+            'Idem3': {'classname': 'IdemTransformation', 'module': 'loki.transformations'}
+        },
+        'pipelines': {
+            'm1': {'transformations': {'Idem1'}},
+            'm2': {'transformations': {'Idem2'}},
+            'm3': {'transformations': {'Idem3'}}
+        },
+    })
+
+    if as_modules:
+        proj_hoist = testdir/'sources/projMultiModeModules'
+    else:
+        proj_hoist = testdir/'sources/projMultiMode'
+
+    builddir = tmp_path/'scheduler_multi_driver_modes_dir'
+    builddir.mkdir(exist_ok=True)
+
+    scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path],
+            output_dir=builddir)
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+
+    _expected_item_mode_dic = {
+        'm1': {
+            'nested_subroutine_3_lokim1_mod#nested_subroutine_3_lokim1',
+            'driver_0_mod#driver_0',
+            'nested_subroutine_1_lokim1_mod#nested_subroutine_1_lokim1',
+            'subroutine_3_lokim1_mod#subroutine_3_lokim1',
+            'driver_1_mod#driver_1',
+            'subroutine_1_mod#subroutine_1'
+        },
+        'm2': {
+            'subroutine_2_mod#subroutine_2',
+            'driver_2_mod#driver_2',
+            'nested_subroutine_3_lokim2_mod#nested_subroutine_3_lokim2',
+            'nested_subroutine_2_mod#nested_subroutine_2'
+        },
+        'm3': {
+            'nested_subroutine_3_mod#nested_subroutine_3',
+            'driver_3_mod#driver_3',
+            'driver_4_mod#driver_4',
+            'nested_subroutine_1_mod#nested_subroutine_1',
+            'subroutine_3_mod#subroutine_3'
+        }
+    }
+    if as_modules:
+        expected_item_mode_dic = _expected_item_mode_dic
+    else:
+        expected_item_mode_dic = {k: {f"#{v.split('#')[-1]}" if 'routine' in v else v for v in vals}
+                for k, vals in _expected_item_mode_dic.items()}
+
+    items = scheduler.items
+    item_mode_dic = {}
+    for item in items:
+        item_mode_dic.setdefault(item.mode, set()).add(item.name)
+
+    assert set(item_mode_dic.keys()) == set(expected_item_mode_dic.keys())
+    for _mode, _val in item_mode_dic.items():
+        assert expected_item_mode_dic[_mode] == _val
+
+    transformations = (
+        ModuleWrapTransformation(module_suffix='_mod'),
+        DependencyTransformation(suffix='_test', module_suffix='_mod'),
+        FileWriteTransformation()
+    )
+    for transformation in transformations:
+        scheduler.process(transformation, proc_strategy=ProcessingStrategy.PLAN)
+
+    plan_trafo = CMakePlanTransformation(rootpath=proj_hoist)
+    scheduler.process(
+        transformation=plan_trafo,
+        proc_strategy=ProcessingStrategy.PLAN
+    )
+    ## checking planfile
+    planfile = Path('/perm/nams/loki-separate-modes-2') / 'planfile' # tmp_path/'planfile'
+    plan_trafo.write_plan(planfile)
+
+    loki_plan = planfile.read_text()
+
+    # Validate the plan file content
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+
+    # loki_plan = planfile.read_text()
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
+    plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
+
+    expected_keys = {'LOKI_SOURCES_TO_TRANSFORM', 'LOKI_SOURCES_TO_APPEND', 'LOKI_SOURCES_TO_REMOVE'}
+    assert set(plan_dict.keys()) == expected_keys
+
+    _expected_files_to_transform = {
+        'driver_0_mod', 'driver_1_mod', 'driver_2_mod', 'driver_3_mod', 'driver_4_mod',
+        'nested_subroutine_1_mod', 'nested_subroutine_2_mod', 'nested_subroutine_3_mod',
+        'subroutine_1_mod', 'subroutine_2_mod', 'subroutine_3_mod'
+    }
+    if as_modules:
+        expected_files_to_transform = _expected_files_to_transform
+    else:
+        expected_files_to_transform = {v.replace('_mod', '')
+                if 'routine' in v else v for v in _expected_files_to_transform}
+    _expected_files_to_append = {
+        'driver_0_mod.m1', 'driver_1_mod.m1', 'driver_2_mod.m2', 'driver_3_mod.m3',
+        'driver_4_mod.m3', 'nested_subroutine_1_mod.m3', 'nested_subroutine_1_lokim1_mod.m1',
+        'nested_subroutine_2_mod.m2', 'nested_subroutine_3_mod.m3', 'nested_subroutine_3_lokim1_mod.m1',
+        'nested_subroutine_3_lokim2_mod.m2', 'subroutine_1_mod.m1', 'subroutine_2_mod.m2',
+        'subroutine_3_mod.m3', 'subroutine_3_lokim1_mod.m1'        
+    }
+    if as_modules:
+        expected_files_to_append = _expected_files_to_append
+    else:
+        expected_files_to_append = {v.replace('_mod', '') if 'routine' in v else v for v in _expected_files_to_append}
+    expected_files_to_remove = {
+        'driver_0_mod', 'driver_1_mod', 'driver_2_mod', 'driver_3_mod', 'driver_4_mod'        
+    }
+
+    assert set(plan_dict['LOKI_SOURCES_TO_TRANSFORM']) == expected_files_to_transform
+    assert set(plan_dict['LOKI_SOURCES_TO_APPEND']) == expected_files_to_append
+    assert set(plan_dict['LOKI_SOURCES_TO_REMOVE']) == expected_files_to_remove
+
+    if reinit_scheduler:
+        scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path],
+                output_dir=builddir)
+    scheduler.propagate_and_separate_modes()
+    for transformation in transformations:
+        scheduler.process(transformation)
+
+    expected_callgraph = {
+        'driver_0_mod#driver_0': {
+            'subroutine_1_test_mod#subroutine_1_test' : {
+                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
+            },
+            'subroutine_3_lokim1_test_mod#subroutine_3_lokim1_test': {
+                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
+                'nested_subroutine_3_lokim1_test_mod#nested_subroutine_3_lokim1_test',
+            },
+        },
+        'driver_1_mod#driver_1': {
+            'subroutine_1_test_mod#subroutine_1_test' : {
+                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
+            },
+            'subroutine_3_lokim1_test_mod#subroutine_3_lokim1_test': {
+                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
+                'nested_subroutine_3_lokim1_test_mod#nested_subroutine_3_lokim1_test',
+            }
+        },
+        'driver_2_mod#driver_2': {
+            'subroutine_2_test_mod#subroutine_2_test' : {
+                'nested_subroutine_2_test_mod#nested_subroutine_2_test',
+                'nested_subroutine_3_lokim2_test_mod#nested_subroutine_3_lokim2_test'
+            }
+        },
+        'driver_3_mod#driver_3': {
+            'subroutine_3_test_mod#subroutine_3_test': {
+                'nested_subroutine_1_test_mod#nested_subroutine_1_test',
+                'nested_subroutine_3_test_mod#nested_subroutine_3_test',
+            }
+        },
+        'driver_4_mod#driver_4': {
+            'subroutine_3_test_mod#subroutine_3_test': {
+                'nested_subroutine_1_test_mod#nested_subroutine_1_test',
+                'nested_subroutine_3_test_mod#nested_subroutine_3_test',
+            }
+        }
+    }
+
+    def check_callgraph(callgraph):
+        if not isinstance(callgraph, dict) or not callgraph:
+            return
+        for routine in callgraph.keys():
+            routine_ir = scheduler[routine].ir
+            imports = routine_ir.imports
+            imported_symbols = ()
+            for imp in imports:
+                imported_symbols += imp.symbols
+            successors = []
+            for successor in callgraph[routine]:
+                successors.append(scheduler[successor].ir)
+            successors_local_name = [str(successor.name).lower() for successor in successors]
+            calls = FindNodes(ir.CallStatement).visit(routine_ir.body)
+            for call in calls:
+                assert str(call.name).lower() in successors_local_name
+                assert str(call.name).lower() in imported_symbols
+            check_callgraph(callgraph[routine])
+
+    check_callgraph(expected_callgraph)
