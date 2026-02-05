@@ -269,8 +269,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
             loop_analyses[loop] = layered_dict
 
-            if HAVE_YAML:
-                if self.output_analysis:
+            if self.output_analysis:
+                if HAVE_YAML:
                     str_layered_dict = self.stringify_dict(layered_dict)
                     base_dir = Path(kwargs['build_args']['output_dir'])
                     if successor_map:
@@ -279,8 +279,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                         target_routine_name = routine.name
                     with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
                         yaml.dump(str_layered_dict, f)
-            else:
-                warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
+                else:
+                    warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
 
         # We store the collected analyses on item.trafo_data
@@ -300,8 +300,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         self.process_body(routine.name, item, successors, successor_map, routine)
 
-        if HAVE_YAML:
-            if self.output_analysis:
+        if self.output_analysis:
+            if HAVE_YAML:
                 layered_dict = {}
                 for k, v in item.trafo_data[self._key]['analysis'].items():
                     _temp_dict = create_nested_dict(k, v, routine.symbol_map)
@@ -311,8 +311,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                 with open(base_dir/f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
                     str_layered_dict = self.stringify_dict(layered_dict)
                     yaml.dump(str_layered_dict, file)
-        else:
-            warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
+            else:
+                warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
     def process_body(self, routine_name, item, successors, successor_map, scope_node):
         # gather typedef configs from successors
