@@ -12,10 +12,117 @@ Representation of symbol tables and scopes in
 
 import weakref
 
-from loki.types.datatypes import SymbolAttributes, BasicType
+from loki.tools import as_tuple
+from loki.types.datatypes import BasicType, DataType
 
 
-__all__ = ['SymbolTable']
+__all__ = ['SymbolAttributes', 'SymbolTable']
+
+
+class SymbolAttributes:
+    """
+    Representation of a symbol's attributes, such as data type and declared
+    properties
+
+    It has a fixed :any:`DataType` associated with it, available as property
+    :attr:`SymbolAttributes.dtype`.
+
+    Any other properties can be attached on-the-fly, thus allowing to store
+    arbitrary metadata for a symbol, e.g., declaration attributes such as
+    ``POINTER``, ``ALLOCATABLE``, or the shape of an array, or structural
+    information, e.g., whether a variable is a loop index, argument, etc.
+
+    There is no need to check for the presence of attributes, undefined
+    attributes can be queried and default to `None`.
+
+    Parameters
+    ----------
+    dtype : :any:`DataType`
+        The data type associated with the symbol
+    **kwargs : optional
+        Any attributes that should be stored as properties
+    """
+
+    def __init__(self, dtype, **kwargs):
+        if isinstance(dtype, DataType):
+            self.dtype = dtype
+        else:
+            self.dtype = BasicType.from_str(dtype)
+
+        for k, v in kwargs.items():
+            if v is not None:
+                self.__setattr__(k, v)
+
+    def __hash__(self):
+        return hash(tuple(self.__dict__))
+
+    def __setattr__(self, name, value):
+        if value is None and name in dir(self):
+            delattr(self, name)
+        else:
+            object.__setattr__(self, name, value)
+
+    def __getattr__(self, name):
+        if name not in dir(self):
+            return None
+        return object.__getattribute__(self, name)
+
+    def __delattr__(self, name):
+        object.__delattr__(self, name)
+
+    def __getstate__(self):
+        return self.__dict__
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+
+    def __repr__(self):
+        parameters = [str(self.dtype)]
+        for k, v in self.__dict__.items():
+            if k in ['dtype', 'source']:
+                continue
+            if isinstance(v, bool):
+                if v:
+                    parameters += [str(k)]
+            else:
+                parameters += [f'{k}={str(v)}']
+        return f'<{self.__class__.__name__} {", ".join(parameters)}>'
+
+    def __eq__(self, other):
+        """
+        Compare :any:`SymbolAttributes` via internal comparison but without execptions.
+        """
+        return self.compare(other, ignore=None)
+
+    def clone(self, **kwargs):
+        """
+        Clone the :any:`SymbolAttributes`, optionally overwriting any attributes
+
+        Attributes that should be removed should simply be given as `None`.
+        """
+        args = self.__dict__.copy()
+        args.update(kwargs)
+        return self.__class__(**args)
+
+    def compare(self, other, ignore=None):
+        """
+        Compare :any:`SymbolAttributes` objects while ignoring a set of select attributes.
+
+        Parameters
+        ----------
+        other : :any:`SymbolAttributes`
+            The object to compare with
+        ignore : iterable, optional
+            Names of attributes to ignore while comparing.
+
+        Returns
+        -------
+        bool
+        """
+        ignore_attrs = as_tuple(ignore)
+        keys = set(as_tuple(self.__dict__.keys()) + as_tuple(other.__dict__.keys()))
+        return all(self.__dict__.get(k) == other.__dict__.get(k)
+                   for k in keys if k not in ignore_attrs)
 
 
 class SymbolTable(dict):

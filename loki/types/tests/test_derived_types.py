@@ -13,16 +13,12 @@ import re
 import pytest
 import numpy as np
 
-from loki import (
-    Module, Subroutine, BasicType, DerivedType, TypeDef, fgen,
-    FindNodes, Intrinsic, ProcedureDeclaration, ProcedureType,
-    VariableDeclaration, Assignment, InlineCall, Builder,
-    StringSubscript, Conditional, CallStatement, ProcedureSymbol,
-    FindVariables
-)
-from loki.ir import nodes as ir
-from loki.jit_build import jit_compile, jit_compile_lib, Obj
+from loki import Module, Subroutine, fgen
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes, FindVariables
+from loki.jit_build import Builder, jit_compile, jit_compile_lib, Obj
+from loki.types import BasicType, DerivedType, ProcedureType
 
 
 @pytest.fixture(name='builder')
@@ -32,159 +28,56 @@ def fixture_builder(tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_simple_loops(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a derived type
-    """
+def test_derived_type_symbols_nested(tmp_path, frontend):
+    """ Test basic scoping behaviour of nested derived types """
 
-    fcode = """
-module derived_types_mod
-  integer, parameter :: jprb = selected_real_kind(13,300)
+    fcode_mod = """
+module my_types_mod
+  implicit none
 
-  type explicit
-    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
-    real(kind=jprb) :: red_herring
-  end type explicit
+  type inner
+    integer :: here
+  end type inner
+
+  type outer
+    type(inner) :: was
+    real(kind=4) :: red_herring
+  end type outer
 contains
 
-  subroutine simple_loops(item)
-    type(explicit), intent(inout) :: item
-    integer :: i, j, n
+  subroutine test_der_type(rick, dave)
+    type(outer), intent(inout) :: rick, dave
 
-    n = 3
-    do i=1, n
-       item%vector(i) = item%vector(i) + item%scalar
-    end do
+    rick%red_herring = 42.0
+    rick%was%here = 67
 
-    do j=1, n
-       do i=1, n
-          item%matrix(i, j) = item%matrix(i, j) + item%scalar
-       end do
-    end do
-  end subroutine simple_loops
-end module
+    dave%red_herring = 66.6
+    dave%was%here = 6711
+  end subroutine test_der_type
+end module my_types_mod
 """
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    routine = module['simple_loops']
+    module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    routine = module['test_der_type']
 
-    # Ensure type info is attached correctly
-    item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]
-    assert all(v.type.dtype == BasicType.REAL for v in item_vars)
-    assert item_vars[0].name == 'item%vector' and item_vars[0].shape == (3,)
-    assert item_vars[1].name == 'item%vector' and item_vars[1].shape == (3,)
-    assert item_vars[2].name == 'item%scalar' and item_vars[2].type.shape is None
-    assert item_vars[3].name == 'item%matrix' and item_vars[3].shape == (3, 3)
-    assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
-    assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
+    assert len(routine.variables) == 2
+    rick = routine.variable_map['rick']
+    dave = routine.variable_map['dave']
+    assert rick and dave and rick.type.dtype == dave.type.dtype
 
-    filepath = tmp_path/(f'derived_types_simple_loops_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.explicit()
-    item.scalar = 2.
-    item.vector[:] = 5.
-    item.matrix[:, :] = 4.
-    mod.simple_loops(item)
-    assert (item.vector == 7.).all() and (item.matrix == 6.).all()
+    vs = list(FindVariables().visit(routine.body))
+    assert vs[0] == 'rick' == rick
+    assert vs[1] == 'rick%red_herring' and vs[1].scope == routine
+    assert vs[2] == 'rick%was' and vs[2].parent == rick and vs[2].scope == routine
+    assert vs[3] == 'rick%was%here' and vs[3].parent == vs[2] and vs[3].scope == routine
+    assert vs[4] == 'dave' == dave
+    assert vs[5] == 'dave%red_herring' and vs[5].scope == routine
+    assert vs[6] == 'dave%was' and vs[6].parent == dave and vs[6].scope == routine
+    assert vs[7] == 'dave%was%here' and vs[7].parent == vs[6] and vs[7].scope == routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_explicit(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a derived type
-    """
-
-    fcode = """
-module derived_types_mod
-  integer, parameter :: jprb = selected_real_kind(13,300)
-
-  type explicit
-    real(kind=jprb) :: scalar, vector(3), matrix(3, 3)
-    real(kind=jprb) :: red_herring
-  end type explicit
-contains
-
-  subroutine array_indexing_explicit(item)
-    type(explicit), intent(inout) :: item
-    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
-    integer :: i
-
-    item%vector(:) = 666.
-    do i=1, 3
-       item%matrix(:, i) = vals(i)
-    end do
-  end subroutine array_indexing_explicit
-end module
-"""
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_array_indexing_explicit_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.explicit()
-    mod.array_indexing_explicit(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_deferred(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a derived type
-    with dynamically allocated arrays.
-    """
-
-    fcode = """
-module derived_types_mod
-  integer, parameter :: jprb = selected_real_kind(13,300)
-
-  type deferred
-    real(kind=jprb), allocatable :: scalar, vector(:), matrix(:, :)
-    real(kind=jprb), allocatable :: red_herring
-  end type deferred
-contains
-
-  subroutine alloc_deferred(item)
-    type(deferred), intent(inout) :: item
-    allocate(item%vector(3))
-    allocate(item%matrix(3, 3))
-  end subroutine alloc_deferred
-
-  subroutine free_deferred(item)
-    type(deferred), intent(inout) :: item
-    deallocate(item%vector)
-    deallocate(item%matrix)
-  end subroutine free_deferred
-
-  subroutine array_indexing_deferred(item)
-    type(deferred), intent(inout) :: item
-    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
-    integer :: i
-
-    item%vector(:) = 666.
-
-    do i=1, 3
-       item%matrix(:, i) = vals(i)
-    end do
-  end subroutine array_indexing_deferred
-end module
-"""
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_array_indexing_deferred_{frontend}.f90')
-    mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
-
-    item = mod.deferred()
-    mod.alloc_deferred(item)
-    mod.array_indexing_deferred(item)
-    assert (item.vector == 666.).all()
-    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
-    mod.free_deferred(item)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_array_indexing_nested(tmp_path, frontend):
-    """
-    Test simple vector/matrix arithmetic with a nested derived type
-    """
+def test_derived_type_arithmetic(tmp_path, frontend):
+    """ Test simple vector/matrix arithmetic with a derived type via a JIT compile """
 
     fcode = """
 module derived_types_mod
@@ -201,37 +94,81 @@ module derived_types_mod
   end type nested
 contains
 
-  subroutine array_indexing_nested(item)
-    type(nested), intent(inout) :: item
+  subroutine simple_loops(item, item2, item3)
+    type(explicit), intent(inout) :: item, item2
+    type(nested), intent(inout) :: item3
     real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
-    integer :: i
+    integer :: i, j, n
 
-    item%a_vector(:) = 666.
-    item%another_item%vector(:) = 999.
-
-    do i=1, 3
-       item%another_item%matrix(:, i) = vals(i)
+    n = 3
+    do i=1, n  ! Explicit vector loop
+       item%vector(i) = item%vector(i) + item%scalar
     end do
-  end subroutine array_indexing_nested
+
+    do j=1, n  ! Explicit two-level vector loops
+       do i=1, n
+          item%matrix(i, j) = item%matrix(i, j) + item%scalar
+       end do
+    end do
+
+    item2%vector(:) = 666.
+    do i=1, 3  ! Use of vector notations
+       item2%matrix(:, i) = vals(i)
+    end do
+
+    ! Test vector notation on nested derived types
+    item3%a_vector(:) = 666.
+    item3%another_item%vector(:) = 999.
+    do i=1, 3
+       item3%another_item%matrix(:, i) = vals(i)
+    end do
+  end subroutine simple_loops
 end module
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_array_indexing_nested_{frontend}.f90')
+    routine = module['simple_loops']
+
+    # Ensure type info is attached correctly
+    item_vars = [v for v in FindVariables(unique=False).visit(routine.body) if v.parent]
+    assert all(v.type.dtype is BasicType.REAL or isinstance(v.type.dtype, DerivedType) for v in item_vars)
+    assert item_vars[0].name == 'item%vector' and item_vars[0].shape == (3,)
+    assert item_vars[1].name == 'item%vector' and item_vars[1].shape == (3,)
+    assert item_vars[2].name == 'item%scalar' and item_vars[2].type.shape is None
+    assert item_vars[3].name == 'item%matrix' and item_vars[3].shape == (3, 3)
+    assert item_vars[4].name == 'item%matrix' and item_vars[4].shape == (3, 3)
+    assert item_vars[5].name == 'item%scalar' and item_vars[5].type.shape is None
+    assert item_vars[6].name == 'item2%vector' and item_vars[6].shape == (3,)
+    assert item_vars[7].name == 'item2%matrix' and item_vars[7].shape == (3, 3)
+    assert item_vars[8].name == 'item3%a_vector' and item_vars[8].shape == (3,)
+    assert item_vars[9].name == 'item3%another_item' and item_vars[9].type.dtype.typedef == module['explicit']
+    assert item_vars[10].name == 'item3%another_item%vector' and item_vars[10].shape == (3,)
+    assert item_vars[11].name == 'item3%another_item' and item_vars[11].type.dtype.typedef == module['explicit']
+    assert item_vars[12].name == 'item3%another_item%matrix' and item_vars[12].shape == (3, 3)
+
+    # JIT-compile the module and create input objects
+    filepath = tmp_path/(f'derived_types_simple_loops_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
-    item = mod.nested()
-    mod.array_indexing_nested(item)
-    assert (item.a_vector == 666.).all()
-    assert (item.another_item.vector == 999.).all()
-    assert (item.another_item.matrix == np.array([[1., 2., 3.],
-                                                  [1., 2., 3.],
-                                                  [1., 2., 3.]])).all()
+    item, item2, item3 = mod.explicit(), mod.explicit(), mod.nested()
+    item.scalar = 2.
+    item.vector[:] = 5.
+    item.matrix[:, :] = 4.
+
+    # Execute compiled code and check constructed outputs
+    mod.simple_loops(item, item2, item3)
+    assert (item.vector == 7.).all() and (item.matrix == 6.).all()
+    assert (item2.vector == 666.).all()
+    assert (item2.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    assert (item3.a_vector == 666.).all()
+    assert (item3.another_item.vector == 999.).all()
+    assert (item3.another_item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_deferred_array(tmp_path, frontend):
+def test_derived_type_deferred_arrays(tmp_path, frontend):
     """
-    Test simple vector/matrix with an array of derived types
+    Test simple vector/matrix arithmetic with a derived type
+    with dynamically allocated arrays via JIT-compilation.
     """
 
     fcode = """
@@ -256,7 +193,19 @@ contains
     deallocate(item%matrix)
   end subroutine free_deferred
 
-  subroutine deferred_array(item)
+  subroutine test_deferred_arrays(item)
+    type(deferred), intent(inout) :: item
+    real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
+    integer :: i
+
+    item%vector(:) = 666.
+
+    do i=1, 3
+       item%matrix(:, i) = vals(i)
+    end do
+  end subroutine test_deferred_arrays
+
+  subroutine test_deferred_arrays_with_temporary(item)
     type(deferred), intent(inout) :: item
     type(deferred), allocatable :: item2(:)
     real(kind=jprb) :: vals(3) = (/ 1., 2., 3. /)
@@ -266,9 +215,7 @@ contains
 
     do j=1, 4
       call alloc_deferred(item2(j))
-
       item2(j)%vector(:) = 666.
-
       do i=1, 3
         item2(j)%matrix(:, i) = vals(i)
       end do
@@ -276,31 +223,35 @@ contains
 
     item%vector(:) = 0.
     item%matrix(:,:) = 0.
-
     do j=1, 4
       item%vector(:) = item%vector(:) + item2(j)%vector(:)
-
       do i=1, 3
           item%matrix(:,i) = item%matrix(:,i) + item2(j)%matrix(:,i)
       end do
-
       call free_deferred(item2(j))
     end do
 
     deallocate(item2)
-  end subroutine deferred_array
+  end subroutine test_deferred_arrays_with_temporary
 end module
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    filepath = tmp_path/(f'derived_types_deferred_array_{frontend}.f90')
+    filepath = tmp_path/(f'derived_types_array_indexing_deferred_{frontend}.f90')
     mod = jit_compile(module, filepath=filepath, objname='derived_types_mod')
 
     item = mod.deferred()
     mod.alloc_deferred(item)
-    mod.deferred_array(item)
-    assert (item.vector == 4 * 666.).all()
-    assert (item.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    mod.test_deferred_arrays(item)
+    assert (item.vector == 666.).all()
+    assert (item.matrix == np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
     mod.free_deferred(item)
+
+    item2 = mod.deferred()
+    mod.alloc_deferred(item2)
+    mod.test_deferred_arrays_with_temporary(item2)
+    assert (item2.vector == 4 * 666.).all()
+    assert (item2.matrix == 4 * np.array([[1., 2., 3.], [1., 2., 3.], [1., 2., 3.]])).all()
+    mod.free_deferred(item2)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -555,7 +506,7 @@ end module derived_type_private_comp_mod
     some_private_comp_type = module.typedef_map['some_private_comp_type']
     type_bound_proc_type = module.typedef_map['type_bound_proc_type']
 
-    intrinsic_nodes = FindNodes(Intrinsic).visit(type_bound_proc_type.body)
+    intrinsic_nodes = FindNodes(ir.Intrinsic).visit(type_bound_proc_type.body)
     assert len(intrinsic_nodes) == 2
     assert intrinsic_nodes[0].text.lower() == 'contains'
     assert intrinsic_nodes[1].text.lower() == 'private'
@@ -566,7 +517,7 @@ end module derived_type_private_comp_mod
 
     # OMNI gets the below wrong as it doesn't retain the private statement for components
     if frontend != OMNI:
-        intrinsic_nodes = FindNodes(Intrinsic).visit(some_private_comp_type.body)
+        intrinsic_nodes = FindNodes(ir.Intrinsic).visit(some_private_comp_type.body)
         assert len(intrinsic_nodes) == 2
         assert intrinsic_nodes[0].text.lower() == 'private'
         assert intrinsic_nodes[1].text.lower() == 'contains'
@@ -637,11 +588,11 @@ end subroutine derived_type_procedure_designator
         assert name in routine.symbol_attrs
         assert routine.symbol_attrs[name].imported is True
         assert isinstance(routine.symbol_attrs[name].dtype, DerivedType)
-        assert isinstance(routine.symbol_attrs[name].dtype.typedef, TypeDef)
+        assert isinstance(routine.symbol_attrs[name].dtype.typedef, ir.TypeDef)
 
     # Make sure type-bound procedure declarations exist
     some_type = module.typedef_map['some_type']
-    proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(some_type.body)
     assert len(proc_decls) == 3
     assert all(decl.interface is None for decl in proc_decls)
 
@@ -663,15 +614,15 @@ end subroutine derived_type_procedure_designator
     assert isinstance(self.type.dtype, DerivedType)
     assert self.type.dtype.typedef is some_type
     assert self.type.polymorphic is True
-    decls = FindNodes(VariableDeclaration).visit(some_type_some_proc.spec)
+    decls = FindNodes(ir.VariableDeclaration).visit(some_type_some_proc.spec)
     assert 'CLASS(SOME_TYPE)' in fgen(decls[0]).upper()
 
     # Verify type representation in using routine
     assert isinstance(routine.symbol_attrs['tp'].dtype, DerivedType)
-    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, TypeDef)
+    assert isinstance(routine.symbol_attrs['tp'].dtype.typedef, ir.TypeDef)
     assert routine.symbol_attrs['tp'].polymorphic is None
     assert routine.symbol_attrs['tp'].dtype.typedef is some_type
-    decls = FindNodes(VariableDeclaration).visit(routine.spec)
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assert 'TYPE(SOME_TYPE)' in fgen(decls[1]).upper()
 
     # TODO: verify correct type association of calls to type-bound procedures
@@ -725,7 +676,7 @@ end module derived_types_bind_attrs_mod
 
     some_type = module.typedef_map['some_type']
 
-    proc_decls = FindNodes(ProcedureDeclaration).visit(some_type.body)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(some_type.body)
     assert len(proc_decls) == 3
     assert all(decl.interface is None for decl in proc_decls)
 
@@ -852,7 +803,7 @@ end module derived_type_final_generic_mod
 
     mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     hdf5_file = mod.typedef_map['hdf5_file']
-    proc_decls = FindNodes(ProcedureDeclaration).visit(hdf5_file.body)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(hdf5_file.body)
     assert len(proc_decls) == 5
 
     assert all(decl.final is False for decl in proc_decls[:-1])
@@ -1028,13 +979,13 @@ end module derived_type_nested_proc_call_mod
 
     mod = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    assignment = FindNodes(Assignment).visit(mod['exists'].body)
+    assignment = FindNodes(ir.Assignment).visit(mod['exists'].body)
     assert len(assignment) == 1
     assignment = assignment[0]
-    assert isinstance(assignment.rhs, InlineCall)
+    assert isinstance(assignment.rhs, sym.InlineCall)
     assert fgen(assignment.rhs).lower() == 'this%file%exists(var_name)'
 
-    assert isinstance(assignment.rhs.function, ProcedureSymbol)
+    assert isinstance(assignment.rhs.function, sym.ProcedureSymbol)
     assert isinstance(assignment.rhs.function.type.dtype, ProcedureType)
     assert assignment.rhs.function.parent and isinstance(assignment.rhs.function.parent.type.dtype, DerivedType)
     assert assignment.rhs.function.parent.type.dtype.name == 'netcdf_file_raw'
@@ -1216,8 +1167,8 @@ end module derived_type_char_arr_mod
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    conditionals = FindNodes(Conditional).visit(module['some_routine'].body)
-    assert all(isinstance(c.condition.left, StringSubscript) for c in conditionals)
+    conditionals = FindNodes(ir.Conditional).visit(module['some_routine'].body)
+    assert all(isinstance(c.condition.left, sym.StringSubscript) for c in conditionals)
     assert [fgen(c.condition.left) for c in conditionals] == [
       'config%some_name(i)(1:1)', 'config%some_name(i)(strlen - 2:strlen)'
     ]
@@ -1262,7 +1213,7 @@ end module derived_types_nested_subscript
     """.strip()
 
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    calls = FindNodes(CallStatement).visit(module['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(module['driver'].body)
     assert len(calls) == 1
     assert str(calls[0].name) == 'outers(i)%inner(j)%some_routine'
     assert fgen(calls[0].name) == 'outers(i)%inner(j)%some_routine'
@@ -1317,7 +1268,7 @@ end subroutine driver
 
     other_routine = module['other_routine']
     call = other_routine.body.body[0]
-    assert isinstance(call, CallStatement)
+    assert isinstance(call, ir.CallStatement)
     assert isinstance(call.name.type.dtype, ProcedureType)
     assert call.name.parent and isinstance(call.name.parent.type.dtype, DerivedType)
     assert call.name.parent.type.dtype.name == 'some_type'
@@ -1326,7 +1277,7 @@ end subroutine driver
     assert call.name.parent.parent.type.dtype.name == 'other_type'
     assert call.name.parent.parent.type.dtype.typedef is module['other_type']
 
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 2
     for call in calls:
         assert isinstance(call.name.type.dtype, ProcedureType)
@@ -1342,7 +1293,7 @@ end subroutine driver
     assert calls[1].name.parent.parent.type.dtype.typedef is module['other_type']
 
     assignment = driver.body.body[-1]
-    assert isinstance(assignment, Assignment)
+    assert isinstance(assignment, ir.Assignment)
     assert assignment.rhs.type.dtype is BasicType.INTEGER
     assert assignment.rhs.parent and isinstance(assignment.rhs.parent.type.dtype, DerivedType)
     assert assignment.rhs.parent.type.dtype.name == 'some_type'
@@ -1382,7 +1333,7 @@ end module some_mod
     assert typedef.abstract is True
     assert typedef.variables == ('some_proc', 'other_proc')
     for symbol in typedef.variables:
-        assert isinstance(symbol, ProcedureSymbol)
+        assert isinstance(symbol, sym.ProcedureSymbol)
         assert isinstance(symbol.type.dtype, ProcedureType)
         assert symbol.type.dtype.name.lower() == symbol.name.lower()
         assert symbol.type.bind_names == (symbol,)

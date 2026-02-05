@@ -59,41 +59,6 @@ def test_basic_type():
     assert all(t == BasicType.from_str(s) for s, t in c99_type_map.items())
 
 
-def test_symbol_attributes():
-    """
-    Tests the attachment, lookup and deletion of arbitrary attributes from
-    :any:`SymbolAttributes`
-    """
-    _type = SymbolAttributes('integer', a='a', b=True, c=None)
-    assert _type.dtype == BasicType.INTEGER
-    assert _type.a == 'a'
-    assert _type.b
-    assert _type.c is None
-    assert _type.foofoo is None
-
-    _type.foofoo = 'bar'
-    assert _type.foofoo == 'bar'
-
-    delattr(_type, 'foofoo')
-    assert _type.foofoo is None
-
-
-def test_symbol_attributes_compare():
-    """
-    Test dedicated `type.compare` methods that allows certain
-    attributes to be excluded from comparison.
-    """
-    someint = SymbolAttributes('integer', a='a', b=True, c=None)
-    another = SymbolAttributes('integer', a='a', b=False, c=None)
-    somereal = SymbolAttributes('real', a='a', b=True, c=None)
-
-    assert not someint.compare(another)
-    assert not another.compare(someint)
-    assert someint.compare(another, ignore='b')
-    assert another.compare(someint, ignore=['b'])
-    assert not someint.compare(somereal)
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_type_declaration_attributes(frontend):
     """
