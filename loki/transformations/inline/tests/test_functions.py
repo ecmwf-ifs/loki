@@ -290,6 +290,7 @@ end subroutine stmt_func
     else:
         assert FindInlineCalls().visit(routine.body)
 
+
 @pytest.mark.parametrize('frontend', available_frontends(
     skip={OMNI: "OMNI automatically inlines Statement Functions"}
 ))
@@ -343,7 +344,7 @@ subroutine stmt_func(arr, val, ret)
     real, parameter :: rtt = 1.0
     real :: PTARE
     real :: FOEDELTA
-    FOEDELTA ( PTARE ) = PTARE + 1.0 + MYFUNC(PTARE)
+    FOEDELTA ( PTARE ) = PTARE + MYFUNC(PTARE) + MAX(1.0, 2.0)
     real :: FOEEW
     FOEEW ( PTARE ) = PTARE + FOEDELTA(PTARE) + MYFUNC(PTARE)
     {intf}
@@ -368,13 +369,15 @@ end subroutine stmt_func
     inline_calls = FindInlineCalls(unique=False).visit(routine.spec)
     if provide_myfunc in ('module', 'interface', 'routine'):
         # Enough information available that MYFUNC is recognized as a procedure call
-        assert len(inline_calls) == 3
+        assert len(inline_calls) == 4
         assert all(isinstance(call.function.type.dtype, ProcedureType) for call in inline_calls)
     else:
         # No information available about MYFUNC, so fparser treats it as an ArraySubscript
-        assert len(inline_calls) == 1
-        assert inline_calls[0].function == 'foedelta'
-        assert isinstance(inline_calls[0].function.type.dtype, ProcedureType)
+        assert len(inline_calls) == 2
+        assert inline_calls[0].function == 'MAX'
+        assert inline_calls[0].function.type.is_intrinsic
+        assert inline_calls[1].function == 'foedelta'
+        assert isinstance(inline_calls[1].function.type.dtype, ProcedureType)
 
     # Check the body
     inline_calls = FindInlineCalls().visit(routine.body)
@@ -390,23 +393,27 @@ end subroutine stmt_func
 
     if provide_myfunc in ('import', 'intfb'):
           # MYFUNC(arr) is misclassified as array subscript
-        assert len(inline_calls) == 0
+        assert len(inline_calls) == 3
     elif provide_myfunc in ('module', 'routine'):
           # MYFUNC(arr) is eliminated due to inlining
-        assert len(inline_calls) == 0
+        assert len(inline_calls) == 3
     else:
-        assert len(inline_calls) == 4
+        assert len(inline_calls) == 7
 
     assert assignments[0].lhs  == 'ret'
     assert assignments[1].lhs  == 'ret2'
     if provide_myfunc in ('module', 'routine'):
         # Fully inlined due to definition of myfunc available
-        assert assignments[0].rhs  ==  "arr + arr + 1.0 + arr*2.0 + arr*2.0"
-        assert assignments[1].rhs  ==  "3.0 + 1.0 + 3.0*2.0 + val + 1.0 + val*2.0"
+        assert assignments[0].rhs  ==  "arr + arr + arr*2.0 + max(1.0, 2.0) + arr*2.0"
+        assert assignments[1].rhs  ==  "3.0 + 3.0*2.0 + max(1.0, 2.0) + val + val*2.0 + max(1.0, 2.0)"
     else:
         # myfunc not inlined
-        assert assignments[0].rhs  ==  "arr + arr + 1.0 + myfunc(arr) + myfunc(arr)"
-        assert assignments[1].rhs  ==  "3.0 + 1.0 + myfunc(3.0) + val + 1.0 + myfunc(val)"
+        assert assignments[0].rhs  ==  "arr + arr + myfunc(arr) + max(1.0, 2.0) + myfunc(arr)"
+        assert assignments[1].rhs  ==  "3.0 + myfunc(3.0) + max(1.0, 2.0) + val + myfunc(val) + max(1.0, 2.0)"
+
+    # Ensure all copies of the intrinsic call are correctly scoped
+    assert all(c.function.scope == routine for c in inline_calls)
+    assert all(isinstance(c.function.type.dtype, ProcedureType) for c in inline_calls)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
