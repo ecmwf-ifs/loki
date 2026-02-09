@@ -37,9 +37,7 @@ from loki.expression.operations import (
 )
 from loki.expression import AttachScopesMapper
 from loki.logging import debug, detail, info, warning, error
-from loki.tools import (
-    as_tuple, flatten, CaseInsensitiveDict, LazyNodeLookup, dict_override
-)
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict, dict_override
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
@@ -609,7 +607,11 @@ class FParser2IR(GenericVisitor):
         * :class:`fparser.two.Fortran2003.Attr_Spec_List`
         * :class:`fparser.two.Fortran2003.Entity_Decl_List`
         """
-        # First, obtain data type and attributes
+        source = kwargs.get('source')
+        label = kwargs.get('label')
+        scope = kwargs.get('scope')
+
+        # First, obtain data type and basic declaration attributes
         _type = self.visit(o.children[0], **kwargs)
         attrs = self.visit(o.children[1], **kwargs) if o.children[1] else ()
         attrs = dict(attrs)
@@ -618,7 +620,8 @@ class FParser2IR(GenericVisitor):
         _type = _type.clone(**attrs)
 
         # Last, instantiate declared variables
-        variables = as_tuple(self.visit(o.children[2], **kwargs))
+        with dict_override(kwargs, {'type': _type}):
+            variables = as_tuple(self.visit(o.children[2], **kwargs))
 
         # DIMENSION is called shape for us
         if _type.dimension:
@@ -627,34 +630,20 @@ class FParser2IR(GenericVisitor):
             # representation of variables in declarations
             variables = as_tuple(v.clone(dimensions=_type.shape) for v in variables)
 
-        # Make sure KIND and INITIAL (which can be a name) are in the right scope
-        scope = kwargs['scope']
-        if _type.kind is not None:
-            kind = AttachScopesMapper()(_type.kind, scope=scope)
-            _type = _type.clone(kind=kind)
-        if _type.initial is not None:
-            initial = AttachScopesMapper()(_type.initial, scope=scope)
-            _type = _type.clone(initial=initial)
-
         # EXTERNAL attribute means this is actually a function or subroutine
         # Since every symbol refers to a different function we have to update the
         # type definition for every symbol individually
         if _type.external:
             for var in variables:
-                type_kwargs = _type.__dict__.copy()
                 return_type = SymbolAttributes(_type.dtype) if _type.dtype is not None else None
-                external_type = scope.symbol_attrs.lookup(var.name)
-                if external_type is None:
-                    type_kwargs['dtype'] = ProcedureType(
-                        var.name, is_function=return_type is not None, return_type=return_type
-                    )
-                else:
-                    type_kwargs['dtype'] = external_type.dtype
-                scope.symbol_attrs[var.name] = var.type.clone(**type_kwargs)
+                proc_type = ProcedureType(
+                    var.name, is_function=return_type is not None, return_type=return_type
+                )
+                scope.update(var.name, dtype=proc_type)
 
-            variables = tuple(var.rescope(scope=scope) for var in variables)
+            variables = tuple(var.clone(scope=scope) for var in variables)
             return ir.ProcedureDeclaration(
-                symbols=variables, external=True, source=kwargs.get('source'), label=kwargs.get('label')
+                symbols=variables, external=True, source=source, label=label
             )
 
         # Update symbol table entries and rescope
@@ -662,8 +651,7 @@ class FParser2IR(GenericVisitor):
         variables = tuple(var.rescope(scope=scope) for var in variables)
 
         return ir.VariableDeclaration(
-            symbols=variables, dimensions=_type.shape,
-            source=kwargs.get('source'), label=kwargs.get('label')
+            symbols=variables, dimensions=_type.shape, source=source, label=label
         )
 
     def visit_Intrinsic_Type_Spec(self, o, **kwargs):
@@ -837,12 +825,13 @@ class FParser2IR(GenericVisitor):
         * char length (:class:`fparser.two.Fortran2003.Char_Length`)
         * init (:class:`fparser.two.Fortran2003.Initialization`)
         """
+        _type = kwargs.get('type', {})
+        scope = kwargs.get('scope')
 
-        # Do not pass scope down, as it might alias with previously
-        # created symbols. Instead, let the rescope in the Declaration
-        # assign the right scope, always!
-        with dict_override(kwargs, {'scope': None}):
-            var = self.visit(o.children[0], **kwargs)
+        # Declare basic variable type and create variable symbol
+        vname = o.children[0].tostr()
+        scope.declare(vname, **dict(_type.__dict__), fail=False)
+        var = self.visit(o.children[0], **kwargs)
 
         if o.children[1]:
             dimensions = as_tuple(self.visit(o.children[1], **kwargs))
@@ -1923,6 +1912,15 @@ class FParser2IR(GenericVisitor):
         (routine, return_type) = self.visit(function_stmt, **kwargs)
         kwargs['scope'] = routine
 
+        # Define the return type in the local scope before parsing spec.
+        # If the return type is impliicit (function name), we need to
+        # put a dummy declaration here, so that the spec does not see the
+        # ProcedureType the parent has for this Function.
+        if return_type:
+            routine.symbol_attrs[routine.result_name] = return_type
+        else:
+            routine.declare(routine.result_name, dtype=BasicType.DEFERRED, fail=False)
+
         # Extract source object for construct
         source = self.get_source(function_stmt, end_node=end_function_stmt)
 
@@ -1954,10 +1952,6 @@ class FParser2IR(GenericVisitor):
         # As variables may be defined out of sequence, we need to re-generate
         # symbols in the spec part to make them coherent with the symbol table
         spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
-
-        # If the return type is given, inject it into the symbol table
-        if return_type:
-            routine.symbol_attrs[routine.result_name] = return_type
 
         # Now all declarations are well-defined and we can parse the member routines
         contains = self.visit(get_child(o, Fortran2003.Internal_Subprogram_Part), **kwargs)
@@ -3362,26 +3356,18 @@ class FParser2IR(GenericVisitor):
             )
 
             if could_be_a_statement_func:
-                def _create_stmt_func_type(stmt_func):
-                    name = str(stmt_func.variable)
-                    procedure = LazyNodeLookup(
-                        anchor=kwargs['scope'],
-                        query=lambda x: [
-                            f for f in FindNodes(ir.StatementFunction).visit(x.spec) if f.variable == name
-                        ][0]
-                    )
-                    proc_type = ProcedureType(is_function=True, procedure=procedure, name=name)
-                    return SymbolAttributes(dtype=proc_type, is_stmt_func=True)
-
+                # Create the procedure symbol and statement function IR node
                 f_symbol = sym.ProcedureSymbol(name=lhs.name, scope=kwargs['scope'])
                 stmt_func = ir.StatementFunction(
                     variable=f_symbol, arguments=lhs.dimensions,
                     rhs=rhs, return_type=symbol_attrs[lhs.name],
-                    label=kwargs.get('label'), source=kwargs.get('source')
+                    parent=kwargs['scope'], label=kwargs.get('label'),
+                    source=kwargs.get('source')
                 )
 
                 # Update the type in the local scope and return stmt func node
-                symbol_attrs[str(stmt_func.variable)] = _create_stmt_func_type(stmt_func)
+                proc_type = ProcedureType(name=lhs.name, procedure=stmt_func, is_function=True)
+                kwargs['scope'].declare(lhs.name, dtype=proc_type, is_stmt_func=True, fail=False)
                 return stmt_func
 
         # Return Assignment node if we don't have to deal with the stupid side of Fortran!

@@ -9,7 +9,9 @@
 A collection of tests for :any:`SymbolAttrs`, :any:`SymbolTable` and :any:`Scope`.
 """
 
-from loki.types import SymbolAttributes, BasicType
+import pytest
+
+from loki.types import INTEGER, REAL, Scope, SymbolAttributes
 
 
 def test_symbol_attributes():
@@ -18,7 +20,7 @@ def test_symbol_attributes():
     :any:`SymbolAttributes`
     """
     _type = SymbolAttributes('integer', a='a', b=True, c=None)
-    assert _type.dtype == BasicType.INTEGER
+    assert _type.dtype == INTEGER
     assert _type.a == 'a'
     assert _type.b
     assert _type.c is None
@@ -48,3 +50,60 @@ def test_symbol_attributes_compare():
     assert someint.compare(another, ignore='b')
     assert another.compare(someint, ignore=['b'])
     assert not someint.compare(somereal)
+
+
+def test_scope_setter():
+    """ Test basic declaration and update behaviour of :any:`Scope` """
+    scope = Scope()
+
+    # Check basic type declaration
+    scope.declare('a', dtype='integer', kind=4, intent='in')
+    assert 'a' in scope.symbol_attrs
+    assert scope.symbol_attrs['a'].dtype == INTEGER
+    assert scope.symbol_attrs['a'].kind == 4
+    assert scope.symbol_attrs['a'].intent == 'in'
+
+    # Test erroneous and intentional re-declaration
+    with pytest.raises(ValueError):
+        scope.declare('a', dtype='real', kind=8)
+
+    scope.declare('a', dtype='real', kind=8, fail=False)
+    assert 'a' in scope.symbol_attrs
+    assert scope.symbol_attrs['a'].dtype == REAL
+    assert scope.symbol_attrs['a'].kind == 8
+    assert not scope.symbol_attrs['a'].intent  # Wiped previous value
+
+    # Check type declaration updates
+    scope.update('a', dtype='integer', intent='inout')
+    assert 'a' in scope.symbol_attrs
+    assert scope.symbol_attrs['a'].dtype == INTEGER
+    assert scope.symbol_attrs['a'].kind == 8  # Previous not wiped
+    assert scope.symbol_attrs['a'].intent == 'inout'
+
+    with pytest.raises(ValueError):
+        scope.update('b', dtype='integer', intent='inout')
+
+    # Override fail-safe, acts as another `declare()` call
+    scope.update('b', dtype='integer', intent='inout', fail=False)
+    assert 'b' in scope.symbol_attrs
+    assert scope.symbol_attrs['b'].dtype == INTEGER
+    assert scope.symbol_attrs['b'].intent == 'inout'
+
+
+def test_scope_getter():
+    """ Test basic :method:`get_type`/:method:`get_dtype` behaviour of :any:`Scope` """
+    parent = Scope()
+    scope = Scope(parent=parent)
+
+    scope.declare('a', dtype='real', kind=8, intent='inout')
+    parent.declare('b', dtype='integer', kind=4, intent='in')
+
+    assert scope.get_type('a').dtype == REAL
+    assert scope.get_type('a').kind == 8
+    assert scope.get_type('a').intent == 'inout'
+
+    # Non-recursive and recursive lookups through parent
+    with pytest.raises(KeyError):
+        scope.get_type('b', recursive=False)
+
+    assert scope.get_type('b', recursive=False, fail=False) is None

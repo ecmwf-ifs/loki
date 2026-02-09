@@ -222,6 +222,10 @@ def inline_statement_functions(routine):
     # Apply expression-level substitution to routine
     routine.body = SubstituteExpressions(exprmap).visit(routine.body)
 
+    # Rescope the routine body, as the recursive update call does not
+    # set scopes on the RHS of `exprmap`, and so we might miss a scope.
+    routine.rescope_symbols()
+
     # remove statement function declarations as well as statement function argument(s) declarations
     vars_to_remove = {stmt_func.variable.name.lower() for stmt_func in stmt_func_decls}
     vars_to_remove |= {arg.name.lower() for stmt_func in stmt_func_decls for arg in stmt_func.arguments}

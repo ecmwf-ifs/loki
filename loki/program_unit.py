@@ -722,7 +722,9 @@ class ProgramUnit(Scope):
             routine for routine in self.contains.body if isinstance(routine, Subroutine)
         ])
 
+    # Semantic aliases for convenience
     routines = subroutines
+    procedures = subroutines
 
     @property
     def subroutine_map(self):

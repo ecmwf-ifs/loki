@@ -15,7 +15,10 @@ from enum import Enum
 from loki.tools import flatten
 
 
-__all__ = ['DataType', 'BasicType']
+__all__ = [
+    'DataType', 'BasicType',
+    'DEFERRED', 'LOGICAL', 'INTEGER', 'REAL', 'CHARACTER', 'COMPLEX'
+]
 
 
 class DataType:
@@ -99,3 +102,11 @@ class BasicType(DataType, int, Enum):
         type_map.update({t: cls.COMPLEX for t in complex_types})
 
         return type_map[value]
+
+
+DEFERRED = BasicType.DEFERRED
+LOGICAL = BasicType.LOGICAL
+INTEGER = BasicType.INTEGER
+REAL = BasicType.REAL
+CHARACTER = BasicType.CHARACTER
+COMPLEX = BasicType.COMPLEX
