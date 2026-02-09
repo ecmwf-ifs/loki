@@ -9,7 +9,11 @@ from collections import defaultdict
 from pathlib import Path
 
 import re
-import yaml
+try:
+    import yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
 
 from loki.batch import Transformation, TypeDefItem, ProcedureItem
 from loki.ir import (
@@ -266,14 +270,18 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             loop_analyses[loop] = layered_dict
 
             if self.output_analysis:
-                str_layered_dict = self.stringify_dict(layered_dict)
-                base_dir = Path(kwargs['build_args']['output_dir'])
-                if successor_map:
-                    target_routine_name = list(successor_map.keys())[0].name
+                if HAVE_YAML:
+                    str_layered_dict = self.stringify_dict(layered_dict)
+                    base_dir = Path(kwargs['build_args']['output_dir'])
+                    if successor_map:
+                        target_routine_name = list(successor_map.keys())[0].name
+                    else:
+                        target_routine_name = routine.name
+                    with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
+                        yaml.dump(str_layered_dict, f)
                 else:
-                    target_routine_name = routine.name
-                with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
-                    yaml.dump(str_layered_dict, f)
+                    warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
+
 
         # We store the collected analyses on item.trafo_data
         for loop in driver_loops:
@@ -293,15 +301,18 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         self.process_body(routine.name, item, successors, successor_map, routine)
 
         if self.output_analysis:
-            layered_dict = {}
-            for k, v in item.trafo_data[self._key]['analysis'].items():
-                _temp_dict = create_nested_dict(k, v, routine.symbol_map)
-                layered_dict = merge_nested_dict(layered_dict, _temp_dict)
+            if HAVE_YAML:
+                layered_dict = {}
+                for k, v in item.trafo_data[self._key]['analysis'].items():
+                    _temp_dict = create_nested_dict(k, v, routine.symbol_map)
+                    layered_dict = merge_nested_dict(layered_dict, _temp_dict)
 
-            base_dir = Path(kwargs['build_args']['output_dir'])
-            with open(base_dir/f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
-                str_layered_dict = self.stringify_dict(layered_dict)
-                yaml.dump(str_layered_dict, file)
+                base_dir = Path(kwargs['build_args']['output_dir'])
+                with open(base_dir/f'{routine.name.lower()}_dataoffload_analysis.yaml', 'w') as file:
+                    str_layered_dict = self.stringify_dict(layered_dict)
+                    yaml.dump(str_layered_dict, file)
+            else:
+                warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
     def process_body(self, routine_name, item, successors, successor_map, scope_node):
         # gather typedef configs from successors
@@ -431,16 +442,13 @@ class DataOffloadDeepcopyTransformation(Transformation):
     ----------
     mode : str
        Transformation mode, must be either "offload" or "set_pointers".
-    accessor_type : str or :any:`FieldAPIAccessorType`
-       Field API accessor type, must be either "GET" or "SGET"
     """
 
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
-    def __init__(self, mode, accessor_type=FieldAPIAccessorType.TYPE_BOUND):
+    def __init__(self, mode):
         self.mode = mode
-        self.accessor_type = FieldAPIAccessorType(str(accessor_type).upper())
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -519,6 +527,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
     def process_driver(self, routine, analyses, typedef_configs, targets):
 
         pragma_map = {}
+        imports = defaultdict(tuple)
+        symbol_map = routine.symbol_map | routine.all_imported_symbol_map
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 
@@ -553,20 +563,27 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     analysis = self.update_with_manual_overrides(parameters, analysis, routine.symbol_map)
 
                     # recursively traverse analysis and generate deepcopy
-                    _copy, _host, _wipe = self.generate_deepcopy(routine, analysis=analysis, present=present,
-                                                                 private=private, temporary=temporary,
-                                                                 device_resident=device_resident,
-                                                                 typedef_configs=typedef_configs)
+                    _copy, _host, _wipe, _imports = self.generate_deepcopy(routine, analysis=analysis,
+                                                                           present=present, private=private,
+                                                                           temporary=temporary,
+                                                                           device_resident=device_resident,
+                                                                           typedef_configs=typedef_configs,
+                                                                           symbol_map=symbol_map)
 
                     copy += _copy
                     host += _host
                     wipe += _wipe
+                    for mod in _imports:
+                        imports[mod] += as_tuple(_imports[mod])
 
                     present_vars += as_tuple(v.name for v in analysis if not v in private)
 
                 # replace the `!$loki data` PragmaRegion with the generated deepcopy instructions
                 pragma_map.update(self.insert_deepcopy_instructions(region, self.mode, copy, host, wipe, present_vars))
 
+        for mod in imports:
+            imports[mod] = as_tuple(dict.fromkeys(imports[mod]))
+            routine.spec.prepend(as_tuple(ir.Import(module=mod, symbols=imports[mod])))
         routine.body = Transformer(pragma_map).visit(routine.body)
 
     def wrap_in_loopnest(self, var, body, routine):
@@ -651,7 +668,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
         """Pull back data to host."""
         return as_tuple(ir.Pragma(keyword='loki', content=f'update host({var})'))
 
-    def create_field_api_offload(self, var, analysis, typedef_config, parent, scope):
+    def create_field_api_offload(self, var, analysis, typedef_config, parent, scope, symbol_map):
 
         #TODO: currently this assumes FIELD objects and their associated pointers are
         # components of the same derived-type. This should be generalised for the case
@@ -677,19 +694,24 @@ class DataOffloadDeepcopyTransformation(Transformation):
         else:
             access_mode = FieldAPITransferType.WRITE_ONLY
 
+        imports = defaultdict(tuple)
         device = as_tuple(field_get_device_data(field_object, field_ptr, access_mode, scope,
-            accessor_type=self.accessor_type))
+            accessor_type=FieldAPIAccessorType.GENERIC))
+        get_device_call_proc_symbol = device[0].name
+        if not get_device_call_proc_symbol in symbol_map:
+            imports['FIELD_ACCESS_MODULE'] += as_tuple(get_device_call_proc_symbol)
         device += self.enter_data_attach(field_ptr)
         host = as_tuple(field_get_host_data(field_object, field_ptr, FieldAPITransferType.READ_WRITE, scope,
-            accessor_type=self.accessor_type))
+            accessor_type=FieldAPIAccessorType.GENERIC))
+        get_host_call_proc_symbol = host[0].name
+        if not get_host_call_proc_symbol in symbol_map:
+            imports['FIELD_ACCESS_MODULE'] += as_tuple(get_host_call_proc_symbol)
         wipe = self.exit_data_detach(field_ptr)
         wipe += as_tuple(field_delete_device_data(field_object, scope))
 
-        device = self.create_memory_status_test('ASSOCIATED', field_object, device, scope)
-        host = self.create_memory_status_test('ASSOCIATED', field_object, host, scope)
         wipe = self.create_memory_status_test('ASSOCIATED', field_object, wipe, scope)
 
-        return device, host, wipe
+        return device, host, wipe, imports
 
     def create_dummy_field_array_typedef_config(self, parent):
         """The scheduler will never traverse the FIELD_RANKSUFF_ARRAY type definitions,
@@ -708,14 +730,14 @@ class DataOffloadDeepcopyTransformation(Transformation):
         """Recursively traverse the deepcopy analysis to generate the deepcopy instructions."""
 
         # initialise tuples used to store the deepcopy instructions
-        copy, host, wipe = (), (), ()
+        copy, host, wipe, imports = (), (), (), defaultdict(tuple)
 
         analysis = kwargs.pop('analysis')
         parent = kwargs.pop('parent', None)
 
         for var in analysis:
 
-            _copy, _host, _wipe = (), (), ()
+            _copy, _host, _wipe, _imports = (), (), (), {}
 
             # Don't generate a deepcopy for variables marked as present or private
             if var in kwargs['present'] or var in kwargs['private']:
@@ -737,8 +759,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 # If we are directly assigning derived-types, rather than operating on members,
                 # then we are the lowest level of the analysis and don't want to recurse further
                 if not isinstance(analysis[var], str):
-                    _copy, _host, _wipe = self.generate_deepcopy(routine, analysis=analysis[var],
-                                                                 parent=var_with_parent, **kwargs)
+                    _copy, _host, _wipe, _imports = self.generate_deepcopy(routine, analysis=analysis[var],
+                                                                           parent=var_with_parent, **kwargs)
 
                 #wrap in loop
                 if var.type.shape:
@@ -776,8 +798,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
                     field = field or re.search(f'{suffix}$', var.name, re.IGNORECASE)
 
                 if field:
-                    _copy, _host, _wipe = self.create_field_api_offload(var, analysis[var], typedef_config,
-                                                                        parent, routine)
+                    _copy, _host, _wipe, _imports = self.create_field_api_offload(var, analysis[var], typedef_config,
+                                                                                  parent, routine, kwargs['symbol_map'])
                 else:
                     # We have a regular array/scalar
                     if not parent or check:
@@ -802,5 +824,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
                 host += as_tuple(_host)
             if delete:
                 wipe += as_tuple(_wipe)
+            for mod in _imports:
+                imports[mod] += as_tuple(_imports[mod])
 
-        return copy, host, wipe
+        return copy, host, wipe, imports
