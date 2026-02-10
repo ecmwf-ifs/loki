@@ -433,6 +433,13 @@ class ItemConfig:
         return self.config.get('mode', None)
 
     @property
+    def inherited_mode(self):
+        """
+        Transformation "inherited_mode" for multi-mode processing
+        """
+        return self.config.get('inherited_mode', None)
+
+    @property
     def expand(self):
         """
         Flag to trigger expansion of children under this node

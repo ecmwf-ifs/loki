@@ -290,6 +290,7 @@ class ItemFactory:
 
             # Create a new FileItem for the new source
             new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
+            new_source.orig_path = item.path
             file_item = self.get_or_create_file_item_from_source(new_source, config=config)
 
             # Get the definition items for the FileItem and return the new item
@@ -346,6 +347,13 @@ class ItemFactory:
         self.item_cache[item_name] = file_item
         return file_item
 
+    def get_file_item_from_source(self, source):
+        # Check for file item with the same source object
+        for item in self.item_cache.values():
+            if isinstance(item, FileItem) and item.source is source:
+                return item
+        return None
+
     def get_or_create_file_item_from_source(self, source, config):
         """
         Utility method to create a :any:`FileItem` corresponding to a given source object
@@ -368,9 +376,9 @@ class ItemFactory:
             The config object from which the item configuration will be derived
         """
         # Check for file item with the same source object
-        for item in self.item_cache.values():
-            if isinstance(item, FileItem) and item.source is source:
-                return item
+        item_ = self.get_file_item_from_source(source)
+        if item_ is not None:
+            return item_
 
         if not source.path:
             raise RuntimeError('Cannot create FileItem from source: Sourcefile has no path')
