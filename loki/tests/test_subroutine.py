@@ -2038,6 +2038,22 @@ end module field_array_module
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_enrich_unresolved_component_array_access(tmp_path, frontend):
+    fcode = """
+subroutine test_enrich_unresolved_component_array_access
+implicit none
+untyped_array%len(1) = 1
+end subroutine test_enrich_unresolved_component_array_access
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine.enrich(())
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assert isinstance(assigns[0].lhs, sym.Array)
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_subroutine_deep_clone(frontend, tmp_path):
     """
     Test that deep-cloning a subroutine actually ensures clean scope separation.
