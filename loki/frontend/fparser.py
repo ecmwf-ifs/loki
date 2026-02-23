@@ -394,6 +394,7 @@ class FParser2IR(GenericVisitor):
         scope = kwargs.get('scope', None)
         parent = kwargs.get('parent')
         if parent:
+            assert hasattr(parent, 'scope'), f'[Loki::Frontend] Parent "{parent}" for AST node "{o}" has no scope!'
             scope = parent.scope
         if scope:
             scope = scope.get_symbol_scope(name)
