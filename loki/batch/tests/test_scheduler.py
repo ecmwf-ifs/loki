@@ -1324,9 +1324,9 @@ def test_scheduler_item_dependencies(testdir, tmp_path):
         }
     })
 
-    proj_hoist = testdir/'sources/projHoist'
+    proj_multi_mode = testdir/'sources/projHoist'
 
-    scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path])
+    scheduler = Scheduler(paths=proj_multi_mode, config=config, xmods=[tmp_path])
 
     assert tuple(
         call.name for call in scheduler['transformation_module_hoist#driver'].dependencies
@@ -3711,14 +3711,14 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
     })
 
     if as_modules:
-        proj_hoist = testdir/'sources/projMultiModeModules'
+        proj_multi_mode = testdir/'sources/projMultiModeModules'
     else:
-        proj_hoist = testdir/'sources/projMultiMode'
+        proj_multi_mode = testdir/'sources/projMultiMode'
 
     builddir = tmp_path/'scheduler_multi_driver_modes_dir'
     builddir.mkdir(exist_ok=True)
 
-    scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path],
+    scheduler = Scheduler(paths=proj_multi_mode, config=config, xmods=[tmp_path],
             output_dir=builddir)
     if wrong_pipeline_name:
         # check failure since pipeline 'm1' can't be found
@@ -3773,7 +3773,7 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
     for transformation in transformations:
         scheduler.process(transformation, proc_strategy=ProcessingStrategy.PLAN)
 
-    plan_trafo = CMakePlanTransformation(rootpath=proj_hoist)
+    plan_trafo = CMakePlanTransformation(rootpath=proj_multi_mode)
     scheduler.process(
         transformation=plan_trafo,
         proc_strategy=ProcessingStrategy.PLAN
@@ -3824,7 +3824,7 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
     assert set(plan_dict['LOKI_SOURCES_TO_REMOVE']) == expected_files_to_remove
 
     if reinit_scheduler:
-        scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path],
+        scheduler = Scheduler(paths=proj_multi_mode, config=config, xmods=[tmp_path],
                 output_dir=builddir)
     scheduler.propagate_and_separate_modes()
     for transformation in transformations:
