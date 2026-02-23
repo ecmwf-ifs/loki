@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import sys
 from enum import Enum, auto
 from os.path import commonpath
 from pathlib import Path
@@ -461,7 +462,7 @@ class Scheduler:
 
         Parameters
         ----------
-        transformation : :any:`Transformation` or :any:`Pipeline`
+        transformation : :any:`Transformation` or :any:`Pipeline` or dict of :any:`Pipeline`s
             The transformation or transformation pipeline to apply
         proc_strategy : :any:`ProcessingStrategy`
             The processing strategy to use when applying the given
@@ -473,24 +474,20 @@ class Scheduler:
         elif isinstance(transformation, Pipeline):
             self.process_pipeline(pipeline=transformation, proc_strategy=proc_strategy)
 
+        elif isinstance(transformation, dict):
+            assert all(isinstance(trafo, Pipeline) for trafo in transformation.values())
+            modes = self.propagate_and_separate_modes(proc_strategy=proc_strategy)
+            # check if all required pipelines are available
+            for mode in modes:
+                if mode not in transformation:
+                    msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
+                    sys.exit(msg)
+            # apply those pipelines
+            for mode in modes:
+                self.process_pipeline(pipeline=self.config.pipelines[mode], proc_strategy=proc_strategy, mode=mode)
         else:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
             raise RuntimeError(f'Could not batch process {transformation}')
-
-    def process_config(self, proc_strategy=ProcessingStrategy.DEFAULT):
-        """
-        Process a given config by applying pipelines in dependence
-        of the given mode (per (driver) item).
-
-        Parameters
-        ----------
-        proc_strategy : :any:`ProcessingStrategy`
-            The processing strategy to use when applying the given
-            :data:`pipeline` to the scheduler's graph.
-        """
-        modes = {item.mode for item in self.items}
-        for mode_ in modes:
-            self.process_pipeline(pipeline=self.config.pipelines[mode_], proc_strategy=proc_strategy, mode=mode_)
 
     def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """

@@ -3677,7 +3677,8 @@ end subroutine test_scheduler
 
 @pytest.mark.parametrize('as_modules', [False, True])
 @pytest.mark.parametrize('reinit_scheduler', [True, False])
-def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules):
+@pytest.mark.parametrize('wrong_pipeline_name', [True, False])
+def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, wrong_pipeline_name):
     """
     Make sure children are correct and unique for items
     """
@@ -3697,7 +3698,7 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules):
             'Idem3': {'classname': 'IdemTransformation', 'module': 'loki.transformations'}
         },
         'pipelines': {
-            'm1': {'transformations': {'Idem1'}},
+            f'{"m1x" if wrong_pipeline_name else "m1"}': {'transformations': {'Idem1'}},
             'm2': {'transformations': {'Idem2'}},
             'm3': {'transformations': {'Idem3'}}
         },
@@ -3713,7 +3714,12 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules):
 
     scheduler = Scheduler(paths=proj_hoist, config=config, xmods=[tmp_path],
             output_dir=builddir)
-    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+    if wrong_pipeline_name:
+        # check failure since pipeline 'm1' can't be found
+        with pytest.raises(SystemExit):
+            scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
+        return
+    scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
 
     _expected_item_mode_dic = {
         'm1': {
@@ -3767,7 +3773,7 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules):
         proc_strategy=ProcessingStrategy.PLAN
     )
     ## checking planfile
-    planfile = Path('/perm/nams/loki-separate-modes-2') / 'planfile' # tmp_path/'planfile'
+    planfile = tmp_path/'planfile'
     plan_trafo.write_plan(planfile)
 
     loki_plan = planfile.read_text()

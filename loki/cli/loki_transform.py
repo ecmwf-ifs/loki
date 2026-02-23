@@ -91,15 +91,9 @@ def convert(
     )
 
     if multimode:
-        _modes = scheduler.propagate_and_separate_modes(proc_strategy=processing_strategy)
-        scheduler.process_config(proc_strategy=processing_strategy)
-        info('[Loki-transform] Applying multiple custom pipelines from config:')
-        for _mode in _modes:
-            if _mode not in config.pipelines:
-                msg = f'[Loki] ERROR: Pipeline or transformation mode {_mode} not found in config file.\n'
-                msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
-                sys.exit(msg)
-            info(str(config.pipelines[_mode]))
+        # multimode, therefore pass all available pipelines and let process handle the rest
+        info('[Loki-transform] Applying custom pipelines from config')
+        scheduler.process(config.pipelines, proc_strategy=processing_strategy)
     else:
         # If requested, apply a custom pipeline from the scheduler config
         # Note that this new entry point will bypass all other default
