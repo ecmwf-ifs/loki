@@ -26,7 +26,6 @@ from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 
 from loki.logging import info, perf, warning, error
-from loki.transformations.dependency import SeparateModesKernel
 
 __all__ = ['ProcessingStrategy', 'Scheduler']
 
@@ -205,6 +204,7 @@ class Scheduler:
             self._enrich()
 
     def propagate_and_separate_modes(self, proc_strategy=ProcessingStrategy.DEFAULT):
+        from loki.transformations.dependency import SeparateModesKernel # pylint: disable=import-outside-toplevel
         self._propagate_modes()
         self.process_transformation(SeparateModesKernel(), proc_strategy=proc_strategy)
         self._propagate_modes_set()
