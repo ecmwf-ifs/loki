@@ -56,3 +56,8 @@ class DerivedType(DataType, Scope):
 
     def __hash__(self):
         return hash(self._canonical)
+
+    def clone(self, **kwargs):
+        args = {'name': self.name, 'typedef': self.typedef}
+        args.update(kwargs)
+        return super().clone(**args)
