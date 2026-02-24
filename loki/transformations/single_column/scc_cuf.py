@@ -472,13 +472,14 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
                 # GRIDDIM
                 lhs = routine.variable_map["griddim"]
-                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.IntLiteral(1), sym.IntLiteral(1),
-                                                                    sym.InlineCall(function=func_ceiling,
-                                                                                    parameters=as_tuple(
-                                                                                        sym.Cast(name="REAL",
-                                                                                                expression=upper) /
-                                                                                        sym.Cast(name="REAL",
-                                                                                                expression=step)))))
+                rhs = sym.InlineCall(
+                    function=func_dim3, parameters=(
+                        sym.IntLiteral(1), sym.IntLiteral(1),
+                        sym.InlineCall(function=func_ceiling, parameters=as_tuple(
+                            sym.Cast("REAL", expression=upper) / sym.Cast("REAL", expression=step)
+                        ))
+                    )
+                )
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                 mapper[call] = (blockdim_assignment, griddim_assignment, ir.Comment(""),
                         call.clone(chevron=(routine.variable_map["GRIDDIM"], routine.variable_map["BLOCKDIM"]),),
@@ -493,11 +494,12 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 blockdim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
                 # GRIDDIM
                 lhs = griddim_var
-                rhs = sym.InlineCall(function=func_dim3, parameters=(sym.InlineCall(function=func_ceiling,
-                    parameters=as_tuple(
-                        sym.Cast(name="REAL", expression=upper) /
-                        sym.Cast(name="REAL", expression=step))),
-                    sym.IntLiteral(1), sym.IntLiteral(1)))
+                rhs = sym.InlineCall(function=func_dim3, parameters=(
+                    sym.InlineCall(function=func_ceiling, parameters=as_tuple(
+                        sym.Cast("REAL", expression=upper) / sym.Cast("REAL", expression=step)
+                    )),
+                    sym.IntLiteral(1), sym.IntLiteral(1))
+                )
                 griddim_assignment = ir.Assignment(lhs=lhs, rhs=rhs)
 
         routine.body = Transformer(mapper=mapper).visit(routine.body)
