@@ -658,6 +658,12 @@ class FParser2IR(GenericVisitor):
         scope.symbol_attrs.update({var.name: var.type.clone(**_type.__dict__) for var in variables})
         variables = tuple(var.rescope(scope=scope) for var in variables)
 
+        # Duplicate DerivedType dtypes, so that meta-information does not alias
+        for var in variables:
+            t = scope.get_type(var.name)
+            if isinstance(t.dtype, DerivedType):
+                scope.symbol_attrs[var.name] = t.clone(dtype=t.dtype.clone())
+
         return ir.VariableDeclaration(
             symbols=variables, dimensions=_type.shape, source=source, label=label
         )
