@@ -29,7 +29,7 @@ class DerivedType(DataType, Scope):
         The definition of the derived type. Takes precedence over :data:`name`
     """
 
-    def __init__(self, name=None, typedef=None, scope=None):
+    def __init__(self, name=None, typedef=None, scope=None, **_kwargs):
         super().__init__(parent=scope)
         assert name or typedef
         self._name = name

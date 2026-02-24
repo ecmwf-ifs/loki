@@ -27,6 +27,17 @@ def fixture_builder(tmp_path):
     Obj.clear_cache()
 
 
+def test_derived_type_compare_clone():
+    """ Test basic compare and clone utilities of :any:`DerivedType` """
+    namedtype = DerivedType(name='mytype')
+    assert namedtype.name == 'mytype'
+    namedclone = namedtype.clone(typedef=ir.TypeDef(name='deftype'))
+    assert namedclone.name == 'deftype'
+
+    deftype = DerivedType(typedef=ir.TypeDef(name='DefType'))
+    assert deftype.name == 'DefType'
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_derived_type_symbols_nested(tmp_path, frontend):
     """ Test basic scoping behaviour of nested derived types """

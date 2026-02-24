@@ -11,7 +11,7 @@ A collection of tests for :any:`SymbolAttrs`, :any:`SymbolTable` and :any:`Scope
 
 import pytest
 
-from loki.types import INTEGER, REAL, Scope, SymbolAttributes
+from loki.types import INTEGER, REAL, DerivedType, Scope, SymbolAttributes
 
 
 def test_symbol_attributes():
@@ -50,6 +50,30 @@ def test_symbol_attributes_compare():
     assert someint.compare(another, ignore='b')
     assert another.compare(someint, ignore=['b'])
     assert not someint.compare(somereal)
+
+
+def test_symbol_attributes_clone():
+    """
+    Test deep/shallow copy mechanisms of the :any:`SymbolAttributes` class
+    """
+    someint = SymbolAttributes('integer', a='a', b=True, c=None)
+    dertype = DerivedType('mytype')
+    someobj = SymbolAttributes(dertype, a='a', b='No')
+
+    # Test simple clone for simple symbol
+    intclone = someint.clone()
+    assert someint.a == 'a' and someint.b and not someint.c
+    assert intclone.a == 'a' and intclone.b and not intclone.c
+
+    # Test simple clone for derived type symbol
+    objclone = someobj.clone()
+    assert someobj.dtype is dertype and someobj.a == 'a' and someobj.b == 'No'
+    assert objclone.dtype is dertype and objclone.a == 'a' and objclone.b == 'No'
+
+    # Test update-clone for derived type symbol
+    objclone = someobj.clone(b='Yes')
+    assert someobj.dtype is dertype and someobj.a == 'a' and someobj.b == 'No'
+    assert objclone.dtype is dertype and objclone.a == 'a' and objclone.b == 'Yes'
 
 
 def test_scope_setter():
