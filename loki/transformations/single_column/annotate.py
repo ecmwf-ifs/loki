@@ -180,6 +180,18 @@ class SCCAnnotateTransformation(Transformation):
             # ensure all arguments are device-resident.
             self.annotate_kernel_routine(routine)
 
+            with pragma_regions_attached(routine):
+                with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                    # # Find variables with existing OpenACC data declarations
+                    # acc_vars = self.find_acc_vars(routine, targets)
+                    # TODO: acc_vars
+                    acc_vars = {}
+
+                    driver_loops = find_driver_loops(section=routine.body, targets=targets)
+                    print(f"[ANNOTATE] kernel {routine} : driver_loops: {driver_loops}")
+                    for loop in driver_loops:
+                        self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+
 
         if role == 'driver':
             # Mark all parallel vector loops as `!$loki loop vector`
