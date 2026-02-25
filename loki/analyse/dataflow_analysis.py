@@ -1,24 +1,49 @@
-# (C) Copyright 2024- ECMWF.
+# (C) Copyright 2018- ECMWF.
 # This software is licensed under the terms of the Apache Licence Version 2.0
 # which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+"""
+Collection of dataflow analysis schema routines.
+"""
+
 from contextlib import contextmanager
 
-from loki import flatten, as_tuple, Transformer, Subroutine, CaseInsensitiveDict, FindInlineCalls, FindVariables, \
-    BasicType, Array, FindTypedSymbols, ProcedureSymbol, Visitor
 from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
+
+from loki.expression import Array, ProcedureSymbol
+from loki.ir.expr_visitors import FindLiterals
+from loki.tools import as_tuple, flatten, OrderedSet
+from loki.types import BasicType
+from loki.ir import (
+    Visitor, Transformer, FindVariables, FindInlineCalls, FindTypedSymbols
+)
+from loki.subroutine import Subroutine
+from loki.tools.util import CaseInsensitiveDict
 
 __all__ = [
     'DataflowAnalysis', 'read_after_write_vars',
     'loop_carried_dependencies'
 ]
 
+
+def strip_nested_dimensions(expr):
+    """
+    Strip dimensions from array expressions of arbitrary derived-type
+    nesting depth.
+    """
+
+    parent = expr.parent
+    if parent:
+        parent = strip_nested_dimensions(parent)
+    return expr.clone(dimensions=None, parent=parent)
+
+
 class DataflowAnalysis(AbstractDataflowAnalysis):
 
-    class Attacher(Transformer):
+    class _Attacher(Transformer):
         """
         Analyse and attach in-place the definition, use and live status of
         symbols.
@@ -307,7 +332,7 @@ class DataflowAnalysis(AbstractDataflowAnalysis):
                 uses |= {o.symbols[0].type.kind}
             return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
-    class Detacher(Transformer):
+    class _Detacher(Transformer):
         """
         Remove in-place any dataflow analysis properties.
         """
@@ -319,178 +344,34 @@ class DataflowAnalysis(AbstractDataflowAnalysis):
             o._update(_live_symbols=None, _defines_symbols=None, _uses_symbols=None)
             return super().visit_Node(o, **kwargs)
 
-    @classmethod
-    def attach_dataflow_analysis(cls, module_or_routine):
+    def attach_dataflow_analysis(self, module_or_routine):
         """
-            Determine and attach to each IR node dataflow analysis metadata.
-
-            This makes for each IR node the following properties available:
-
-            * :attr:`Node.live_symbols`: symbols defined before the node;
-            * :attr:`Node.defines_symbols`: symbols (potentially) defined by the
-              node, i.e., live in subsequent nodes;
-            * :attr:`Node.uses_symbols`: symbols used by the node (that had to be
-              defined before).
-
-            The IR nodes are updated in-place and thus existing references to IR
-            nodes remain valid.
-            """
-        live_symbols = set()
-        if hasattr(module_or_routine, 'arguments'):
-            live_symbols = AbstractDataflowAnalysis._symbols_from_expr(
-                module_or_routine.arguments,
-                condition=lambda a: a.type.intent and a.type.intent.lower() in ('in', 'inout')
-            )
-
-        if hasattr(module_or_routine, 'spec'):
-            cls.Attacher().visit(module_or_routine.spec, live_symbols=live_symbols)
-            live_symbols |= module_or_routine.spec.defines_symbols
-
-        if hasattr(module_or_routine, 'body'):
-            cls.Attacher().visit(module_or_routine.body, live_symbols=live_symbols)
-
-    @staticmethod
-    @contextmanager
-    def dataflow_analysis_attached(module_or_routine):
-        r"""
-        Create a context in which information about defined, live and used symbols
-        is attached to each IR node
+        Determine and attach to each IR node dataflow analysis metadata.
 
         This makes for each IR node the following properties available:
 
         * :attr:`Node.live_symbols`: symbols defined before the node;
         * :attr:`Node.defines_symbols`: symbols (potentially) defined by the
-          node;
-        * :attr:`Node.uses_symbols`: symbols used by the node that had to be
-          defined before.
+          node, i.e., live in subsequent nodes;
+        * :attr:`Node.uses_symbols`: symbols used by the node (that had to be
+          defined before).
 
-        This is an in-place update of nodes and thus existing references to IR
-        nodes remain valid. When leaving the context the information is removed
-        from IR nodes, while existing references remain valid.
-
-        The analysis is based on a rather crude regions-based analysis, with the
-        hierarchy implied by (nested) :any:`InternalNode` IR nodes used as regions
-        in the reducible flow graph (cf. Chapter 9, in particular 9.7 of Aho, Lam,
-        Sethi, and Ulliman (2007)). Our implementation shares some similarities
-        with a full reaching definitions dataflow analysis but is not quite as
-        powerful.
-
-        In reaching definitions dataflow analysis (cf. Chapter 9.2.4 Aho et. al.),
-        the transfer function of a definition :math:`d` can be expressed as:
-
-        .. math:: f_d(x) = \operatorname{gen}_d \cup (x - \operatorname{kill}_d)
-
-        with the set of definitions generated :math:`\operatorname{gen}_d` and the
-        set of definitions killed/invalidated :math:`\operatorname{kill}_d`.
-
-        We, however, do not record definitions explicitly and instead operate on
-        consolidated sets of defined symbols, i.e., effectively evaluate the
-        chained transfer functions up to the node. This yields a set of active
-        definitions at this node. The symbols defined by these definitions are
-        in :any:`Node.live_symbols`, and the symbols defined by the node (i.e.,
-        symbols defined by definitions in :math:`\operatorname{gen}_d`) are in
-        :any:`Node.defines_symbols`.
-
-        The advantage of this approach is that it avoids the need to introduce
-        a layer for definitions and dependencies. A downside is that this focus
-        on symbols instead of definitions precludes, in particular, the ability
-        to take data space into account, which makes it less useful for arrays.
-
-        .. note::
-            The context manager operates only on the module or routine itself
-            (i.e., its spec and, if applicable, body), not on any contained
-            subroutines or functions.
-
-        Parameters
-        ----------
-        module_or_routine : :any:`Module` or :any:`Subroutine`
-            The object for which the IR is to be annotated.
+        The IR nodes are updated in-place and thus existing references to IR
+        nodes remain valid.
         """
-        super().dataflow_analysis_attached(module_or_routine)
+        live_symbols = OrderedSet()
+        if hasattr(module_or_routine, 'arguments'):
+            live_symbols = self.get_attacher()._symbols_from_expr(
+                module_or_routine.arguments,
+                condition=lambda a: a.type.intent and a.type.intent.lower() in ('in', 'inout')
+            )
 
-class FindReads(Visitor):
-    """
-    Look for reads in a specified part of a control flow tree.
+        if hasattr(module_or_routine, 'spec'):
+            self.get_attacher().visit(module_or_routine.spec, live_symbols=live_symbols)
+            live_symbols |= module_or_routine.spec.defines_symbols
 
-    Parameters
-    ----------
-    start : (iterable of) :any:`Node`, optional
-        Visitor is only active after encountering one of the nodes in
-        :data:`start` and until encountering a node in :data:`stop`.
-    stop : (iterable of) :any:`Node`, optional
-        Visitor is no longer active after encountering one of the nodes in
-        :data:`stop` until it encounters again a node in :data:`start`.
-    active : bool, optional
-        Set the visitor active right from the beginning.
-    candidate_set : set of :any:`Node`, optional
-        If given, only reads for symbols in this set are considered.
-    clear_candidates_on_write : bool, optional
-        If enabled, writes of a symbol remove it from the :data:`candidate_set`.
-    """
-
-    def __init__(self, start=None, stop=None, active=False,
-                 candidate_set=None, clear_candidates_on_write=False, **kwargs):
-        super().__init__(**kwargs)
-        self.start = set(as_tuple(start))
-        self.stop = set(as_tuple(stop))
-        self.active = active
-        self.candidate_set = candidate_set
-        self.clear_candidates_on_write = clear_candidates_on_write
-        self.reads = set()
-
-    @staticmethod
-    def _symbols_from_expr(expr):
-        """
-        Return set of symbols found in an expression.
-        """
-        return {v.clone(dimensions=None) for v in FindVariables().visit(expr)}
-
-    def _register_reads(self, read_symbols):
-        if self.active:
-            if self.candidate_set is None:
-                self.reads |= read_symbols
-            else:
-                self.reads |= read_symbols & self.candidate_set
-
-    def _register_writes(self, write_symbols):
-        if self.active and self.clear_candidates_on_write and self.candidate_set is not None:
-            self.candidate_set -= write_symbols
-
-    def visit(self, o, *args, **kwargs):
-        self.active = (self.active and o not in self.stop) or o in self.start
-        return super().visit(o, *args, **kwargs)
-
-    def visit_object(self, o, **kwargs):  # pylint: disable=unused-argument
-        pass
-
-    def visit_LeafNode(self, o, **kwargs):  # pylint: disable=unused-argument
-        self._register_reads(o.uses_symbols)
-        self._register_writes(o.defines_symbols)
-
-    def visit_Conditional(self, o, **kwargs):
-        self._register_reads(DataflowAnalysis._symbols_from_expr(o.condition))
-        # Visit each branch with the original candidate set and then take the
-        # union of both afterwards to include all potential read-after-writes
-        candidate_set = self.candidate_set.copy() if self.candidate_set is not None else None
-        self.visit(o.body, **kwargs)
-        self.candidate_set, candidate_set = candidate_set, self.candidate_set
-        self.visit(o.else_body, **kwargs)
-        if self.candidate_set is not None:
-            self.candidate_set |= candidate_set
-
-    def visit_Loop(self, o, **kwargs):
-        self._register_reads(DataflowAnalysis._symbols_from_expr(o.bounds))
-        active = self.active
-        if self.active and self.candidate_set is not None:
-            # remove the loop variable as a variable of interest
-            self.candidate_set.discard(o.variable)
-        self.visit(o.children, **kwargs)
-        if active:
-            self.reads.discard(o.variable)
-
-    def visit_WhileLoop(self, o, **kwargs):
-        self._register_reads(DataflowAnalysis._symbols_from_expr(o.condition))
-        self.visit(o.children, **kwargs)
+        if hasattr(module_or_routine, 'body'):
+            self.get_attacher().visit(module_or_routine.body, live_symbols=live_symbols)
 
 
 class FindReads(Visitor):

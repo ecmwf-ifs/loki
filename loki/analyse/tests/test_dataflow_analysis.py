@@ -9,9 +9,9 @@ import pytest
 
 from loki import Module, Sourcefile, Subroutine
 from loki.analyse import (
-    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
+    DataflowAnalysis, dataflow_analysis_attached,
+    read_after_write_vars, loop_carried_dependencies
 )
-from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
@@ -213,7 +213,7 @@ end subroutine analyse_read_after_write_vars_conditionals
     assert len(pragmas) == len(vars_at_inspection_node)
 
     # We skip the context manager here to test the "include_literal_kinds" option
-    DataflowAnalysisAttacher(include_literal_kinds=include_literal_kinds).visit(routine.body)
+    DataflowAnalysis._Attacher(include_literal_kinds=include_literal_kinds).visit(routine.body)
 
     if include_literal_kinds:
         assert 'int32' in routine.body.uses_symbols
@@ -222,7 +222,7 @@ end subroutine analyse_read_after_write_vars_conditionals
     for pragma in pragmas:
         assert read_after_write_vars(routine.body, pragma) == vars_at_inspection_node[pragma.content]
 
-    DataflowAnalysisDetacher().visit(routine.body)
+    DataflowAnalysis._Detacher().visit(routine.body)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -608,7 +608,7 @@ end subroutine masked_statements
     num_bodies = len(mask.bodies)
 
     # We skip the context manager here to test the "include_literal_kinds" option
-    DataflowAnalysisAttacher(include_literal_kinds=include_literal_kinds).visit(routine.body)
+    DataflowAnalysis._Attacher(include_literal_kinds=include_literal_kinds).visit(routine.body)
 
     if include_literal_kinds:
         assert len(mask.uses_symbols) == 2
@@ -620,7 +620,7 @@ end subroutine masked_statements
     assert 'mask' in mask.uses_symbols
     assert 'vec1' in mask.defines_symbols
 
-    DataflowAnalysisDetacher().visit(routine.body)
+    DataflowAnalysis._Detacher().visit(routine.body)
 
     assert len(mask.bodies) == num_bodies
 

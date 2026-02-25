@@ -22,7 +22,7 @@ from loki.ir import (
         is_loki_pragma, pragmas_attached
 )
 from loki.expression import symbols as sym
-from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
+from loki.analyse import DataflowAnalysis
 from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
 from loki.tools import as_tuple, OrderedSet
@@ -115,7 +115,7 @@ def merge_nested_dict(ref_dict, temp_dict, force=False):
     return ref_dict
 
 
-class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
+class DeepcopyDataflowAnalysisAttacher(DataflowAnalysis._Attacher):
     """
     Dummy argument intents in Fortran also have implications on memory status, and `INTENT(OUT)`
     is therefore fundamentally unsafe for allocatables and pointers. Therefore in order to discern
@@ -330,7 +330,7 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         # We make do here (lazily) without a context manager, as this override of the
         # DataflowAnalysisAttacher is not meant for use outside of the current module.
-        dataflow_analysis = DeepcopyDataflowAnalysisAttacher(include_literal_kinds=False)
+        dataflow_analysis = DataflowAnalysis._Attacher(include_literal_kinds=False)
         if has_spec:
             dataflow_analysis.visit(scope_node.spec, successor_map=successor_map)
             dataflow_analysis.visit(scope_node.body, successor_map=successor_map)
@@ -371,10 +371,10 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                     item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
 
         if has_spec:
-            DataflowAnalysisDetacher().visit(scope_node.spec)
-            DataflowAnalysisDetacher().visit(scope_node.body)
+            DataflowAnalysis._Detacher().visit(scope_node.spec)
+            DataflowAnalysis._Detacher().visit(scope_node.body)
         else:
-            DataflowAnalysisDetacher().visit(scope_node)
+            DataflowAnalysis._Detacher().visit(scope_node)
 
     def gather_typedef_configs(self, successors, typedef_configs):
         """Gather typedef configs from children."""

@@ -9,5 +9,4 @@ Advanced analysis utilities, such as dataflow analysis functionalities.
 """
 
 from loki.analyse.abstract_dfa import *  # noqa
-from loki.analyse.analyse_dataflow import *  # noqa
 from loki.analyse.dataflow_analysis import *  # noqa
