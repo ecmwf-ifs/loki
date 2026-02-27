@@ -402,6 +402,151 @@ end subroutine kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension_2(frontend):
+    """ Test vector resolution utility for a single dimension. """
+
+    fcode = """
+subroutine driver(nlon,nlev,nb,var)
+  implicit none
+  integer, parameter :: param_1 = 1
+  integer, parameter :: param_2 = 2
+  integer, parameter :: param_3 = 5
+  integer, intent(in) :: nlon,nlev,nb
+  real, intent(inout) :: var(nlon,4,3,nlev,param_3,nb)
+  ! real, intent(inout) :: var(nlon,:,:,nlev,param_3,nb)
+  real :: var2(:,:,:,:,:,:)
+  real :: var3(:,:,:,:,:,:)
+  integer :: ibl, jl
+  integer :: offset
+  integer :: some_val
+  integer :: start, end, alt_start, alt_end
+  integer :: loop_start, loop_end
+  loop_start = 2
+  loop_end = nb
+  some_val = 0
+  offset = 1
+  
+  ! do ibl=loop_start, loop_end
+  !   do j=1,4
+  !     call kernel(nlon,nlev,var(:,j,1,:,param_1,ibl), var(:,j,2:3,:,param_2:param_3,ibl), offset, loop_start, loop_end)
+  !     call kernel(nlon,nlev,var(:,j,1,:,param_1,ibl), var(:,j,2:3,:,param_2:param_3,ibl), offset, loop_start, loop_end)
+  !   end do
+  ! enddo
+
+  do ibl=loop_start, loop_end
+    start = 1
+    end = nlon
+    do jl=start,end
+      var(jl, :, :, :, :, ibl) = 0 
+    enddo
+    var(:, :, :, :, :, ibl) = 0
+    var2(1:nlon, 3:param_3, :, :, :, ibl) = var3(:, :, :, :, :, ibl)
+  enddo
+end subroutine driver
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(name='horizontal', index='jl', lower=['start', 'alt_start'], upper=['end', 'alt_end'], size=['nlon'])
+    resolve_vector_dimension(routine, dimension=horizontal, derive_qualified_ranges=True)
+    # resolve_vector_dimension(routine, dimension=horizontal)
+    resolve_vector_notation(routine)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    print(f"{routine.to_fortran()}")
+    print(f"loops: {loops}")
+    print(f"{len(loops)}")
+    print(f"{loop.index: loop.bounds for loop in loops}")
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension_3(frontend):
+    """ Test vector resolution utility for a single dimension. """
+
+    fcode = """
+subroutine driver(ygeometry, yvars, state, field, arg1, arg2, klev)
+  implicit none
+  use field_module, only: field_array
+  use constant_mod, only: pi
+  use geometry_mod, only: geometry
+  use tvars_mod, only: tvars
+  use tstate_mod, only: tstate
+  use tdim_mod, only: tdim
+
+  type(geometry), intent(in) :: ygeometry
+  type(tvars), intent(in) :: yvars
+  type(tstate), intent(inout) :: state
+  type(field_array), intent(inout) :: field 
+  real, intent(inout) :: arg1(ygeometry%ydim%nproma, ygeometry%ydimv%len, ygeometry%ydim%ndim, ygeometry%ydim%ngpblks)
+  real, intent(inout) :: arg2(ygeometry%ydim%nproma, ygeometry%ydimv%len, ygeometry%ydim%ngpblks)
+  integer, intent(in) :: klev
+  real :: local_var1(ygeometry%ydim%nproma, klev, ygeometry%ydim%ngpblks)
+  real :: local_var2(ygeometry%ydim%nproma, klev, ygeometry%ydim%ngpblks)
+  real :: local_var3(ygeometry%ydim%nproma, klev, ygeometry%ydim%ngpblks)
+  real :: local_var4(ygeometry%ydim%nproma, klev, ygeometry%ydim%ngpblks) 
+  type(tdim) :: dims
+  real, pointer, contiguous :: ptr_var1(:, :) => NULL()
+  real, pointer, contiguous :: ptr_var2(:, :, :) => NULL()
+  real, pointer, contiguous :: ptr_var3(:, :, :, :) => NULL()
+  real, pointer, contiguous :: ptr_var4(:, :, :) => NULL()  
+
+  integer :: jl, jk, ibl, jkglo, icend
+  integer :: ngptot
+
+  ngptot = ygeometry%ydim%ngptot
+
+  do jkglo=1,ngptot,nproma
+    ibl = (jgklo-1) / nproma+1
+    icend = min(nproma, ngptot - jkglo + 1)
+    dims%klev = ygeometry%ydimv%len
+    dims%kidia = 1
+    dims%kfdia = icend
+    dims%klon = ygeometry%ydim%nproma
+
+    do jk=1,dims%klev
+      do jl=dims%kidia,dims%kfdia
+
+      enddo
+    enddo
+
+   
+    local_var1(:, 1, ibl) = dims%whatever%some_arr(:)
+    local_var1(:, 1, ibl) = dims%whatever%some_arr(1)
+    ptr_var3(:, :, :, ibl) = 0
+    local_var1(:, :, ibl) = 0
+
+    if (TRUE) local_var1(:, 1, ibl) = ptr_var1(5:klon+4, ibl)
+
+    local_var1(1:2, 1, ibl) = (/ 2.739,4.043 /)
+    local_var1(:, 1, ibl) = ptr_var1(5:klon+4, ibl)
+    local_var1(1, :, ibl) = ptr_var1(5:klon+4, ibl)
+    local_var2(:, :, ibl) = ptr_var2(:, :, ibl) + ptr_var2(:, :, ibl) + ptr_var3(:, :, 1, ibl)
+    ptr_var3(:, :, 1, ibl) = local_var3(:, :, ibl)
+    local_var4(:, :, ibl) = ptr_var4(:, 1:klev, ibl)
+
+  enddo
+
+
+end subroutine driver
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(name='horizontal', index='jl', lower=['start', 'alt_start'], upper=['end', 'alt_end'], size=['nlon'])
+    resolve_vector_dimension(routine, dimension=horizontal, derive_qualified_ranges=True)
+    # print(f"{routine.to_fortran()}")
+    # print("-----------------------------------------")
+    # # resolve_vector_dimension(routine, dimension=horizontal)
+    resolve_vector_notation(routine)
+    print(f"{routine.to_fortran()}")
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    print(f"{routine.to_fortran()}")
+    print(f"loops: {loops}")
+    print(f"{len(loops)}")
+    assert len(loops) == 14
+    loop_map = {loop.variable.name: str(loop.bounds) for loop in loops}
+    expected_loop_map = {'jkglo': '1:ngptot:nproma', 'jk': '1:dims%klev', 'jl': 'dims%kidia:dims%kfdia', 'i_local_var1_0': '1:klev', 'i_local_var1_1': '1:klev', 'i_local_var2_1': '1:klev', 'i_local_var2_0': '1:ygeometry%ydim%nproma', 'i_local_var4_1': '1:klev', 'i_local_var4_0': '1:ygeometry%ydim%nproma'}
+    # print(f"loop_map: {loop_map}")
+    assert loop_map == expected_loop_map
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_masked_statements(frontend):
     """
     Test resolving of masked statements in kernel.
