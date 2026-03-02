@@ -1,0 +1,60 @@
+name: loki-lint-tests
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push events
+  push:
+    branches: [ 'main' ]
+    tags-ignore: [ '**' ]
+
+  # Triggers the workflow on pull request events
+  pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loki_lint_tests:
+    name: Python ${{ matrix.python-version }}
+
+    strategy:
+      fail-fast: false  # false: try to complete all jobs
+      matrix:
+        platform: ['ubuntu-latest']
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - name: Clone IAL-lint
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          repository: ecmwf-ifs/ial-lint
+          path: ial-lint
+          ref: main
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -U .[tests]
+          python -m pip install --no-deps ${{ github.workspace }}/ial-lint
+
+      - name: Check installed packages
+        run: |
+          python -m pip list
+          python -c "import loki; print(loki.__file__)"
+          python -c "import ial_lint; print(ial_lint.__file__)"
+
+      - name: Run pytest
+        run: |
+          python -m pytest ${{ github.workspace }}/ial-lint
