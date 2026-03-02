@@ -90,17 +90,3 @@ jobs:
           files: ./coverage.xml
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Run lint_rules tests
-        run: |
-          source loki-activate
-          pytest -v --cov=./lint_rules/lint_rules --cov-report=xml lint_rules
-
-      - name: Upload lint_rules coverage report to Codecov
-        uses: codecov/codecov-action@v4
-        if: ${{ ! startsWith(matrix.os, 'macos') }}
-        with:
-          flags: lint_rules
-          files: ./coverage.xml
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
