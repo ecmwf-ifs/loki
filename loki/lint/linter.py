@@ -78,7 +78,7 @@ class Linter:
             A list of rule classes.
         """
         rule_list = inspect.getmembers(
-            rules_module, lambda obj: inspect.isclass(obj) and obj.__name__ in rules_module.__all__)
+            rules_module, lambda obj: inspect.isclass(obj) and obj.__name__ in dir(rules_module))
         if rule_names is not None:
             rule_list = [r for r in rule_list if r[0] in rule_names]
         return [r[1] for r in rule_list]
