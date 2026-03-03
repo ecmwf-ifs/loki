@@ -27,9 +27,20 @@ class Fixer:
         """
         Call `fix_module` for all rules and apply the transformations.
         """
-        # TODO: implement this!
-        if reports:
-            module.source.invalidate()
+        mapper = {}
+        for report in reports:
+            rule_config = config[report.rule.__name__]
+            mapper.update(report.rule.fix_module(module, report, rule_config) or {})
+
+        if mapper:
+            # Apply the changes and invalidate source objects
+            module.spec = Transformer(mapper).visit(module.spec)
+            module.body = Transformer(mapper).visit(module.body)
+            parent = module.parent
+            while parent is not None:
+                parent.source.invalidate(children=True)
+                parent = getattr(parent, 'parent', None)
+
         return module
 
     @classmethod
