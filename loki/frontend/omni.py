@@ -15,7 +15,7 @@ from loki.frontend.util import OMNI, sanitize_ir
 
 from loki import ir
 from loki.ir import (
-    GenericVisitor, FindNodes, Transformer,
+    AttachScopes, GenericVisitor, FindNodes, Transformer,
     process_dimension_pragmas, pragmas_attached
 )
 from loki.expression import (
@@ -25,7 +25,7 @@ from loki.expression import (
 from loki.logging import debug, info, warning, error
 from loki.config import config
 from loki.tools import (
-    as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict
+    as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict, dict_override
 )
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 
@@ -416,6 +416,10 @@ class OMNI2IR(GenericVisitor):
         else:
             spec.insert(spec.body.index(f_imports[-1])+1, ir.Intrinsic(text='IMPLICIT NONE'))
 
+        # As variables may be defined out of sequence, we need to re-generate
+        # symbols in the spec part to make them coherent with the symbol table
+        spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
+
         # Parse member functions
         body_ast = o.find('body')
         contains_ast = None if body_ast is None else body_ast.find('FcontainsStatement')
@@ -442,13 +446,13 @@ class OMNI2IR(GenericVisitor):
                 name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
                 body=body, contains=contains, ast=o, prefix=routine.prefix,
                 bind=routine.bind, result_name=routine.result_name,
-                rescope_symbols=True, source=routine.source, incomplete=False
+                rescope_symbols=False, source=routine.source, incomplete=False
             )
         else:
             routine.__initialize__(
                 name=routine.name, args=routine._dummies, docstring=docstring, spec=spec,
                 body=body, contains=contains, ast=o, prefix=routine.prefix,
-                bind=routine.bind, rescope_symbols=True, source=routine.source, incomplete=False
+                bind=routine.bind, rescope_symbols=False, source=routine.source, incomplete=False
             )
 
         # Update array shapes with Loki dimension pragmas
@@ -562,7 +566,6 @@ class OMNI2IR(GenericVisitor):
     def visit_varDecl(self, o, **kwargs):
         # OMNI has only one variable per declaration, find and create that
         name = o.find('name')
-        variable = self.visit(name, **kwargs)
 
         interface = None
         scope = kwargs['scope']
@@ -574,52 +577,61 @@ class OMNI2IR(GenericVisitor):
             _type = SymbolAttributes(BasicType.from_fortran_type(t))
             dimensions = None
 
+            # Last, instantiate declared variables
+            with dict_override(kwargs, {'type': _type}):
+                variable = self.visit(name, **kwargs)
+
         elif name.attrib['type'] in self.type_map:
             # Type with attributes or derived type
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast, **kwargs)
+
+            # Last, instantiate declared variables
+            with dict_override(kwargs, {'type': _type}):
+                variable = self.visit(name, **kwargs)
 
             dimensions = as_tuple(self.visit(d, **kwargs) for d in tast.findall('indexRange'))
             if dimensions:
                 _type = _type.clone(shape=dimensions)
                 variable = variable.clone(dimensions=dimensions)
 
-            if isinstance(_type.dtype, ProcedureType):
-                if _type.dtype.name == 'UNKNOWN':
-                    # _Probably_ a declaration with implicit interface
-                    dtype = ProcedureType(
-                        variable.name, is_function=_type.dtype.is_function, return_type=_type.dtype.return_type
-                    )
-                    _type = _type.clone(dtype=dtype)
-                    interface = dtype.return_type.dtype
-
-                if variable != scope.name:
-                    # Instantiate the symbol representing the procedure in the current scope to create
-                    # relevant symbol table entries, and then extract the dtype
-                    try:
-                        symbol_scope = scope.get_symbol_scope(_type.dtype.name)
-                        interface = symbol_scope.Variable(name=_type.dtype.name)
-                        _type = _type.clone(dtype=interface.type.dtype)
-                    except AttributeError:
-                        # Interface symbol could not be found
-                        pass
-
-                elif _type.dtype.return_type is not None:
-                    # This is the declaration of the return type inside a function, which is
-                    # why we restore the return_type
-                    _type = _type.dtype.return_type
-
-                    # If the return type has a shape, we need to apply this as a dimension to the
-                    # variable, otherwise it will be missing from the declaration
-                    if _type.shape:
-                        variable = variable.clone(dimensions=_type.shape)
-
-                if tast.attrib.get('is_external') == 'true':
-                    _type.external = True
-
         else:
             raise ValueError
 
+        if isinstance(_type.dtype, ProcedureType):
+            if _type.dtype.name == 'UNKNOWN':
+                # _Probably_ a declaration with implicit interface
+                dtype = ProcedureType(
+                    variable.name, is_function=_type.dtype.is_function, return_type=_type.dtype.return_type
+                )
+                _type = _type.clone(dtype=dtype)
+                interface = dtype.return_type.dtype
+
+            if variable != scope.name:
+                # Instantiate the symbol representing the procedure in the current scope to create
+                # relevant symbol table entries, and then extract the dtype
+                try:
+                    symbol_scope = scope.get_symbol_scope(_type.dtype.name)
+                    interface = symbol_scope.Variable(name=_type.dtype.name)
+                    _type = _type.clone(dtype=interface.type.dtype)
+                except AttributeError:
+                    # Interface symbol could not be found
+                    pass
+
+            elif _type.dtype.return_type is not None:
+                # This is the declaration of the return type inside a function, which is
+                # why we restore the return_type
+                _type = _type.dtype.return_type
+
+                # If the return type has a shape, we need to apply this as a dimension to the
+                # variable, otherwise it will be missing from the declaration
+                if _type.shape:
+                    variable = variable.clone(dimensions=_type.shape)
+
+            if tast.attrib.get('is_external') == 'true':
+                _type.external = True
+
+        # TODO: Should remove this...
         if o.find('value') is not None:
             _type = _type.clone(initial=AttachScopesMapper()(self.visit(o.find('value'), **kwargs), scope=scope))
         if _type.kind is not None:
@@ -627,6 +639,11 @@ class OMNI2IR(GenericVisitor):
 
         scope.symbol_attrs[variable.name] = _type
         variable = variable.rescope(scope=scope)
+
+        # Duplicate DerivedType dtypes, so that meta-information does not alias
+        t = scope.get_type(variable.name)
+        if isinstance(t.dtype, DerivedType):
+            scope.symbol_attrs[variable.name] = t.clone(dtype=t.dtype.clone())
 
         if isinstance(_type.dtype, ProcedureType):
             # This is actually a function or subroutine (EXTERNAL or PROCEDURE declaration)
@@ -1167,7 +1184,11 @@ class OMNI2IR(GenericVisitor):
         return sym.Variable(name=name, parent=parent, scope=parent.type.dtype)
 
     def visit_name(self, o, **kwargs):
-        return sym.Variable(name=o.text, scope=kwargs.get('scope'))
+        name = o.text
+        scope = kwargs.get('scope')
+        if scope:
+            scope = scope.get_symbol_scope(name)
+        return sym.Variable(name=name, scope=scope, type=kwargs.get('type'))
 
     visit_Var = visit_name
 
