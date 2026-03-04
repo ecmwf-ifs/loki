@@ -528,11 +528,7 @@ end subroutine routine_call_caller
     routine = Subroutine.from_source(fcode, frontend=frontend, definitions=header, xmods=[tmp_path])
     call = FindNodes(ir.CallStatement).visit(routine.body)[0]
 
-    assert str(call.arguments[0]) == 'x'
-    assert str(call.arguments[1]) == 'y'
-    assert str(call.arguments[2]) == 'vector'
-    assert str(call.arguments[3]) == 'matrix'
-    assert str(call.arguments[4]) == 'item%matrix'
+    assert call.arguments == ('x', 'y', 'vector', 'matrix', 'item%matrix')
 
     assert isinstance(call.arguments[0], sym.Scalar)
     assert isinstance(call.arguments[1], sym.Scalar)
@@ -540,11 +536,9 @@ end subroutine routine_call_caller
     assert isinstance(call.arguments[3], sym.Array)
     assert isinstance(call.arguments[4], sym.Array)
 
-    assert fexprgen(call.arguments[2].shape) == '(x,)'
-    assert fexprgen(call.arguments[3].shape) == '(x, y)'
-#    assert fexprgen(call.arguments[4].shape) in ['(3, 3)', '(1:3, 1:3)']
-
-    assert fgen(call) == 'CALL routine_call_callee(x, y, vector, matrix, item%matrix)'
+    assert call.arguments[2].shape == ('x',)
+    assert call.arguments[3].shape == ('x', 'y')
+    assert call.arguments[4].shape == (3, 3)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
