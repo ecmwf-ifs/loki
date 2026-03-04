@@ -179,8 +179,8 @@ end module a_module
     assert 'ext_type' in module.symbol_attrs
     assert isinstance(module.symbol_attrs['ext_type'].dtype.typedef, ir.TypeDef)
     assert isinstance(nested.symbol_attrs['ext'].dtype.typedef, ir.TypeDef)
-    assert isinstance(module['my_routine'].symbol_attrs['pt'].dtype.typedef, ir.TypeDef)
-    assert isinstance(module['my_routine'].symbol_attrs['pt%ext'].dtype.typedef, ir.TypeDef)
+    assert isinstance(module['my_routine'].get_dtype('pt').typedef, ir.TypeDef)
+    assert isinstance(module['my_routine'].get_dtype('pt').get_dtype('ext').typedef, ir.TypeDef)
     assert 'other_type' in module.symbol_attrs
     assert 'other_type' not in module['other_routine'].symbol_attrs
     assert isinstance(module.symbol_attrs['other_type'].dtype.typedef, ir.TypeDef)
