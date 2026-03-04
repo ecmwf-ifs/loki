@@ -35,6 +35,10 @@ class DerivedType(DataType, Scope):
         self._name = name
         self.typedef = typedef if typedef is not None else BasicType.DEFERRED
 
+        # If type info is given, copy it into the local scope
+        if self.typedef and not self.typedef is BasicType.DEFERRED:
+            self.symbol_attrs.update(self.typedef.symbol_attrs)
+
     @property
     def name(self):
         return self._name if self.typedef is BasicType.DEFERRED else self.typedef.name
