@@ -10,12 +10,14 @@ from random import choice
 import pytest
 
 from loki import (
-    Sourcefile, Module, Subroutine, BasicType, SymbolAttributes,
-    DerivedType, TypeDef, FCodeMapper, DataType, fgen, ProcedureType,
-    FindNodes, ProcedureDeclaration
+    Sourcefile, Module, Subroutine, FCodeMapper, fgen
 )
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes
+from loki.types import (
+    BasicType, DataType, DerivedType, ProcedureType, SymbolAttributes
+)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -148,6 +150,7 @@ module test_type_derived_type_mod
     type(my_struct), allocatable :: b(:)
     type(my_struct), pointer :: c
 
+    a%a(:) = b(2)%b(1,:) 
   end subroutine test_type_derived_type
 end module test_type_derived_type_mod
 """
@@ -166,21 +169,32 @@ end module test_type_derived_type_mod
     assert c.type.pointer
 
     # Ensure derived types have links to type definition and correct scope
-    for var_getter in [lambda v: v.type.dtype.typedef.variables, lambda v: v.variables]:
-        assert len(var_getter(a)) == 2
-        assert len(var_getter(b)) == 2
-        assert len(var_getter(c)) == 2
+    len(a.type.dtype.typedef.variables) == len(a.variables) == 2
+    len(b.type.dtype.typedef.variables) == len(b.variables) == 2
+    len(c.type.dtype.typedef.variables) == len(b.variables) == 2
     assert all(v.scope is a.type.dtype for v in a.variables)
     assert all(v.scope is b.type.dtype for v in b.variables)
     assert all(v.scope is c.type.dtype for v in c.variables)
 
-    # Ensure all member variable have an entry in the local symbol table
-    assert routine.symbol_attrs['a%a'].shape == (':',)
-    assert routine.symbol_attrs['a%b'].shape == (':',':')
-    assert routine.symbol_attrs['b%a'].shape == (':',)
-    assert routine.symbol_attrs['b%b'].shape == (':',':')
-    assert routine.symbol_attrs['c%a'].shape == (':',)
-    assert routine.symbol_attrs['c%b'].shape == (':',':')
+    # Ensure no member variables have an entry in the local symbol table
+    assert not 'a%a' in routine.symbol_attrs
+    assert not 'a%b' in routine.symbol_attrs
+    assert not 'b%a' in routine.symbol_attrs
+    assert not 'b%b' in routine.symbol_attrs
+    assert not 'c%a' in routine.symbol_attrs
+    assert not 'c%b' in routine.symbol_attrs
+
+    # Ensure locally used member variables have the right type info
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assigns[0].lhs == 'a%a(:)'
+    assigns[0].lhs.dimensions == (':',)
+    assigns[0].lhs.shape == (':',)
+    assigns[0].rhs == 'b(2)%b(1,:)'
+    assigns[0].rhs.dimensions == (1,':')
+    assigns[0].rhs.shape == (':',':')
+    assigns[0].rhs.parent.dimensions == (2,)
+    assigns[0].rhs.parent.shape == (':',)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot deal with deferred type info')]))
@@ -231,23 +245,26 @@ end module my_types_mod
     assert routine.symbol_attrs['a_kind'].initial == 4
     assert routine.symbol_attrs['a_dim'].dtype == BasicType.INTEGER
     assert routine.symbol_attrs['a_dim'].kind == 'a_kind'
-    assert isinstance(routine.symbol_attrs['a_type'].dtype.typedef, TypeDef)
+    assert isinstance(routine.symbol_attrs['a_type'].dtype.typedef, ir.TypeDef)
 
     # Check that external type definition has been linked
-    assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, TypeDef)
+    assert isinstance(routine.variable_map['arg_b'].type.dtype.typedef, ir.TypeDef)
     assert routine.variable_map['arg_b'].type.dtype.typedef.symbol_attrs != routine.symbol_attrs
 
     # Check that we correctly re-scoped the member variable
-    a, b = routine.variable_map['arg_b'].variables
+    arg_b = routine.variable_map['arg_b']
+    a, b = arg_b.variables
     assert ','.join(str(d) for d in a.dimensions) == ':'
     assert ','.join(str(d) for d in b.dimensions) == ':,:'
     assert a.type.kind == b.type.kind == 'a_kind'
-    assert a.scope is routine
-    assert b.scope is routine
+    assert a.scope is arg_b.type.dtype
+    assert b.scope is arg_b.type.dtype
+    assert a.type.shape == (':',)
+    assert b.type.shape == (':',':')
 
-    # Ensure all member variable have an entry in the local symbol table
-    assert routine.symbol_attrs['arg_b%a'].shape == (':',)
-    assert routine.symbol_attrs['arg_b%b'].shape == (':',':')
+    # Ensure no member variables have an entry in the local symbol table
+    assert not 'arg_b%a' in routine.symbol_attrs
+    assert not 'arg_b%b' in routine.symbol_attrs
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -435,7 +452,9 @@ END MODULE some_mod
     #        variable type currently...
     assert isinstance(module.symbol_map['real_func'], (sym.Scalar, sym.ProcedureSymbol))
 
-    decl_map = {s.name.lower(): d for d in FindNodes(ProcedureDeclaration).visit(module.spec) for s in d.symbols}
+    decl_map = {
+        s.name.lower(): d for d in FindNodes(ir.ProcedureDeclaration).visit(module.spec) for s in d.symbols
+    }
 
     # Check symbols are declared and have the right type
     procedure_names = ('sub', 'bessel', 'gfun', 'print_real', 'p', 'r', 'ptr_to_gfun', 'psi')  # 'real_func'
@@ -479,7 +498,7 @@ END MODULE some_mod
 
     # Assert procedure pointer component in the derived_type is sane
     struct_type = module.typedef_map['struct_type']
-    decls = FindNodes(ProcedureDeclaration).visit(struct_type.body)
+    decls = FindNodes(ir.ProcedureDeclaration).visit(struct_type.body)
     assert len(decls) == 1
     assert decls[0].symbols == ('component',)
     assert decls[0].symbols[0].type.dtype.name.upper() == 'REAL_FUNC'
