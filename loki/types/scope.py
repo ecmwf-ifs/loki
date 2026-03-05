@@ -183,6 +183,12 @@ class Scope:
         if fail and name not in self.symbol_attrs:
             raise ValueError(f'[Loki::Scope] Tyring to update undeclared symbol name: {name}')
 
+        # Ensure that any nested scopes are not replaced, but instead values are copied
+        for k, v in kwargs.items():
+            if isinstance(v, Scope) and isinstance(getattr(self.symbol_attrs[name], k), Scope):
+                getattr(self.symbol_attrs[name], k).symbol_attrs.update(v.symbol_attrs)
+        kwargs = {k: v for k, v in kwargs.items() if not isinstance(getattr(self.symbol_attrs[name], k), Scope)}
+
         if name in self.symbol_attrs:
             self.symbol_attrs[name] = self.symbol_attrs[name].clone(**kwargs)
         else:

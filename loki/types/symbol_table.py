@@ -124,6 +124,9 @@ class SymbolAttributes:
         return all(self.__dict__.get(k) == other.__dict__.get(k)
                    for k in keys if k not in ignore_attrs)
 
+    def update(self, d):
+        self.__dict__.update(d)
+
 
 class SymbolTable(dict):
     """
