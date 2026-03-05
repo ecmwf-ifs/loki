@@ -339,14 +339,11 @@ class ProgramUnit(Scope):
                         dtype=remote_node.dtype, imported=True, module=module
                     )
                     # Update dtype for local variables using this type
-
-                    ## TODO: This clone here wipes a previous scope!!!
-                    variables_with_this_type = {
-                        name: type_.clone(dtype=remote_node.dtype)
-                        for name, type_ in self.symbol_attrs.items()
-                        if getattr(type_.dtype, 'name') == remote_node.dtype.name
-                    }
-                    updated_symbol_attrs.update(variables_with_this_type)
+                    # Needs to happen in-place, as the dtype is a scope and might be weakref'd
+                    for name, type_ in self.symbol_attrs.items():
+                        if getattr(type_.dtype, 'name') == remote_node.dtype.name:
+                            type_.dtype.typedef = remote_node.dtype.typedef
+                            type_.dtype.symbol_attrs.update(remote_node.dtype.symbol_attrs)
                 elif remote_node and hasattr(remote_node, 'type'):
                     # This is a global variable or interface import
                     updated_symbol_attrs[local_name] = remote_node.type.clone(
@@ -354,12 +351,7 @@ class ProgramUnit(Scope):
                     )
                 else:
                     debug('Cannot enrich import of %s from module %s', local_name, module.name)
-
-            # Copy over the dtype in a careful way, to not reinstantiate
-            for k, v in updated_symbol_attrs.items():
-                self.update(k, **v.__dict__)
-                if isinstance(v.dtype, DerivedType) and v.dtype.typedef:
-                    self.get_dtype(k).typedef = v.dtype.typedef
+            self.symbol_attrs.update(updated_symbol_attrs)
 
             if imprt.symbols:
                 # Rebuild the symbols in the import's symbol list to obtain the correct
