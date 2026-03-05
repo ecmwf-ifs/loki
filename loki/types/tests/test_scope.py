@@ -131,3 +131,25 @@ def test_scope_getter():
         scope.get_type('b', recursive=False)
 
     assert scope.get_type('b', recursive=False, fail=False) is None
+
+
+def test_scope_update_nested():
+    """
+    Test updates with and without nested :any:`Scope` objects
+    """
+    # Define original and updated nested-scope type info
+    nest = Scope()
+    nest.declare("x", dtype='int', a="a")
+    other = Scope()
+    other.declare("x", dtype='int', a="b")
+
+    # Declare initial nested scope and then update
+    scope = Scope()
+    scope.declare("v", dtype='int', s=nest)
+    scope.update("v", s=other)
+
+    # Ensure the nested Scope has not been re-instatiated or replaced
+    assert scope.get_type("v").s is nest
+    assert not scope.get_type("v").s is other
+    # But ensure that its content has been updated correctly
+    assert scope.get_type("v").s.get_type("x").a == "b"

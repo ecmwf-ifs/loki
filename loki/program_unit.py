@@ -339,6 +339,8 @@ class ProgramUnit(Scope):
                         dtype=remote_node.dtype, imported=True, module=module
                     )
                     # Update dtype for local variables using this type
+
+                    ## TODO: This clone here wipes a previous scope!!!
                     variables_with_this_type = {
                         name: type_.clone(dtype=remote_node.dtype)
                         for name, type_ in self.symbol_attrs.items()
@@ -352,7 +354,12 @@ class ProgramUnit(Scope):
                     )
                 else:
                     debug('Cannot enrich import of %s from module %s', local_name, module.name)
-            self.symbol_attrs.update(updated_symbol_attrs)
+
+            # Copy over the dtype in a careful way, to not reinstantiate
+            for k, v in updated_symbol_attrs.items():
+                self.update(k, **v.__dict__)
+                if isinstance(v.dtype, DerivedType) and v.dtype.typedef:
+                    self.get_dtype(k).typedef = v.dtype.typedef
 
             if imprt.symbols:
                 # Rebuild the symbols in the import's symbol list to obtain the correct
