@@ -33,8 +33,7 @@ __all__ = [
     'Comment', 'CommentBlock', 'Pragma', 'PreprocessorDirective',
     'Import', 'VariableDeclaration', 'ProcedureDeclaration', 'DataDeclaration',
     'StatementFunction', 'TypeDef', 'MultiConditional', 'TypeConditional',
-    'Forall', 'MaskedStatement',
-    'Intrinsic', 'Enumeration', 'RawSource',
+    'Forall', 'MaskedStatement', 'Enumeration', 'RawSource',
 ]
 
 # Leaf node types
@@ -1139,40 +1138,6 @@ class MaskedStatement(LeafNode, _MaskedStatementBase):
 
     def __repr__(self):
         return f'MaskedStatement:: {str(self.conditions[0])}'
-
-
-@dataclass(frozen=True)
-class _IntrinsicBase():
-    """ Type definitions for :any:`Intrinsic` node type. """
-
-    text: str
-
-
-@dataclass_strict(frozen=True)
-class Intrinsic(LeafNode, _IntrinsicBase):
-    """
-    Catch-all generic node for corner-cases.
-
-    This is provided as a fallback for any statements that do not have
-    an appropriate representation in the IR. These can either be language
-    features for which support was not yet added, or statements that are not
-    relevant in Loki's scope of applications. This node retains the text of
-    the statement in the original source as-is.
-
-    Parameters
-    ----------
-    text : str
-        The statement as a string.
-    **kwargs : optional
-        Other parameters that are passed on to the parent class constructor.
-    """
-
-    def __post_init__(self):
-        super().__post_init__()
-        assert isinstance(self.text, str)
-
-    def __repr__(self):
-        return f'Intrinsic:: {truncate_string(self.text)}'
 
 
 @dataclass_strict(frozen=True)
