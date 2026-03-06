@@ -14,13 +14,10 @@ Control flow node classes for
 from abc import abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
-from functools import partial
 from itertools import chain
 from typing import Any, Tuple, Union, Optional
 
 from pymbolic.primitives import Expression
-
-from pydantic.dataclasses import dataclass as dataclass_validated
 from pydantic import field_validator
 
 from loki.expression import (
@@ -28,7 +25,10 @@ from loki.expression import (
     ExpressionDimensionsMapper
 )
 from loki.frontend.source import Source
-from loki.tools import flatten, as_tuple, is_iterable, truncate_string, CaseInsensitiveDict
+from loki.tools import (
+    as_tuple, dataclass_strict, flatten, is_iterable, truncate_string,
+    CaseInsensitiveDict
+)
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes, Scope
 
 __all__ = [
@@ -47,13 +47,6 @@ __all__ = [
     'Intrinsic', 'Enumeration', 'RawSource',
 ]
 
-# Configuration for validation mechanism via pydantic
-dataclass_validation_config  = {
-    'arbitrary_types_allowed': True,
-}
-
-# Using this decorator, we can force strict validation
-dataclass_strict = partial(dataclass_validated, config=dataclass_validation_config)
 
 
 def _sanitize_tuple(t):
