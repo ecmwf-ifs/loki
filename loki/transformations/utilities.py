@@ -34,7 +34,8 @@ from loki.ir.visitor import Visitor
 __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
     'sanitise_imports', 'replace_selected_kind',
-    'single_variable_declaration', 'recursive_expression_map_update',
+    'single_variable_declaration', 'update_variable_declarations',
+    'recursive_expression_map_update',
     'get_integer_variable', 'get_loop_bounds', 'is_pragma_driver_loop', 'find_driver_loops',
     'get_local_arrays', 'check_routine_sequential', 'substitute_variables_for_definitions'
 ]
@@ -62,25 +63,100 @@ def single_variable_declaration(routine, variables=None, group_by_shape=False):
     """
     decl_map = {}
     for decl in FindNodes(VariableDeclaration).visit(routine.spec):
-        if len(decl.symbols) > 1:
+        if len(decl.symbols) >= 1:
             if not group_by_shape:
                 unique_symbols = [s for s in decl.symbols if variables is None or s.name in variables]
                 if unique_symbols:
-                    new_decls = tuple(decl.clone(symbols=(s,)) for s in unique_symbols)
+                    new_decls = tuple(decl.clone(symbols=(s,), dimensions=None) for s in unique_symbols)
                     retain_symbols = tuple(s for s in decl.symbols if variables is not None and s.name not in variables)
                     if retain_symbols:
-                        decl_map[decl] = (decl.clone(symbols=retain_symbols),) + new_decls
+                        decl_map[decl] = (decl.clone(symbols=retain_symbols, dimensions=None),) + new_decls
                     else:
                         decl_map[decl] = new_decls
             else:
                 smbls_by_shape = defaultdict(list)
                 for smbl in decl.symbols:
                     smbls_by_shape[getattr(smbl, 'shape', None)] += [smbl]
-                decl_map[decl] = tuple(decl.clone(symbols=as_tuple(smbls)) for smbls in smbls_by_shape.values())
+                decl_map[decl] = tuple(decl.clone(symbols=as_tuple(smbls), dimensions=None)
+                                       for smbls in smbls_by_shape.values())
     routine.spec = Transformer(decl_map).visit(routine.spec)
     # if variables defined and group_by_shape, first call ignores the variables, thus second call
     if variables and group_by_shape:
         single_variable_declaration(routine=routine, variables=variables, group_by_shape=False)
+
+
+def _is_deferred_shape(shape):
+    """
+    Check whether a variable shape is entirely deferred (assumed-shape
+    or allocatable), i.e. every dimension is ``:``.
+
+    Parameters
+    ----------
+    shape : tuple
+        The shape tuple of the variable (from ``var.shape`` or
+        ``var.type.shape``).
+
+    Returns
+    -------
+    bool
+        ``True`` if all dimensions are :any:`RangeIndex` with no
+        lower or upper bound.
+    """
+    return shape and all(
+        isinstance(d, sym.RangeIndex) and d.lower is None and d.upper is None
+        for d in shape
+    )
+
+
+def update_variable_declarations(spec, variables):
+    """
+    Update variable declarations to match modified variable shapes.
+
+    For declarations that use the ``DIMENSION(...)`` attribute, this updates
+    the declaration-level dimensions to reflect the current shape of the
+    given variables. If all symbols in a declaration share the same shape,
+    the shared ``DIMENSION(...)`` is updated. If shapes differ (e.g., only
+    some variables were promoted or demoted), the declaration is split into
+    one declaration per variable.
+
+    This is used by both :any:`promote_variables` and :any:`demote_variables`
+    to keep ``DIMENSION(...)`` attributes consistent after shape changes.
+
+    Parameters
+    ----------
+    spec : :any:`Section`
+        The spec (declarations section) of the routine.
+    variables : iterable of :any:`Expression`
+        The variables whose declarations may need updating. Only declarations
+        that use ``DIMENSION(...)`` and contain at least one of these variables
+        are considered.
+
+    Returns
+    -------
+    :any:`Section`
+        The updated spec with modified declarations.
+    """
+    variable_names = {v.name.lower() for v in variables}
+    decls = tuple(
+        d for d in FindNodes(VariableDeclaration).visit(spec)
+        if d.dimensions and any(s.name.lower() in variable_names for s in d.symbols)
+    )
+    decl_map = {}
+    for decl in decls:
+        sym_shapes = tuple(
+            s.shape if isinstance(s, (sym.Array,)) else None for s in decl.symbols
+        )
+        if all(d == sym_shapes[0] for d in sym_shapes):
+            # All symbols have the same shape — update the shared DIMENSION
+            dimensions = decl.symbols[0].shape if isinstance(decl.symbols[0], sym.Array) else None
+            decl_map[decl] = decl.clone(dimensions=dimensions)
+        else:
+            # Shapes differ — split into one declaration per variable
+            decl_map[decl] = tuple(
+                decl.clone(symbols=(s,), dimensions=(s.shape if isinstance(s, sym.Array) else None))
+                for s in decl.symbols
+            )
+    return Transformer(decl_map).visit(spec)
 
 
 def convert_to_lower_case(routine):
