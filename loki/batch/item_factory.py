@@ -542,16 +542,16 @@ class ItemFactory:
         if unqualified_imports:
             # We try to find the ProcedureItem in the unqualified module imports
             module_names = [imprt.module for imprt in unqualified_imports]
-            candidates = self.get_or_create_module_definitions_from_candidates(
+            candidates = set(self.get_or_create_module_definitions_from_candidates(
                 proc_name, config, module_names=module_names, only=ProcedureItem
-            )
+            ))
             if candidates:
                 if len(candidates) > 1:
                     candidate_modules = [it.scope_name for it in candidates]
                     raise RuntimeError(
-                        f'Procedure {item_name} defined in multiple imported modules: {", ".join(candidate_modules)}'
+                        f'Procedure {proc_name} defined in multiple imported modules: {", ".join(candidate_modules)}'
                     )
-                return candidates[0]
+                return list(candidates)[0]
 
         # This is a call to a subroutine declared via header-included interface
         item_name = f'#{proc_name}'.lower()
