@@ -12,4 +12,5 @@ Collection of utility routines to deal with common array indexing conversions.
 from loki.transformations.array_indexing.array_indices import * # noqa
 from loki.transformations.array_indexing.demote import * # noqa
 from loki.transformations.array_indexing.promote import * # noqa
+from loki.transformations.array_indexing.promote_local_array import * # noqa
 from loki.transformations.array_indexing.vector_notation import * # noqa

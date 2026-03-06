@@ -19,12 +19,68 @@ from loki.ir import (
 )
 from loki.logging import info
 from loki.tools import as_tuple, OrderedSet
-
+from loki.transformations.utilities import single_variable_declaration, update_variable_declarations, _is_deferred_shape
 
 __all__ = [
-    'promote_variables', 'promote_nonmatching_variables',
+    'promote_variables', 'promote_variable_declarations',
+    'promote_nonmatching_variables',
     'promotion_dimensions_from_loop_nest',
 ]
+
+
+def promote_variable_declarations(routine, variable_names, pos, size):
+    """
+    Promote the declared dimensions of a list of variables by inserting
+    new array dimensions of given size.
+
+    This updates only the variable declarations in ``routine.spec``,
+    not the variable uses in the routine body.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which the variable declarations should be promoted.
+    variable_names : list of str
+        The names of variables to be promoted. Matching of variables against
+        names is case-insensitive.
+    pos : int
+        The position of the new array dimension using Python indexing
+        convention (i.e., count from 0 and use negative values to count from
+        the end).
+    size : :py:class:`pymbolic.Expression`
+        The size of the dimension (or tuple for multi-dimension promotion) to
+        insert at `pos`.
+    """
+    variable_names = {name.lower() for name in variable_names}
+    if not variable_names:
+        return
+
+    # Ensure that all variables to promote are in single variable decls
+    single_variable_declaration(routine, variable_names)
+
+    size = as_tuple(size)
+
+    var_list = [var for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec)
+                for var in decl.symbols if var.name.lower() in variable_names]
+
+    # For deferred-shape arrays (all ':' dimensions), the promoted
+    # dimension must also be deferred — explicit sizes are invalid in
+    # declarations of assumed-shape or allocatable arrays.
+    deferred_size = tuple(sym.RangeIndex((None, None)) for _ in size)
+
+    var_shapes = [getattr(var, 'shape', ()) for var in var_list]
+    if pos < 0:
+        var_pos = [len(shape) - pos + 1 for shape in var_shapes]
+    else:
+        var_pos = [pos] * len(var_shapes)
+    var_shapes = [d[:p] + (deferred_size if _is_deferred_shape(d) else size) + d[p:]
+                  for d, p in zip(var_shapes, var_pos)]
+    var_map = {v: v.clone(type=v.type.clone(shape=shape), dimensions=shape)
+               for v, shape in zip(var_list, var_shapes)}
+    routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+
+    # Update variable declarations with updated dimensions
+    routine.spec = update_variable_declarations(routine.spec, var_map.values())
 
 
 def promote_variables(routine, variable_names, pos, index=None, size=None):
@@ -58,7 +114,6 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         is updated accordingly.
     """
     variable_names = {name.lower() for name in variable_names}
-
     if not variable_names:
         return
 
@@ -91,6 +146,10 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
                         var_dim = var.dimensions
                     else:
                         var_dim = ()
+                    # If the variable is declared as an array but used without
+                    # subscripts, fill in the existing dimensions with ':'
+                    if not var_dim and getattr(var, 'shape', None):
+                        var_dim = tuple(sym.RangeIndex((None, None)) for _ in var.shape)
                     if pos < 0:
                         var_pos = len(var_dim) - pos + 1
                     else:
@@ -105,21 +164,7 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
 
     # Apply shape promotion
     if size is not None:
-        size = as_tuple(size)
-
-        var_list = [var for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec)
-                    for var in decl.symbols if var.name.lower() in variable_names]
-
-        var_shapes = [getattr(var, 'shape', ()) for var in var_list]
-        if pos < 0:
-            var_pos = [len(shape) - pos + 1 for shape in var_shapes]
-        else:
-            var_pos = [pos] * len(var_shapes)
-        var_shapes = [d[:p] + size + d[p:] for d, p in zip(var_shapes, var_pos)]
-
-        var_map = {v: v.clone(type=v.type.clone(shape=shape), dimensions=shape)
-                   for v, shape in zip(var_list, var_shapes)}
-        routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
+        promote_variable_declarations(routine, variable_names, pos, size)
 
 
 def promotion_dimensions_from_loop_nest(var_names, loops, promotion_vars_dims, promotion_vars_index):
