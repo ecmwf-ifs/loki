@@ -33,9 +33,10 @@ from loki.logging import debug, error
 
 __all__ = [
     'as_tuple', 'is_iterable', 'is_subset', 'flatten', 'chunks',
-    'execute', 'CaseInsensitiveDict', 'CaseInsensitiveDefaultDict',
-    'strip_inline_comments', 'binary_insertion_sort', 'cached_func',
-    'optional', 'yaml_include_constructor',
+    'sanitize_tuple', 'execute', 'CaseInsensitiveDict',
+    'CaseInsensitiveDefaultDict', 'strip_inline_comments',
+    'binary_insertion_sort', 'cached_func', 'optional',
+    'yaml_include_constructor',
     'auto_post_mortem_debugger', 'set_excepthook', 'timeout',
     'WeakrefProperty', 'group_by_class', 'replace_windowed',
     'dict_override', 'stdchannel_redirected',
@@ -180,6 +181,13 @@ def chunks(l, n):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]
+
+
+def sanitize_tuple(t):
+    """
+    Small helper method to ensure non-nested tuples without ``None``.
+    """
+    return tuple(n for n in flatten(as_tuple(t)) if n is not None)
 
 
 def execute(command, silent=True, **kwargs):
