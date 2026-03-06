@@ -12,6 +12,7 @@ The Loki internal representation (IR) and associated APIs for tree traversal.
 from loki.ir.abstract_nodes import *  # noqaOA
 from loki.ir.expr_visitors import *  # noqa
 from loki.ir.find import *  # noqa
+from loki.ir.internal_nodes import *  # noqa
 from loki.ir.ir_graph import *  # noqa
 from loki.ir.nodes import *  # noqa
 from loki.ir.pragma_utils import *  # noqa
