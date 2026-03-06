@@ -26,8 +26,8 @@ from loki.expression import (
 )
 from loki.frontend.source import Source
 from loki.tools import (
-    as_tuple, dataclass_strict, flatten, is_iterable, truncate_string,
-    CaseInsensitiveDict
+    as_tuple, dataclass_strict, flatten, is_iterable, sanitize_tuple,
+    truncate_string, CaseInsensitiveDict
 )
 from loki.types import DataType, BasicType, DerivedType, SymbolAttributes, Scope
 
@@ -46,14 +46,6 @@ __all__ = [
     'Forall', 'MaskedStatement',
     'Intrinsic', 'Enumeration', 'RawSource',
 ]
-
-
-
-def _sanitize_tuple(t):
-    """
-    Small helper method to ensure non-nested tuples without ``None``.
-    """
-    return tuple(n for n in flatten(as_tuple(t)) if n is not None)
 
 
 # Abstract base classes
@@ -253,7 +245,7 @@ class InternalNode(Node, _InternalNode):
     @field_validator('body', mode='before')
     @classmethod
     def ensure_tuple(cls, value):
-        return _sanitize_tuple(value)
+        return sanitize_tuple(value)
 
     def __repr__(self):
         raise NotImplementedError
@@ -732,7 +724,7 @@ class Conditional(InternalNode, _ConditionalBase):
     @field_validator('body', 'else_body', mode='before')
     @classmethod
     def ensure_tuple(cls, value):
-        return _sanitize_tuple(value)
+        return sanitize_tuple(value)
 
     def __post_init__(self):
         super().__post_init__()
@@ -1004,12 +996,12 @@ class CallStatement(LeafNode, _CallStatementBase):
     @field_validator('arguments', mode='before')
     @classmethod
     def ensure_tuple(cls, value):
-        return _sanitize_tuple(value)
+        return sanitize_tuple(value)
 
     @field_validator('kwarguments', mode='before')
     @classmethod
     def ensure_nested_tuple(cls, value):
-        return tuple(_sanitize_tuple(pair) for pair in as_tuple(value))
+        return tuple(sanitize_tuple(pair) for pair in as_tuple(value))
 
     def __post_init__(self):
         super().__post_init__()
@@ -1811,12 +1803,12 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
     @field_validator('else_body', mode='before')
     @classmethod
     def ensure_tuple(cls, value):
-        return _sanitize_tuple(value)
+        return sanitize_tuple(value)
 
     @field_validator('values', 'bodies', mode='before')
     @classmethod
     def ensure_nested_tuple(cls, value):
-        return tuple(_sanitize_tuple(pair) for pair in as_tuple(value))
+        return tuple(sanitize_tuple(pair) for pair in as_tuple(value))
 
     def __post_init__(self):
         super().__post_init__()
