@@ -12,7 +12,9 @@ from typing import Any, Tuple, Union, Optional
 from pymbolic.primitives import Expression
 from pydantic import field_validator
 
-from loki.ir.abstract_nodes import Node, InternalNode, ScopedNode
+from loki.ir.nodes.abstract_nodes import (
+    Node, InternalNode, ScopedNode
+)
 from loki.expression import (
     symbols as sym, AttachScopesMapper, ExpressionDimensionsMapper
 )

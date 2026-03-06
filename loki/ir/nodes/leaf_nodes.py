@@ -17,7 +17,9 @@ from typing import Any, Tuple, Union, Optional
 from pymbolic.primitives import Expression
 from pydantic import field_validator
 
-from loki.ir.abstract_nodes import Node, InternalNode, LeafNode, ScopedNode
+from loki.ir.nodes.abstract_nodes import (
+    Node, InternalNode, LeafNode, ScopedNode
+)
 from loki.tools import (
     as_tuple, dataclass_strict, flatten, is_iterable, sanitize_tuple,
     truncate_string, CaseInsensitiveDict
