@@ -8,6 +8,7 @@
 Collection of tools and utility methods used throughout Loki.
 """
 
-from loki.tools.util import *  # noqa
+from loki.tools.dataclass import *  # noqa
 from loki.tools.files import *  # noqa
 from loki.tools.strings import *  # noqa
+from loki.tools.util import *  # noqa
