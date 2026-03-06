@@ -7,13 +7,10 @@
 
 """ Utilities for demoting the rank of array variables. """
 
-from loki.expression import symbols as sym
-from loki.ir import (
-    nodes as ir, FindNodes, Transformer, FindVariables,
-    SubstituteExpressions
-)
+from loki.ir import FindVariables, SubstituteExpressions
 from loki.logging import info
 from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.transformations.utilities import update_variable_declarations
 
 
 __all__ = ['demote_variables']
@@ -65,23 +62,6 @@ def demote_variables(routine, variable_names, dimensions):
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
     # Ensure all declarations with `DIMENSION` keywords are modified too!
-    decls = tuple(
-        d for d in FindNodes(ir.VariableDeclaration).visit(routine.spec)
-        if d.dimensions and any(s.name.lower() in vnames for s in d.symbols)
-    )
-    decl_map = {}
-    for decl in decls:
-        # If all symbols have the same shape (after demotion)
-        sym_shape = tuple(s.shape if isinstance(s, sym.Array) else None for s in decl.symbols)
-        if all(d == sym_shape[0] for d in sym_shape):
-            dimensions = decl.symbols[0].shape if isinstance(decl.symbols[0], sym.Array) else None
-            decl_map[decl] = decl.clone(dimensions=dimensions)
-        else:
-            # If not, split into multiple declarations
-            sdims = tuple(s.shape if isinstance(s, sym.Array) else None for s in decl.symbols)
-            decl_map[decl] = tuple(
-                decl.clone(symbols=(s,), dimensions=d) for s, d in zip(decl.symbols, sdims)
-            )
-    routine.spec = Transformer(decl_map).visit(routine.spec)
+    routine.spec = update_variable_declarations(routine.spec, vmap.values())
 
     info(f'[Loki::Transform] Demoted variables in {routine.name}: {", ".join(variable_names)}')
