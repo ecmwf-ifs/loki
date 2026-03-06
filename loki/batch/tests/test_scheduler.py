@@ -3053,16 +3053,17 @@ def test_pipeline_config_compose(config):
     assert isinstance(pipeline, Pipeline)
 
     # Check that the pipeline is correctly composed
-    assert len(pipeline.transformations) == 9
+    assert len(pipeline.transformations) == 10
     assert type(pipeline.transformations[0]).__name__ == 'RemoveCodeTransformation'
     assert type(pipeline.transformations[1]).__name__ == 'SCCFuseVerticalLoops'
     assert type(pipeline.transformations[2]).__name__ == 'SCCBaseTransformation'
     assert type(pipeline.transformations[3]).__name__ == 'SCCDevectorTransformation'
     assert type(pipeline.transformations[4]).__name__ == 'SCCDemoteTransformation'
-    assert type(pipeline.transformations[5]).__name__ == 'SCCVecRevectorTransformation'
-    assert type(pipeline.transformations[6]).__name__ == 'SCCAnnotateTransformation'
-    assert type(pipeline.transformations[7]).__name__ == 'PragmaModelTransformation'
-    assert type(pipeline.transformations[8]).__name__ == 'ModuleWrapTransformation'
+    assert type(pipeline.transformations[5]).__name__ == 'PromoteLocalArrayTransformation'
+    assert type(pipeline.transformations[6]).__name__ == 'SCCVecRevectorTransformation'
+    assert type(pipeline.transformations[7]).__name__ == 'SCCAnnotateTransformation'
+    assert type(pipeline.transformations[8]).__name__ == 'PragmaModelTransformation'
+    assert type(pipeline.transformations[9]).__name__ == 'ModuleWrapTransformation'
 
     # Check for some specified and default constructor flags
     assert pipeline.transformations[0].call_names == ('dr_hook',)
@@ -3071,7 +3072,7 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[2].horizontal.size == 'KLON'
     assert pipeline.transformations[2].horizontal.index == 'JL'
     assert pipeline.transformations[3].trim_vector_sections is True
-    assert pipeline.transformations[8].replace_ignore_items is True
+    assert pipeline.transformations[9].replace_ignore_items is True
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
