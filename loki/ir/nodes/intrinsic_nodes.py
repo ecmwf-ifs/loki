@@ -7,16 +7,22 @@
 
 """ Intrinsic node type definitions. """
 
-from dataclasses import dataclass
+from typing import Optional, Union, Tuple
+
+from pymbolic.primitives import Expression
+from pydantic import field_validator
 
 from loki.ir.nodes.abstract_nodes import LeafNode
-from loki.tools import dataclass_strict, truncate_string
+from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
 
 
-__all__ = ['Intrinsic']
+__all__ = [
+    'Intrinsic', 'ImplicitIntrinsic', 'SaveIntrinsic',
+    'PublicIntrinsic', 'PrivateIntrinsic'
+]
 
 
-@dataclass(frozen=True)
+@dataclass_strict(frozen=True)
 class _IntrinsicBase():
     """ Type definitions for :any:`Intrinsic` node type. """
 
@@ -42,9 +48,113 @@ class Intrinsic(LeafNode, _IntrinsicBase):
         Other parameters that are passed on to the parent class constructor.
     """
 
-    def __post_init__(self):
-        super().__post_init__()
-        assert isinstance(self.text, str)
+    keyword = None
 
     def __repr__(self):
         return f'Intrinsic:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class ImplicitIntrinsic(Intrinsic):
+    """
+    :any:`Intrinsic` node that represents the ``IMPLICIT`` statement.
+
+    Parameters
+    ----------
+    text : str or :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'IMPLICIT'
+
+    text: Optional[Union[str, Tuple[Expression, ...]]] = 'NONE'
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_str_or_tuple(cls, value):
+        if isinstance(value, str):
+            return value
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Implicit:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class SaveIntrinsic(Intrinsic):
+    """
+    :any:`Intrinsic` node that represents the ``SAVE`` statement.
+
+    Parameters
+    ----------
+    text : str or :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'SAVE'
+
+    text: Optional[Tuple[Expression, ...]] = ()
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Save:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class PublicIntrinsic(Intrinsic):
+    """
+    :any:`Intrinsic` node that represents the ``PUBLIC`` specifier.
+
+    Parameters
+    ----------
+    text : str or tuple of :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'PUBLIC'
+
+    text: Optional[Tuple[Expression, ...]] = ()
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Public:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class PrivateIntrinsic(Intrinsic):
+    """
+    :any:`Intrinsic` node that represents the ``PRIVATE`` specifier.
+
+    Parameters
+    ----------
+    text : str or tuple of :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'PRIVATE'
+
+    text: Optional[Tuple[Expression, ...]] = ()
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Private:: {truncate_string(self.text)}'
