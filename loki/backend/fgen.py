@@ -327,7 +327,9 @@ class FortranCodegen(Stringifier):
         """
         Format intrinsic nodes.
         """
-        return self.format_line(str(o.text).lstrip())
+        keyword = f'{o.keyword} ' if o.keyword else ''
+        text = ', '.join(self.visit_all(as_tuple(o.text), **kwargs)) if o.text else ''
+        return self.format_line(keyword, str(text).lstrip())
 
     def visit_RawSource(self, o, **kwargs):
         """
