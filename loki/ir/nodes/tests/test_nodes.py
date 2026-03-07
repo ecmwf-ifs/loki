@@ -11,6 +11,7 @@ import pytest
 from pymbolic.primitives import Expression
 from pydantic import ValidationError
 
+from loki.backend import fgen
 from loki.expression import symbols as sym, parse_expr
 from loki.function import Function
 from loki.ir import nodes as ir
@@ -413,3 +414,30 @@ def test_multiconditional(scope, a_i, i):
         expr=i, values=(()), bodies=(()), else_body=((assign3,), assign2)
     )
     assert multicond.else_body == (assign3, assign2)
+
+
+def test_intrinsics(scope, n, i):
+    """
+    Test constructors and scoping behaviour of various :any:`Intrinsic` nodes.
+    """
+
+    assert fgen(ir.Intrinsic('Hello World')) == 'Hello World'
+    with pytest.raises(ValidationError):
+        ir.Intrinsic(n)
+
+    assert fgen(ir.ImplicitIntrinsic()) == 'IMPLICIT NONE'
+    assert fgen(ir.ImplicitIntrinsic('NONE')) == 'IMPLICIT NONE'
+    assert fgen(ir.ImplicitIntrinsic(i)) == 'IMPLICIT i'
+    assert fgen(ir.ImplicitIntrinsic((n, i))) == 'IMPLICIT n, i'
+
+    assert fgen(ir.SaveIntrinsic()) == 'SAVE'
+    assert fgen(ir.SaveIntrinsic(i)) == 'SAVE i'
+    assert fgen(ir.SaveIntrinsic((n, i))) == 'SAVE n, i'
+
+    assert fgen(ir.PublicIntrinsic()) == 'PUBLIC'
+    assert fgen(ir.PublicIntrinsic(i)) == 'PUBLIC i'
+    assert fgen(ir.PublicIntrinsic((n, i))) == 'PUBLIC n, i'
+
+    assert fgen(ir.PrivateIntrinsic()) == 'PRIVATE'
+    assert fgen(ir.PrivateIntrinsic(i)) == 'PRIVATE i'
+    assert fgen(ir.PrivateIntrinsic((n, i))) == 'PRIVATE n, i'
