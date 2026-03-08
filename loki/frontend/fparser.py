@@ -3239,8 +3239,10 @@ class FParser2IR(GenericVisitor):
                          label=kwargs.get('label'))
 
     def visit_Implicit_Stmt(self, o, **kwargs):
-        return ir.Intrinsic(text=f'IMPLICIT {o.items[0]}', source=kwargs.get('source'),
-                            label=kwargs.get('label'))
+        if len(o.items) == 1 and isinstance(o.items[0], str):
+            return ir.ImplicitStmt(text=o.items[0], **kwargs)
+        content = tuple(i if isinstance(i, str) else self.visit(i, **kwargs) for i in o.items)
+        return ir.ImplicitIntrinsic(text=content, **kwargs)
 
     def visit_Print_Stmt(self, o, **kwargs):
         # NOTE: fparser returns None for an empty print (`PRINT *`) instead of
@@ -3477,6 +3479,13 @@ class FParser2IR(GenericVisitor):
             expression = ParenthesisedPow(expression.base, expression.exponent)
         return expression
 
+    #
+    # Remaining internal Fortran statements
+    #
+
+    def visit_Save_Stmt(self, o, **kwargs):
+        return ir.SaveIntrinsic(**kwargs)
+
     visit_Format_Stmt = visit_Intrinsic_Stmt
     visit_Write_Stmt = visit_Intrinsic_Stmt
     visit_Goto_Stmt = visit_Intrinsic_Stmt
@@ -3484,7 +3493,6 @@ class FParser2IR(GenericVisitor):
     visit_Continue_Stmt = visit_Intrinsic_Stmt
     visit_Cycle_Stmt = visit_Intrinsic_Stmt
     visit_Exit_Stmt = visit_Intrinsic_Stmt
-    visit_Save_Stmt = visit_Intrinsic_Stmt
     visit_Read_Stmt = visit_Intrinsic_Stmt
     visit_Open_Stmt = visit_Intrinsic_Stmt
     visit_Close_Stmt = visit_Intrinsic_Stmt
