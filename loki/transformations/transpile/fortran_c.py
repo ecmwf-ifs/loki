@@ -15,7 +15,7 @@ from loki.expression import (
     SubstituteExpressionsMapper
 )
 from loki.ir import (
-    Import, Intrinsic, Interface, CallStatement, Assignment,
+    Import, GenericStmt, Interface, CallStatement, Assignment,
     Transformer, FindNodes, Comment, SubstituteExpressions,
     FindInlineCalls
 )
@@ -300,7 +300,7 @@ class FortranCTransformation(Transformation):
             kernel.spec = Transformer(import_map).visit(kernel.spec)
 
         # Remove intrinsics from spec (eg. implicit none)
-        intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
+        intrinsic_map = {i: None for i in FindNodes(GenericStmt).visit(kernel.spec)
                          if 'implicit' in i.text.lower()}
         kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
 

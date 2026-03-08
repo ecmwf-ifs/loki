@@ -995,7 +995,7 @@ END SUBROUTINE test_routine
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
     print_stmts = [
-        intr for intr in FindNodes(ir.Intrinsic).visit(routine.ir)
+        intr for intr in FindNodes(ir.GenericStmt).visit(routine.ir)
         if 'print' in intr.text.lower()
     ]
     assert print_stmts[0].text.lower() == "print *"

@@ -72,7 +72,7 @@ class RemoveCodeTransformation(Transformation):
         List of subroutine names against which to match
         :any:`CallStatement` nodes during :meth:`remove_calls`.
     intrinsic_names : list of str
-        List of module names against which to match :any:`Intrinsic`
+        List of module names against which to match :any:`GenericStmt`
         nodes during :meth:`remove_calls`.
     remove_imports : boolean
         Flag indicating whether to remove symbols from :any:`Import`
@@ -489,7 +489,7 @@ def do_remove_calls(
         List of subroutine names against which to match
         :any:`CallStatement` nodes.
     intrinsic_names : list of str
-        List of module names against which to match :any:`Intrinsic`
+        List of module names against which to match :any:`GenericStmt`
         nodes.
     remove_imports : boolean
         Flag indicating whether to remove the respective procedure
@@ -514,7 +514,7 @@ class RemoveCallsTransformer(Transformer):
     (flag) call named_procedure()``.
 
     This :any:`Transformer` will also attempt to match and remove
-    :any:`Intrinsic` nodes against a given list of name strings.  This
+    :any:`GenericStmt` nodes against a given list of name strings.  This
     allows removing intrinsic calls like ``write (*,*) "..."``.
 
     In addition, this :any:`Transformer` can also attempt to match and
@@ -528,7 +528,7 @@ class RemoveCallsTransformer(Transformer):
         List of subroutine names against which to match
         :any:`CallStatement` nodes.
     intrinsic_names : list of str
-        List of module names against which to match :any:`Intrinsic`
+        List of module names against which to match :any:`GenericStmt`
         nodes.
     remove_imports : boolean
         Flag indicating whether to remove the respective procedure
@@ -565,8 +565,8 @@ class RemoveCallsTransformer(Transformer):
 
         return self._rebuild(o, (cond, body, else_body))
 
-    def visit_Intrinsic(self, o, **kwargs):
-        """ Match and remove :any:`Intrinsic` nodes against name patterns """
+    def visit_GenericStmt(self, o, **kwargs):
+        """ Match and remove :any:`GenericStmt` nodes against name patterns """
         if self.intrinsic_names:
             if any(str(c).lower() in o.text.lower() for c in self.intrinsic_names):
                 return None

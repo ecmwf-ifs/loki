@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 
 from loki import (
-    Sourcefile, FindNodes, PreprocessorDirective, Intrinsic,
+    Sourcefile, FindNodes, PreprocessorDirective, GenericStmt,
     Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
     StatementFunction, Comment, CommentBlock, RawSource, Scalar
 )
@@ -131,7 +131,7 @@ def test_sourcefile_pp_directives(here, frontend):
     directives = FindNodes(PreprocessorDirective).visit(routine.body)
     assert len(directives) == 1
     assert directives[0].text == '#define __FILENAME__ __FILE__'
-    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(GenericStmt).visit(routine.body)
     assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
     assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
 

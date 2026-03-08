@@ -487,12 +487,12 @@ END FUNCTION FUNC
     routine = Subroutine.from_source(fcode, frontend=frontend)
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 2
-    assert isinstance(conditionals[0].body[-1], ir.Intrinsic)
+    assert isinstance(conditionals[0].body[-1], ir.GenericStmt)
     assert conditionals[0].body[-1].text.upper() == 'RETURN'
     assert conditionals[0].else_body == (conditionals[1],)
-    assert isinstance(conditionals[1].body[-1], ir.Intrinsic)
+    assert isinstance(conditionals[1].body[-1], ir.GenericStmt)
     assert conditionals[1].body[-1].text.upper() == 'RETURN'
-    assert isinstance(conditionals[1].else_body[-1], ir.Intrinsic)
+    assert isinstance(conditionals[1].else_body[-1], ir.GenericStmt)
     assert conditionals[1].else_body[-1].text.upper() == 'RETURN'
 
 
@@ -692,8 +692,8 @@ IP_ZQ = LOC(POOL)
 END SUBROUTINE
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.spec)
-    assert len(intrinsics) == 2
-    assert 'IMPLICIT NONE' in intrinsics[0].text
-    assert 'POINTER(IP_ZQ, ZQ)' in intrinsics[1].text
+    stmts = FindNodes(ir.GenericStmt).visit(routine.spec)
+    assert len(stmts) == 2
+    assert 'IMPLICIT NONE' in stmts[0].text
+    assert 'POINTER(IP_ZQ, ZQ)' in stmts[1].text
     assert 'POINTER(IP_ZQ, ZQ)' in routine.to_fortran()
