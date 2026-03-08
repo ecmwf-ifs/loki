@@ -323,7 +323,7 @@ class FortranCodegen(Stringifier):
 
     # Handler for IR nodes
 
-    def visit_Intrinsic(self, o, **kwargs):
+    def visit_GenericStmt(self, o, **kwargs):
         """
         Format intrinsic nodes.
         """

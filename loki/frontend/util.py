@@ -17,7 +17,7 @@ from loki.expression import (
 from loki.ir import (
     NestedTransformer, FindNodes, PatternFinder, Transformer,
     Assignment, Comment, CommentBlock, VariableDeclaration,
-    ProcedureDeclaration, Loop, Intrinsic, Pragma
+    ProcedureDeclaration, Loop, GenericStmt, Pragma
 )
 from loki.frontend.source import join_source_list
 from loki.logging import detail, warning, error
@@ -202,7 +202,7 @@ def inline_labels(ir):
     any connection between both.
     """
     pairs = PatternFinder(pattern=(Comment, Assignment)).visit(ir)
-    pairs += PatternFinder(pattern=(Comment, Intrinsic)).visit(ir)
+    pairs += PatternFinder(pattern=(Comment, GenericStmt)).visit(ir)
     pairs += PatternFinder(pattern=(Comment, Loop)).visit(ir)
     mapper = {}
     for pair in pairs:

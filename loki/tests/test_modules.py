@@ -733,12 +733,12 @@ end subroutine routine2
 
     routine1 = routine1.clone(contains=routine2)
     assert isinstance(routine1.contains, ir.Section)
-    assert isinstance(routine1.contains.body[0], ir.Intrinsic)
+    assert isinstance(routine1.contains.body[0], ir.GenericStmt)
     assert routine1.contains.body[0].text == 'CONTAINS'
 
     module = module.clone(contains=routine1)
     assert isinstance(module.contains, ir.Section)
-    assert isinstance(module.contains.body[0], ir.Intrinsic)
+    assert isinstance(module.contains.body[0], ir.GenericStmt)
     assert module.contains.body[0].text == 'CONTAINS'
 
 

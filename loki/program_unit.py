@@ -79,10 +79,10 @@ class ProgramUnit(Scope):
             if not isinstance(contains, ir.Section):
                 contains = ir.Section(body=as_tuple(contains))
             for node in contains.body:
-                if isinstance(node, ir.Intrinsic) and 'contains' in node.text.lower():  # pylint: disable=no-member
+                if isinstance(node, ir.GenericStmt) and 'contains' in node.text.lower():  # pylint: disable=no-member
                     break
                 if isinstance(node, ProgramUnit):
-                    contains.prepend(ir.Intrinsic(text='CONTAINS'))
+                    contains.prepend(ir.GenericStmt(text='CONTAINS'))
                     break
 
         # Primary IR components
@@ -761,7 +761,7 @@ class ProgramUnit(Scope):
         if not self.spec:
             return ((),(),())
 
-        intrinsic_nodes = FindNodes(ir.Intrinsic).visit(self.spec)
+        intrinsic_nodes = FindNodes(ir.GenericStmt).visit(self.spec)
         implicit_nodes = [node for node in intrinsic_nodes if node.text.lstrip().lower().startswith('implicit')]
 
         if implicit_nodes:

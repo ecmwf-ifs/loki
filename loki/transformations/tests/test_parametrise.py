@@ -346,7 +346,7 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
 
     def error_stop(**kwargs):
         msg = kwargs.get("msg")
-        abort = (ir.Intrinsic(text=f'error stop "{msg}"'),)
+        abort = (ir.GenericStmt(text=f'error stop "{msg}"'),)
         return abort
 
     def stop_execution(**kwargs):
@@ -383,7 +383,7 @@ def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, 
 
     def only_warn(**kwargs):
         msg = kwargs.get("msg")
-        abort = (ir.Intrinsic(text=f'print *, "This is just a warning: {msg}"'),)
+        abort = (ir.GenericStmt(text=f'print *, "This is just a warning: {msg}"'),)
         return abort
 
     scheduler = Scheduler(

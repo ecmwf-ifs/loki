@@ -61,7 +61,7 @@ class FortranPythonTransformation(Transformation):
 
         # Remove all "IMPLICT" intrinsic statements
         mapper = {
-            i: None for i in FindNodes(ir.Intrinsic).visit(routine.spec)
+            i: None for i in FindNodes(ir.GenericStmt).visit(routine.spec)
             if 'implicit' in i.text.lower()
         }
         routine.spec = Transformer(mapper).visit(routine.spec)

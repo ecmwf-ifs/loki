@@ -56,7 +56,7 @@ end subroutine routine_raw_source_loop
 
     # Check the intrinsics
     intrinsic_lines = (9, 11)
-    for node in FindNodes(ir.Intrinsic).visit(routine.body):
+    for node in FindNodes(ir.GenericStmt).visit(routine.body):
         # Verify that source string is subset of the relevant line in the original source
         assert node.source is not None
         assert node.source.lines in ((l, l) for l in intrinsic_lines)
@@ -120,7 +120,7 @@ end subroutine routine_raw_source_cond
 
     # Check the intrinsics
     intrinsic_lines = (5, 7, 9, 11)
-    for node in FindNodes(ir.Intrinsic).visit(routine.body):
+    for node in FindNodes(ir.GenericStmt).visit(routine.body):
         # Verify that source string is subset of the relevant line in the original source
         assert node.source is not None
         assert node.source.lines in ((l, l) for l in intrinsic_lines)
@@ -177,7 +177,7 @@ end subroutine routine_raw_source_multicond
 
     # Check the intrinsics
     intrinsic_lines = (6, 8, 10)
-    for node in FindNodes(ir.Intrinsic).visit(routine.body):
+    for node in FindNodes(ir.GenericStmt).visit(routine.body):
         # Verify that source string is subset of the relevant line in the original source
         assert node.source is not None
         assert node.source.lines in ((l, l) for l in intrinsic_lines)

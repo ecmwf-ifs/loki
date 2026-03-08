@@ -18,7 +18,7 @@ from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import (
     FindNodes, CallStatement, Assignment, Allocation, Deallocation,
     Loop, Pragma, get_pragma_parameters, FindVariables, FindInlineCalls,
-    Intrinsic
+    GenericStmt
 )
 
 from loki.transformations.pragma_model import PragmaModelTransformation
@@ -479,7 +479,7 @@ end module kernel_mod
     # check that the correct variables end up on the stack
     #  look for 'POINTER(IP_tmp<...>, tmp<...>)' Intrinsics
     pointers = [intrinsic.text.split(',')[1].replace(')', '').replace(' ', '') for intrinsic
-            in FindNodes(Intrinsic).visit(kernel_item.ir.spec)
+            in FindNodes(GenericStmt).visit(kernel_item.ir.spec)
             if 'pointer' in intrinsic.text.lower()]
     assert 'tmp1' in pointers
     assert 'tmp2' in pointers
