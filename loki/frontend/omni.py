@@ -412,9 +412,9 @@ class OMNI2IR(GenericVisitor):
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         f_imports = [im for im in FindNodes(ir.Import).visit(spec) if not im.c_import]
         if not f_imports:
-            spec.prepend(ir.Intrinsic(text='IMPLICIT NONE'))
+            spec.prepend(ir.GenericStmt(text='IMPLICIT NONE'))
         else:
-            spec.insert(spec.body.index(f_imports[-1])+1, ir.Intrinsic(text='IMPLICIT NONE'))
+            spec.insert(spec.body.index(f_imports[-1])+1, ir.GenericStmt(text='IMPLICIT NONE'))
 
         # Parse member functions
         body_ast = o.find('body')
@@ -462,7 +462,7 @@ class OMNI2IR(GenericVisitor):
     def visit_FcontainsStatement(self, o, **kwargs):
         body = [self.visit(c, **kwargs) for c in o]
         body = [c for c in body if c is not None]
-        body = [ir.Intrinsic('CONTAINS', source=kwargs['source'])] + body
+        body = [ir.GenericStmt('CONTAINS', source=kwargs['source'])] + body
         return ir.Section(body=as_tuple(body))
 
     def visit_FmoduleProcedureDecl(self, o, **kwargs):
@@ -669,7 +669,7 @@ class OMNI2IR(GenericVisitor):
 
         # Check if the type is marked as sequence
         if struct_type.get('is_sequence') == 'true':
-            body += [ir.Intrinsic('SEQUENCE')]
+            body += [ir.GenericStmt('SEQUENCE')]
 
         # Build the list of derived type members and individual body for each
         if struct_type.find('symbols') is not None:
@@ -687,9 +687,9 @@ class OMNI2IR(GenericVisitor):
 
         if struct_type.find('typeBoundProcedures') is not None:
             # See if components are marked private
-            body += [ir.Intrinsic('CONTAINS')]
+            body += [ir.GenericStmt('CONTAINS')]
             if struct_type.attrib.get('is_internal_private') == 'true':
-                body += [ir.Intrinsic('PRIVATE')]
+                body += [ir.GenericStmt('PRIVATE')]
             body += self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
 
         # Finally: update the typedef with its body
@@ -1286,49 +1286,49 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FcycleStatement(self, o, **kwargs):
         # TODO: do-construct-name is not preserved
-        return ir.Intrinsic(text='cycle', source=kwargs['source'])
+        return ir.GenericStmt(text='cycle', source=kwargs['source'])
 
     def visit_continueStatement(self, o, **kwargs):
-        return ir.Intrinsic(text='continue', source=kwargs['source'])
+        return ir.GenericStmt(text='continue', source=kwargs['source'])
 
     def visit_FexitStatement(self, o, **kwargs):
         # TODO: do-construct-name is not preserved
-        return ir.Intrinsic(text='exit', source=kwargs['source'])
+        return ir.GenericStmt(text='exit', source=kwargs['source'])
 
     def visit_FopenStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
         nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
-        return ir.Intrinsic(text=f'open({nargs})', source=kwargs['source'])
+        return ir.GenericStmt(text=f'open({nargs})', source=kwargs['source'])
 
     def visit_FcloseStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
         nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
-        return ir.Intrinsic(text=f'close({nargs})', source=kwargs['source'])
+        return ir.GenericStmt(text=f'close({nargs})', source=kwargs['source'])
 
     def visit_FreadStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
         nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
         args = ', '.join(f'{v}' for v in values)
-        return ir.Intrinsic(text=f'read({nargs}) {args}', source=kwargs['source'])
+        return ir.GenericStmt(text=f'read({nargs}) {args}', source=kwargs['source'])
 
     def visit_FwriteStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
         nargs = ', '.join(f'{k}={v}' for k, v in nvalues)
         args = ', '.join(f'{v}' for v in values)
-        return ir.Intrinsic(text=f'write({nargs}) {args}', source=kwargs['source'])
+        return ir.GenericStmt(text=f'write({nargs}) {args}', source=kwargs['source'])
 
     def visit_FprintStatement(self, o, **kwargs):
         values = [self.visit(v, **kwargs) for v in o.find('valueList')]
         args = ', '.join(f'{v}' for v in values)
         args = f", {args}" if values else ""
         fmt = o.attrib['format']
-        return ir.Intrinsic(text=f'print {fmt}{args}', source=kwargs['source'])
+        return ir.GenericStmt(text=f'print {fmt}{args}', source=kwargs['source'])
 
     def visit_FformatDecl(self, o, **kwargs):
         fmt = f'FORMAT{o.attrib["format"]}'
-        return ir.Intrinsic(text=fmt, source=kwargs['source'])
+        return ir.GenericStmt(text=fmt, source=kwargs['source'])
 
     def visit_namedValue(self, o, **kwargs):
         name = o.attrib['name']
@@ -1447,14 +1447,14 @@ class OMNI2IR(GenericVisitor):
 
     def visit_gotoStatement(self, o, **kwargs):
         label = int(o.attrib['label_name'])
-        return ir.Intrinsic(text=f'go to {label: d}', source=kwargs['source'])
+        return ir.GenericStmt(text=f'go to {label: d}', source=kwargs['source'])
 
     def visit_FstopStatement(self, o, **kwargs):
         code = o.attrib['code']
-        return ir.Intrinsic(text=f'stop {code!s}', source=kwargs['source'])
+        return ir.GenericStmt(text=f'stop {code!s}', source=kwargs['source'])
 
     def visit_statementLabel(self, o, **kwargs):
         return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])
 
     def visit_FreturnStatement(self, o, **kwargs):
-        return ir.Intrinsic(text='return', source=kwargs['source'])
+        return ir.GenericStmt(text='return', source=kwargs['source'])

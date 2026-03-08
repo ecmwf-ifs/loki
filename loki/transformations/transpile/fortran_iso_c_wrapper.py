@@ -116,7 +116,7 @@ class FortranISOCWrapperTransformation(Transformation):
                 routine, c_structs, bind_name=bind_name,
                 use_c_ptr=self.use_c_ptr, language=self.language
             )
-            contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), wrapper))
+            contains = ir.Section(body=(ir.GenericStmt('CONTAINS'), wrapper))
             wrapperpath = (path/wrapper.name.lower()).with_suffix('.F90')
             module = Module(name=f'{wrapper.name.upper()}_MOD', contains=contains)
             module.spec = ir.Section(body=(ir.Import(module='iso_c_binding'),))
@@ -252,7 +252,7 @@ def generate_iso_c_interface(routine, bind_name, c_structs, scope, use_c_ptr=Fal
             if not im.c_import:
                 im_symbols = tuple(s.clone(scope=intf_routine) for s in im.symbols)
                 intf_spec.append(im.clone(symbols=im_symbols))
-    intf_spec.append(ir.Intrinsic(text='implicit none'))
+    intf_spec.append(ir.GenericStmt(text='implicit none'))
     intf_spec.append(c_structs.values())
     intf_routine.spec = intf_spec
 
@@ -450,7 +450,7 @@ def generate_iso_c_wrapper_module(module, use_c_ptr=False, language='c'):
                 )
                 getter.variables = as_tuple(sym.Variable(name=gettername, type=isoctype, scope=getter))
                 wrappers += [getter]
-        wrapper_module.contains = ir.Section(body=(ir.Intrinsic('CONTAINS'), *wrappers))
+        wrapper_module.contains = ir.Section(body=(ir.GenericStmt('CONTAINS'), *wrappers))
 
     # Remove any unused imports
     sanitise_imports(wrapper_module)
@@ -482,7 +482,7 @@ def generate_c_header(module):
             continue
         ctype = c_intrinsic_kind(v.type, scope=module)
         tmpl_function = f'{ctype} {module.name.lower()}__get__{v.name.lower()}();'
-        spec += [ir.Intrinsic(text=tmpl_function)]
+        spec += [ir.GenericStmt(text=tmpl_function)]
 
     # Re-create type definitions with range indices (``:``) replaced by pointers
     for td in FindNodes(ir.TypeDef).visit(module.spec):

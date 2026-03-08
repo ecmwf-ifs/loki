@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-""" Intrinsic node type definitions. """
+""" Generic and specific statement node type definitions. """
 
 from typing import Optional, Union, Tuple
 
@@ -17,20 +17,20 @@ from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
 
 
 __all__ = [
-    'Intrinsic', 'ImplicitIntrinsic', 'SaveIntrinsic',
-    'PublicIntrinsic', 'PrivateIntrinsic'
+    'GenericStmt', 'ImplicitStmt', 'SaveStmt', 'PublicStmt',
+    'PrivateStmt'
 ]
 
 
 @dataclass_strict(frozen=True)
-class _IntrinsicBase():
-    """ Type definitions for :any:`Intrinsic` node type. """
+class _GenericStmtBase():
+    """ Type definitions for :any:`GenericStmt` node type. """
 
     text: str
 
 
 @dataclass_strict(frozen=True)
-class Intrinsic(LeafNode, _IntrinsicBase):
+class GenericStmt(LeafNode, _GenericStmtBase):
     """
     Catch-all generic node for corner-cases.
 
@@ -51,13 +51,13 @@ class Intrinsic(LeafNode, _IntrinsicBase):
     keyword = None
 
     def __repr__(self):
-        return f'Intrinsic:: {truncate_string(self.text)}'
+        return f'GenericStmt:: {truncate_string(self.text)}'
 
 
 @dataclass_strict(frozen=True)
-class ImplicitIntrinsic(Intrinsic):
+class ImplicitStmt(GenericStmt):
     """
-    :any:`Intrinsic` node that represents the ``IMPLICIT`` statement.
+    :any:`GenericStmt` node that represents the ``IMPLICIT`` statement.
 
     Parameters
     ----------
@@ -83,9 +83,9 @@ class ImplicitIntrinsic(Intrinsic):
 
 
 @dataclass_strict(frozen=True)
-class SaveIntrinsic(Intrinsic):
+class SaveStmt(GenericStmt):
     """
-    :any:`Intrinsic` node that represents the ``SAVE`` statement.
+    :any:`GenericStmt` node that represents the ``SAVE`` statement.
 
     Parameters
     ----------
@@ -109,9 +109,9 @@ class SaveIntrinsic(Intrinsic):
 
 
 @dataclass_strict(frozen=True)
-class PublicIntrinsic(Intrinsic):
+class PublicStmt(GenericStmt):
     """
-    :any:`Intrinsic` node that represents the ``PUBLIC`` specifier.
+    :any:`GenericStmt` node that represents the ``PUBLIC`` specifier.
 
     Parameters
     ----------
@@ -135,9 +135,9 @@ class PublicIntrinsic(Intrinsic):
 
 
 @dataclass_strict(frozen=True)
-class PrivateIntrinsic(Intrinsic):
+class PrivateStmt(GenericStmt):
     """
-    :any:`Intrinsic` node that represents the ``PRIVATE`` specifier.
+    :any:`GenericStmt` node that represents the ``PRIVATE`` specifier.
 
     Parameters
     ----------

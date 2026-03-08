@@ -18,7 +18,7 @@ from codetiming import Timer
 from loki.logging import debug, detail
 from loki.config import config
 from loki.tools import as_tuple, gettempdir, filehash
-from loki.ir import Intrinsic, FindNodes
+from loki.ir import GenericStmt, FindNodes
 from loki.frontend.util import OMNI, FP, REGEX
 
 
@@ -132,7 +132,7 @@ def reinsert_convert_endian(ir, pp_info):
     into calls to OPEN.
     """
     if pp_info:
-        for intr in FindNodes(Intrinsic).visit(ir):
+        for intr in FindNodes(GenericStmt).visit(ir):
             match = pp_info.get(intr.source.lines[0], [None])[0]
             if match is not None:
                 source = intr.source
@@ -151,7 +151,7 @@ def reinsert_open_newunit(ir, pp_info):
     Reinsert the NEWUNIT=... arguments into calls to OPEN.
     """
     if pp_info:
-        for intr in FindNodes(Intrinsic).visit(ir):
+        for intr in FindNodes(GenericStmt).visit(ir):
             match = pp_info.get(intr.source.lines[0], [None])[0]
             if match is not None:
                 source = intr.source

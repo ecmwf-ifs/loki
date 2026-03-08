@@ -16,7 +16,7 @@ try:
 except ImportError:
     HAVE_YAML = False
 
-from loki.ir import Intrinsic
+from loki.ir import GenericStmt
 from loki.lint.linter import lint_files
 from loki.lint.reporter import (
     ProblemReport, RuleReport, FileReport,
@@ -55,8 +55,8 @@ def dummy_file_fixture(here):
 def fixture_dummy_file_report(dummy_file):
     file_report = FileReport(str(dummy_file))
     rule_report = RuleReport(GenericRule)
-    rule_report.add('Some message', Intrinsic('foobar'))
-    rule_report.add('Other message', Intrinsic('baz'))
+    rule_report.add('Some message', GenericStmt('foobar'))
+    rule_report.add('Other message', GenericStmt('baz'))
     file_report.add(rule_report)
     return file_report
 
@@ -79,8 +79,8 @@ def test_reports(dummy_file):
 
     rule_report = RuleReport(SomeRule)
     assert not rule_report.problem_reports and rule_report.problem_reports is not None
-    rule_report.add('Some message', Intrinsic('foobar'))
-    rule_report.add('Other message', Intrinsic('baz'))
+    rule_report.add('Some message', GenericStmt('foobar'))
+    rule_report.add('Other message', GenericStmt('baz'))
     assert len(rule_report.problem_reports) == 2
     assert isinstance(rule_report.problem_reports[0], ProblemReport)
     assert rule_report.problem_reports[0].msg == 'Some message'
