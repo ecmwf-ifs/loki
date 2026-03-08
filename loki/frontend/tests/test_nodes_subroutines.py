@@ -67,7 +67,7 @@ end subroutine routine_simple
     assert isinstance(routine.body, ir.Section)
     if frontend == OMNI:
         assert len(routine.spec) == 9
-        assert isinstance(routine.spec[0], ir.Intrinsic)
+        assert isinstance(routine.spec[0], ir.ImplicitStmt)
         assert isinstance(routine.spec[1], ir.Pragma)
         assert all(isinstance(node, ir.VariableDeclaration) for node in routine.spec[2:])
         assert routine.spec[2].symbols == ('jprb',)

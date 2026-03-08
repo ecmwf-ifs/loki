@@ -320,13 +320,13 @@ class FParser2IR(GenericVisitor):
         """
         return tuple(self.visit(i, **kwargs) for i in o.children)
 
-    def visit_Intrinsic_Stmt(self, o, **kwargs):
+    def visit_Generic_Stmt(self, o, **kwargs):
         """
         Universal routine to capture nodes as plain string in the IR
         """
         label = kwargs.get('label')
         label = str(label) if label else label  # Ensure srting labels
-        return ir.Intrinsic(text=o.tostr(), label=label, source=kwargs.get('source'))
+        return ir.GenericStmt(text=o.tostr(), label=label, source=kwargs.get('source'))
 
     #
     # Base blocks
@@ -1517,10 +1517,10 @@ class FParser2IR(GenericVisitor):
 
     visit_Binding_Name_List = visit_List
     visit_Final_Subroutine_Name_List = visit_List
-    visit_Contains_Stmt = visit_Intrinsic_Stmt
-    visit_Binding_Private_Stmt = visit_Intrinsic_Stmt
-    visit_Private_Components_Stmt = visit_Intrinsic_Stmt
-    visit_Sequence_Stmt = visit_Intrinsic_Stmt
+    visit_Contains_Stmt = visit_Generic_Stmt
+    visit_Binding_Private_Stmt = visit_Generic_Stmt
+    visit_Private_Components_Stmt = visit_Generic_Stmt
+    visit_Sequence_Stmt = visit_Generic_Stmt
 
     #
     # ASSOCIATE blocks
@@ -3242,13 +3242,15 @@ class FParser2IR(GenericVisitor):
         if len(o.items) == 1 and isinstance(o.items[0], str):
             return ir.ImplicitStmt(text=o.items[0], **kwargs)
         content = tuple(i if isinstance(i, str) else self.visit(i, **kwargs) for i in o.items)
-        return ir.ImplicitIntrinsic(text=content, **kwargs)
+        return ir.ImplicitStmt(text=content, **kwargs)
 
     def visit_Print_Stmt(self, o, **kwargs):
         # NOTE: fparser returns None for an empty print (`PRINT *`) instead of
         #       the usual `Output_Item_List` entity.
-        return ir.Intrinsic(text=f'PRINT {", ".join(str(i) for i in o.items if i is not None)}',
-                            source=kwargs.get('source'), label=kwargs.get('label'))
+        return ir.GenericStmt(
+            text=f'PRINT {", ".join(str(i) for i in o.items if i is not None)}',
+            source=kwargs.get('source'), label=kwargs.get('label')
+        )
 
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'^\s*\!\$(?P<keyword>\w+)\s*(?P<content>.*)', re.IGNORECASE)
@@ -3484,30 +3486,31 @@ class FParser2IR(GenericVisitor):
     #
 
     def visit_Save_Stmt(self, o, **kwargs):
-        return ir.SaveIntrinsic(**kwargs)
+        return ir.SaveStmt(**kwargs)
 
-    visit_Format_Stmt = visit_Intrinsic_Stmt
-    visit_Write_Stmt = visit_Intrinsic_Stmt
-    visit_Goto_Stmt = visit_Intrinsic_Stmt
-    visit_Return_Stmt = visit_Intrinsic_Stmt
-    visit_Continue_Stmt = visit_Intrinsic_Stmt
-    visit_Cycle_Stmt = visit_Intrinsic_Stmt
-    visit_Exit_Stmt = visit_Intrinsic_Stmt
-    visit_Read_Stmt = visit_Intrinsic_Stmt
-    visit_Open_Stmt = visit_Intrinsic_Stmt
-    visit_Close_Stmt = visit_Intrinsic_Stmt
-    visit_Inquire_Stmt = visit_Intrinsic_Stmt
-    visit_Namelist_Stmt = visit_Intrinsic_Stmt
-    visit_Parameter_Stmt = visit_Intrinsic_Stmt
-    visit_Dimension_Stmt = visit_Intrinsic_Stmt
-    visit_Equivalence_Stmt = visit_Intrinsic_Stmt
-    visit_Common_Stmt = visit_Intrinsic_Stmt
-    visit_Stop_Stmt = visit_Intrinsic_Stmt
-    visit_Error_Stop_Stmt = visit_Intrinsic_Stmt
-    visit_Backspace_Stmt = visit_Intrinsic_Stmt
-    visit_Rewind_Stmt = visit_Intrinsic_Stmt
-    visit_Entry_Stmt = visit_Intrinsic_Stmt
-    visit_Cray_Pointer_Stmt = visit_Intrinsic_Stmt
+    visit_Intrinsic_Stmt = visit_Generic_Stmt
+    visit_Format_Stmt = visit_Generic_Stmt
+    visit_Write_Stmt = visit_Generic_Stmt
+    visit_Goto_Stmt = visit_Generic_Stmt
+    visit_Return_Stmt = visit_Generic_Stmt
+    visit_Continue_Stmt = visit_Generic_Stmt
+    visit_Cycle_Stmt = visit_Generic_Stmt
+    visit_Exit_Stmt = visit_Generic_Stmt
+    visit_Read_Stmt = visit_Generic_Stmt
+    visit_Open_Stmt = visit_Generic_Stmt
+    visit_Close_Stmt = visit_Generic_Stmt
+    visit_Inquire_Stmt = visit_Generic_Stmt
+    visit_Namelist_Stmt = visit_Generic_Stmt
+    visit_Parameter_Stmt = visit_Generic_Stmt
+    visit_Dimension_Stmt = visit_Generic_Stmt
+    visit_Equivalence_Stmt = visit_Generic_Stmt
+    visit_Common_Stmt = visit_Generic_Stmt
+    visit_Stop_Stmt = visit_Generic_Stmt
+    visit_Error_Stop_Stmt = visit_Generic_Stmt
+    visit_Backspace_Stmt = visit_Generic_Stmt
+    visit_Rewind_Stmt = visit_Generic_Stmt
+    visit_Entry_Stmt = visit_Generic_Stmt
+    visit_Cray_Pointer_Stmt = visit_Generic_Stmt
 
     def visit_Cpp_If_Stmt(self, o, **kwargs):
         return ir.PreprocessorDirective(text=o.tostr(), source=kwargs.get('source'))

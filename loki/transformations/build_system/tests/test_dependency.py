@@ -12,7 +12,7 @@ from loki import Sourcefile
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
-    FindNodes, CallStatement, Import, Interface, Intrinsic, FindInlineCalls
+    FindNodes, CallStatement, Import, Interface, GenericStmt, FindInlineCalls
 )
 
 from loki.transformations import (
@@ -618,9 +618,9 @@ END SUBROUTINE kernel
         assert 'kernel_test' in imports[0].symbols
 
         # Check that the newly generated USE statement appears before IMPLICIT NONE
-        nodes = FindNodes((Intrinsic, Import)).visit(driver['driver'].spec)
+        nodes = FindNodes((GenericStmt, Import)).visit(driver['driver'].spec)
         assert len(nodes) == 2
-        assert isinstance(nodes[1], Intrinsic)
+        assert isinstance(nodes[1], GenericStmt)
         assert nodes[1].text.lower() == 'implicit none'
 
     else:

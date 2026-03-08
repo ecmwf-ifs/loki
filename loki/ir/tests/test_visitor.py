@@ -69,10 +69,10 @@ end subroutine routine_find_nodes_greedy
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
-    assert len(intrinsics) == 2
-    inner = [i for i in intrinsics if 'Inner' in i.text][0]
-    outer = [i for i in intrinsics if 'Outer' in i.text][0]
+    stmts = FindNodes(ir.GenericStmt).visit(routine.body)
+    assert len(stmts) == 2
+    inner = [i for i in stmts if 'Inner' in i.text][0]
+    outer = [i for i in stmts if 'Outer' in i.text][0]
 
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 2

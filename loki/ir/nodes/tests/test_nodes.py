@@ -476,26 +476,26 @@ def test_multiconditional(scope, a_i, i):
 
 def test_intrinsics(scope, n, i):
     """
-    Test constructors and scoping behaviour of various :any:`Intrinsic` nodes.
+    Test constructors and scoping behaviour of various :any:`GenericStmt` nodes.
     """
 
-    assert fgen(ir.Intrinsic('Hello World')) == 'Hello World'
+    assert fgen(ir.GenericStmt('Hello World')) == 'Hello World'
     with pytest.raises(ValidationError):
-        ir.Intrinsic(n)
+        ir.GenericStmt(n)
 
-    assert fgen(ir.ImplicitIntrinsic()) == 'IMPLICIT NONE'
-    assert fgen(ir.ImplicitIntrinsic('NONE')) == 'IMPLICIT NONE'
-    assert fgen(ir.ImplicitIntrinsic(i)) == 'IMPLICIT i'
-    assert fgen(ir.ImplicitIntrinsic((n, i))) == 'IMPLICIT n, i'
+    assert fgen(ir.ImplicitStmt()) == 'IMPLICIT NONE'
+    assert fgen(ir.ImplicitStmt('NONE')) == 'IMPLICIT NONE'
+    assert fgen(ir.ImplicitStmt(i)) == 'IMPLICIT i'
+    assert fgen(ir.ImplicitStmt((n, i))) == 'IMPLICIT n, i'
 
-    assert fgen(ir.SaveIntrinsic()) == 'SAVE'
-    assert fgen(ir.SaveIntrinsic(i)) == 'SAVE i'
-    assert fgen(ir.SaveIntrinsic((n, i))) == 'SAVE n, i'
+    assert fgen(ir.SaveStmt()) == 'SAVE'
+    assert fgen(ir.SaveStmt(i)) == 'SAVE i'
+    assert fgen(ir.SaveStmt((n, i))) == 'SAVE n, i'
 
-    assert fgen(ir.PublicIntrinsic()) == 'PUBLIC'
-    assert fgen(ir.PublicIntrinsic(i)) == 'PUBLIC i'
-    assert fgen(ir.PublicIntrinsic((n, i))) == 'PUBLIC n, i'
+    assert fgen(ir.PublicStmt()) == 'PUBLIC'
+    assert fgen(ir.PublicStmt(i)) == 'PUBLIC i'
+    assert fgen(ir.PublicStmt((n, i))) == 'PUBLIC n, i'
 
-    assert fgen(ir.PrivateIntrinsic()) == 'PRIVATE'
-    assert fgen(ir.PrivateIntrinsic(i)) == 'PRIVATE i'
-    assert fgen(ir.PrivateIntrinsic((n, i))) == 'PRIVATE n, i'
+    assert fgen(ir.PrivateStmt()) == 'PRIVATE'
+    assert fgen(ir.PrivateStmt(i)) == 'PRIVATE i'
+    assert fgen(ir.PrivateStmt((n, i))) == 'PRIVATE n, i'
