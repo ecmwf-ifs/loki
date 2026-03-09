@@ -412,9 +412,9 @@ class OMNI2IR(GenericVisitor):
         # Insert the `implicit none` statement OMNI omits (slightly hacky!)
         f_imports = [im for im in FindNodes(ir.Import).visit(spec) if not im.c_import]
         if not f_imports:
-            spec.prepend(ir.GenericStmt(text='IMPLICIT NONE'))
+            spec.prepend(ir.ImplicitStmt())
         else:
-            spec.insert(spec.body.index(f_imports[-1])+1, ir.GenericStmt(text='IMPLICIT NONE'))
+            spec.insert(spec.body.index(f_imports[-1])+1, ir.ImplicitStmt())
 
         # Parse member functions
         body_ast = o.find('body')
@@ -462,7 +462,7 @@ class OMNI2IR(GenericVisitor):
     def visit_FcontainsStatement(self, o, **kwargs):
         body = [self.visit(c, **kwargs) for c in o]
         body = [c for c in body if c is not None]
-        body = [ir.GenericStmt('CONTAINS', source=kwargs['source'])] + body
+        body = [ir.ContainsStmt(source=kwargs['source'])] + body
         return ir.Section(body=as_tuple(body))
 
     def visit_FmoduleProcedureDecl(self, o, **kwargs):
@@ -694,9 +694,9 @@ class OMNI2IR(GenericVisitor):
 
         if struct_type.find('typeBoundProcedures') is not None:
             # See if components are marked private
-            body += [ir.GenericStmt('CONTAINS')]
+            body += [ir.ContainsStmt()]
             if struct_type.attrib.get('is_internal_private') == 'true':
-                body += [ir.GenericStmt('PRIVATE')]
+                body += [ir.PrivateStmt()]
             body += self.visit(struct_type.find('typeBoundProcedures'), **kwargs)
 
         # Finally: update the typedef with its body
@@ -1293,7 +1293,7 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FcycleStatement(self, o, **kwargs):
         # TODO: do-construct-name is not preserved
-        return ir.GenericStmt(text='cycle', source=kwargs['source'])
+        return ir.CycleStmt(source=kwargs['source'])
 
     def visit_continueStatement(self, o, **kwargs):
         return ir.GenericStmt(text='continue', source=kwargs['source'])
@@ -1453,8 +1453,8 @@ class OMNI2IR(GenericVisitor):
         return StringConcat(exprs)
 
     def visit_gotoStatement(self, o, **kwargs):
-        label = int(o.attrib['label_name'])
-        return ir.GenericStmt(text=f'go to {label: d}', source=kwargs['source'])
+        label = str(int(o.attrib['label_name']))
+        return ir.GotoStmt(text=label, source=kwargs['source'])
 
     def visit_FstopStatement(self, o, **kwargs):
         code = o.attrib['code']
@@ -1464,4 +1464,4 @@ class OMNI2IR(GenericVisitor):
         return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])
 
     def visit_FreturnStatement(self, o, **kwargs):
-        return ir.GenericStmt(text='return', source=kwargs['source'])
+        return ir.ReturnStmt(source=kwargs['source'])

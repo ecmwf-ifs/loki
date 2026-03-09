@@ -55,7 +55,7 @@ class MissingImplicitNoneRule(GenericRule):
         """
         Check for intrinsic nodes that match the regex.
         """
-        for intr in FindNodes(ir.Intrinsic).visit(ir_):
+        for intr in FindNodes(ir.GenericStmt).visit(ir_):
             if cls._regex.match(intr.text):
                 break
         else:
