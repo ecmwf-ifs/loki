@@ -441,7 +441,7 @@ class ModulePattern(Pattern):
             spec = None
 
         if match['contains']:
-            contains = [ir.Intrinsic(text='CONTAINS')]
+            contains = [ir.ContainsStmt()]
             span = match.span('contains')
             span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
             candidates = ['SubroutineFunctionPattern']
@@ -533,7 +533,7 @@ class SubroutineFunctionPattern(Pattern):
             spec = None
 
         if match['contains']:
-            contains = [ir.Intrinsic(text='CONTAINS')]
+            contains = [ir.ContainsStmt()]
             span = match.span('contains')
             span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
             block_children = ['SubroutineFunctionPattern']
@@ -716,7 +716,7 @@ class TypedefPattern(Pattern):
             spec = []
 
         if match['contains']:
-            contains = [ir.Intrinsic(text='CONTAINS')]
+            contains = [ir.ContainsStmt()]
             span = match.span('contains')
             span = (span[0] + 8, span[1])  # Skip the "contains" keyword as it has been added
 

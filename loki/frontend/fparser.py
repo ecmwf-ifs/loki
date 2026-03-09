@@ -1515,11 +1515,17 @@ class FParser2IR(GenericVisitor):
             symbols=symbols, final=True, source=kwargs.get('source'), label=kwargs.get('label')
         )
 
+    def visit_Contains_Stmt(self, o, **kwargs):
+        return ir.ContainsStmt(source=kwargs.get('source'))
+
+    def visit_Private_Components_Stmt(self, o, **kwargs):
+        return ir.PrivateStmt(source=kwargs.get('source'))
+
+    def visit_Binding_Private_Stmt(self, o, **kwargs):
+        return ir.PrivateStmt(source=kwargs.get('source'))
+
     visit_Binding_Name_List = visit_List
     visit_Final_Subroutine_Name_List = visit_List
-    visit_Contains_Stmt = visit_Generic_Stmt
-    visit_Binding_Private_Stmt = visit_Generic_Stmt
-    visit_Private_Components_Stmt = visit_Generic_Stmt
     visit_Sequence_Stmt = visit_Generic_Stmt
 
     #
@@ -3486,15 +3492,22 @@ class FParser2IR(GenericVisitor):
     #
 
     def visit_Save_Stmt(self, o, **kwargs):
-        return ir.SaveStmt(**kwargs)
+        return ir.SaveStmt(source=kwargs.get('source'))
+
+    def visit_Return_Stmt(self, o, **kwargs):
+        return ir.ReturnStmt(source=kwargs.get('source'))
+
+    def visit_Cycle_Stmt(self, o, **kwargs):
+        return ir.CycleStmt(source=kwargs.get('source'))
+
+    def visit_Goto_Stmt(self, o, **kwargs):
+        label = o.items[0].tostr()
+        return ir.GotoStmt(text=label, source=kwargs.get('source'))
 
     visit_Intrinsic_Stmt = visit_Generic_Stmt
     visit_Format_Stmt = visit_Generic_Stmt
     visit_Write_Stmt = visit_Generic_Stmt
-    visit_Goto_Stmt = visit_Generic_Stmt
-    visit_Return_Stmt = visit_Generic_Stmt
     visit_Continue_Stmt = visit_Generic_Stmt
-    visit_Cycle_Stmt = visit_Generic_Stmt
     visit_Exit_Stmt = visit_Generic_Stmt
     visit_Read_Stmt = visit_Generic_Stmt
     visit_Open_Stmt = visit_Generic_Stmt

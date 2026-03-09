@@ -249,4 +249,4 @@ class GotoStmt(GenericStmt):
     text: str
 
     def __repr__(self):
-        return f'Cycle:: {truncate_string(self.text)}'
+        return f'Goto:: {truncate_string(self.text)}'

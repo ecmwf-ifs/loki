@@ -422,6 +422,7 @@ end module module_variables_add_remove
     if frontend == OMNI:
         # OMNI frontend inserts a few peculiarities
         assert fgen(module.spec).lower() == """
+implicit none
 integer, parameter :: jprb = selected_real_kind(13, 300)
 integer :: x
 integer :: y
@@ -1080,8 +1081,7 @@ end module spec_parts
     assert all(isinstance(p, tuple) for p in module.spec_parts)
 
     if frontend == OMNI:
-        # OMNI removes any 'IMPLICIT' statements so the middle part is always empty
-        part_lengths = (part_lengths[0], 0, part_lengths[2])
+        part_lengths = (part_lengths[0], 1, part_lengths[2])
     else:
         # OMNI _conveniently_ puts any use statements _before_ the docstring for
         # absolutely zero sensible reasons, so it would be purely based on good luck
@@ -1195,13 +1195,11 @@ end subroutine routine2
 
     routine1 = routine1.clone(contains=routine2)
     assert isinstance(routine1.contains, ir.Section)
-    assert isinstance(routine1.contains.body[0], ir.GenericStmt)
-    assert routine1.contains.body[0].text == 'CONTAINS'
+    assert isinstance(routine1.contains.body[0], ir.ContainsStmt)
 
     module = module.clone(contains=routine1)
     assert isinstance(module.contains, ir.Section)
-    assert isinstance(module.contains.body[0], ir.GenericStmt)
-    assert module.contains.body[0].text == 'CONTAINS'
+    assert isinstance(module.contains.body[0], ir.ContainsStmt)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
