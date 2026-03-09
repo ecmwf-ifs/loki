@@ -526,6 +526,13 @@ class OMNI2IR(GenericVisitor):
         docstring = as_tuple(docstring)
         spec = Transformer(spec_map, invalidate_source=False).visit(spec)
 
+        # Insert the `implicit none` statement OMNI omits (slightly hacky!)
+        f_imports = [im for im in FindNodes(ir.Import).visit(spec) if not im.c_import]
+        if not f_imports:
+            spec.prepend(ir.ImplicitStmt())
+        else:
+            spec.insert(spec.body.index(f_imports[-1])+1, ir.ImplicitStmt())
+
         # Parse member functions
         if contains_ast is not None:
             contains = self.visit(contains_ast, **kwargs)
