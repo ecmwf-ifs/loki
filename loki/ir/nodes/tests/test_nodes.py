@@ -416,7 +416,7 @@ def test_multiconditional(scope, a_i, i):
     assert multicond.else_body == (assign3, assign2)
 
 
-def test_intrinsics(scope, n, i):
+def test_stmt_nodes(scope, n, i):
     """
     Test constructors and scoping behaviour of various :any:`GenericStmt` nodes.
     """
@@ -425,6 +425,7 @@ def test_intrinsics(scope, n, i):
     with pytest.raises(ValidationError):
         ir.GenericStmt(n)
 
+    # Potential symbol quantifiers
     assert fgen(ir.ImplicitStmt()) == 'IMPLICIT NONE'
     assert fgen(ir.ImplicitStmt('NONE')) == 'IMPLICIT NONE'
     assert fgen(ir.ImplicitStmt(i)) == 'IMPLICIT i'
@@ -441,3 +442,20 @@ def test_intrinsics(scope, n, i):
     assert fgen(ir.PrivateStmt()) == 'PRIVATE'
     assert fgen(ir.PrivateStmt(i)) == 'PRIVATE i'
     assert fgen(ir.PrivateStmt((n, i))) == 'PRIVATE n, i'
+
+    # Control flow statements
+    assert fgen(ir.ContainsStmt()) == 'CONTAINS'
+    with pytest.raises(ValidationError):
+        ir.ContainsStmt(n)
+
+    assert fgen(ir.ReturnStmt()) == 'RETURN'
+    with pytest.raises(ValidationError):
+        ir.ReturnStmt(n)
+
+    assert fgen(ir.CycleStmt()) == 'CYCLE'
+    with pytest.raises(ValidationError):
+        ir.CycleStmt(n)
+
+    assert fgen(ir.GotoStmt('2345')) == 'GO TO 2345'
+    with pytest.raises(ValidationError):
+        assert ir.GotoStmt()
