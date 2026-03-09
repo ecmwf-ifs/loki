@@ -165,11 +165,10 @@ end subroutine cycle_exit_routine
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
-    statements = [
-        intr for intr in FindNodes(ir.GenericStmt).visit(loops[0].body)
-        if intr.text.lower() in ('cycle', 'exit')
-    ]
+    statements = FindNodes(ir.GenericStmt).visit(loops[0].body)
     assert len(statements) == 2
+    assert isinstance(statements[0], ir.CycleStmt)
+    assert statements[1].text.lower() == 'exit'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

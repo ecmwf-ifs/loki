@@ -10,7 +10,7 @@
 from typing import Optional, Union, Tuple
 
 from pymbolic.primitives import Expression
-from pydantic import field_validator
+from pydantic import field_validator, ValidationError
 
 from loki.ir.nodes.abstract_nodes import LeafNode
 from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
@@ -18,7 +18,8 @@ from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
 
 __all__ = [
     'GenericStmt', 'ImplicitStmt', 'SaveStmt', 'PublicStmt',
-    'PrivateStmt'
+    'PrivateStmt', 'ContainsStmt', 'ReturnStmt', 'CycleStmt',
+    'GotoStmt'
 ]
 
 
@@ -158,3 +159,94 @@ class PrivateStmt(GenericStmt):
 
     def __repr__(self):
         return f'Private:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class ContainsStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``CONTAINS`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'CONTAINS'
+
+    text: Optional[None] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.text is None:
+            raise ValidationError('[Loki] ContainsStmt takes no constructor arguments')
+
+    def __repr__(self):
+        return 'Contains::'
+
+
+@dataclass_strict(frozen=True)
+class ReturnStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``RETURN`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'RETURN'
+
+    text: Optional[None] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.text is None:
+            raise ValidationError('[Loki] ReturnStmt takes no constructor arguments')
+
+    def __repr__(self):
+        return 'Return::'
+
+
+@dataclass_strict(frozen=True)
+class CycleStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``CYCLE`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'CYCLE'
+
+    text: Optional[None] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.text is None:
+            raise ValidationError('[Loki] CycleStmt takes no constructor arguments')
+
+    def __repr__(self):
+        return 'Cycle::'
+
+
+@dataclass_strict(frozen=True)
+class GotoStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``GO TO`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'GO TO'
+
+    text: str
+
+    def __repr__(self):
+        return f'Cycle:: {truncate_string(self.text)}'
