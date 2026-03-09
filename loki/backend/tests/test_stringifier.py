@@ -21,6 +21,7 @@ def test_stringifier(frontend, tmp_path):
     """
     fcode = """
 MODULE some_mod
+  IMPLICIT NONE
   INTEGER :: n
   !$loki dimension(klon)
   REAL :: arr(:)
@@ -83,13 +84,14 @@ END MODULE some_mod
     ref_lines = [
         "<Module:: some_mod>",  # l. 1
         "#<Section::>",
+        "##<Implicit:: NONE>",
         "##<VariableDeclaration:: n>",
         "##<Pragma:: loki dimension(klon)>",
         "##<VariableDeclaration:: arr(:)>",
         "#<Subroutine:: some_routine>",
         "##<Comment:: ! This is a b...>",
         "##<Section::>",
-        "###<Intrinsic:: IMPLICIT NONE>",
+        "###<Implicit:: NONE>",
         "###<VariableDeclaration:: x>",  # l. 10
         "###<VariableDeclaration:: y>",
         "###<VariableDeclaration:: i>",
@@ -112,7 +114,7 @@ END MODULE some_mod
         "... 1. + 1.>",
         "#<Function:: my_sqrt>", # l. 30
         "##<Section::>",
-        "###<Intrinsic:: IMPLICIT NONE>",
+        "###<Implicit:: NONE>",
         "###<VariableDeclaration:: arg>",
         "###<VariableDeclaration:: my_sqrt>",
         "##<Section::>",
@@ -120,7 +122,7 @@ END MODULE some_mod
         "#<Subroutine:: other_routine>",
         "##<CommentBlock:: ! This is jus...>",
         "##<Section::>",
-        "###<Intrinsic:: IMPLICIT NONE>",  # l. 40
+        "###<Implicit:: NONE>",  # l. 40
         "###<VariableDeclaration:: m>",
         "###<VariableDeclaration:: var(:)>",
         "##<Section::>",
@@ -129,11 +131,11 @@ END MODULE some_mod
         "####<Case (0)>",
         "#####<Assignment:: m = 1>",
         "####<Case (1:10)>",
-        "#####<Intrinsic:: PRINT *, '1 t...>",
+        "#####<GenericStmt:: PRINT *, '1 t...>",
         "####<Case (-1, -2)>",  # l. 50
         "#####<Assignment:: m = 10>",
         "####<Default>",
-        "#####<Intrinsic:: PRINT *, 'Def...>",
+        "#####<GenericStmt:: PRINT *, 'Def...>",
         "###<Associate:: arr(m)=x>",
         "####<Assignment:: x = x*2.>",
         "###<Allocation:: var>",
@@ -144,12 +146,12 @@ END MODULE some_mod
 
     if frontend == OMNI:
         # Some string inconsistencies
-        ref_lines[15] = ref_lines[15].replace('1E-8', '1e-8')
-        ref_lines[35] = ref_lines[35].replace('SQRT', 'sqrt')
-        ref_lines[48] = ref_lines[48].replace('PRINT', 'print')
-        ref_lines[52] = ref_lines[52].replace('PRINT', 'print')
+        ref_lines[16] = ref_lines[16].replace('1E-8', '1e-8')
+        ref_lines[36] = ref_lines[36].replace('SQRT', 'sqrt')
+        ref_lines[49] = ref_lines[49].replace('PRINT', 'print')
+        ref_lines[53] = ref_lines[53].replace('PRINT', 'print')
 
-    cont_index = 27  # line number where line continuation is happening
+    cont_index = 28  # line number where line continuation is happening
     ref = '\n'.join(ref_lines)
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
