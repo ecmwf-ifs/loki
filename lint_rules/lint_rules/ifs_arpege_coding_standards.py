@@ -13,7 +13,6 @@ current version of the coding standards.
 """
 
 from collections import defaultdict
-import re
 
 try:
     from fparser.two.Fortran2003 import Intrinsic_Name
@@ -48,15 +47,13 @@ class MissingImplicitNoneRule(GenericRule):
         ),
     }
 
-    _regex = re.compile(r'implicit\s+none\b', re.I)
-
     @classmethod
     def check_for_implicit_none(cls, ir_):
         """
         Check for intrinsic nodes that match the regex.
         """
-        for intr in FindNodes(ir.GenericStmt).visit(ir_):
-            if cls._regex.match(intr.text):
+        for intr in FindNodes(ir.ImplicitStmt).visit(ir_):
+            if not intr.text or intr.text.lower() == 'none':
                 break
         else:
             return False

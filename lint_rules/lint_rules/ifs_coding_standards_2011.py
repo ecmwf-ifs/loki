@@ -215,7 +215,7 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
 
     # List of nodes that are considered executable statements
     exec_nodes = (
-        ir.Assignment, ir.MaskedStatement, ir.Intrinsic, ir.Allocation,
+        ir.Assignment, ir.MaskedStatement, ir.GenericStmt, ir.Allocation,
         ir.Deallocation, ir.Nullify, ir.CallStatement
     )
 
@@ -231,7 +231,7 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
         nodes = FindNodes(cls.exec_nodes).visit(subroutine.ir)
         num_nodes = len(nodes)
         # Subtract number of non-exec intrinsic nodes
-        intrinsic_nodes = filter(lambda node: isinstance(node, ir.Intrinsic), nodes)
+        intrinsic_nodes = filter(lambda node: isinstance(node, ir.GenericStmt), nodes)
         num_nodes -= sum(1 for _ in filter(
             lambda node: cls.match_non_exec_intrinsic_node.match(node.text), intrinsic_nodes))
 
@@ -298,15 +298,13 @@ class ImplicitNoneRule(GenericRule):  # Coding standards 4.4
         'title': '"IMPLICIT NONE" is mandatory in all routines.',
     }
 
-    _regex = re.compile(r'implicit\s+none\b', re.I)
-
     @staticmethod
     def check_for_implicit_none(ast):
         """
         Check for intrinsic nodes that match the regex.
         """
-        for intr in FindNodes(ir.Intrinsic).visit(ast):
-            if ImplicitNoneRule._regex.match(intr.text):
+        for intr in FindNodes(ir.ImplicitStmt).visit(ast):
+            if not intr.text or intr.text.lower() == 'none':
                 break
         else:
             return False
@@ -450,9 +448,9 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for banned statements in intrinsic nodes.'''
-        for intr in FindNodes(ir.Intrinsic).visit(subroutine.ir):
+        for intr in FindNodes(ir.GenericStmt).visit(subroutine.ir):
             for keyword in config['banned']:
-                if keyword.lower() in intr.text.lower():
+                if keyword.upper() in intr.text.upper() or keyword.upper() == intr.keyword:
                     rule_report.add(f'Banned keyword "{keyword}"', intr)
 
 
