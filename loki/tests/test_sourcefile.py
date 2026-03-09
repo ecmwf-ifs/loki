@@ -10,9 +10,9 @@ import pytest
 import numpy as np
 
 from loki import Sourcefile, fgen, ProcedureType, ProcedureSymbol
+from loki.ir import nodes as ir, FindNodes
 from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI
-from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.fixture(scope='module', name='here')
