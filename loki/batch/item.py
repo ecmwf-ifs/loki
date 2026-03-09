@@ -732,13 +732,15 @@ class ProcedureItem(Item):
 
         calls = tuple({call.name.name: call for call in FindNodes(CallStatement).visit(self_ir.ir)}.values())
         internal_procedures = [routine.name.lower() for routine in self_ir.routines]
-        if internal_procedures and self.ignore_internal_procedures:
-            calls = tuple(call for call in calls if call.name.name.lower() not in internal_procedures)
         inline_calls = tuple({
             call.function.name: call.function
             for call in FindInlineCalls().visit(self_ir.ir)
             if isinstance(call.function, ProcedureSymbol) and not call.function.type.is_intrinsic
         }.values())
+        if internal_procedures and self.ignore_internal_procedures:
+            calls = tuple(call for call in calls if call.name.name.lower() not in internal_procedures)
+            inline_calls = tuple(func for func in inline_calls
+                                 if not func.name.lower() in internal_procedures)
         imports = tuple(
             imprt for imprt in self_ir.imports
             if not imprt.c_import and str(imprt.nature).lower() != 'intrinsic'
