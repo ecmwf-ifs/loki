@@ -486,9 +486,13 @@ end module my_mod
 
     # Module spec statements
     m_spec_stmt = FindNodes(ir.GenericStmt).visit(module.spec)
-    assert len(m_spec_stmt) == 2
-    assert isinstance(m_spec_stmt[0], ir.ImplicitStmt) and m_spec_stmt[0].text[0] == 'NONE'
-    assert isinstance(m_spec_stmt[1], ir.SaveStmt)
+    if frontend == OMNI:
+        assert len(m_spec_stmt) == 1
+        assert isinstance(m_spec_stmt[0], ir.ImplicitStmt) and m_spec_stmt[0].text == 'NONE'
+    else:
+        assert len(m_spec_stmt) == 2
+        assert isinstance(m_spec_stmt[0], ir.ImplicitStmt) and m_spec_stmt[0].text == 'NONE'
+        assert isinstance(m_spec_stmt[1], ir.SaveStmt)
     assert 'IMPLICIT NONE' in module.to_fortran()
 
     # Module contains statements
