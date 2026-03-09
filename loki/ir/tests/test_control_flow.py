@@ -510,6 +510,87 @@ end module my_mod
     assert routine.to_fortran().count('RETURN') == 2
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_fortran_statements(tmp_path, frontend):
+    fcode = """
+module my_mod
+  implicit none
+  real, dimension(6, 42) :: array
+  save
+contains
+
+  subroutine test_fortran_stmts(m, n, var)
+    integer, intent(in) :: m, n
+    integer, intent(inout) :: var
+    integer :: i
+
+    var = 3
+    if (m > 3) then
+      go to 1234
+    end if
+
+    var = 0
+    do i=1, 10
+      if (var > 5) cycle
+      var = var + 1
+    end do
+
+    1234 return
+    var = 7
+    return
+  end subroutine test_fortran_stmts
+end module my_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['test_fortran_stmts']
+
+    # Module spec statements
+    m_spec_stmt = FindNodes(ir.GenericStmt).visit(module.spec)
+    assert len(m_spec_stmt) == 2
+    assert isinstance(m_spec_stmt[0], ir.ImplicitStmt) and m_spec_stmt[0].text[0] == 'NONE'
+    assert isinstance(m_spec_stmt[1], ir.SaveStmt)
+    assert 'IMPLICIT NONE' in module.to_fortran()
+
+    # Module contains statements
+    m_cont_stmt = FindNodes(ir.GenericStmt).visit(module.contains)
+    assert len(m_cont_stmt) == 1
+    assert isinstance(m_cont_stmt[0], ir.GenericStmt) and m_cont_stmt[0].text == 'CONTAINS'
+    assert 'CONTAINS' in module.to_fortran()
+
+    # Subroutine body statements
+    r_body_stmt = FindNodes(ir.GenericStmt).visit(routine.body)
+    assert len(r_body_stmt) == 4
+    assert isinstance(r_body_stmt[0], ir.GenericStmt) and r_body_stmt[0].text == 'GO TO 1234'
+    assert isinstance(r_body_stmt[1], ir.GenericStmt) and r_body_stmt[1].text == 'CYCLE'
+    assert isinstance(r_body_stmt[2], ir.GenericStmt) and r_body_stmt[2].text == 'RETURN'
+    assert isinstance(r_body_stmt[3], ir.GenericStmt) and r_body_stmt[3].text == 'RETURN'
+    assert 'GO TO 1234' in routine.to_fortran()
+    assert 'CYCLE' in routine.to_fortran()
+    assert routine.to_fortran().count('RETURN') == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'No support for Cray Pointers')]
+))
+def test_cray_pointers(frontend):
+    fcode = """
+SUBROUTINE SUBROUTINE_WITH_CRAY_POINTER (KLON,KLEV,POOL)
+  IMPLICIT NONE
+  INTEGER, INTENT(IN) :: KLON, KLEV
+  REAL, INTENT(INOUT) :: POOL(:)
+  REAL, DIMENSION(KLON,KLEV) :: ZQ
+  POINTER(IP_ZQ, ZQ)
+  IP_ZQ = LOC(POOL)
+END SUBROUTINE
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    stmts = FindNodes(ir.GenericStmt).visit(routine.spec)
+    assert len(stmts) == 2
+    assert 'IMPLICIT NONE' in stmts[0].text
+    assert 'POINTER(IP_ZQ, ZQ)' in stmts[1].text
+    assert 'POINTER(IP_ZQ, ZQ)' in routine.to_fortran()
+
+
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'No support for Cray Pointers')]
 ))
