@@ -441,13 +441,10 @@ END FUNCTION FUNC
     routine = Subroutine.from_source(fcode, frontend=frontend)
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == 2
-    assert isinstance(conditionals[0].body[-1], ir.GenericStmt)
-    assert conditionals[0].body[-1].text.upper() == 'RETURN'
+    assert isinstance(conditionals[0].body[-1], ir.ReturnStmt)
     assert conditionals[0].else_body == (conditionals[1],)
-    assert isinstance(conditionals[1].body[-1], ir.GenericStmt)
-    assert conditionals[1].body[-1].text.upper() == 'RETURN'
-    assert isinstance(conditionals[1].else_body[-1], ir.GenericStmt)
-    assert conditionals[1].else_body[-1].text.upper() == 'RETURN'
+    assert isinstance(conditionals[1].body[-1], ir.ReturnStmt)
+    assert isinstance(conditionals[1].else_body[-1], ir.ReturnStmt)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -498,16 +495,16 @@ end module my_mod
     # Module contains statements
     m_cont_stmt = FindNodes(ir.GenericStmt).visit(module.contains)
     assert len(m_cont_stmt) == 1
-    assert isinstance(m_cont_stmt[0], ir.GenericStmt) and m_cont_stmt[0].text == 'CONTAINS'
+    assert isinstance(m_cont_stmt[0], ir.ContainsStmt)
     assert 'CONTAINS' in module.to_fortran()
 
     # Subroutine body statements
     r_body_stmt = FindNodes(ir.GenericStmt).visit(routine.body)
     assert len(r_body_stmt) == 4
-    assert isinstance(r_body_stmt[0], ir.GenericStmt) and r_body_stmt[0].text == 'GO TO 1234'
-    assert isinstance(r_body_stmt[1], ir.GenericStmt) and r_body_stmt[1].text == 'CYCLE'
-    assert isinstance(r_body_stmt[2], ir.GenericStmt) and r_body_stmt[2].text == 'RETURN'
-    assert isinstance(r_body_stmt[3], ir.GenericStmt) and r_body_stmt[3].text == 'RETURN'
+    assert isinstance(r_body_stmt[0], ir.GotoStmt) and r_body_stmt[0].text == '1234'
+    assert isinstance(r_body_stmt[1], ir.CycleStmt)
+    assert isinstance(r_body_stmt[2], ir.ReturnStmt)
+    assert isinstance(r_body_stmt[3], ir.ReturnStmt)
     assert 'GO TO 1234' in routine.to_fortran()
     assert 'CYCLE' in routine.to_fortran()
     assert routine.to_fortran().count('RETURN') == 2
@@ -530,7 +527,7 @@ END SUBROUTINE
     routine = Subroutine.from_source(fcode, frontend=frontend)
     stmts = FindNodes(ir.GenericStmt).visit(routine.spec)
     assert len(stmts) == 2
-    assert 'IMPLICIT NONE' in stmts[0].text
+    assert isinstance(stmts[0], ir.ImplicitStmt)
     assert 'POINTER(IP_ZQ, ZQ)' in stmts[1].text
     assert 'POINTER(IP_ZQ, ZQ)' in routine.to_fortran()
 

@@ -69,7 +69,7 @@ end module some_mod
     # Make sure all lines are continued correctly
     code = module.to_fortran()
     code_lines = code.splitlines()
-    assert len(code_lines) in (35, 36) # OMNI produces an extra line
+    assert len(code_lines) in (35, 37) # OMNI produces an extra line
     assert all(line.strip(' &\n') for line in code_lines)
     assert all(len(line) < 132 for line in code_lines)
 
