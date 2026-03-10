@@ -792,3 +792,72 @@ end subroutine test_skip_deferred
     assert 'ptr_arr' not in candidate_names
     assert 'alloc_arr' not in candidate_names
     assert 'assumed_arr' not in candidate_names
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_get_locals_to_promote_skips_constant_shape(frontend):
+    """
+    Test that :any:`PromoteLocalArrayTransformation.get_locals_to_promote`
+    skips local arrays whose dimensions are all compile-time constants
+    (integer literals or Fortran ``PARAMETER`` values).
+
+    Only arrays with at least one variable (non-constant) dimension
+    should be returned as promotion candidates.
+    """
+    from loki.ir import Section
+
+    fcode = """
+subroutine test_skip_constant(ncol, nlev, istartcol, iendcol)
+  implicit none
+  integer, intent(in) :: ncol, nlev, istartcol, iendcol
+  integer, parameter :: nband = 14
+  real :: variable_arr(nlev)
+  real :: literal_arr(10)
+  real :: param_arr(nband)
+  real :: mixed_arr(nband, nlev)
+  integer :: jlev, jcol
+
+  variable_arr(:) = 0.0
+  literal_arr(:) = 0.0
+  param_arr(:) = 0.0
+  mixed_arr(:,:) = 0.0
+  do jlev = 1, nlev
+    variable_arr(jlev) = jlev
+    mixed_arr(1, jlev) = jlev
+  end do
+end subroutine test_skip_constant
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Wrap body in a vector section
+    body_nodes = list(routine.body.body)
+    vector_section = Section(body=tuple(body_nodes), label='vector_section')
+    routine.body = routine.body.clone(body=(vector_section,))
+
+    horizontal = Dimension(
+        name='horizontal', size=['ncol'], index='jcol',
+        lower=['istartcol'], upper=['iendcol']
+    )
+
+    sections = [
+        s for s in FindNodes(ir.Section).visit(routine.body)
+        if s.label == 'vector_section'
+    ]
+
+    candidates = PromoteLocalArrayTransformation.get_locals_to_promote(
+        routine, sections, horizontal
+    )
+
+    candidate_names = {c.name.lower() for c in candidates}
+
+    # variable_arr has a variable dimension (nlev) — should be promoted
+    assert 'variable_arr' in candidate_names
+
+    # mixed_arr has one constant and one variable dimension — should be promoted
+    assert 'mixed_arr' in candidate_names
+
+    # literal_arr has only a literal constant dimension — should NOT be promoted
+    assert 'literal_arr' not in candidate_names
+
+    # param_arr has only a PARAMETER constant dimension — should NOT be promoted
+    assert 'param_arr' not in candidate_names
