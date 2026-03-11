@@ -104,6 +104,7 @@ module my_types_mod
   type outer
     type(base) :: was
     real(kind=4) :: red_herring
+    integer :: n
   end type outer
 end module my_types_mod
 """
@@ -113,6 +114,7 @@ subroutine test_der_type(rick, dave)
   use my_types_mod, only: outer
   implicit none
   type(outer), intent(inout) :: rick, dave
+  real(kind=4) :: array(rick%n)
 
   rick%red_herring = 42.0
   rick%was%here = 67
@@ -124,12 +126,23 @@ end subroutine test_der_type
     module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
     routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    assert len(routine.variables) == 2
+    assert len(routine.variables) == 3
     rick = routine.variable_map['rick']
     dave = routine.variable_map['dave']
+    array = routine.variable_map['array']
     assert rick and dave and rick.type.dtype == dave.type.dtype
     assert not rick.type.dtype is dave.type.dtype
 
+    # Ensure correct scoping of declaration symbols
+    assert rick.scope == routine
+    assert dave.scope == routine
+    assert array.scope == routine
+    assert len(array.dimensions) == 1
+    assert array.dimensions[0] == 'rick%n'
+    assert array.dimensions[0].scope == rick.type.dtype
+    assert array.dimensions[0].parent.scope == routine
+
+    # Ensure correct scopes for symbols in subroutine body
     vs = list(FindVariables().visit(routine.body))
     assert vs[0] == 'rick' == rick and rick.scope == routine
     assert vs[1] == 'rick%red_herring' and vs[1].scope == rick.type.dtype
