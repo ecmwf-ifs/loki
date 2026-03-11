@@ -805,6 +805,11 @@ class AttachScopesMapper(LokiIdentityMapper):
         Note: this may be a different handler as attaching the scope and therefore
         type may change a symbol's type, e.g. from :class:`DeferredTypeSymbol` to :class:`Scalar`
         """
+        if expr.parent:
+            # If this is a component symbol, let the parent handle scopes and re-attachd
+            self.rec(expr.parent, *args, **kwargs)
+            return expr.clone(scope=expr.parent.type.dtype)
+
         new_expr = self._update_symbol_scope(expr, kwargs['scope'])
         if new_expr.scope and new_expr.scope is not kwargs['scope']:
             # We call the parent handler to take care of properties like initial value, kind etc.,
