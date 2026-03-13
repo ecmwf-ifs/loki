@@ -622,9 +622,11 @@ class OMNI2IR(GenericVisitor):
                 # This is the declaration of the return type inside a function, which is
                 # why we restore the return_type
                 _type = _type.dtype.return_type
+                scope.declare(variable.name, **dict(_type.__dict__))
 
                 # If the return type has a shape, we need to apply this as a dimension to the
                 # variable, otherwise it will be missing from the declaration
+                variable = variable.rescope(scope=scope)
                 if _type.shape:
                     variable = variable.clone(dimensions=_type.shape)
 
