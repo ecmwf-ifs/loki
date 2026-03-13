@@ -25,7 +25,7 @@ from loki.expression import (
 from loki.logging import debug, info, warning, error
 from loki.config import config
 from loki.tools import (
-    as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict, dict_override
+    as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict
 )
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 
@@ -575,6 +575,7 @@ class OMNI2IR(GenericVisitor):
     def visit_varDecl(self, o, **kwargs):
         # OMNI has only one variable per declaration, find and create that
         name = o.find('name')
+        tast = None
 
         interface = None
         scope = kwargs['scope']
@@ -584,28 +585,25 @@ class OMNI2IR(GenericVisitor):
             # Intrinsic scalar type
             t = self._omni_types[name.attrib['type']]
             _type = SymbolAttributes(BasicType.from_fortran_type(t))
-            dimensions = None
-
-            # Last, instantiate declared variables
-            with dict_override(kwargs, {'type': _type}):
-                variable = self.visit(name, **kwargs)
 
         elif name.attrib['type'] in self.type_map:
             # Type with attributes or derived type
             tast = self.type_map[name.attrib['type']]
             _type = self.visit(tast, **kwargs)
+        else:
+            raise ValueError(f'[Loki::OMNI] Could not determine type in declaration of {name.text}')
 
-            # Last, instantiate declared variables
-            with dict_override(kwargs, {'type': _type}):
-                variable = self.visit(name, **kwargs)
+        # Next, instantiate declared variable
+        vname = name.text
+        scope.declare(vname, **dict(_type.__dict__), fail=False)
+        variable = self.visit(name, **kwargs)
 
+        # Add dimensions as shape, if declared as part of the symbol
+        if tast:
             dimensions = as_tuple(self.visit(d, **kwargs) for d in tast.findall('indexRange'))
             if dimensions:
                 _type = _type.clone(shape=dimensions)
-                variable = variable.clone(dimensions=dimensions)
-
-        else:
-            raise ValueError
+                variable = variable.clone(dimensions=dimensions, type=_type)
 
         if isinstance(_type.dtype, ProcedureType):
             if _type.dtype.name == 'UNKNOWN':
@@ -631,7 +629,7 @@ class OMNI2IR(GenericVisitor):
                 # This is the declaration of the return type inside a function, which is
                 # why we restore the return_type
                 _type = _type.dtype.return_type
-                scope.declare(variable.name, **dict(_type.__dict__))
+                scope.declare(variable.name, **dict(_type.__dict__), fail=False)
 
                 # If the return type has a shape, we need to apply this as a dimension to the
                 # variable, otherwise it will be missing from the declaration
@@ -641,6 +639,7 @@ class OMNI2IR(GenericVisitor):
 
             if tast.attrib.get('is_external') == 'true':
                 _type.external = True
+                interface = None
 
         # TODO: Should remove this...
         if o.find('value') is not None:
