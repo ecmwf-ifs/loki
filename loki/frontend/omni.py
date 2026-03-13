@@ -420,10 +420,19 @@ class OMNI2IR(GenericVisitor):
         # symbols in the spec part to make them coherent with the symbol table
         spec = AttachScopes().visit(spec, scope=routine, recurse_to_declaration_attributes=True)
 
-        # Parse member functions
+        # Pre-populate symbol table with procedure types declared in this module
+        # to correctly classify inline function calls and type-bound procedures
         body_ast = o.find('body')
         contains_ast = None if body_ast is None else body_ast.find('FcontainsStatement')
-        if contains_ast is not None:
+        if contains_ast:
+            # Pre-populate all nested procedure scopes, so that type tables
+            # are in place before we parse declarations and procedure bodies.
+            contains = [
+                self._create_Procedure_object(member_ast, kwargs['scope'], kwargs['symbol_map'])
+                for member_ast in contains_ast.findall('FfunctionDefinition')
+            ]
+
+            # Now that scopes are in place, fully parse internal procedures
             contains = self.visit(contains_ast, **kwargs)
 
             # Strip contains part from the XML before we proceed
