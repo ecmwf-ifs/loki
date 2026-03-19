@@ -30,6 +30,7 @@ class PromoteLocalArrayTransformation(Transformation):
     def __init__(self, horizontal, promote_local_arrays=True):
         self.horizontal = horizontal
         self.promote_local_arrays = promote_local_arrays
+        # self.promote_compile_time_constant = False
 
     @classmethod
     def get_locals_to_promote(cls, routine, sections, horizontal):
@@ -50,11 +51,22 @@ class PromoteLocalArrayTransformation(Transformation):
 
         # Filter out arrays that already have the horizontal dimension or
         # are entirely compile-time-constant-sized
-        candidates = [
-            a for a in candidates if a.shape and
-            all(s not in horizontal.size_expressions for s in a.shape) and
-            not all(is_dimension_constant(d) for d in a.shape)
-        ]
+        if 'tripleclouds' in routine.name:
+            candidates = [
+                a for a in candidates if a.shape and
+                all(s not in horizontal.size_expressions for s in a.shape)
+                    ]
+        else:
+            candidates = [
+                a for a in candidates if a.shape and
+                all(s not in horizontal.size_expressions for s in a.shape) and
+                not all(is_dimension_constant(d) for d in a.shape)
+            ]
+        # if self.promote_compile_time_constant:
+        # candidates = [
+        #     a for a in candidates if a.shape and
+        #     not all(is_dimension_constant(d) for d in a.shape)
+        # ]
 
         # Filter out arrays with entirely deferred shapes (all ':' dimensions).
         # These are pointer or allocatable locals whose actual shape is not
