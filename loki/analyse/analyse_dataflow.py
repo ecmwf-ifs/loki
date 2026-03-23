@@ -327,10 +327,8 @@ class DataflowAnalysisAttacher(Transformer):
             uses |= {o.symbols[0].type.kind}
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
-    def visit_StatementFunction(self, o, **kwargs):
-        # Only the return symbol is meaningful to the outside
-        defines = self._symbols_from_expr(o.variable)
-        return self.visit_Node(o, defines_symbols=defines, **kwargs)
+    # The definition of the function has no effect on data flow
+    visit_StatementFunction = visit_Node
 
 
 class DataflowAnalysisDetacher(Transformer):

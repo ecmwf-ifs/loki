@@ -25,11 +25,12 @@ subroutine analyse_live_symbols(v1, v2, v3)
   integer, intent(in) :: v1
   integer, intent(inout) :: v2
   integer, intent(out) :: v3
-  integer :: i, j, n=10, tmp, a
+  integer :: i, j, k, n=10, tmp, a, b
+  b(k) = k + 1
 
   do i=1,n
     do j=1,n
-      tmp = j + 1
+      tmp = b(j)
     end do
     a = v2 + tmp
   end do
