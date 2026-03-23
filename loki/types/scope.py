@@ -294,4 +294,7 @@ class Scope:
             The collection of attributes associated with this symbol
         """
 
-        return self.get_type(name, recursive=recursive, fail=fail).dtype
+        _type = self.get_type(name, recursive=recursive, fail=fail)
+        if _type is None:
+            return None
+        return _type.dtype
