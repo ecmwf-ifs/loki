@@ -251,7 +251,6 @@ end subroutine outer_routine
 
     b_outer = routine.get_type('b')
     assert b_outer.dtype == INTEGER
-    assert b_outer.dtype == INTEGER
     assert b_outer.shape == (2, 2)
 
     a_inner = internal.get_type('a')

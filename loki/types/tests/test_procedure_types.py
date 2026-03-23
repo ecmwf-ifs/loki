@@ -107,7 +107,7 @@ end subroutine test_routine
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 1
 
-    # Check origianl stmt func is fine and linked
+    # Check original stmt func is fine and linked
     sftype = stmtfuncs[0].variable.type.dtype
     assert isinstance(sftype, ProcedureType)
     assert sftype.procedure == stmtfuncs[0]
@@ -116,7 +116,7 @@ end subroutine test_routine
     assert isinstance(assigns[0].rhs.function.type.dtype, ProcedureType)
     assert assigns[0].rhs.function.type.dtype.procedure == stmtfuncs[0]
 
-    # Safe the original IR node and run a no-op Transformer over the spec
+    # Save the original IR node and run a no-op Transformer over the spec
     original = stmtfuncs[0]
     routine.spec = Transformer().visit(routine.spec)
 

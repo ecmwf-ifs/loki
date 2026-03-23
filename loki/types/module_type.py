@@ -24,9 +24,8 @@ class ModuleType(DataType):
     Parameters
     ----------
     name : str, optional
-        The name of the module. Can be skipped if :data:`module`
-        is provided (not in the form of a :any:`LazyNodeLookup`)
-    module : :any:`Module` :any:`LazyNodeLookup`, optional
+        The name of the module. Can be skipped if :data:`module` is provided.
+    module : :any:`Module`, optional
         The procedure this type represents
     """
 

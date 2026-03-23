@@ -170,7 +170,7 @@ class Scope:
         assert isinstance(dtype, (DataType, str))
 
         if fail and name in self.symbol_attrs:
-            raise ValueError(f'[Loki::Scope] Tyring to re-declare already declared symbol name: {name}')
+            raise ValueError(f'[Loki::Scope] Trying to re-declare already declared symbol name: {name}')
 
         self.symbol_attrs[name] = SymbolAttributes(dtype, **kwargs)
 
@@ -181,7 +181,7 @@ class Scope:
             assert isinstance(kwargs['dtype'], (DataType, str))
 
         if fail and name not in self.symbol_attrs:
-            raise ValueError(f'[Loki::Scope] Tyring to update undeclared symbol name: {name}')
+            raise ValueError(f'[Loki::Scope] Trying to update undeclared symbol name: {name}')
 
         if name in self.symbol_attrs:
             self.symbol_attrs[name] = self.symbol_attrs[name].clone(**kwargs)

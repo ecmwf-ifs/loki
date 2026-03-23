@@ -21,24 +21,20 @@ class ProcedureType(DataType):
 
     This serves also as the cross-link between the use of a procedure (e.g. in a
     :any:`CallStatement`) to the :any:`Subroutine` object that is the target of
-    a call. If the corresponding object is not yet available when the
-    :any:`ProcedureType` object is created, or its definition is transient and
-    subject to IR rebuilds (e.g. :any:`StatementFunction`), the :any:`LazyNodeLookup`
-    utility can be used to defer the actual instantiation. In that situation,
-    :data:`name` should be provided in addition.
+    a call.
 
     Parameters
     ----------
     name : str, optional
         The name of the function or subroutine. Can be skipped if :data:`procedure`
-        is provided (not in the form of a :any:`LazyNodeLookup`)
+        is provided.
     is_function : bool, optional
         Indicate that this is a function
     is_generic : bool, optional
         Indicate that this is a generic function
     is_intrinsic : bool, optional
         Indicate that this is an intrinsic function
-    procedure : :any:`Subroutine` or :any:`StatementFunction` or :any:`LazyNodeLookup`, optional
+    procedure : :any:`Subroutine` or :any:`StatementFunction`, optional
         The procedure this type represents
     """
 

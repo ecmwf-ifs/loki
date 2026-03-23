@@ -1914,7 +1914,7 @@ class FParser2IR(GenericVisitor):
         kwargs['scope'] = routine
 
         # Define the return type in the local scope before parsing spec.
-        # If the return type is impliicit (function name), we need to
+        # If the return type is implicit (function name), we need to
         # put a dummy declaration here, so that the spec does not see the
         # ProcedureType the parent has for this Function.
         if return_type:

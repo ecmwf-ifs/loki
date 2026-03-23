@@ -1575,8 +1575,8 @@ class StatementFunction(ScopedNode, LeafNode, _StatementFunctionBase):
     """
     Internal representation of Fortran statement function statements.
 
-    Internally, this is considered a :any:`ScopedNode` with an empty
-    body, because it may be the target of a :any:`ProcedureType`.
+    Internally, this is considered a :any:`ScopedNode`, because it may
+    be the target of a :any:`ProcedureType`.
 
     Parameters
     ----------
