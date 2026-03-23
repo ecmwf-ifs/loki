@@ -165,6 +165,32 @@ class Scope:
             self.symbol_attrs.parent = self.parent.symbol_attrs
 
     def declare(self, name, dtype, fail=True, **kwargs):
+        """
+        Method to add type information, including the data type
+        :param:`dtype`, for a new variable in a :any:`Scope` and
+        update the symbol table accordingly.
+
+        This method should be used for the initial type declaration of
+        a variable and will by default fail if the variable has
+        already been declared. To update an existing variable, the
+        :method:`update` should be used.
+
+        To completely re-declare an existing variable, ``fail=True``
+        can be passed to this method. This case prior type information
+        will be removed from the symbol table before the re-declaration.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable to declare symbol information for.
+        dtype : :any:`DataType` or str
+            Basic data typer of the variable
+        fail : bool, optional
+            Flag to override the default failure on attempted re-declaration.
+        **kwargs : optional
+            Any additional attributes that should be stored as properties in
+            the symbol table.
+        """
 
         # Ensure `dtype` defines a known type
         assert isinstance(dtype, (DataType, str))
@@ -175,6 +201,26 @@ class Scope:
         self.symbol_attrs[name] = SymbolAttributes(dtype, **kwargs)
 
     def update(self, name, fail=True, **kwargs):
+        """
+        Method to update the type information of a variable in a the
+        symbol table of a :any:`Scope`.
+
+        This method should only be used update symbol attributes after
+        the initial declaration of the variable via the
+        :meth:`update`. If the symbol has not already been declared, a
+        :any:`ValueError` is raised, unless the ``fail=True``
+        override flag is set.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable to update symbol information for.
+        fail : bool, optional
+            Flag to override the default failure when variable was not declared.
+        **kwargs : optional
+            Any additional attributes that should be stored as properties in
+            the symbol table.
+        """
 
         # Ensure `dtype` defines a known type
         if 'dtype' in kwargs:
@@ -189,6 +235,29 @@ class Scope:
             self.symbol_attrs[name] = SymbolAttributes(**kwargs)
 
     def get_type(self, name, recursive=True, fail=True):
+        """
+        Method to retrieve the type information (set of symbol
+        attributes) from the internal symbol table for a given
+        variable name.
+
+        This method will be default fail if no type information is
+        found and may recurse to the parent :any:`Scope`. This default
+        behaviour can be overriden with the respective flags.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable to look up
+        recursive : bool
+            Use recursive look-up in parent scopes
+        fail : bool, optional
+            Flag to override the default failure when variable was not declared.
+
+        Returns
+        -------
+        :any:`SymbolAttributes`
+            The collection of attributes associated with this symbol
+        """
 
         _type = self.symbol_attrs.lookup(name, recursive=recursive)
 
@@ -199,5 +268,30 @@ class Scope:
         return _type
 
     def get_dtype(self, name, recursive=True, fail=True):
+        """
+        Method to retrieve the data type from the internal symbol
+        table for a given variable name.
+
+        This convenience method is equivalent to using
+        ``scope.get_type(name).dtype``.
+
+        This method will be default fail if no type information is
+        found and may recurse to the parent :any:`Scope`. This default
+        behaviour can be overriden with the respective flags.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable to look up
+        recursive : bool
+            Use recursive look-up in parent scopes
+        fail : bool, optional
+            Flag to override the default failure when variable was not declared.
+
+        Returns
+        -------
+        :any:`SymbolAttributes`
+            The collection of attributes associated with this symbol
+        """
 
         return self.get_type(name, recursive=recursive, fail=fail).dtype
