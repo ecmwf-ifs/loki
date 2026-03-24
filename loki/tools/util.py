@@ -57,6 +57,10 @@ def as_tuple(item, type=None, length=None):
         t = ()
     elif isinstance(item, str):
         t = (item,)
+    elif hasattr(item, '_traversable'):
+        # IR Node objects (identified by _traversable attribute) should be wrapped
+        # as a single item, not iterated over, even if they implement __iter__
+        t = (item,)
     else:
         # Convert iterable to list...
         try:
@@ -79,10 +83,19 @@ def is_iterable(o):
     that throws an exception to avoid being iterable. However, with that method defined it is
     identified as a :class:`collections.Iterable` and thus this is a much more reliable test than
     ``isinstance(obj, collections.Iterable)``.
+
+    Note: IR :any:`Node` objects have a ``_traversable`` attribute that marks them as IR nodes.
+    Even though :any:`InternalNode` provides an ``__iter__`` method for convenience, these objects
+    are treated as non-iterable by this function to preserve backward compatibility with utilities
+    such as :any:`flatten` and :any:`as_tuple`.
     """
     try:
         iter(o)
     except TypeError:
+        return False
+    # IR Node objects (identified by _traversable attribute) should not be treated
+    # as iterables by general utilities even if they implement __iter__ for convenience
+    if hasattr(o, '_traversable'):
         return False
     return True
 
