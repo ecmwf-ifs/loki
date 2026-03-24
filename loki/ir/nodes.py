@@ -60,7 +60,9 @@ def _sanitize_tuple(t):
     """
     Small helper method to ensure non-nested tuples without ``None``.
     """
-    return tuple(n for n in flatten(as_tuple(t)) if n is not None)
+    if isinstance(t, Node):
+        return (t,)
+    return tuple(n for n in flatten(as_tuple(t), is_leaf=lambda el: isinstance(el, Node)) if n is not None)
 
 
 # Abstract base classes
@@ -265,6 +267,18 @@ class InternalNode(Node, _InternalNode):
     def __repr__(self):
         raise NotImplementedError
 
+    def __iter__(self):
+        return iter(self.body)
+
+    def __getitem__(self, index):
+        return self.body[index]
+
+    def __len__(self):
+        return len(self.body)
+
+    def __contains__(self, node):
+        return node in self.body
+
 
 @dataclass_strict(frozen=True)
 class LeafNode(Node):
@@ -423,7 +437,7 @@ class Section(InternalNode, _SectionBase):
         node : :any:`Node` or tuple of :any:`Node`
             The node(s) to append to the section.
         """
-        self._update(body=self.body + as_tuple(node))
+        self._update(body=self.body + _sanitize_tuple(node))
 
     def insert(self, pos, node):
         """
@@ -438,7 +452,7 @@ class Section(InternalNode, _SectionBase):
         node : :any:`Node` or tuple of :any:`Node`
             The node(s) to append to the section.
         """
-        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])  # pylint: disable=unsubscriptable-object
+        self._update(body=self.body[:pos] + _sanitize_tuple(node) + self.body[pos:])  # pylint: disable=unsubscriptable-object
 
     def prepend(self, node):
         """
@@ -449,7 +463,7 @@ class Section(InternalNode, _SectionBase):
         node : :any:`Node` or tuple of :any:`Node`
             The node(s) to insert into the section.
         """
-        self._update(body=as_tuple(node) + self.body)
+        self._update(body=_sanitize_tuple(node) + self.body)
 
     def __repr__(self):
         if self.label is not None:
@@ -780,14 +794,14 @@ class PragmaRegion(InternalNode, _PragmaRegionBase):
     _traversable = ['body']
 
     def append(self, node):
-        self._update(body=self.body + as_tuple(node))
+        self._update(body=self.body + _sanitize_tuple(node))
 
     def insert(self, pos, node):
         '''Insert at given position'''
-        self._update(body=self.body[:pos] + as_tuple(node) + self.body[pos:])  # pylint: disable=unsubscriptable-object
+        self._update(body=self.body[:pos] + _sanitize_tuple(node) + self.body[pos:])  # pylint: disable=unsubscriptable-object
 
     def prepend(self, node):
-        self._update(body=as_tuple(node) + self.body)
+        self._update(body=_sanitize_tuple(node) + self.body)
 
     def __repr__(self):
         return 'PragmaRegion::'

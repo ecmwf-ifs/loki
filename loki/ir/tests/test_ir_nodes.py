@@ -264,6 +264,58 @@ def test_section(n, a_n, a_i):
     assert sec.body == (assign, func, assign, func, assign)
 
 
+def test_internal_node_iterable(one, i, n, a_i):
+    """
+    Test that :any:`InternalNode` is iterable, subscriptable, and supports
+    ``len`` and ``in`` operators via its ``body``.
+    """
+    assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(1.0))
+    assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(2.0))
+    assign3 = ir.Assignment(lhs=a_i, rhs=sym.Literal(3.0))
+
+    # Test with a Section (a concrete InternalNode subclass)
+    sec = ir.Section(body=(assign1, assign2, assign3))
+
+    # Test __iter__
+    nodes = list(sec)
+    assert nodes == [assign1, assign2, assign3]
+
+    # Test __getitem__
+    assert sec[0] is assign1
+    assert sec[1] is assign2
+    assert sec[2] is assign3
+    assert sec[-1] is assign3
+
+    # Test slicing via __getitem__
+    assert sec[1:] == (assign2, assign3)
+    assert sec[:2] == (assign1, assign2)
+
+    # Test __len__
+    assert len(sec) == 3
+
+    # Test __contains__
+    assert assign1 in sec
+    assert assign2 in sec
+    assert assign3 in sec
+    other = ir.Assignment(lhs=a_i, rhs=sym.Literal(99.0))
+    assert other not in sec
+
+    # Test with a Loop (another concrete InternalNode subclass)
+    bounds = sym.Range((one, n))
+    loop = ir.Loop(variable=i, bounds=bounds, body=(assign1, assign2))
+    assert list(loop) == [assign1, assign2]
+    assert loop[0] is assign1
+    assert len(loop) == 2
+    assert assign1 in loop
+    assert assign3 not in loop
+
+    # Test with empty body
+    empty_sec = ir.Section(body=())
+    assert list(empty_sec) == []
+    assert len(empty_sec) == 0
+    assert assign1 not in empty_sec
+
+
 def test_callstatement(scope, one, i, n, a_i):
     """ Test constructor of :any:`CallStatement` nodes. """
 
