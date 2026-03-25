@@ -24,8 +24,24 @@ def fixture_builder(tmp_path):
     Obj.clear_cache()
 
 
+def assignment_symbols(node):
+    return [(assign.lhs, assign.rhs) for assign in FindNodes(Assignment).visit(node)]
+
+
+def call_symbols(node):
+    return [(call.name, call.arguments) for call in FindNodes(CallStatement).visit(node)]
+
+
+def argument_symbols(routine):
+    return tuple(routine.arguments)
+
+
+def argument_intents(routine):
+    return {arg.name: arg.type.intent for arg in routine.arguments}
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_outline_pragma_regions(tmp_path, frontend):
+def test_outline_pragma_regions(frontend):
     """
     A very simple :any:`outline_pragma_regions` test case
     """
@@ -41,40 +57,29 @@ subroutine test_outline(a, b, c)
 !$loki end outline
 
   c = a + b
-end subroutine test_outline
+    end subroutine test_outline
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    # Test the reference solution
-    a, b, c = function()
-    assert a == 1 and b == 1 and c == 2
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert assignment_symbols(routine.body) == [('a', 5), ('a', 1), ('b', 'a'), ('c', 'a + b')]
 
-    # Apply transformation
     routines = outline_pragma_regions(routine)
     assert len(routines) == 1 and routines[0].name == f'{routine.name}_outlined_0'
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     assert len(FindNodes(Assignment).visit(routines[0].body)) == 1
     assert len(FindNodes(CallStatement).visit(routine.body)) == 1
-
-    # Test transformation
-    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
-    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
-    mod_filepath = tmp_path/(f'{module.name}_converted_{frontend}.f90')
-    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
-    mod_function = getattr(mod, routine.name)
-
-    a, b, c = mod_function()
-    assert a == 1 and b == 1 and c == 2
+    assert assignment_symbols(routine.body) == [('a', 5), ('a', 1), ('c', 'a + b')]
+    assert assignment_symbols(routines[0].body) == [('b', 'a')]
+    assert call_symbols(routine.body) == [(f'{routine.name}_outlined_0', ('a', 'b'))]
+    assert argument_symbols(routines[0]) == ('a', 'b')
+    assert argument_intents(routines[0]) == {'a': 'in', 'b': 'out'}
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_outline_pragma_regions_multiple(tmp_path, frontend):
+def test_outline_pragma_regions_multiple(frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
     """
@@ -100,17 +105,14 @@ subroutine test_outline_mult(a, b, c)
 end subroutine test_outline_mult
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    # Test the reference solution
-    a, b, c = function()
-    assert a == 5 and b == 5 and c == 10
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 7
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert assignment_symbols(routine.body) == [
+        ('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1'),
+        ('a', 'a + 1'), ('b', 'a'), ('c', 'a + b')
+    ]
 
-    # Apply transformation
     routines = outline_pragma_regions(routine)
     assert len(routines) == 3
     assert routines[0].name == 'oiwjfklsf'
@@ -119,20 +121,23 @@ end subroutine test_outline_mult
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
-
-    # Test transformation
-    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
-    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
-    mod_filepath = tmp_path/(f'{module.name}_converted_{frontend}.f90')
-    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
-    mod_function = getattr(mod, routine.name)
-
-    a, b, c = mod_function()
-    assert a == 5 and b == 5 and c == 10
+    assert assignment_symbols(routine.body) == [('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1')]
+    assert [assignment_symbols(r.body) for r in routines] == [[('a', 'a + 1')], [('b', 'a')], [('c', 'a + b')]]
+    assert call_symbols(routine.body) == [
+        ('oiwjfklsf', ('a',)),
+        (f'{routine.name}_outlined_1', ('a', 'b')),
+        (f'{routine.name}_outlined_2', ('a', 'b', 'c'))
+    ]
+    assert argument_symbols(routines[0]) == ('a',)
+    assert argument_intents(routines[0]) == {'a': 'inout'}
+    assert argument_symbols(routines[1]) == ('a', 'b')
+    assert argument_intents(routines[1]) == {'a': 'in', 'b': 'out'}
+    assert argument_symbols(routines[2]) == ('a', 'b', 'c')
+    assert argument_intents(routines[2]) == {'a': 'in', 'b': 'in', 'c': 'out'}
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_outline_pragma_regions_arguments(tmp_path, frontend):
+def test_outline_pragma_regions_arguments(frontend):
     """
     Test hoisting with multiple groups and multiple regions per group
     and automatic derivation of arguments
@@ -160,17 +165,14 @@ subroutine test_outline_args(a, b, c)
 end subroutine test_outline_args
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    # Test the reference solution
-    a, b, c = function()
-    assert a == 5 and b == 5 and c == 10
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 7
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert assignment_symbols(routine.body) == [
+        ('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1'),
+        ('a', 'a + 1'), ('b', 'a'), ('c', 'a + b')
+    ]
 
-    # Apply transformation
     routines = outline_pragma_regions(routine)
     assert len(routines) == 3
     assert [r.name for r in routines] == ['func_a', 'func_b', 'func_c']
@@ -178,11 +180,11 @@ end subroutine test_outline_args
     assert len(routines[0].arguments) == 1
     assert routines[0].arguments[0] == 'a' and routines[0].arguments[0].type.intent == 'inout'
 
-    assert {str(a) for a in routines[1].arguments} == {'a', 'b'}
+    assert set(argument_symbols(routines[1])) == {'a', 'b'}
     assert routines[1].variable_map['a'].type.intent == 'in'
     assert routines[1].variable_map['b'].type.intent == 'out'
 
-    assert {str(a) for a in routines[2].arguments} == {'a', 'b', 'c'}
+    assert set(argument_symbols(routines[2])) == {'a', 'b', 'c'}
     assert routines[2].variable_map['a'].type.intent == 'in'
     assert routines[2].variable_map['b'].type.intent == 'inout'
     assert routines[2].variable_map['c'].type.intent == 'out'
@@ -190,20 +192,13 @@ end subroutine test_outline_args
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
     assert len(FindNodes(CallStatement).visit(routine.body)) == 3
-
-    # Test transformation
-    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
-    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
-    mod_filepath = tmp_path/(f'{module.name}_converted_{frontend}.f90')
-    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
-    mod_function = getattr(mod, routine.name)
-
-    a, b, c = mod_function()
-    assert a == 5 and b == 5 and c == 10
+    assert assignment_symbols(routine.body) == [('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1')]
+    assert [assignment_symbols(r.body) for r in routines] == [[('a', 'a + 1')], [('b', 'a')], [('c', 'a + b')]]
+    assert call_symbols(routine.body) == [('func_a', ('a',)), ('func_b', ('a', 'b')), ('func_c', ('a', 'b', 'c'))]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_outline_pragma_regions_arrays(tmp_path, frontend):
+def test_outline_pragma_regions_arrays(frontend):
     """
     Test hoisting with array variables
     """
@@ -235,21 +230,12 @@ end subroutine test_outline_arr
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    # Test the reference solution
-    n = 10
-    a = np.zeros(shape=(n,), dtype=np.int32)
-    b = np.zeros(shape=(n,), dtype=np.int32)
-    function(a, b, n)
-    assert np.all(a == range(1,n+1))
-    assert np.all(b == [1] * n)
-
     assert len(FindNodes(Assignment).visit(routine.body)) == 4
     assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert assignment_symbols(routine.body) == [
+        ('a(j)', 'j'), ('b(j)', 'j'), ('b(j)', 'b(j + 1) - a(j)'), ('b(n)', 1)
+    ]
 
-    # Apply transformation
     routines = outline_pragma_regions(routine)
 
     assert len(FindNodes(Assignment).visit(routine.body)) == 0
@@ -257,23 +243,18 @@ end subroutine test_outline_arr
 
     assert len(routines) == 3
 
-    assert {(str(a), a.type.intent) for a in routines[0].arguments} == {('a(n)', 'out'), ('n', 'in')}
-    assert {(str(a), a.type.intent) for a in routines[1].arguments} == {('b(n)', 'out'), ('n', 'in')}
-    assert {(str(a), a.type.intent) for a in routines[2].arguments} == {('a(n)', 'in'), ('b(n)', 'inout'), ('n', 'in')}
+    assert {(arg, arg.type.intent) for arg in routines[0].arguments} == {('a(n)', 'out'), ('n', 'in')}
+    assert {(arg, arg.type.intent) for arg in routines[1].arguments} == {('b(n)', 'out'), ('n', 'in')}
+    assert {(arg, arg.type.intent) for arg in routines[2].arguments} == {('a(n)', 'in'), ('b(n)', 'inout'), ('n', 'in')}
     assert routines[0].variable_map['a'].dimensions[0].scope is routines[0]
-
-    # Test transformation
-    contains = Section(body=as_tuple([Intrinsic('CONTAINS'), *routines, routine]))
-    module = Module(name=f'{routine.name}_mod', spec=None, contains=contains)
-    mod_filepath = tmp_path/(f'{module.name}_converted_{frontend}.f90')
-    mod = jit_compile(module, filepath=mod_filepath, objname=module.name)
-    mod_function = getattr(mod, routine.name)
-
-    a = np.zeros(shape=(n,), dtype=np.int32)
-    b = np.zeros(shape=(n,), dtype=np.int32)
-    mod_function(a, b, n)
-    assert np.all(a == range(1,n+1))
-    assert np.all(b == [1] * n)
+    assert [assignment_symbols(r.body) for r in routines] == [
+        [('a(j)', 'j')], [('b(j)', 'j')], [('b(j)', 'b(j + 1) - a(j)'), ('b(n)', 1)]
+    ]
+    assert call_symbols(routine.body) == [
+        (f'{routine.name}_outlined_0', ('a', 'n')),
+        (f'{routine.name}_outlined_1', ('b', 'n')),
+        (f'{routine.name}_outlined_2', ('a', 'b', 'n'))
+    ]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
