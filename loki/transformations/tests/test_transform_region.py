@@ -31,8 +31,8 @@ def loop_bounds(node):
     ]
 
 
-def assignment_strs(node):
-    return [(str(assign.lhs), str(assign.rhs)) for assign in FindNodes(Assignment).visit(node)]
+def assignment_symbols(node):
+    return [(assign.lhs, assign.rhs) for assign in FindNodes(Assignment).visit(node)]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -58,10 +58,10 @@ subroutine transform_region_hoist(a, b, c)
 end subroutine transform_region_hoist
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert assignment_strs(routine.body) == [('a', '5'), ('a', '1'), ('b', 'a'), ('c', 'a + b')]
+    assert assignment_symbols(routine.body) == [('a', '5'), ('a', '1'), ('b', 'a'), ('c', 'a + b')]
 
     region_hoist(routine)
-    assert assignment_strs(routine.body) == [('a', '5'), ('b', 'a'), ('a', '1'), ('c', 'a + b')]
+    assert assignment_symbols(routine.body) == [('a', '5'), ('b', 'a'), ('a', '1'), ('c', 'a + b')]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -168,13 +168,13 @@ subroutine transform_region_hoist_multiple(a, b, c)
 end subroutine transform_region_hoist_multiple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert assignment_strs(routine.body) == [
+    assert assignment_symbols(routine.body) == [
         ('a', '1'), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1'),
         ('a', 'a + 1'), ('b', 'a'), ('c', 'a + b')
     ]
 
     region_hoist(routine)
-    assert assignment_strs(routine.body) == [
+    assert assignment_symbols(routine.body) == [
         ('a', '1'), ('b', 'a'), ('a', 'a + 1'), ('c', 'a + b'),
         ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1')
     ]
@@ -221,7 +221,7 @@ end subroutine transform_region_hoist_collapse
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
     assert loop_var_names(routine.body) == ['jl', 'jk', 'jl', 'jk', 'jk', 'jl']
-    assert assignment_strs(routine.body) == [
+    assert assignment_symbols(routine.body) == [
         ('a(jl, 1)', 'jl'), ('a(jl, jk)', 'a(jl, jk - 1)'),
         ('b(1, jk)', 'jk'), ('b(jl, jk)', 'b(jl - 1, jk)')
     ]
@@ -237,7 +237,7 @@ end subroutine transform_region_hoist_collapse
         ('jk', '1', 'klev', None), ('jk', '1', 'klev', None),
         ('jl', '2', 'klon', None)
     ]
-    assert assignment_strs(routine.body) == [
+    assert assignment_symbols(routine.body) == [
         ('b(1, jk)', 'jk'), ('a(jl, 1)', 'jl'), ('a(jl, jk)', 'a(jl, jk - 1)'), ('b(jl, jk)', 'b(jl - 1, jk)')
     ]
 
