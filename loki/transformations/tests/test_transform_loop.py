@@ -25,16 +25,13 @@ from loki.transformations.transform_loop import (
 )
 
 
-def loop_var_names(node):
-    return [str(loop.variable) for loop in FindNodes(Loop).visit(node)]
+def loop_variables(node):
+    return [loop.variable for loop in FindNodes(Loop).visit(node)]
 
 
-def loop_bounds(node):
+def loop_symbols(node):
     return [
-        (
-            str(loop.variable), str(loop.bounds.start), str(loop.bounds.stop),
-            None if loop.bounds.step is None else str(loop.bounds.step)
-        )
+        (loop.variable, loop.bounds.start, loop.bounds.stop, loop.bounds.step)
         for loop in FindNodes(Loop).visit(node)
     ]
 
@@ -86,7 +83,7 @@ end subroutine transform_loop_interchange_plain
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 4
-    assert loop_var_names(routine.body) == ['i', 'j', 'i', 'j']
+    assert loop_variables(routine.body) == ['i', 'j', 'i', 'j']
     assert assignment_symbols(routine.body) == [
         ('a(j, i)', 'i + j'), ('a(j, i)', 'a(j, i) - 2')
     ]
@@ -95,10 +92,10 @@ end subroutine transform_loop_interchange_plain
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 4
-    assert loop_var_names(routine.body) == ['j', 'i', 'i', 'j']
-    assert loop_bounds(routine.body) == [
-        ('j', '1', 'm', None), ('i', '1', 'n', None),
-        ('i', '1', 'n', None), ('j', '1', 'm', None)
+    assert loop_variables(routine.body) == ['j', 'i', 'i', 'j']
+    assert loop_symbols(routine.body) == [
+        ('j', 1, 'm', None), ('i', 1, 'n', None),
+        ('i', 1, 'n', None), ('j', 1, 'm', None)
     ]
     assert assignment_symbols(routine.body) == [
         ('a(j, i)', 'i + j'), ('a(j, i)', 'a(j, i) - 2')
@@ -142,7 +139,7 @@ subroutine transform_loop_interchange(a, m, n, nclv)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
-    assert loop_var_names(routine.body) == ['k', 'i', 'j', 'k', 'i', 'j']
+    assert loop_variables(routine.body) == ['k', 'i', 'j', 'k', 'i', 'j']
     assert assignment_symbols(routine.body) == [
         ('a(j, i, k)', 'i + j + k'), ('a(j, i, k)', 'a(j, i, k) - 3')
     ]
@@ -155,10 +152,10 @@ subroutine transform_loop_interchange(a, m, n, nclv)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
-    assert loop_var_names(routine.body) == ['j', 'i', 'k', 'k', 'i', 'j']
-    assert loop_bounds(routine.body) == [
-        ('j', '1', 'm', None), ('i', '1', 'n', None), ('k', '1', 'nclv', None),
-        ('k', '1', 'nclv', None), ('i', '1', 'n', None), ('j', '1', 'm', None)
+    assert loop_variables(routine.body) == ['j', 'i', 'k', 'k', 'i', 'j']
+    assert loop_symbols(routine.body) == [
+        ('j', 1, 'm', None), ('i', 1, 'n', None), ('k', 1, 'nclv', None),
+        ('k', 1, 'nclv', None), ('i', 1, 'n', None), ('j', 1, 'm', None)
     ]
     assert assignment_symbols(routine.body) == [
         ('a(j, i, k)', 'i + j + k'), ('a(j, i, k)', 'a(j, i, k) - 3')
@@ -193,16 +190,16 @@ subroutine transform_loop_interchange_project(a, m, n)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
-    assert loop_var_names(routine.body) == ['i', 'j']
-    assert loop_bounds(routine.body) == [('i', '1', 'n', None), ('j', 'i', 'm', None)]
+    assert loop_variables(routine.body) == ['i', 'j']
+    assert loop_symbols(routine.body) == [('i', 1, 'n', None), ('j', 'i', 'm', None)]
     assert assignment_symbols(routine.body) == [('a(j, i)', 'i + j')]
 
     do_loop_interchange(routine, project_bounds=True)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
-    assert loop_var_names(routine.body) == ['j', 'i']
-    assert loop_bounds(routine.body) == [('j', '1', 'm', None), ('i', '1', 'min(n, j)', None)]
+    assert loop_variables(routine.body) == ['j', 'i']
+    assert loop_symbols(routine.body) == [('j', 1, 'm', None), ('i', 1, 'min(n, j)', None)]
     assert assignment_symbols(routine.body) == [('a(j, i)', 'i + j')]
 
 
@@ -285,7 +282,7 @@ end subroutine transform_loop_fuse_matching
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fusion(routine)
-    assert loop_bounds(routine.body) == [('i', '1', 'n', None)]
+    assert loop_symbols(routine.body) == [('i', 1, 'n', None)]
     assert assignment_symbols(routine.body) == [('a(i)', 'i'), ('b(i)', 'n - i + 1')]
     assert pragma_strs(routine.body) == ['fused-loop group(default)']
 
@@ -325,7 +322,7 @@ end subroutine transform_loop_fuse_subranges
 
     assert len(FindNodes(Loop).visit(routine.body)) == 3
     do_loop_fusion(routine)
-    assert loop_bounds(routine.body) == [('i', '1', 'n', None)]
+    assert loop_symbols(routine.body) == [('i', 1, 'n', None)]
     assert conditional_strs(routine.body) == ['i <= 15', 'i >= 16']
     assert assignment_symbols(routine.body) == [
         ('a(:)', '0'), ('b(:)', '0'), ('a(i)', 'a(i) + i'),
@@ -377,7 +374,7 @@ end subroutine transform_loop_fuse_groups
 
     assert len(FindNodes(Loop).visit(routine.body)) == 5
     do_loop_fusion(routine)
-    assert loop_bounds(routine.body) == [('i', '1', 'n', None), ('i', '1', 'n', None)]
+    assert loop_symbols(routine.body) == [('i', 1, 'n', None), ('i', 1, 'n', None)]
     assert conditional_strs(routine.body) == ['i >= 2']
     assert assignment_symbols(routine.body) == [
         ('c(1)', '1'), ('a(i)', 'i'), ('b(i)', 'n - i + 1'),
@@ -436,7 +433,7 @@ end subroutine transform_loop_fuse_alignment
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fusion(routine)
-    assert loop_bounds(routine.body) == [('i', '0', 'n', None)]
+    assert loop_symbols(routine.body) == [('i', 0, 'n', None)]
     assert conditional_strs(routine.body) == ['i >= 1', 'i <= n - 1']
     assert assignment_symbols(routine.body) == [('a(i)', 'i'), ('b(i + 1)', 'n - i')]
     assert pragma_strs(routine.body) == ['fused-loop group(1)']
@@ -466,7 +463,7 @@ end subroutine transform_loop_fuse_nonmatching_lower
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fusion(routine)
 
-    assert loop_bounds(routine.body) == [('jl', 'min(1, nclv)', 'klev', None)]
+    assert loop_symbols(routine.body) == [('jl', 'min(1, nclv)', 'klev', None)]
     assert conditional_strs(routine.body) == ['jl >= 1', 'jl >= nclv']
     assert assignment_symbols(routine.body) == [('a(jl)', 'jl'), ('b(jl)', 'jl - nclv')]
     assert pragma_strs(routine.body) == ['fused-loop group(1)']
@@ -496,7 +493,7 @@ end subroutine transform_loop_fuse_nonmatching_lower_annotated
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fusion(routine)
 
-    assert loop_bounds(routine.body) == [('jl', '1', 'klev', None)]
+    assert loop_symbols(routine.body) == [('jl', 1, 'klev', None)]
     assert conditional_strs(routine.body) == ['jl >= nclv']
     assert assignment_symbols(routine.body) == [('a(jl)', 'jl'), ('b(jl)', 'jl - nclv')]
     assert pragma_strs(routine.body) == ['fused-loop group(1)']
@@ -526,7 +523,7 @@ end subroutine transform_loop_fuse_nonmatching_upper
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fusion(routine)
 
-    assert loop_bounds(routine.body) == [('jl', '1', '1 + klev', None)]
+    assert loop_symbols(routine.body) == [('jl', 1, '1 + klev', None)]
     assert conditional_strs(routine.body) == ['jl <= klev']
     assert assignment_symbols(routine.body) == [('a(jl)', 'jl'), ('b(jl)', '2*jl')]
     assert pragma_strs(routine.body) == ['fused-loop group(1)']
@@ -559,7 +556,7 @@ end subroutine transform_loop_fuse_collapse
 
     assert len(FindNodes(Loop).visit(routine.body)) == 4
     do_loop_fusion(routine)
-    assert loop_bounds(routine.body) == [('jk', '1', 'klev', None), ('jl', '1', 'klon', None)]
+    assert loop_symbols(routine.body) == [('jk', 1, 'klev', None), ('jl', 1, 'klon', None)]
     assert assignment_symbols(routine.body) == [('a(jl, jk)', 'jk'), ('b(jl, jk)', 'jl + jk')]
     assert pragma_strs(routine.body) == ['fused-loop group(default)']
 
@@ -591,7 +588,7 @@ end subroutine transform_loop_fuse_collapse_nonmatching
 
     assert len(FindNodes(Loop).visit(routine.body)) == 4
     do_loop_fusion(routine)
-    assert loop_bounds(routine.body) == [('jk', '1', '1 + klev', None), ('jl', '1', '1 + klon', None)]
+    assert loop_symbols(routine.body) == [('jk', 1, '1 + klev', None), ('jl', 1, '1 + klon', None)]
     assert conditional_strs(routine.body) == ['jl <= klon', 'jk <= klev']
     assert assignment_symbols(routine.body) == [('a(jl, jk)', 'jk'), ('b(jl, jk)', 'jl + jk')]
     assert pragma_strs(routine.body) == ['fused-loop group(default)']
@@ -638,7 +635,7 @@ end subroutine transform_loop_fuse_collapse_range
     do_loop_fusion(routine)
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
-    assert all(loop.bounds.start == '1' for loop in loops)
+    assert all(loop.bounds.start == 1 for loop in loops)
     assert sum(loop.bounds.stop == '1 + klev' for loop in loops) == 1
     assert sum(loop.bounds.stop == 'klon + 1' for loop in loops) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
@@ -678,7 +675,7 @@ end subroutine transform_loop_fission_single
 
     assert len(FindNodes(Loop).visit(routine.body)) == 1
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [('j', '1', 'n', None), ('j', '1', 'n', None)]
+    assert loop_symbols(routine.body) == [('j', 1, 'n', None), ('j', 1, 'n', None)]
     assert assignment_symbols(routine.body) == [('a(j)', 'j'), ('b(j)', 'n - j')]
 
 
@@ -704,7 +701,7 @@ end subroutine transform_loop_fission_nested
     assert len(FindNodes(Loop).visit(routine.body)) == 1
     assert len(FindNodes(Conditional).visit(routine.body)) == 1
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [('j', '1', 'n + 1', None), ('j', '1', 'n + 1', None)]
+    assert loop_symbols(routine.body) == [('j', 1, 'n + 1', None), ('j', 1, 'n + 1', None)]
     assert conditional_strs(routine.body) == ['j <= n', 'j <= n']
     assert assignment_symbols(routine.body) == [('a(j)', 'j'), ('b(j)', 'n - j')]
 
@@ -735,7 +732,7 @@ end subroutine transform_loop_fission_nested_promote
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
     assert len(FindNodes(Assignment).visit(routine.body)) == 3
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [('j', '1', 'n + 1', None), ('j', '1', 'n + 1', None)]
+    assert loop_symbols(routine.body) == [('j', 1, 'n + 1', None), ('j', 1, 'n + 1', None)]
     assert conditional_strs(routine.body) == ['j <= n', 'zqxfg(2, j) <= n']
     assert assignment_symbols(routine.body) == [
         ('zqxfg(2, j)', 'j'), ('a(j)', 'zqxfg(2, j)'), ('b(j)', 'n - zqxfg(2, j)')
@@ -774,11 +771,11 @@ end subroutine transform_loop_fission_collapse
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     assert len(FindNodes(Assignment).visit(routine.body)) == 8
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [
-        ('j', '1', 'n + 1', None), ('j', '1', 'n + 1', None),
-        ('k', '1', 'n', None), ('j', '1', 'n + 1', None),
-        ('k', '1', 'n', None), ('k', '1', 'n', None),
-        ('j', '1', 'n + 1', None), ('k', '1', 'n', None)
+    assert loop_symbols(routine.body) == [
+        ('j', 1, 'n + 1', None), ('j', 1, 'n + 1', None),
+        ('k', 1, 'n', None), ('j', 1, 'n + 1', None),
+        ('k', 1, 'n', None), ('k', 1, 'n', None),
+        ('j', 1, 'n + 1', None), ('k', 1, 'n', None)
     ]
     assert assignment_symbols(routine.body) == [
         ('tmp(:)', '0'), ('tmp(j)', 'j'), ('tmp2(:, j)', '0'), ('tmp2(k, j)', 'tmp(j) + k'),
@@ -809,7 +806,7 @@ end subroutine transform_loop_fission_multiple
 
     assert len(FindNodes(Loop).visit(routine.body)) == 1
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [('j', '1', 'n', None), ('j', '1', 'n', None), ('j', '1', 'n', None)]
+    assert loop_symbols(routine.body) == [('j', 1, 'n', None), ('j', 1, 'n', None), ('j', 1, 'n', None)]
     assert assignment_symbols(routine.body) == [('a(j)', 'j'), ('b(j)', 'n - j'), ('c(j)', 'a(j) + b(j)')]
 
 
@@ -848,7 +845,7 @@ end subroutine transform_loop_fission_promote
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     for loop in loops:
-        assert loop.bounds.start == '1'
+        assert loop.bounds.start == 1
         assert loop.bounds.stop == 'n'
     assert [str(d) for d in routine.variable_map['tmp'].shape] == ['n']
 
@@ -892,9 +889,9 @@ end subroutine transform_loop_fission_promote_conflicting_lengths
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [
-        ('j', '1', 'n', None), ('j', '1', 'n', None),
-        ('j', '1', 'n + 1', None), ('j', '1', 'n + 1', None)
+    assert loop_symbols(routine.body) == [
+        ('j', 1, 'n', None), ('j', 1, 'n', None),
+        ('j', 1, 'n + 1', None), ('j', 1, 'n + 1', None)
     ]
     assert assignment_symbols(routine.body) == [
         ('tmp(j)', 'j - 1'), ('a(j)', 'tmp(j) + 1'), ('tmp(j)', 'j - 1'), ('b(j)', 'n - tmp(j)')
@@ -924,7 +921,7 @@ end subroutine transform_loop_fission_promote_array
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [('jk', '1', 'klev', None), ('jl', '1', 'klon', None), ('jk', '1', 'klev', None)]
+    assert loop_symbols(routine.body) == [('jk', 1, 'klev', None), ('jl', 1, 'klon', None), ('jk', 1, 'klev', None)]
     assert assignment_symbols(routine.body) == [
         ('zsupsat(:, jk)', '0'), ('zsupsat(jl, jk)', 'jl'), ('a(:, jk)', 'zsupsat(:, jk)')
     ]
@@ -954,7 +951,7 @@ end subroutine transform_loop_fission_promote_multiple
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [('jk', '1', 'klev', None), ('jl', '1', 'klon', None), ('jk', '1', 'klev', None)]
+    assert loop_symbols(routine.body) == [('jk', 1, 'klev', None), ('jl', 1, 'klon', None), ('jk', 1, 'klev', None)]
     assert assignment_symbols(routine.body) == [
         ('zsupsat(:, jk)', '0'), ('zsupsat(jl, jk)', 'jl'), ('tmp(jk)', 'jk'), ('a(:, jk)', 'zsupsat(:, jk) + tmp(jk)')
     ]
@@ -994,10 +991,10 @@ end subroutine transform_loop_fission_multiple_promote
 
     assert len(FindNodes(Loop).visit(routine.body)) == 5
     do_loop_fission(routine)
-    assert loop_bounds(routine.body) == [
-        ('jk', '1', 'klev', None), ('jl', '1', 'klon', None), ('jk', '1', 'klev', None),
-        ('jm', '1', 'nclv', None), ('jl', '1', 'klon', None), ('jk', '1', 'klev', None),
-        ('jk', '1', 'klev', None), ('jm', '1', 'nclv', None)
+    assert loop_symbols(routine.body) == [
+        ('jk', 1, 'klev', None), ('jl', 1, 'klon', None), ('jk', 1, 'klev', None),
+        ('jm', 1, 'nclv', None), ('jl', 1, 'klon', None), ('jk', 1, 'klev', None),
+        ('jk', 1, 'klev', None), ('jm', 1, 'nclv', None)
     ]
     assert assignment_symbols(routine.body) == [
         ('zsupsat(:, jk)', '0'), ('zsupsat(jl, jk)', 'jl'), ('zqxn(jl, jm, jk)', 'jm + jl'),
@@ -1043,7 +1040,7 @@ end subroutine transform_loop_fission_promote_read_after_write
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
-    assert all(loop.bounds.start == '1' for loop in loops)
+    assert all(loop.bounds.start == 1 for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
     assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
     assert routine.variable_map['tmp'].shape == ('klev',)
@@ -1110,7 +1107,7 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
-    assert all(loop.bounds.start == '1' for loop in loops)
+    assert all(loop.bounds.start == 1 for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 4
     assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
     assert sum(loop.bounds.stop == 'nclv' for loop in loops) == 2
@@ -1179,7 +1176,7 @@ end subroutine transform_loop_fusion_fission
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 4
-    assert all(loop.bounds.start == '1' for loop in loops)
+    assert all(loop.bounds.start == 1 for loop in loops)
     assert sum(loop.bounds.stop == 'klev' for loop in loops) == 2
     assert sum(loop.bounds.stop == 'klon' for loop in loops) == 2
     assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
@@ -1274,7 +1271,7 @@ end subroutine test_transform_loop_unroll_non_literal_range
 
     assert len(FindNodes(Loop).visit(routine.body)) == 1
     do_loop_unroll(routine)
-    assert loop_bounds(routine.body) == [('a', '1', 'i', None)]
+    assert loop_symbols(routine.body) == [('a', 1, 'i', None)]
     assert assignment_symbols(routine.body) == [('i', '10'), ('s', 's + a + 1')]
     assert not pragma_strs(routine.body)
 
@@ -1335,7 +1332,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_unroll(routine)
-    assert loop_bounds(routine.body) == [('b', '1', '5', None)] * 10
+    assert loop_symbols(routine.body) == [('b', 1, 5, None)] * 10
     assert len(FindNodes(Assignment).visit(routine.body)) == 10
     assert assignment_symbols(routine.body)[:3] == [
         ('s', 's + 1 + b + 1'), ('s', 's + 2 + b + 1'), ('s', 's + 3 + b + 1')
@@ -1368,7 +1365,7 @@ end subroutine test_transform_loop_unroll_nested_restricted_depth
 
     assert len(FindNodes(Loop).visit(routine.body)) == 2
     do_loop_unroll(routine)
-    assert loop_bounds(routine.body) == [('a', '1', 'i', None)]
+    assert loop_symbols(routine.body) == [('a', 1, 'i', None)]
     assert len(FindNodes(Assignment).visit(routine.body)) == 6
     assert assignment_symbols(routine.body) == [
         ('i', '10'), ('s', 's + a + 1 + 1'), ('s', 's + a + 2 + 1'),
@@ -1453,7 +1450,7 @@ end subroutine test_transform_loop_unroll_nested_neighbours
 
     assert len(FindNodes(Loop).visit(routine.body)) == 3
     do_loop_unroll(routine)
-    assert loop_bounds(routine.body) == [('c', '1', '5', None)] * 10
+    assert loop_symbols(routine.body) == [('c', 1, 5, None)] * 10
     assert len(FindNodes(Assignment).visit(routine.body)) == 60
     assert assignment_symbols(routine.body)[:6] == [
         ('s', 's + 1 + 1 + 1'), ('s', 's + 1 + 2 + 1'), ('s', 's + 1 + 3 + 1'),

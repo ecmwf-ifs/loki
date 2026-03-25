@@ -17,16 +17,13 @@ from loki.frontend import available_frontends
 from loki.transformations.transform_region import region_hoist
 
 
-def loop_var_names(node):
-    return [str(loop.variable) for loop in FindNodes(Loop).visit(node)]
+def loop_variables(node):
+    return [loop.variable for loop in FindNodes(Loop).visit(node)]
 
 
-def loop_bounds(node):
+def loop_symbols(node):
     return [
-        (
-            str(loop.variable), str(loop.bounds.start), str(loop.bounds.stop),
-            None if loop.bounds.step is None else str(loop.bounds.step)
-        )
+        (loop.variable, loop.bounds.start, loop.bounds.stop, loop.bounds.step)
         for loop in FindNodes(Loop).visit(node)
     ]
 
@@ -116,14 +113,14 @@ end subroutine transform_region_hoist_inlined_pragma
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
-    assert [str(loop.variable) for loop in loops] == ['jl', 'jk', 'jl', 'jk', 'jk', 'jl']
+    assert loop_variables(routine.body) == ['jl', 'jk', 'jl', 'jk', 'jk', 'jl']
 
     # Apply transformation
     region_hoist(routine)
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
-    assert [str(loop.variable) for loop in loops] == ['jk', 'jl', 'jk', 'jl', 'jk', 'jl']
+    assert loop_variables(routine.body) == ['jk', 'jl', 'jk', 'jl', 'jk', 'jl']
 
     hoisted_filepath = tmp_path/(f'{routine.name}_hoisted_{frontend}.f90')
     hoisted_function = jit_compile(routine, filepath=hoisted_filepath, objname=routine.name)
@@ -220,7 +217,7 @@ end subroutine transform_region_hoist_collapse
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 6
-    assert loop_var_names(routine.body) == ['jl', 'jk', 'jl', 'jk', 'jk', 'jl']
+    assert loop_variables(routine.body) == ['jl', 'jk', 'jl', 'jk', 'jk', 'jl']
     assert assignment_symbols(routine.body) == [
         ('a(jl, 1)', 'jl'), ('a(jl, jk)', 'a(jl, jk - 1)'),
         ('b(1, jk)', 'jk'), ('b(jl, jk)', 'b(jl - 1, jk)')
@@ -230,12 +227,12 @@ end subroutine transform_region_hoist_collapse
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 7
-    assert loop_var_names(routine.body) == ['jk', 'jl', 'jk', 'jl', 'jk', 'jk', 'jl']
-    assert loop_bounds(routine.body) == [
-        ('jk', '1', 'klev', None), ('jl', '1', 'klon', None),
-        ('jk', '2', 'klev', None), ('jl', '1', 'klon', None),
-        ('jk', '1', 'klev', None), ('jk', '1', 'klev', None),
-        ('jl', '2', 'klon', None)
+    assert loop_variables(routine.body) == ['jk', 'jl', 'jk', 'jl', 'jk', 'jk', 'jl']
+    assert loop_symbols(routine.body) == [
+        ('jk', 1, 'klev', None), ('jl', 1, 'klon', None),
+        ('jk', 2, 'klev', None), ('jl', 1, 'klon', None),
+        ('jk', 1, 'klev', None), ('jk', 1, 'klev', None),
+        ('jl', 2, 'klon', None)
     ]
     assert assignment_symbols(routine.body) == [
         ('b(1, jk)', 'jk'), ('a(jl, 1)', 'jl'), ('a(jl, jk)', 'a(jl, jk - 1)'), ('b(jl, jk)', 'b(jl - 1, jk)')
@@ -299,7 +296,7 @@ end subroutine transform_region_hoist_promote
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 7
-    assert [str(loop.variable) for loop in loops] == ['jl', 'jk', 'jl', 'jk', 'jk', 'jk', 'jl']
+    assert loop_variables(routine.body) == ['jl', 'jk', 'jl', 'jk', 'jk', 'jk', 'jl']
 
     assert isinstance(routine.variable_map['b_tmp'], sym.Scalar)
 
@@ -308,11 +305,11 @@ end subroutine transform_region_hoist_promote
 
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 8
-    assert [str(loop.variable) for loop in loops] == ['jk', 'jl', 'jk', 'jl', 'jk', 'jk', 'jk', 'jl']
+    assert loop_variables(routine.body) == ['jk', 'jl', 'jk', 'jl', 'jk', 'jk', 'jk', 'jl']
 
     b_tmp = routine.variable_map['b_tmp']
     assert isinstance(b_tmp, sym.Array) and len(b_tmp.type.shape) == 1
-    assert str(b_tmp.type.shape[0]) == 'klev'
+    assert b_tmp.type.shape[0] == 'klev'
 
     hoisted_filepath = tmp_path/(f'{routine.name}_hoisted_{frontend}.f90')
     hoisted_function = jit_compile(routine, filepath=hoisted_filepath, objname=routine.name)
