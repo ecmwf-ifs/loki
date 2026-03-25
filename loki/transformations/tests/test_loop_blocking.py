@@ -33,6 +33,24 @@ Tests for loop splitting and blocking utilities.
 LOKI_LOOP_SLIT_VAR_ADDITION = 7
 
 
+def loop_symbols(node):
+    return [
+        (loop.variable, loop.bounds.start, loop.bounds.stop, loop.bounds.step)
+        for loop in FindNodes(ir.Loop).visit(node)
+    ]
+
+
+def assignment_symbols(node):
+    return [(assign.lhs, assign.rhs) for assign in FindNodes(ir.Assignment).visit(node)]
+
+
+def array_access_symbols(node):
+    return [
+        (var.name, var.dimensions) for var in FindVariables().visit(node)
+        if isinstance(var, Array)
+    ]
+
+
 def test_loop_splitting_vars(caplog):
     loop_var = sym.Variable(name='i', type=SymbolAttributes(BasicType.INTEGER))
 
@@ -67,7 +85,7 @@ def test_loop_splitting_vars(caplog):
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [10, 117])
 @pytest.mark.parametrize('n', [50, 1200])
-def test_1d_splitting(tmp_path, frontend, block_size, n):
+def test_1d_splitting(frontend, block_size, n):
     """
     Apply loop blocking of simple loops into two loops
     """
@@ -100,23 +118,23 @@ end subroutine test_1d_splitting
         f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
     )
 
-    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    a = np.zeros(n, order='F')
-    b = np.zeros(n, order='F')
-    function(a, b, n)
-    assert np.all(b == 0.), "b array should not be modified."
-    a_ref = np.linspace(1, n, n)
-    assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
-
-    clean_test(filepath)
+    assert loop_symbols(routine.ir) == [
+        ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
+        ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
+    ]
+    assert assignment_symbols(routine.body) == [
+        ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
+        ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
+        ('i_loop_block_end', 'min(i_loop_block_idx*i_loop_block_size, n)'),
+        ('i_loop_iter_num', 'i_loop_block_start + i_loop_local - 1'),
+        ('i', 'i_loop_iter_num'), ('a(i)', 'real(i, kind=8)')
+    ]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [117])
 @pytest.mark.parametrize('n', [500])
-def test_1d_splitting_multi_var(tmp_path, frontend, block_size, n):
+def test_1d_splitting_multi_var(frontend, block_size, n):
     """
     Apply loop blocking of simple loops into two loops
     """
@@ -151,23 +169,23 @@ end subroutine test_1d_splitting_multi_var
         f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
     )
 
-    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    a = np.zeros(n, order='F')
-    b = np.zeros(n, order='F')
-    function(a, b, n)
-    assert np.all(b == 0.), "b array should not be modified."
-    a_ref = np.linspace(1, n, n)
-    assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
-
-    clean_test(filepath)
+    assert loop_symbols(routine.ir) == [
+        ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
+        ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
+    ]
+    assert assignment_symbols(routine.body) == [
+        ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
+        ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
+        ('i_loop_block_end', 'min(i_loop_block_idx*i_loop_block_size, n)'),
+        ('i_loop_iter_num', 'i_loop_block_start + i_loop_local - 1'),
+        ('i', 'i_loop_iter_num'), ('c(1)', 'c(1) + i'), ('a(i)', 'real(i)')
+    ]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [117])
 @pytest.mark.parametrize('n', [500])
-def test_2d_splitting(tmp_path, frontend, block_size, n):
+def test_2d_splitting(frontend, block_size, n):
     fcode = """
     subroutine test_2d_splitting(a, b, n)
       implicit none
@@ -200,18 +218,17 @@ def test_2d_splitting(tmp_path, frontend, block_size, n):
         f"but expected {num_vars + LOKI_LOOP_SLIT_VAR_ADDITION}"
     )
 
-    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    a = np.zeros(n, order='F')
-    b = np.zeros((n,n), order='F')
-    function(a, b, n)
-    a_ref = np.linspace(1, n, n)
-    b_ref = np.tile(a_ref, (n,1))
-    assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
-    assert np.array_equal(b, b_ref), "b should equal b_ref"
-
-    clean_test(filepath)
+    assert loop_symbols(routine.ir) == [
+        ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
+        ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
+    ]
+    assert assignment_symbols(routine.body) == [
+        ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
+        ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
+        ('i_loop_block_end', 'min(i_loop_block_idx*i_loop_block_size, n)'),
+        ('i_loop_iter_num', 'i_loop_block_start + i_loop_local - 1'),
+        ('i', 'i_loop_iter_num'), ('a(i)', 'i'), ('c(1)', 'a(i)'), ('b(:, i)', 'a(i)')
+    ]
 
 
 
@@ -279,7 +296,7 @@ the correct output.
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('block_size', [117])
 @pytest.mark.parametrize('n', [500])
-def test_1d_blocking(tmp_path, frontend, block_size, n):
+def test_1d_blocking(frontend, block_size, n):
     """
     Apply loop blocking of simple loops into two loops
     """
@@ -324,17 +341,20 @@ end subroutine test_1d_blocking
 
     assert len(routine.variable_map) == num_vars+1, "Expected 1 loop blocking to be added"
 
-    filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
-    a = np.zeros(n, order='F')
-    b = np.zeros(n, order='F')
-    a_ref = np.linspace(1, n, n)
-    function(a, b, n)
-    assert np.all(b == 0.), "b array should not be modified."
-    assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
-
-    clean_test(filepath)
+    assert loop_symbols(routine.ir) == [
+        ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
+        ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
+    ]
+    assert assignment_symbols(routine.body) == [
+        ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
+        ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
+        ('i_loop_block_end', 'min(i_loop_block_idx*i_loop_block_size, n)'),
+        ('a_block(1:i_loop_block_end - i_loop_block_start + 1)', 'a(i_loop_block_start:i_loop_block_end)'),
+        ('i_loop_iter_num', 'i_loop_block_start + i_loop_local - 1'),
+        ('i', 'i_loop_iter_num'), ('a_block(i_loop_local)', 'real(i)'),
+        ('a(i_loop_block_start:i_loop_block_end)', 'a_block(1:i_loop_block_end - i_loop_block_start + 1)')
+    ]
+    assert array_access_symbols(inner_loop.body) == [('a_block', ('i_loop_local',))]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
