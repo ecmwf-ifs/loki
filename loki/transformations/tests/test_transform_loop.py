@@ -41,7 +41,7 @@ def assignment_symbols(node):
 
 
 def conditional_strs(node):
-    return [str(cond.condition) for cond in FindNodes(Conditional).visit(node)]
+    return [cond.condition for cond in FindNodes(Conditional).visit(node)]
 
 
 def pragma_strs(node):
@@ -50,7 +50,7 @@ def pragma_strs(node):
 
 def variable_shape(routine, name):
     shape = routine.variable_map[name].shape
-    return tuple(str(dim) for dim in shape) if shape else None
+    return tuple(shape) if shape else None
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -847,7 +847,7 @@ end subroutine transform_loop_fission_promote
     for loop in loops:
         assert loop.bounds.start == 1
         assert loop.bounds.stop == 'n'
-    assert [str(d) for d in routine.variable_map['tmp'].shape] == ['n']
+    assert routine.variable_map['tmp'].shape == ('n',)
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
     fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
