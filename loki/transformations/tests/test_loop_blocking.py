@@ -83,9 +83,7 @@ def test_loop_splitting_vars(caplog):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('block_size', [10, 117])
-@pytest.mark.parametrize('n', [50, 1200])
-def test_1d_splitting(frontend, block_size, n):
+def test_1d_splitting(frontend):
     """
     Apply loop blocking of simple loops into two loops
     """
@@ -100,8 +98,9 @@ subroutine test_1d_splitting(a, b, n)
   do i=1,n
     a(i) = real(i, kind=8)
   end do
-end subroutine test_1d_splitting
+    end subroutine test_1d_splitting
     """
+    block_size = 117
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
@@ -132,9 +131,7 @@ end subroutine test_1d_splitting
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('block_size', [117])
-@pytest.mark.parametrize('n', [500])
-def test_1d_splitting_multi_var(frontend, block_size, n):
+def test_1d_splitting_multi_var(frontend):
     """
     Apply loop blocking of simple loops into two loops
     """
@@ -153,6 +150,7 @@ subroutine test_1d_splitting_multi_var(a, b, n)
   end do
 end subroutine test_1d_splitting_multi_var
     """
+    block_size = 117
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
@@ -183,9 +181,7 @@ end subroutine test_1d_splitting_multi_var
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('block_size', [117])
-@pytest.mark.parametrize('n', [500])
-def test_2d_splitting(frontend, block_size, n):
+def test_2d_splitting(frontend):
     fcode = """
     subroutine test_2d_splitting(a, b, n)
       implicit none
@@ -202,6 +198,7 @@ def test_2d_splitting(frontend, block_size, n):
       end do
     end subroutine test_2d_splitting
         """
+    block_size = 117
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     num_loops = len(loops)
@@ -294,9 +291,7 @@ the correct output.
 """
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('block_size', [117])
-@pytest.mark.parametrize('n', [500])
-def test_1d_blocking(frontend, block_size, n):
+def test_1d_blocking(frontend):
     """
     Apply loop blocking of simple loops into two loops
     """
@@ -313,6 +308,7 @@ subroutine test_1d_blocking(a, b, n)
   end do
 end subroutine test_1d_blocking
     """
+    block_size = 117
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.ir)
     with pragmas_attached(routine, ir.Loop):

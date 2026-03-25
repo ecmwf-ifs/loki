@@ -12,7 +12,6 @@ import numpy as np
 
 from loki import Subroutine
 from loki.jit_build import jit_compile, clean_test
-from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
