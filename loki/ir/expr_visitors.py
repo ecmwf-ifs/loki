@@ -28,7 +28,8 @@ __all__ = [
     'ExpressionFinder', 'FindExpressions', 'FindVariables',
     'FindTypedSymbols', 'FindInlineCalls', 'FindLiterals',
     'FindRealLiterals', 'ExpressionTransformer',
-    'SubstituteExpressions', 'SubstituteStringExpressions',
+    'SubstituteExpressions', 'SubstituteExpressionsSkipLHS',
+    'SubstituteStringExpressions',
     'AttachScopes'
 ]
 
@@ -331,6 +332,54 @@ class SubstituteExpressions(ExpressionTransformer):
 
     # visit_VariableDeclaration = visit_Import
     visit_ProcedureDeclaration = visit_VariableDeclaration
+
+
+class SubstituteExpressionsSkipLHS(SubstituteExpressions):
+    """
+    A variant of :any:`SubstituteExpressions` that does not apply the
+    expression mapping to the left-hand side of :any:`Assignment` and
+    :any:`ConditionalAssignment` nodes.
+
+    This is useful when the expression map contains entries that also
+    appear on the LHS of assignments and should not be substituted
+    there.  For example, wrapping denominators in a safe ``MAX(x, TINY(...))``
+    expression should only affect the RHS, not turn the LHS into a
+    non-assignable expression.
+
+    Parameters
+    ----------
+    expr_map : dict
+        Expression mapping to apply to the expression tree.
+    invalidate_source : bool, optional
+        By default the :attr:`source` property of nodes is discarded
+        when rebuilding the node, setting this to ``False`` allows to
+        retain that information.
+    """
+
+    def visit_Assignment(self, o, **kwargs):
+        """
+        Visit only the RHS of :any:`Assignment` nodes, leaving the
+        LHS expression unchanged.
+        """
+        new_rhs = self.visit(o.rhs, **kwargs)
+        if new_rhs is o.rhs:
+            return o
+        return self._rebuild(o, (o.lhs, new_rhs))
+
+    def visit_ConditionalAssignment(self, o, **kwargs):
+        """
+        Visit the condition, RHS, and else_rhs of
+        :any:`ConditionalAssignment` nodes, leaving the LHS unchanged.
+        """
+        new_condition = self.visit(o.condition, **kwargs)
+        new_rhs = self.visit(o.rhs, **kwargs)
+        new_else_rhs = (
+            self.visit(o.else_rhs, **kwargs) if o.else_rhs else o.else_rhs
+        )
+        if (new_condition is o.condition and new_rhs is o.rhs
+                and new_else_rhs is o.else_rhs):
+            return o
+        return self._rebuild(o, (new_condition, o.lhs, new_rhs, new_else_rhs))
 
 
 class SubstituteStringExpressions(SubstituteExpressions):
