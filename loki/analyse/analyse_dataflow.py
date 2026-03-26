@@ -9,20 +9,26 @@
 Collection of dataflow analysis schema routines.
 """
 
+from collections import defaultdict
 from contextlib import contextmanager
 from loki.expression import Array, ProcedureSymbol
+import loki.expression.symbols as sym
+from loki.expression.symbolic import simplify, is_constant, is_minus_prefix, strip_minus_prefix
 from loki.ir.expr_visitors import FindLiterals
 from loki.tools import as_tuple, flatten, OrderedSet
 from loki.types import BasicType
 from loki.ir import (
-    Visitor, Transformer, FindVariables, FindInlineCalls, FindTypedSymbols
+    Visitor, Transformer, FindVariables, FindInlineCalls, FindTypedSymbols,
+    FindNodes, Assignment, Loop
 )
 from loki.subroutine import Subroutine
 from loki.tools.util import CaseInsensitiveDict
 
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
-    'loop_carried_dependencies'
+    'loop_carried_dependencies', 'classify_array_access_offsets',
+    'array_loop_carried_dependencies', 'detect_vertical_carry_variables',
+    'classify_multilevel_arrays'
 ]
 
 
@@ -32,6 +38,8 @@ def strip_nested_dimensions(expr):
     nesting depth.
     """
 
+    if not hasattr(expr, 'parent'):
+        return expr
     parent = expr.parent
     if parent:
         parent = strip_nested_dimensions(parent)
@@ -651,3 +659,440 @@ def loop_carried_dependencies(loop):
         The list of variables that potentially have a loop-carried dependency.
     """
     return loop.uses_symbols & loop.defines_symbols
+
+
+def _extract_offset(dim, loop_var):
+    """
+    Extract the integer offset of an array subscript expression relative to
+    a loop variable.
+
+    For example, if ``dim`` is ``JK - 1`` and ``loop_var`` is ``JK``, this
+    returns ``-1``. If ``dim`` is exactly ``JK``, this returns ``0``.
+    If ``dim`` does not involve ``loop_var`` or is non-affine, returns
+    :data:`None`.
+
+    Parameters
+    ----------
+    dim : expression
+        The subscript expression for one dimension of an array access.
+    loop_var : :any:`Scalar` or str
+        The loop induction variable.
+
+    Returns
+    -------
+    int or None
+        The integer offset, or ``None`` if the expression is not an affine
+        function of :data:`loop_var`.
+    """
+    loop_var_name = loop_var.name.lower() if hasattr(loop_var, 'name') else str(loop_var).lower()
+
+    # Check whether loop_var appears in this dimension at all
+    found_vars = FindVariables().visit(dim)
+    if not any(v.name.lower() == loop_var_name for v in found_vars):
+        return None
+
+    # If dim is exactly the loop variable, offset is 0
+    if isinstance(dim, (sym.Scalar, sym.DeferredTypeSymbol)):
+        if dim.name.lower() == loop_var_name:
+            return 0
+        return None
+
+    # Compute dim - loop_var and simplify; if the result is a compile-time
+    # constant, the offset is that constant value.
+    try:
+        diff = simplify(dim - loop_var)
+    except (TypeError, AttributeError):
+        return None
+
+    if isinstance(diff, sym.IntLiteral):
+        return diff.value
+    if isinstance(diff, int):
+        return diff
+    if is_minus_prefix(diff):
+        inner = strip_minus_prefix(diff)
+        if isinstance(inner, sym.IntLiteral):
+            return -inner.value
+        if isinstance(inner, int):
+            return -inner
+    if is_constant(diff):
+        # Try to evaluate numerically as a last resort
+        try:
+            from loki.expression.evaluation import LokiEvaluationMapper
+            val = LokiEvaluationMapper()(diff)
+            if isinstance(val, (int, float)) and val == int(val):
+                return int(val)
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+    return None
+
+
+def _collect_array_accesses(node, loop_var):
+    """
+    Walk an IR subtree and collect all array accesses, classifying each
+    subscript dimension that involves the loop variable by its integer offset.
+
+    Parameters
+    ----------
+    node : :any:`Node`
+        The IR subtree to walk (e.g., a loop body or an assignment).
+    loop_var : :any:`Scalar` or str
+        The loop induction variable.
+
+    Returns
+    -------
+    list of tuple
+        Each entry is ``(array_name, dim_index, offset, access_type)`` where:
+        - ``array_name`` : str (lowercased)
+        - ``dim_index`` : int (which dimension of the array, 0-based)
+        - ``offset`` : int (the offset relative to ``loop_var``)
+        - ``access_type`` : str, either ``'read'`` or ``'write'``
+    """
+    accesses = []
+    loop_var_name = loop_var.name.lower() if hasattr(loop_var, 'name') else str(loop_var).lower()
+
+    for assign in FindNodes(Assignment).visit(node):
+        # --- LHS: write access ---
+        lhs = assign.lhs
+        if isinstance(lhs, sym.Array) and lhs.dimensions:
+            for dim_idx, dim in enumerate(lhs.dimensions):
+                offset = _extract_offset(dim, loop_var)
+                if offset is not None:
+                    accesses.append((lhs.name.lower(), dim_idx, offset, 'write'))
+
+        # --- RHS: read accesses ---
+        rhs_vars = FindVariables().visit(assign.rhs)
+        for var in rhs_vars:
+            if isinstance(var, sym.Array) and var.dimensions:
+                for dim_idx, dim in enumerate(var.dimensions):
+                    offset = _extract_offset(dim, loop_var)
+                    if offset is not None:
+                        accesses.append((var.name.lower(), dim_idx, offset, 'read'))
+
+        # Also check for read accesses on the LHS (e.g., arr(JK-1) on LHS
+        # means the array is read at the subscript level for other dimensions,
+        # and more importantly, if LHS is arr(JK) but rhs references arr too,
+        # the LHS subscript dimensions are used for the write address)
+        # Additionally, the LHS variable may appear on the RHS (self-update)
+        if isinstance(lhs, sym.Array) and lhs.dimensions:
+            rhs_var_names = {v.name.lower() for v in rhs_vars if isinstance(v, sym.Array)}
+            if lhs.name.lower() in rhs_var_names:
+                # The array is both read and written; reads from RHS are
+                # already captured above, so nothing extra needed
+                pass
+
+    return accesses
+
+
+def classify_array_access_offsets(loop, loop_var=None):
+    """
+    For a given loop, classify all array accesses in the loop body by their
+    subscript offset relative to the loop induction variable.
+
+    This is a subscript-aware analysis that goes beyond the symbol-level
+    :func:`loop_carried_dependencies`. It examines which dimension of each
+    array uses the loop variable and at what offset (e.g., ``JK``, ``JK-1``,
+    ``JK+1``).
+
+    Parameters
+    ----------
+    loop : :any:`Loop`
+        The loop node to analyse.
+    loop_var : expression, optional
+        The loop induction variable. If not given, uses ``loop.variable``.
+
+    Returns
+    -------
+    dict
+        A dict mapping ``(array_name, dim_index)`` to a dict of
+        ``{offset: set_of_access_types}`` where ``access_types`` are
+        ``'read'`` and/or ``'write'``. For example::
+
+            {
+                ('zpfplsx', 2): {0: {'read'}, 1: {'write'}},
+                ('za', 1):      {0: {'read', 'write'}, -1: {'read'}},
+            }
+    """
+    if loop_var is None:
+        loop_var = loop.variable
+
+    accesses = _collect_array_accesses(loop.body, loop_var)
+
+    result = {}
+    for arr_name, dim_idx, offset, access_type in accesses:
+        key = (arr_name, dim_idx)
+        if key not in result:
+            result[key] = {}
+        if offset not in result[key]:
+            result[key][offset] = set()
+        result[key][offset].add(access_type)
+
+    return result
+
+
+def array_loop_carried_dependencies(loop, loop_var=None):
+    """
+    Find arrays that have true loop-carried dependencies based on subscript
+    analysis.
+
+    Unlike :func:`loop_carried_dependencies`, this function examines the
+    actual array subscript offsets relative to the loop induction variable to
+    determine whether different iterations of the loop access overlapping
+    data elements.
+
+    A loop-carried dependency exists when:
+
+    - **Flow (RAW)**: An array is written at offset ``w`` and read at
+      offset ``r`` where ``w != r`` (the read at iteration ``k`` accesses
+      data written at iteration ``k + (r - w)``).
+    - **Anti (WAR)**: An array is read at offset ``r`` and written at
+      offset ``w`` where ``w != r``.
+    - **Output (WAW)**: An array is written at two different offsets.
+
+    The dependency distance is ``r - w`` for flow dependencies.
+
+    Parameters
+    ----------
+    loop : :any:`Loop`
+        The loop node to analyse.
+    loop_var : expression, optional
+        The loop induction variable. If not given, uses ``loop.variable``.
+
+    Returns
+    -------
+    dict
+        A dict mapping ``array_name`` to a list of dependency descriptors.
+        Each descriptor is a dict with keys:
+
+        - ``'type'``: one of ``'flow'`` (RAW), ``'anti'`` (WAR), ``'output'`` (WAW)
+        - ``'dim_index'``: which dimension (0-based) carries the dependency
+        - ``'write_offset'``: integer offset of the write access
+        - ``'read_offset'``: integer offset of the read access (for flow/anti)
+          or second write offset (for output)
+        - ``'distance'``: the dependency distance (positive means the read
+          depends on data from an earlier iteration in an ascending loop)
+
+        Example::
+
+            {
+                'zpfplsx': [
+                    {'type': 'flow', 'dim_index': 2, 'write_offset': 1,
+                     'read_offset': 0, 'distance': -1}
+                ],
+                'za': [
+                    {'type': 'flow', 'dim_index': 1, 'write_offset': 0,
+                     'read_offset': -1, 'distance': -1}
+                ]
+            }
+    """
+    access_map = classify_array_access_offsets(loop, loop_var)
+
+    deps = defaultdict(list)
+
+    for (arr_name, dim_idx), offset_map in access_map.items():
+        write_offsets = [off for off, types in offset_map.items() if 'write' in types]
+        read_offsets = [off for off, types in offset_map.items() if 'read' in types]
+
+        # Flow dependencies (RAW): written at w, read at r, with w != r
+        for w in write_offsets:
+            for r in read_offsets:
+                if w != r:
+                    deps[arr_name].append({
+                        'type': 'flow',
+                        'dim_index': dim_idx,
+                        'write_offset': w,
+                        'read_offset': r,
+                        'distance': r - w
+                    })
+
+        # Anti dependencies (WAR): read at r, written at w, with w != r
+        # (these are distinct from flow deps when considering ordering)
+        # Note: for the same pair (w, r) with w != r, we already have a flow dep.
+        # An anti dep is the reverse direction -- read first, then write.
+        # In a single loop body executed top-to-bottom, both can exist.
+        # We report anti deps only for pairs where there is a read but NOT
+        # a write at the same offset (otherwise it is a self-update, not anti).
+        # Actually, for loop-carried dependency analysis, both flow and anti
+        # matter. The flow deps are already captured above. Anti deps with
+        # different offsets are the same pairs but with reversed roles.
+        # We avoid double-reporting: flow covers (write_off, read_off),
+        # anti would be the same pair interpreted differently.
+        # For clarity, we only report flow and output dependencies here.
+        # The flow dependency direction already captures both RAW and WAR
+        # depending on the sign of the distance.
+
+        # Output dependencies (WAW): written at two different offsets
+        for i, w1 in enumerate(write_offsets):
+            for w2 in write_offsets[i+1:]:
+                deps[arr_name].append({
+                    'type': 'output',
+                    'dim_index': dim_idx,
+                    'write_offset': w1,
+                    'read_offset': w2,
+                    'distance': w2 - w1
+                })
+
+    return dict(deps)
+
+
+def detect_vertical_carry_variables(loop, loop_var=None):
+    """
+    Detect variables that serve as inter-iteration state carriers within
+    a vertical loop.
+
+    This identifies two patterns commonly found in column-based physics
+    parameterizations:
+
+    1. **Scalar carries**: Variables with no vertical dimension (e.g.,
+       1-D horizontal arrays or scalars) that are both read and written
+       within the loop body. These propagate state from one level to the
+       next (e.g., ``ZANEWM1``, ``ZCOVPTOT`` in CLOUDSC).
+
+    2. **Shift registers**: Arrays with a vertical dimension that are
+       written at one offset and read at a different offset of the loop
+       variable (e.g., written at ``JK+1`` and read at ``JK``). This is the
+       sedimentation flux pattern (``ZPFPLSX``).
+
+    Parameters
+    ----------
+    loop : :any:`Loop`
+        The loop node to analyse.
+    loop_var : expression, optional
+        The loop induction variable. If not given, uses ``loop.variable``.
+
+    Returns
+    -------
+    dict
+        A dict with two keys:
+
+        - ``'scalar_carries'``: list of dicts, each with:
+            - ``'name'``: variable name (lowercased)
+        - ``'shift_registers'``: list of dicts, each with:
+            - ``'name'``: array name (lowercased)
+            - ``'dim_index'``: which dimension carries the shift
+            - ``'write_offset'``: integer offset of the write
+            - ``'read_offset'``: integer offset of the read
+            - ``'direction'``: ``'downward'`` if write_offset > read_offset
+              (data flows from top to bottom in an ascending loop),
+              ``'upward'`` otherwise
+    """
+    if loop_var is None:
+        loop_var = loop.variable
+    loop_var_name = loop_var.name.lower() if hasattr(loop_var, 'name') else str(loop_var).lower()
+
+    # --- 1. Scalar carries ---
+    # Find variables (scalars or arrays without the loop variable in
+    # any subscript) that are both read and written.
+    write_names = set()
+    read_names = set()
+
+    for assign in FindNodes(Assignment).visit(loop.body):
+        lhs = assign.lhs
+        # Check if LHS is a variable that does NOT use the loop var
+        # in any of its subscript dimensions (i.e., it's a "horizontal-only"
+        # or scalar variable relative to this loop).
+        if isinstance(lhs, sym.Array) and lhs.dimensions:
+            uses_loop_var = False
+            for dim in lhs.dimensions:
+                found = FindVariables().visit(dim)
+                if any(v.name.lower() == loop_var_name for v in found):
+                    uses_loop_var = True
+                    break
+            if not uses_loop_var:
+                write_names.add(lhs.name.lower())
+        elif isinstance(lhs, (sym.Scalar, sym.DeferredTypeSymbol)):
+            write_names.add(lhs.name.lower())
+
+        # Check RHS for reads of variables without loop-var subscripts
+        for var in FindVariables().visit(assign.rhs):
+            if isinstance(var, sym.Array) and var.dimensions:
+                uses_loop_var = False
+                for dim in var.dimensions:
+                    found = FindVariables().visit(dim)
+                    if any(v.name.lower() == loop_var_name for v in found):
+                        uses_loop_var = True
+                        break
+                if not uses_loop_var:
+                    read_names.add(var.name.lower())
+            elif isinstance(var, (sym.Scalar, sym.DeferredTypeSymbol)):
+                if var.name.lower() != loop_var_name:
+                    read_names.add(var.name.lower())
+
+    scalar_carries = [
+        {'name': name}
+        for name in sorted(write_names & read_names)
+    ]
+
+    # --- 2. Shift registers ---
+    access_map = classify_array_access_offsets(loop, loop_var)
+    shift_registers = []
+
+    for (arr_name, dim_idx), offset_map in access_map.items():
+        write_offsets = [off for off, types in offset_map.items() if 'write' in types]
+        read_offsets = [off for off, types in offset_map.items() if 'read' in types]
+
+        for w in write_offsets:
+            for r in read_offsets:
+                if w != r:
+                    direction = 'downward' if w > r else 'upward'
+                    shift_registers.append({
+                        'name': arr_name,
+                        'dim_index': dim_idx,
+                        'write_offset': w,
+                        'read_offset': r,
+                        'direction': direction
+                    })
+
+    return {
+        'scalar_carries': scalar_carries,
+        'shift_registers': shift_registers
+    }
+
+
+def classify_multilevel_arrays(routine_or_node, loop_var):
+    """
+    Scan all vertical loops in a routine (or IR subtree) and return the set
+    of array names that are accessed at any non-zero offset of the given
+    loop variable.
+
+    This is a routine-wide version of the per-loop
+    :func:`classify_array_access_offsets`.  It collects information from
+    **every** loop whose induction variable matches *loop_var* (by name,
+    case-insensitive).  An array is classified as "multilevel" if, in *any*
+    of those loops, it is accessed at an offset other than ``0`` (e.g.,
+    ``JK-1``, ``JK+1``).
+
+    The result can be used to decide which arrays in a mixed init loop need
+    to remain in a separate (non-fused) loop and which can safely participate
+    in fusion and subsequent demotion.
+
+    Parameters
+    ----------
+    routine_or_node : :any:`Subroutine` or :any:`Node`
+        The routine or IR subtree to scan.  If a :any:`Subroutine`, the
+        routine's body is scanned.
+    loop_var : :any:`Scalar`, str, or :any:`DeferredTypeSymbol`
+        The loop induction variable whose offsets are of interest.
+
+    Returns
+    -------
+    set of str
+        Lowercased array names that have at least one access at a non-zero
+        offset of *loop_var* anywhere in the scanned IR.
+    """
+    loop_var_name = loop_var.name.lower() if hasattr(loop_var, 'name') else str(loop_var).lower()
+
+    # Determine the IR node to walk
+    body = routine_or_node.body if hasattr(routine_or_node, 'body') else routine_or_node
+
+    multilevel = set()
+
+    for loop in FindNodes(Loop).visit(body):
+        if loop.variable.name.lower() != loop_var_name:
+            continue
+        access_map = classify_array_access_offsets(loop, loop.variable)
+        for (arr_name, _dim_idx), offset_map in access_map.items():
+            if any(off != 0 for off in offset_map):
+                multilevel.add(arr_name)
+
+    return multilevel

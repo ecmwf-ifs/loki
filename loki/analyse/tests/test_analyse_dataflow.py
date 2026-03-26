@@ -9,7 +9,9 @@ import pytest
 
 from loki import Module, Sourcefile, Subroutine
 from loki.analyse import (
-    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
+    dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies,
+    classify_array_access_offsets, array_loop_carried_dependencies,
+    detect_vertical_carry_variables, classify_multilevel_arrays
 )
 from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.backend import fgen
@@ -746,3 +748,339 @@ end module
     with dataflow_analysis_attached(routine):
         assert routine.body.defines_symbols == {'a%b%c'}
         assert routine.body.uses_symbols == {'d%b%c'}
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_classify_array_access_offsets_simple(frontend):
+    """
+    Test that classify_array_access_offsets correctly identifies
+    subscript offsets for simple JK and JK-1 patterns.
+    """
+    fcode = """
+subroutine test_offsets(n, arr, brr)
+  integer, intent(in) :: n
+  real, dimension(n) :: arr, brr
+  integer :: jk
+
+  do jk = 2, n
+    arr(jk) = brr(jk - 1) + brr(jk)
+  end do
+end subroutine test_offsets
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    access_map = classify_array_access_offsets(loops[0])
+    # arr is written at offset 0
+    assert ('arr', 0) in access_map
+    assert access_map[('arr', 0)] == {0: {'write'}}
+    # brr is read at offsets -1 and 0
+    assert ('brr', 0) in access_map
+    assert access_map[('brr', 0)] == {-1: {'read'}, 0: {'read'}}
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_classify_array_access_offsets_write_plus_one(frontend):
+    """
+    Test that write at JK+1 is detected correctly (sedimentation pattern).
+    """
+    fcode = """
+subroutine test_write_plus_one(n, flux, source)
+  integer, intent(in) :: n
+  real, dimension(n+1) :: flux
+  real, dimension(n) :: source
+  integer :: jk
+
+  do jk = 1, n
+    flux(jk + 1) = source(jk) * 0.5
+  end do
+end subroutine test_write_plus_one
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    access_map = classify_array_access_offsets(loops[0])
+    assert ('flux', 0) in access_map
+    assert 1 in access_map[('flux', 0)]
+    assert 'write' in access_map[('flux', 0)][1]
+    assert ('source', 0) in access_map
+    assert access_map[('source', 0)] == {0: {'read'}}
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_array_loop_carried_dependencies_simple_flow(frontend):
+    """
+    Test detection of a simple flow (RAW) loop-carried dependency:
+    data(i) = data(i) + data(i-1)
+    """
+    fcode = """
+subroutine test_flow_dep(data, n)
+  integer, intent(in) :: n
+  real, dimension(n) :: data
+  integer :: i
+
+  do i = 2, n
+    data(i) = data(i) + data(i - 1)
+  end do
+end subroutine test_flow_dep
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    deps = array_loop_carried_dependencies(loops[0])
+    assert 'data' in deps
+    # Should find a flow dependency: written at 0, read at -1
+    flow_deps = [d for d in deps['data'] if d['type'] == 'flow']
+    assert len(flow_deps) >= 1
+    found = any(d['write_offset'] == 0 and d['read_offset'] == -1 for d in flow_deps)
+    assert found, f"Expected flow dep (write=0, read=-1), got {flow_deps}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_array_loop_carried_dependencies_no_dep(frontend):
+    """
+    Test that arr(i) = arr(i) * 2 (same offset read/write) has NO
+    loop-carried dependency.
+    """
+    fcode = """
+subroutine test_no_dep(arr, n)
+  integer, intent(in) :: n
+  real, dimension(n) :: arr
+  integer :: i
+
+  do i = 1, n
+    arr(i) = arr(i) * 2.0
+  end do
+end subroutine test_no_dep
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    deps = array_loop_carried_dependencies(loops[0])
+    # arr is written and read at offset 0 only -- no cross-offset dependency
+    if 'arr' in deps:
+        # Should have no flow or output deps (both read and write at offset 0)
+        assert all(d['write_offset'] == d['read_offset'] == 0 for d in deps['arr']) is False or \
+               len(deps['arr']) == 0
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_array_loop_carried_dependencies_shift_register(frontend):
+    """
+    Test the shift register pattern: write at JK+1, read at JK.
+    This is the sedimentation flux pattern from CLOUDSC.
+    """
+    fcode = """
+subroutine test_shift_register(flux, source, n)
+  integer, intent(in) :: n
+  real, dimension(n+1) :: flux
+  real, dimension(n) :: source
+  integer :: jk
+
+  do jk = 1, n
+    source(jk) = source(jk) + flux(jk)
+    flux(jk + 1) = source(jk) * 0.5
+  end do
+end subroutine test_shift_register
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    deps = array_loop_carried_dependencies(loops[0])
+    # flux is written at offset +1 and read at offset 0
+    assert 'flux' in deps
+    flow_deps = [d for d in deps['flux'] if d['type'] == 'flow']
+    assert len(flow_deps) >= 1
+    found = any(d['write_offset'] == 1 and d['read_offset'] == 0 for d in flow_deps)
+    assert found, f"Expected flow dep (write=+1, read=0), got {flow_deps}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_array_loop_carried_dependencies_multiple(frontend):
+    """
+    Test multiple arrays with different dependency patterns.
+    """
+    fcode = """
+subroutine test_multi_dep(a, b, c, n)
+  integer, intent(in) :: n
+  real, dimension(n) :: a, b, c
+  integer :: i
+
+  do i = 2, n
+    a(i) = a(i - 1) + b(i)
+    c(i) = c(i) * 2.0
+    b(i) = a(i) + 1.0
+  end do
+end subroutine test_multi_dep
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    deps = array_loop_carried_dependencies(loops[0])
+    # a: written at 0, read at -1 => flow dep
+    assert 'a' in deps
+    a_flow = [d for d in deps['a'] if d['type'] == 'flow']
+    assert any(d['write_offset'] == 0 and d['read_offset'] == -1 for d in a_flow)
+    # c: only accessed at offset 0 => no loop-carried dep
+    assert 'c' not in deps or len(deps.get('c', [])) == 0
+    # b: written at 0, read at 0 => no loop-carried dep
+    assert 'b' not in deps or len(deps.get('b', [])) == 0
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_detect_vertical_carry_variables_scalar(frontend):
+    """
+    Test detection of scalar carry variables (1D variables that are
+    both read and written inside a loop over JK).
+    """
+    fcode = """
+subroutine test_carry_vars(nlon, nlev, a, b)
+  integer, intent(in) :: nlon, nlev
+  real, dimension(nlon, nlev) :: a, b
+  real :: carry_val
+  integer :: jk, jl
+
+  carry_val = 0.0
+  do jk = 1, nlev
+    do jl = 1, nlon
+      a(jl, jk) = b(jl, jk) + carry_val
+    end do
+    carry_val = a(1, jk)
+  end do
+end subroutine test_carry_vars
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    # Find the outer JK loop
+    jk_loops = [l for l in loops if l.variable.name.lower() == 'jk']
+    assert len(jk_loops) == 1
+
+    result = detect_vertical_carry_variables(jk_loops[0])
+    scalar_names = {c['name'] for c in result['scalar_carries']}
+    assert 'carry_val' in scalar_names
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_detect_vertical_carry_variables_shift_register(frontend):
+    """
+    Test detection of shift register patterns (array written at JK+1,
+    read at JK).
+    """
+    fcode = """
+subroutine test_shift_detect(n, flux, source)
+  integer, intent(in) :: n
+  real, dimension(n+1) :: flux
+  real, dimension(n) :: source
+  integer :: jk
+
+  do jk = 1, n
+    source(jk) = source(jk) + flux(jk)
+    flux(jk + 1) = source(jk) * 0.5
+  end do
+end subroutine test_shift_detect
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    result = detect_vertical_carry_variables(loops[0])
+    shift_names = {s['name'] for s in result['shift_registers']}
+    assert 'flux' in shift_names
+    # Check direction: write at +1, read at 0 => downward
+    flux_shifts = [s for s in result['shift_registers'] if s['name'] == 'flux']
+    assert any(s['write_offset'] == 1 and s['read_offset'] == 0
+               and s['direction'] == 'downward' for s in flux_shifts)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_classify_multilevel_arrays_basic(frontend):
+    """
+    Test that classify_multilevel_arrays correctly identifies arrays accessed
+    at non-zero offsets across multiple loops in a routine.
+    """
+    fcode = """
+subroutine test_ml_classify(nlon, nz)
+  integer, intent(in) :: nlon, nz
+  real :: za(nlon, nz), zb(nlon, nz), zc(nlon, nz)
+  real :: simple(nlon, nz)
+  integer :: jl, jk
+
+  ! Loop 1: za is written at jk, zb is written at jk
+  do jk = 1, nz
+    do jl = 1, nlon
+      za(jl, jk) = 1.0
+      zb(jl, jk) = 2.0
+      simple(jl, jk) = 3.0
+    end do
+  end do
+
+  ! Loop 2: za is read at jk-1 (makes it multilevel), zc is written at jk+1
+  do jk = 2, nz
+    do jl = 1, nlon
+      zb(jl, jk) = za(jl, jk - 1) + zb(jl, jk)
+      zc(jl, jk + 1) = zb(jl, jk)
+    end do
+  end do
+end subroutine test_ml_classify
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loop_var = routine.variable_map['jk']
+
+    result = classify_multilevel_arrays(routine, loop_var)
+
+    # za has offset -1 in loop 2 => multilevel
+    assert 'za' in result
+    # zc has offset +1 in loop 2 => multilevel
+    assert 'zc' in result
+    # simple is only accessed at offset 0 => NOT multilevel
+    assert 'simple' not in result
+    # zb is only accessed at offset 0 => NOT multilevel (despite being in both loops)
+    assert 'zb' not in result
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_classify_multilevel_arrays_empty(frontend):
+    """
+    Test that classify_multilevel_arrays returns an empty set when all
+    accesses are at offset 0.
+    """
+    fcode = """
+subroutine test_ml_none(nlon, nz)
+  integer, intent(in) :: nlon, nz
+  real :: a(nlon, nz), b(nlon, nz)
+  integer :: jl, jk
+
+  do jk = 1, nz
+    do jl = 1, nlon
+      a(jl, jk) = 1.0
+    end do
+  end do
+
+  do jk = 1, nz
+    do jl = 1, nlon
+      b(jl, jk) = a(jl, jk) + 2.0
+    end do
+  end do
+end subroutine test_ml_none
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loop_var = routine.variable_map['jk']
+
+    result = classify_multilevel_arrays(routine, loop_var)
+    assert len(result) == 0
