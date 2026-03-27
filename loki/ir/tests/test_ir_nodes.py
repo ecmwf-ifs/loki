@@ -264,6 +264,29 @@ def test_section(n, a_n, a_i):
     assert sec.body == (assign, func, assign, func, assign)
 
 
+def test_internal_node_iterable(one, i, n, a_i):
+    """
+    Test iterable-style access for :any:`InternalNode` subclasses.
+    """
+    assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(24.0))
+    bounds = sym.Range((one, n))
+
+    section = ir.Section(body=(assign1, assign2))
+    assert list(section) == list(section.body)
+    assert section[0] is assign1
+    assert section[-1] is assign2
+    assert assign1 in section
+    assert len(section) == len(section.body) == 2
+
+    loop = ir.Loop(variable=i, bounds=bounds, body=(assign1, assign2))
+    assert list(loop) == list(loop.body)
+    assert loop[0] is assign1
+    assert loop[-1] is assign2
+    assert assign2 in loop
+    assert len(loop) == len(loop.body) == 2
+
+
 def test_callstatement(scope, one, i, n, a_i):
     """ Test constructor of :any:`CallStatement` nodes. """
 
