@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from loki.expression import symbols as sym, parse_expr
 from loki.function import Function
 from loki.ir import nodes as ir
+from loki.tools import as_tuple, flatten
 from loki.types import Scope
 
 
@@ -264,13 +265,12 @@ def test_section(n, a_n, a_i):
     assert sec.body == (assign, func, assign, func, assign)
 
 
-def test_internal_node_iterable(one, i, n, a_i):
+def test_section_iterable(a_i):
     """
-    Test iterable-style access for :any:`InternalNode` subclasses.
+    Test iterable-style access for :any:`Section`.
     """
     assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(24.0))
-    bounds = sym.Range((one, n))
 
     section = ir.Section(body=(assign1, assign2))
     assert list(section) == list(section.body)
@@ -278,13 +278,23 @@ def test_internal_node_iterable(one, i, n, a_i):
     assert section[-1] is assign2
     assert assign1 in section
     assert len(section) == len(section.body) == 2
+    assert as_tuple(section) == (section,)
+    assert flatten([section]) == [section]
 
-    loop = ir.Loop(variable=i, bounds=bounds, body=(assign1, assign2))
-    assert list(loop) == list(loop.body)
-    assert loop[0] is assign1
-    assert loop[-1] is assign2
-    assert assign2 in loop
-    assert len(loop) == len(loop.body) == 2
+
+def test_loop_is_not_iterable(one, i, n, a_i):
+    """
+    Test that iterable access remains specific to :any:`Section`.
+    """
+    assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    loop = ir.Loop(variable=i, bounds=sym.Range((one, n)), body=(assign,))
+
+    with pytest.raises(TypeError):
+        iter(loop)
+    with pytest.raises(TypeError):
+        _ = loop[0]
+    with pytest.raises(TypeError):
+        len(loop)
 
 
 def test_callstatement(scope, one, i, n, a_i):

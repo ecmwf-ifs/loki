@@ -43,6 +43,15 @@ __all__ = [
 ]
 
 
+def _is_loki_section(obj):
+    """
+    Return ``True`` for plain ``ir.Section`` objects while avoiding import cycles.
+    """
+    nodes_module = sys.modules.get('loki.ir.nodes')
+    section_type = getattr(nodes_module, 'Section', None)
+    return section_type is not None and type(obj) is section_type
+
+
 def as_tuple(item, type=None, length=None):
     """
     Force item to a tuple, even if `None` is provided.
@@ -55,6 +64,8 @@ def as_tuple(item, type=None, length=None):
         t = ()
     elif isinstance(item, str):
         t = (item,)
+    elif _is_loki_section(item):
+        t = (item,) * (length or 1)
     else:
         # Convert iterable to list...
         try:
@@ -78,6 +89,8 @@ def is_iterable(o):
     identified as a :class:`collections.Iterable` and thus this is a much more reliable test than
     ``isinstance(obj, collections.Iterable)``.
     """
+    if _is_loki_section(o):
+        return False
     try:
         iter(o)
     except TypeError:
