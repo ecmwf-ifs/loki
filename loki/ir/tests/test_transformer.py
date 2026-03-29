@@ -534,8 +534,8 @@ end subroutine masked_transformer
     assert len(FindNodes(ir.Assignment).visit(body)) == len(assignments) - 1
     assocs = FindNodes(ir.Associate).visit(body)
     assert len(assocs) == 1
-    assert len(assocs[0].body) == len(assignments) - 1
-    assert all(isinstance(n, ir.Assignment) for n in assocs[0].body)
+    assert len(assocs[0]) == len(assignments) - 1
+    assert all(isinstance(n, ir.Assignment) for n in assocs[0])
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
