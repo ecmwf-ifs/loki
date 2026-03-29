@@ -271,13 +271,17 @@ def test_section_iterable(a_i):
     """
     assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(24.0))
+    assign3 = ir.Assignment(lhs=a_i, rhs=sym.Literal(12.0))
 
-    section = ir.Section(body=(assign1, assign2))
+    section = ir.Section(body=(assign1, assign2, assign1, assign3))
     assert list(section) == list(section.body)
     assert section[0] is assign1
-    assert section[-1] is assign2
+    assert section[-1] is assign3
     assert assign1 in section
-    assert len(section) == len(section.body) == 2
+    assert len(section) == len(section.body) == 4
+    assert section.index(assign1) == 0
+    assert section.index(assign1, 1) == 2
+    assert section.index(assign3, 0, 4) == 3
     assert as_tuple(section) == (section,)
     assert flatten([section]) == [section]
 
