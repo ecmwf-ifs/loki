@@ -461,7 +461,7 @@ def check_variable_type_device(var, routine, calls, pragmas, access):
     pragmas = [pragma for pragma in pragmas
                if 'unstructured-data attach' in pragma.content and f'{var}%p' in pragma.content]
     if calls and pragmas:
-        assert routine.body.body.index(calls[0]) < routine.body.body.index(pragmas[0])
+        assert routine.body.index(calls[0]) < routine.body.index(pragmas[0])
         _pass += 1
 
     assert _pass == 1
@@ -504,12 +504,12 @@ def check_other_variable_type(mode, conds, calls, pragmas, routine):
         # Check copy to device of struct
         pragma = [p for p in pragmas if
                   'unstructured-data in' in p.content and '(variable)' in p.content][0]
-        assert routine.body.body.index(pragma) < routine.body.body.index(conds[0])
+        assert routine.body.index(pragma) < routine.body.index(conds[0])
 
         # Check deletion of struct from device
         pragma = [p for p in pragmas if
                   'exit unstructured-data delete' in p.content and '(variable)' in p.content][0]
-        assert routine.body.body.index(pragma) > routine.body.body.index(conds[-1])
+        assert routine.body.index(pragma) > routine.body.index(conds[-1])
 
         # Check FIELD_API boilerplate for copying to device
         _pass = 0
@@ -520,7 +520,7 @@ def check_other_variable_type(mode, conds, calls, pragmas, routine):
         pragmas = [pragma for pragma in pragmas
                    if 'unstructured-data attach' in pragma.content and 'variable%vt0_field' in pragma.content]
         if calls and pragmas:
-            assert routine.body.body.index(calls[0]) < routine.body.body.index(pragmas[0])
+            assert routine.body.index(calls[0]) < routine.body.index(pragmas[0])
             _pass += 1
 
         # Check FIELD_API boilerplate for wiping device
@@ -557,12 +557,12 @@ def check_view_prefix_variable_type(mode, conds, calls, pragmas, routine):
         # Check copy to device of struct
         pragma = [p for p in pragmas if 'unstructured-data in' in p.content and
                   '(another_variable)' in p.content][0]
-        assert routine.body.body.index(pragma) < routine.body.body.index(conds[0])
+        assert routine.body.index(pragma) < routine.body.index(conds[0])
 
         # Check deletion of struct from device
         pragma = [p for p in pragmas if 'exit unstructured-data delete' in p.content and
                   '(another_variable)' in p.content][0]
-        assert routine.body.body.index(pragma) > routine.body.body.index(conds[-1])
+        assert routine.body.index(pragma) > routine.body.index(conds[-1])
 
         # Check FIELD_API boilerplate for copying to device
         call_name = 'sget_device_data_rdonly'
@@ -577,7 +577,7 @@ def check_view_prefix_variable_type(mode, conds, calls, pragmas, routine):
                    and 'another_variable%pt1_field' in pragma.content]
 
         if calls and pragmas:
-            assert routine.body.body.index(calls[0]) < routine.body.body.index(pragmas[0])
+            assert routine.body.index(calls[0]) < routine.body.index(pragmas[0])
             _pass += 1
 
         # Check FIELD_API boilerplate for wiping device
@@ -612,7 +612,7 @@ def check_geometry(conds, pragmas, routine):
     # Check copy to device of struct
     pragma = [p for p in pragmas if
               'unstructured-data in' in p.content and '(geometry)' in p.content][0]
-    assert routine.body.body.index(pragma) < routine.body.body.index(conds[0])
+    assert routine.body.index(pragma) < routine.body.index(conds[0])
 
     # Check copy to device of member
     assert 'unstructured-data in' in conds[0].body[0].content
@@ -621,7 +621,7 @@ def check_geometry(conds, pragmas, routine):
     # Check deletion of struct from device
     pragma = [p for p in pragmas if 'exit unstructured-data delete' in p.content
               and '(geometry)' in p.content and 'finalize' in p.content][0]
-    assert routine.body.body.index(pragma) > routine.body.body.index(conds[-1])
+    assert routine.body.index(pragma) > routine.body.index(conds[-1])
 
     # Check deletion of member from device
     assert 'exit unstructured-data delete' in conds[-1].body[0].content
@@ -657,12 +657,12 @@ def check_struct(mode, conds, calls, pragmas, routine):
         # Check copy to device of struct
         pragma = [p for p in pragmas if
                   'unstructured-data in' in p.content and '(struct)' in p.content][0]
-        assert routine.body.body.index(pragma) < routine.body.body.index(struct_conds[0])
+        assert routine.body.index(pragma) < routine.body.index(struct_conds[0])
 
         # Check deletion of struct from device
         pragma = [p for p in pragmas if
                   'exit unstructured-data delete' in p.content and '(struct)' in p.content][0]
-        assert routine.body.body.index(pragma) > routine.body.body.index(struct_conds[-1])
+        assert routine.body.index(pragma) > routine.body.index(struct_conds[-1])
 
         check_variable_type_device('struct%a', routine, calls, pragmas, 'wronly')
         check_variable_type_device('struct%b', routine, calls, pragmas, 'rdwr')

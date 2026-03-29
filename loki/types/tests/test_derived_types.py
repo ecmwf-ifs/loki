@@ -1267,7 +1267,7 @@ end subroutine driver
     driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[module], xmods=[tmp_path])
 
     other_routine = module['other_routine']
-    call = other_routine.body.body[0]
+    call = other_routine.body[0]
     assert isinstance(call, ir.CallStatement)
     assert isinstance(call.name.type.dtype, ProcedureType)
     assert call.name.parent and isinstance(call.name.parent.type.dtype, DerivedType)
