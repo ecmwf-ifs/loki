@@ -333,7 +333,7 @@ end subroutine routine_simple
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    associate = ir.Associate(
+    associate = ir.Associate(  # pylint: disable=unexpected-keyword-arg
         associations=((routine.variable_map['a'], routine.variable_map['b']),),
         body=(assigns[1].clone(),), parent=routine
     )

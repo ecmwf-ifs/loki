@@ -50,9 +50,10 @@ def _is_atomic_iterable_ir_node(obj):
     nodes_module = sys.modules.get('loki.ir.nodes')
     section_type = getattr(nodes_module, 'Section', None)
     associate_type = getattr(nodes_module, 'Associate', None)
+    obj_type = obj.__class__
     return (
-        (section_type is not None and type(obj) is section_type)
-        or (associate_type is not None and type(obj) is associate_type)
+        (section_type is not None and obj_type is section_type)
+        or (associate_type is not None and obj_type is associate_type)
     )
 
 

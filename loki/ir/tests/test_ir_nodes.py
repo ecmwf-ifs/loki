@@ -311,7 +311,7 @@ def test_associate_iterable(scope, a_i):
     assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     assign2 = ir.Assignment(lhs=a_i.clone(parent=b), rhs=sym.Literal(66.6))
 
-    assoc = ir.Associate(associations=((b_a, a),), body=(assign1, assign2), parent=scope)
+    assoc = ir.Associate(associations=((b_a, a),), body=(assign1, assign2), parent=scope)  # pylint: disable=unexpected-keyword-arg
 
     assert list(assoc) == list(assoc.body)
     assert assoc[0] is assign1
