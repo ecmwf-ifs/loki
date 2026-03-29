@@ -284,7 +284,7 @@ def test_section_iterable(a_i):
 
 def test_loop_is_not_iterable(one, i, n, a_i):
     """
-    Test that iterable access remains specific to :any:`Section`.
+    Test that iterable access is not enabled for unrelated internal nodes.
     """
     assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
     loop = ir.Loop(variable=i, bounds=sym.Range((one, n)), body=(assign,))
@@ -295,6 +295,27 @@ def test_loop_is_not_iterable(one, i, n, a_i):
         _ = loop[0]
     with pytest.raises(TypeError):
         len(loop)
+
+
+def test_associate_iterable(scope, a_i):
+    """
+    Test iterable-style access for :any:`Associate` while keeping it atomic.
+    """
+    b = sym.Scalar(name='b', scope=scope)
+    b_a = sym.Array(name='a', parent=b, scope=scope)
+    a = sym.Array(name='a', scope=scope)
+    assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    assign2 = ir.Assignment(lhs=a_i.clone(parent=b), rhs=sym.Literal(66.6))
+
+    assoc = ir.Associate(associations=((b_a, a),), body=(assign1, assign2), parent=scope)
+
+    assert list(assoc) == list(assoc.body)
+    assert assoc[0] is assign1
+    assert assoc[-1] is assign2
+    assert assign1 in assoc
+    assert len(assoc) == len(assoc.body) == 2
+    assert as_tuple(assoc) == (assoc,)
+    assert flatten([assoc]) == [assoc]
 
 
 def test_callstatement(scope, one, i, n, a_i):
