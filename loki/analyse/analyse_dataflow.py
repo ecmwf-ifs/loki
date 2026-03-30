@@ -720,7 +720,7 @@ def _extract_offset(dim, loop_var):
     if is_constant(diff):
         # Try to evaluate numerically as a last resort
         try:
-            from loki.expression.evaluation import LokiEvaluationMapper
+            from loki.expression.evaluation import LokiEvaluationMapper  # pylint: disable=import-outside-toplevel
             val = LokiEvaluationMapper()(diff)
             if isinstance(val, (int, float)) and val == int(val):
                 return int(val)

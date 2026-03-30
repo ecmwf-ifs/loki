@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 """
 Shared utility functions for vertical loop transformations.
 
@@ -473,8 +475,7 @@ def _collect_refs_outside_loops(body, loop_nodes):
     return refs
 
 
-def _find_demotable_arrays(routine, vertical_index, vertical_size,
-                            main_loop):
+def _find_demotable_arrays(routine, vertical_index, vertical_size):
     """
     Identify local arrays with a vertical dimension that can be safely
     demoted after loop absorption.
@@ -495,7 +496,6 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size,
     routine : :any:`Subroutine`
     vertical_index : str
     vertical_size : str
-    main_loop : :any:`Loop`
 
     Returns
     -------
@@ -1012,7 +1012,10 @@ def _convert_all_carries(routine, loop, vertical_size,
                 actual_non_vert_dims = _candidate
                 break
 
-        # --- Helper: range dims for carry (in-body context) ---
+        # --- Helper closures (called within the same loop iteration) ---
+        # pylint: disable=cell-var-from-loop
+
+        # range dims for carry (in-body context)
         def _carry_range_dims():
             if actual_non_vert_dims is not None:
                 return actual_non_vert_dims
@@ -1021,7 +1024,7 @@ def _convert_all_carries(routine, loop, vertical_size,
                 for _ in carry_shape
             ) if carry_shape else None
 
-        # --- Helper: range dims for init/rotate (out-of-loop context) ---
+        # range dims for init/rotate (out-of-loop context)
         # Non-horizontal loop variables (e.g. JM) are invalid outside
         # their enclosing loop, so replace them with ':' (RangeIndex).
         # The horizontal index (e.g. JL) is kept as-is because the SCC
@@ -1062,6 +1065,8 @@ def _convert_all_carries(routine, loop, vertical_size,
             if isinstance(dim_expr, sym.Scalar) and not isinstance(dim_expr, sym.IntLiteral):
                 return sym.RangeIndex((None, None, None))
             return dim_expr
+
+        # pylint: enable=cell-var-from-loop
 
         # --- Init statement ---
         if pattern == 'stencil':
@@ -1867,7 +1872,6 @@ def _collect_rotates_from_node(node, rotate_keys, save_names,
         if (lhs_name, rhs_name) in rotate_keys:
             remove_map[node] = None
             hoisted.append((enclosing_guard_cond, node))
-            return
 
         # Check for Pattern A / stencil save: the save is typically the
         # LAST assignment to _vc in the loop body.  We identify it by
@@ -2275,7 +2279,7 @@ def _remove_self_assignments(routine, merged_loop):
     int
         Number of self-assignments removed.
     """
-    from loki.backend import fgen
+    from loki.backend import fgen  # pylint: disable=import-outside-toplevel
 
     to_remove = {}
     for assign in FindNodes(ir.Assignment).visit(merged_loop.body):

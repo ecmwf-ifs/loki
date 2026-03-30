@@ -465,7 +465,7 @@ class SCCVerticalKCaching(Transformation):
         if all_vloops:
             merged_loop = all_vloops[0][0]
             demotable = _find_demotable_arrays(
-                routine, vertical_index, vertical_size, merged_loop
+                routine, vertical_index, vertical_size
             )
             if demotable:
                 dims_to_demote = (

@@ -345,7 +345,7 @@ def test_find_demotable_simple(frontend):
              if l.variable.name.lower() == 'jk']
     assert len(loops) == 1
 
-    demotable = _find_demotable_arrays(routine, 'jk', 'klev', loops[0])
+    demotable = _find_demotable_arrays(routine, 'jk', 'klev')
     assert 'tmp' in demotable
 
 
@@ -367,9 +367,7 @@ def test_find_demotable_argument_not_demoted(frontend):
     end subroutine
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    loops = [l for l in FindNodes(Loop).visit(routine.body)
-             if l.variable.name.lower() == 'jk']
-    demotable = _find_demotable_arrays(routine, 'jk', 'klev', loops[0])
+    demotable = _find_demotable_arrays(routine, 'jk', 'klev')
     assert 'arr' not in demotable
 
 
@@ -398,9 +396,7 @@ def test_find_demotable_nonzero_offset_excluded(frontend):
     end subroutine
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    loops = [l for l in FindNodes(Loop).visit(routine.body)
-             if l.variable.name.lower() == 'jk']
-    demotable = _find_demotable_arrays(routine, 'jk', 'klev', loops[0])
+    demotable = _find_demotable_arrays(routine, 'jk', 'klev')
     assert 'tmp' not in demotable
 
 
