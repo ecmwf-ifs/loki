@@ -294,7 +294,9 @@ class SCCVerticalKCaching(Transformation):
 
         Phases 1-4 as described in the module docstring.
         """
-        # TODO [K-CACHING]: there are possibly also aliases of index and size
+        # NOTE: Only the primary index/size names are used here.
+        # Dimension.index_aliases and Dimension.size_aliases are not
+        # consulted, so routines using alias names will not be matched.
         vertical_index = self.vertical.index
         vertical_size = str(self.vertical.size)
         horizontal_index = (
@@ -402,7 +404,6 @@ class SCCVerticalKCaching(Transformation):
                  'zero-inits for %s', routine.name,
                  ', '.join(sorted(removed)))
 
-        # TODO [K-CACHING]: merge all vertical loops if possible
         # Phase 2: Merge all vertical loops
         merged = _merge_vertical_loops(
             routine, vertical_index, vertical_size
