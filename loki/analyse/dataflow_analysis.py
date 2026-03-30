@@ -10,6 +10,7 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
+from typing import Any
 
 from loki.analyse.abstract_dfa import AbstractDataflowAnalysis, dfa_attached
 from loki.expression import Array, ProcedureSymbol
@@ -351,24 +352,40 @@ class DataflowAnalysisDetacher(Transformer):
 class DataflowAnalysis(AbstractDataflowAnalysis):
     """Concrete DFA implementation using the current attacher and detacher logic."""
 
-    _Attacher = DataflowAnalysisAttacher
-    _Detacher = DataflowAnalysisDetacher
+    class _Attacher(DataflowAnalysisAttacher, AbstractDataflowAnalysis._Attacher):
+        def __init__(self, analysis, **kwargs):
+            super().__init__(include_literal_kinds=analysis.include_literal_kinds, **kwargs)
+            self.analysis = analysis
+
+        def visit_CallStatement(self, o, **kwargs):
+            call_effects = self.analysis.resolve_call_effects(o, attacher=self, **kwargs)
+            if call_effects is None:
+                return super().visit_CallStatement(o, **kwargs)
+
+            defines, uses = call_effects
+            return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
+
+    class _Detacher(DataflowAnalysisDetacher, AbstractDataflowAnalysis._Detacher):
+        pass
 
     def __init__(self, include_literal_kinds=True):
         self.include_literal_kinds = include_literal_kinds
 
-    def get_attacher(self):
-        return self._Attacher(include_literal_kinds=self.include_literal_kinds)
+    def get_attacher(self) -> Any:
+        return self._Attacher(analysis=self)
+
+    def resolve_call_effects(self, call, *, attacher, **kwargs):  # pylint: disable=unused-argument
+        return None
 
     def attach_dataflow_analysis(self, module_or_routine):
+        attacher = self.get_attacher()
         live_symbols = OrderedSet()
         if hasattr(module_or_routine, 'arguments'):
-            live_symbols = self.get_attacher()._symbols_from_expr(
+            live_symbols = attacher._symbols_from_expr(
                 module_or_routine.arguments,
                 condition=lambda a: a.type.intent and a.type.intent.lower() in ('in', 'inout')
             )
 
-        attacher = self.get_attacher()
         if hasattr(module_or_routine, 'spec'):
             attacher.visit(module_or_routine.spec, live_symbols=live_symbols)
             live_symbols |= module_or_routine.spec.defines_symbols
