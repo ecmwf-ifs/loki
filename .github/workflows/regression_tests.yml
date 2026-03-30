@@ -45,7 +45,7 @@ jobs:
         with:
           repository: ecmwf-ifs/dwarf-p-cloudsc
           path: cloudsc
-          ref: develop
+          ref: nams-scc-k-caching
 
       - name: Clone CLOUDSC2 TL AD
         uses: actions/checkout@v4
