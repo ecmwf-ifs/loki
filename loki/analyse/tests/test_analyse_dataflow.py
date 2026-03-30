@@ -939,6 +939,43 @@ end subroutine test_multi_dep
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_array_loop_carried_dependencies_output_waw(frontend):
+    """
+    Test that writing to the same array at two different offsets of
+    the loop variable produces an output (WAW) dependency.
+    """
+    fcode = """
+subroutine test_waw(arr, n)
+  integer, intent(in) :: n
+  real, dimension(n + 1) :: arr
+  integer :: i
+
+  do i = 1, n
+    arr(i) = 1.0
+    arr(i + 1) = 2.0
+  end do
+end subroutine test_waw
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+
+    deps = array_loop_carried_dependencies(loops[0])
+    assert 'arr' in deps
+
+    # Should have an output (WAW) dependency: written at offset 0 and offset +1
+    output_deps = [d for d in deps['arr'] if d['type'] == 'output']
+    assert len(output_deps) >= 1, (
+        f'Expected WAW output dep for arr, got {deps["arr"]}'
+    )
+    assert any(
+        d['write_offset'] == 0 and d['read_offset'] == 1
+        for d in output_deps
+    ), f'Expected WAW dep with offsets 0 and +1, got {output_deps}'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_detect_loop_carry_variables_scalar(frontend):
     """
     Test detection of scalar carry variables (1D variables that are

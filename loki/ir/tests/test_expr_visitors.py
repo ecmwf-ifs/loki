@@ -510,3 +510,67 @@ end subroutine test_routine
     # The assignment should be unchanged
     assert str(assigns_after[0].lhs) == orig_lhs
     assert str(assigns_after[0].rhs) == orig_rhs
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_expressions_skip_lhs_conditional_assignment(frontend):
+    """
+    Test that :any:`SubstituteExpressionsSkipLHS` applies substitutions
+    to the condition, RHS, and else_rhs of a :any:`ConditionalAssignment`,
+    but leaves the LHS unchanged.
+
+    ConditionalAssignment represents C-style ternary assignments
+    (``lhs = cond ? rhs : else_rhs``).  It is not a Fortran construct,
+    so we build one manually from IR nodes.
+    """
+    fcode = """
+subroutine test_routine(a, b, c)
+  implicit none
+  real(kind=8), intent(inout) :: a, b, c
+  a = b + c
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    a = routine.variable_map['a']
+    b = routine.variable_map['b']
+    c = routine.variable_map['c']
+
+    # Build a ConditionalAssignment: a = (b > 0) ? b + c : c
+    cond_assign = ir.ConditionalAssignment(
+        condition=sym.Comparison(operator='>', left=b, right=sym.Literal(0)),
+        lhs=a,
+        rhs=sym.Sum((b, c)),
+        else_rhs=c
+    )
+
+    # Replace original assignment with the conditional assignment
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    from loki.ir import Transformer
+    routine.body = Transformer({assigns[0]: cond_assign}).visit(routine.body)
+
+    # Create an expression map: b -> b + 1
+    new_b = parse_expr('b + 1', scope=routine)
+    expr_map = {b: new_b}
+
+    # Apply substitution skipping LHS
+    routine.body = SubstituteExpressionsSkipLHS(expr_map).visit(routine.body)
+
+    # Find the ConditionalAssignment in the transformed body
+    cond_assigns = FindNodes(ir.ConditionalAssignment).visit(routine.body)
+    assert len(cond_assigns) == 1
+    ca = cond_assigns[0]
+
+    # LHS must remain 'a', NOT be substituted
+    assert str(ca.lhs).lower() == 'a'
+
+    # Condition should have b substituted: (b+1 > 0)
+    cond_str = str(ca.condition).lower()
+    assert 'b + 1' in cond_str or 'b+1' in cond_str
+
+    # RHS should have b substituted: b+1 + c
+    rhs_str = str(ca.rhs).lower()
+    assert 'b + 1' in rhs_str or 'b+1' in rhs_str
+
+    # else_rhs should remain 'c' (b does not appear in else_rhs)
+    assert str(ca.else_rhs).lower() == 'c'

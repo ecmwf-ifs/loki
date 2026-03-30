@@ -15,6 +15,7 @@ from loki import Subroutine
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.ir import FindNodes, Loop, Conditional
+from loki.backend import fgen
 
 from loki.transformations.single_column.vertical_utils import (
     _is_klev_plus_n,
@@ -494,3 +495,50 @@ def test_merge_no_loops(frontend):
     routine = Subroutine.from_source(fcode, frontend=frontend)
     result = _merge_vertical_loops(routine, 'jk', 'klev')
     assert result is None
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_merge_vertical_loops_cond_else_body(frontend):
+    """A JK loop wrapped in IF/ELSE should preserve the else branch
+    after merging."""
+    fcode = """
+    subroutine test_merge_cond_else(klev, flag)
+      implicit none
+      integer, intent(in) :: klev
+      logical, intent(in) :: flag
+      integer :: jk
+      real :: a, b
+
+      if (flag) then
+        do jk = 1, klev
+          a = real(jk)
+        end do
+      else
+        b = 0.0
+      end if
+
+      do jk = 1, klev
+        b = real(jk) * 2.0
+      end do
+    end subroutine
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Before: 2 JK loops (one wrapped in IF/ELSE)
+    loops_before = [l for l in FindNodes(Loop).visit(routine.body)
+                    if l.variable.name.lower() == 'jk']
+    assert len(loops_before) == 2
+
+    merged = _merge_vertical_loops(routine, 'jk', 'klev')
+    assert merged is not None
+
+    # After: 1 JK loop
+    loops_after = [l for l in FindNodes(Loop).visit(routine.body)
+                   if l.variable.name.lower() == 'jk']
+    assert len(loops_after) == 1
+
+    # The merged loop body should contain a conditional with an
+    # else branch that preserves the original ``b = 0.0`` statement.
+    code = fgen(routine).lower()
+    assert 'else' in code
+    assert 'b = 0.0' in code or 'b = 0' in code
