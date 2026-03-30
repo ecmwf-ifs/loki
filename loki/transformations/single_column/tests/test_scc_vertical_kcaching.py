@@ -21,7 +21,7 @@ from loki.backend import fgen
 from loki.transformations.single_column.vertical_kcaching import (
     SCCVerticalKCaching,
 )
-from loki.transformations.single_column.vertical_complete import (
+from loki.transformations.single_column.vertical_utils import (
     _collect_vertical_loops,
 )
 from loki.transformations.single_column.tests.conftest import (

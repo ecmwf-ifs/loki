@@ -8,9 +8,7 @@
 """
 Shared utility functions for vertical loop transformations.
 
-This module collects helper functions used by both
-:mod:`vertical_complete` and :mod:`vertical_merge` to avoid
-code duplication and circular imports.
+This module collects helper functions for vertical loop transformations.
 """
 
 from collections import defaultdict, OrderedDict
@@ -22,6 +20,7 @@ from loki.ir import (
 )
 from loki.logging import info, warning
 from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.expression.symbolic import simplify
 from loki.analyse.analyse_dataflow import (
     classify_array_access_offsets, array_loop_carried_dependencies,
     _extract_offset,
@@ -31,37 +30,64 @@ from loki.analyse.analyse_dataflow import (
 __all__ = []
 
 
-# ---------------------------------------------------------------------------
-# Functions from vertical_complete.py
-# ---------------------------------------------------------------------------
+def _loop_upper_bound_expr(loop):
+    """
+    Return the upper-bound expression of *loop*'s range, or ``None``
+    if bounds are not available.
+    """
+    bounds = loop.bounds
+    if bounds is None or bounds.children is None:
+        return None
+    return bounds.children[1]
+
 
 def _loop_upper_bound_str(loop):
     """
     Return the upper-bound of *loop*'s range as a normalised
     lowercase string, e.g. ``'klev'``, ``'klev + 1'``.
     """
-    bounds = loop.bounds
-    if bounds is None or bounds.children is None:
+    upper = _loop_upper_bound_expr(loop)
+    if upper is None:
         return ''
-    upper = bounds.children[1]
     return str(upper).strip().lower()
 
 
-def _is_klev_plus_n(upper_str, vertical_size):
+def _is_klev_plus_n(upper_expr, vertical_size):
     """
-    Return ``True`` if *upper_str* represents the vertical size plus a
-    positive integer, e.g. ``'klev + 1'``.
+    Return ``True`` if *upper_expr* represents the vertical size plus a
+    positive integer, e.g. ``KLEV + 1``.
 
     Parameters
     ----------
-    upper_str : str
-        Normalised lowercase upper bound string.
-    vertical_size : str
-        Normalised lowercase vertical size, e.g. ``'klev'``.
+    upper_expr : expression or str
+        The upper-bound expression (a Loki expression node) or, for
+        backward compatibility, a normalised lowercase string.
+    vertical_size : str or expression
+        The vertical size variable name (e.g. ``'klev'``) or a Loki
+        expression node.
     """
-    vs = vertical_size.lower()
+    # --- Expression-level path ---
+    if not isinstance(upper_expr, str) and upper_expr is not None:
+        vs_name = (vertical_size.lower() if isinstance(vertical_size, str)
+                   else str(vertical_size).strip().lower())
+        # Build a symbolic representation of the vertical size for subtraction
+        vs_sym = sym.Variable(name=vs_name)
+        try:
+            diff = simplify(upper_expr - vs_sym)
+        except (TypeError, AttributeError):
+            diff = None
+        if isinstance(diff, sym.IntLiteral):
+            return diff.value >= 1
+        if isinstance(diff, int):
+            return diff >= 1
+        # Expression-level check didn't resolve; fall through to string path
+
+    # --- String fallback ---
+    upper_str = (str(upper_expr).strip().lower()
+                 if not isinstance(upper_expr, str) else upper_expr)
+    vs = (vertical_size.lower() if isinstance(vertical_size, str)
+          else str(vertical_size).strip().lower())
     us = upper_str.replace(' ', '')
-    # Match patterns like "klev+1", "klev+2", etc.
     if us.startswith(vs + '+'):
         suffix = us[len(vs) + 1:]
         try:
@@ -86,6 +112,7 @@ def _collect_vertical_loops(body, vertical_index):
     ``(loop, conditional_wrapper)`` pairs; top-level loops are returned
     as ``(loop, None)`` pairs.
     """
+    # TODO [K-CACHING]: index aliases could exist
     vertical_index_lower = vertical_index.lower()
     result = []
     nodes = body if isinstance(body, (tuple, list)) else body.body
@@ -113,14 +140,20 @@ def _collect_vertical_loops(body, vertical_index):
 def _is_jk_eq_1(expr, loop_var_name):
     """
     Return True if *expr* represents ``JK == 1`` or ``1 == JK``.
+
+    Uses expression-level comparison via Loki's ``StrCompareMixin``
+    (case-insensitive ``==``) and ``IntLiteral`` numeric equality.
     """
-    if isinstance(expr, sym.Comparison):
-        if expr.operator == '==':
-            left_str = str(expr.left).strip().lower()
-            right_str = str(expr.right).strip().lower()
-            if ((left_str == loop_var_name and right_str == '1') or
-                    (right_str == loop_var_name and left_str == '1')):
-                return True
+    if isinstance(expr, sym.Comparison) and expr.operator == '==':
+        left, right = expr.left, expr.right
+        # JK == 1
+        if (left == loop_var_name and
+                isinstance(right, sym.IntLiteral) and right.value == 1):
+            return True
+        # 1 == JK
+        if (right == loop_var_name and
+                isinstance(left, sym.IntLiteral) and left.value == 1):
+            return True
     return False
 
 
@@ -163,6 +196,7 @@ def _mark_jk1_conditionals(loop, arr_name, dim_idx, cond_to_remove,
             # Check if the ELSE branch contains assignments to our carry array
             # at JK with RHS being ARRAY(JK-1)
             else_body = cond.else_body or ()
+            # TODO [K-CACHING]: rename has_our_array to has_array in this function
             has_our_array = False
             for stmt in FindNodes(ir.Assignment).visit(else_body):
                 if isinstance(stmt.lhs, sym.Array) and stmt.lhs.name.lower() == arr_name.lower():
@@ -267,6 +301,7 @@ def _substitute_jk_in_expr(expr, jk_var, replacement):
     vmap = {}
     all_vars = FindVariables().visit(expr)
     for var in all_vars:
+        # TODO [K-CACHING]: if it is a sym.Array there is no need to check for `hasattr(var, 'dimensions')`
         if isinstance(var, sym.Array) and hasattr(var, 'dimensions') and var.dimensions:
             new_dims = tuple(
                 replacement
@@ -443,6 +478,12 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size,
 
     An array is demotable if:
 
+    .. note::
+
+       It is not safe to demote if a variable is used in multiple
+       vertical loops that could not be fused.  This check is not yet
+       implemented.
+
     1. It is a local variable (not an argument, not imported).
     2. It has ``vertical_size`` (or ``vertical_size + 1``) in its shape.
     3. It is NOT accessed outside all vertical loops in the routine.
@@ -488,10 +529,9 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size,
             continue
         has_klev = False
         for s in shape:
-            s_str = str(s).strip().lower()
-            if (s_str == vertical_size_lower or
-                    s_str.replace(' ', '').startswith(
-                        vertical_size_lower + '+')):
+            # Use expression-level comparison (StrCompareMixin handles
+            # case-insensitive equality) and _is_klev_plus_n for KLEV+N.
+            if s == vertical_size_lower or _is_klev_plus_n(s, vertical_size_lower):
                 has_klev = True
                 break
         if has_klev and vname not in call_arg_names:
@@ -530,17 +570,19 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size,
     return sorted(safe)
 
 
-# ---------------------------------------------------------------------------
-# Functions from vertical_merge.py
-# ---------------------------------------------------------------------------
-
 def _find_dead_loops_all(routine, vertical_index):
     """
     Identify vertical loops whose written outputs are never read by
     any other code in the routine.
 
-    Unlike :func:`vertical_complete._find_dead_loops`, this version
+    Unlike the variant in ``vertical_complete`` this version
     does **not** exclude any loop — every vertical loop is a candidate.
+
+    .. note::
+
+       A future improvement could add an optional ``exclude_loop``
+       parameter to unify this with the ``_find_dead_loops`` variant
+       that excludes a main loop.
 
     Returns a list of top-level IR nodes (Loop or Conditional wrappers)
     that are dead and can be safely removed.
@@ -575,6 +617,12 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
                          horizontal_index=None,
                          carry_suffix='_vc', next_suffix='_next'):
     """
+    .. note::
+
+       This function is long and would benefit from extracting
+       pattern-specific logic (A, B_simple, B_readback, stencil)
+       into dedicated helper or nested functions.
+
     Convert all carry and stencil patterns in *loop* to scalar carry
     variables, making the loop body level-local.
 
@@ -718,10 +766,9 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
             # Check dimension is vertical
             if dim_idx >= len(shape):
                 continue
-            s_str = str(shape[dim_idx]).strip().lower()
-            if not (s_str == vertical_size_lower or
-                    s_str.replace(' ', '').startswith(
-                        vertical_size_lower + '+')):
+            s = shape[dim_idx]
+            if not (s == vertical_size_lower or
+                    _is_klev_plus_n(s, vertical_size_lower)):
                 continue
 
             # Stencil only for *backward* offsets (negative).
@@ -1138,9 +1185,15 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
 def _substitute_init_expressions_all_loops(routine, vertical_index,
                                             vertical_size):
     """
-    Like :func:`vertical_complete._substitute_init_expressions` but
-    searches *all* vertical loops (not just the main loop) for init
-    assignments.
+    Like the ``_substitute_init_expressions`` variant in
+    ``vertical_complete`` but searches *all* vertical loops (not just
+    a designated main loop) for init assignments.
+
+    .. note::
+
+       A future improvement could unify this with the
+       ``_substitute_init_expressions`` function by adding an
+       optional ``main_loop_only`` parameter.
 
     For each local 2-D+ array with a KLEV dimension, the first
     ``X(JL, JK) = f(args)`` assignment found (in source order across
@@ -1162,10 +1215,7 @@ def _substitute_init_expressions_all_loops(routine, vertical_index,
         if not shape:
             continue
         for idx, s in enumerate(shape):
-            s_str = str(s).strip().lower()
-            if (s_str == vertical_size_lower or
-                    s_str.replace(' ', '').startswith(
-                        vertical_size_lower + '+')):
+            if s == vertical_size_lower or _is_klev_plus_n(s, vertical_size_lower):
                 local_kd[var.name.lower()] = {
                     'var': var, 'klev_dim_idx': idx, 'shape': shape}
                 break
@@ -1267,7 +1317,7 @@ def _find_zero_inits_outside_loops(body, loop_nodes, klev_locals,
                                     zero_init_map):
     """
     Walk *body* outside loop nodes and find whole-array zero-init
-    assignments to KLEV locals.
+    assignments to vertical locals.
     """
     nodes = body if isinstance(body, (tuple, list)) else body.body
 
@@ -1402,10 +1452,7 @@ def _remove_whole_array_zero_inits(routine, vertical_index, vertical_size):
             continue
         has_klev = False
         for s in shape:
-            s_str = str(s).strip().lower()
-            if (s_str == vertical_size_lower or
-                    s_str.replace(' ', '').startswith(
-                        vertical_size_lower + '+')):
+            if s == vertical_size_lower or _is_klev_plus_n(s, vertical_size_lower):
                 has_klev = True
                 break
         if has_klev:
@@ -1454,10 +1501,44 @@ def _remove_whole_array_zero_inits(routine, vertical_index, vertical_size):
     return removed
 
 
-def _extract_plus_n(upper_str, vertical_size_lower):
-    """Extract N from a 'klev+N' string. Returns 0 for plain 'klev'."""
+def _extract_plus_n(upper_expr, vertical_size):
+    """
+    Extract the integer *N* from an expression of the form ``KLEV + N``.
+
+    Returns ``0`` for a plain ``KLEV`` expression.
+
+    Parameters
+    ----------
+    upper_expr : expression or str
+        The upper-bound expression (a Loki expression node) or, for
+        backward compatibility, a normalised lowercase string.
+    vertical_size : str or expression
+        The vertical size (e.g. ``'klev'``).
+    """
+    # --- Expression-level path ---
+    if not isinstance(upper_expr, str) and upper_expr is not None:
+        vs_name = (vertical_size.lower() if isinstance(vertical_size, str)
+                   else str(vertical_size).strip().lower())
+        vs_sym = sym.Variable(name=vs_name)
+        try:
+            diff = simplify(upper_expr - vs_sym)
+        except (TypeError, AttributeError):
+            diff = None
+        if isinstance(diff, sym.IntLiteral):
+            return diff.value
+        if isinstance(diff, int):
+            return diff
+        # Check if it's exactly KLEV (diff == 0 symbolically)
+        if diff is not None and str(diff).strip() == '0':
+            return 0
+        # Expression-level check didn't resolve; fall through to string
+
+    # --- String fallback ---
+    upper_str = (str(upper_expr).strip().lower()
+                 if not isinstance(upper_expr, str) else upper_expr)
+    vs = (vertical_size.lower() if isinstance(vertical_size, str)
+          else str(vertical_size).strip().lower())
     us = upper_str.replace(' ', '')
-    vs = vertical_size_lower
     if us.startswith(vs + '+'):
         try:
             return int(us[len(vs) + 1:])
@@ -1597,33 +1678,30 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
     # Determine the merged upper bound: the maximum across all loops
     vertical_size_lower = vertical_size.lower()
     max_upper = None
-    max_upper_str = ''
 
+    # TODO: this should generate a MAX(upper_bound1, upper_bound2, ...) in case there is
+    #  any doubt about which is larger
     for loop, _cond in all_vloops:
-        upper_str = _loop_upper_bound_str(loop)
-        upper_expr = loop.bounds.children[1]
+        upper_expr = _loop_upper_bound_expr(loop)
+        if upper_expr is None:
+            continue
 
         if max_upper is None:
             max_upper = upper_expr
-            max_upper_str = upper_str
-        elif _is_klev_plus_n(upper_str, vertical_size_lower):
+        elif _is_klev_plus_n(upper_expr, vertical_size_lower):
             # This is KLEV+N — use it if larger than current max
-            if not _is_klev_plus_n(max_upper_str, vertical_size_lower):
+            if not _is_klev_plus_n(max_upper, vertical_size_lower):
                 max_upper = upper_expr
-                max_upper_str = upper_str
             else:
                 # Both are KLEV+N — compare N values
-                # Extract N from both
-                n_current = _extract_plus_n(max_upper_str, vertical_size_lower)
-                n_new = _extract_plus_n(upper_str, vertical_size_lower)
+                n_current = _extract_plus_n(max_upper, vertical_size_lower)
+                n_new = _extract_plus_n(upper_expr, vertical_size_lower)
                 if n_new > n_current:
                     max_upper = upper_expr
-                    max_upper_str = upper_str
-        elif upper_str == vertical_size_lower:
-            if max_upper_str != vertical_size_lower and \
-               not _is_klev_plus_n(max_upper_str, vertical_size_lower):
+        elif upper_expr == vertical_size_lower:
+            if max_upper != vertical_size_lower and \
+               not _is_klev_plus_n(max_upper, vertical_size_lower):
                 max_upper = upper_expr
-                max_upper_str = upper_str
 
     # Use the first loop's variable for the merged loop
     loop_var = all_vloops[0][0].variable
@@ -1681,7 +1759,7 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
 
     n_loops = len(all_vloops)
     info('[vertical_utils] Merged %d vertical loops into 1 '
-         '(DO JK = 1, %s)', n_loops, max_upper_str)
+         '(DO JK = 1, %s)', n_loops, max_upper)
 
     return merged_loop
 
