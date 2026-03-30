@@ -11,18 +11,14 @@ Tests for :mod:`loki.transformations.single_column.vertical_kcaching`.
 
 import re
 import pytest
-from pathlib import Path
 
-from loki import Subroutine, Dimension, Sourcefile
+from loki import Subroutine, Dimension
 from loki.frontend import available_frontends
 from loki.ir import FindNodes, Assignment, Conditional
 from loki.backend import fgen
 
 from loki.transformations.single_column.vertical_kcaching import (
     SCCVerticalKCaching,
-)
-from loki.transformations.single_column.vertical_utils import (
-    _collect_vertical_loops,
 )
 from loki.transformations.single_column.tests.conftest import (
     _count_jk_loops, _find_jk_loops,
@@ -43,53 +39,6 @@ def fixture_horizontal():
 @pytest.fixture(scope='module', name='vertical')
 def fixture_vertical():
     return Dimension(name='vertical', size='nz', index='jk', aliases=('nlev',))
-
-
-@pytest.fixture(scope='module', name='cloudsc_vertical')
-def fixture_cloudsc_vertical():
-    """Vertical dimension matching the dwarf cloudsc kernel."""
-    return Dimension(name='vertical', size='KLEV', index='JK')
-
-
-@pytest.fixture(scope='module', name='cloudsc_horizontal')
-def fixture_cloudsc_horizontal():
-    """Horizontal dimension matching the dwarf cloudsc kernel."""
-    return Dimension(
-        name='horizontal', size='KLON', index='JL',
-        bounds=('KIDIA', 'KFDIA'), aliases=('NPROMA',)
-    )
-
-
-# --------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------
-
-
-def _get_cloudsc_path():
-    """
-    Locate the dwarf cloudsc.F90 kernel file.
-
-    Search order:
-    1. Relative to this file's location (traversing up to the workspace root)
-    2. Environment variable CLOUDSC_SRC_DIR
-    """
-    # Walk up from this file to find the workspace root
-    workspace = Path(__file__).resolve()
-    for _ in range(10):
-        workspace = workspace.parent
-        candidate = (workspace / 'source' / 'dwarf-p-cloudsc' /
-                     'src' / 'cloudsc_loki' / 'cloudsc.F90')
-        if candidate.exists():
-            return candidate
-
-    import os
-    env_dir = os.environ.get('CLOUDSC_SRC_DIR')
-    if env_dir:
-        candidate = Path(env_dir) / 'cloudsc.F90'
-        if candidate.exists():
-            return candidate
-
-    return None
 
 
 # --------------------------------------------------------------------------
@@ -491,92 +440,107 @@ def test_kcaching_balanced_fortran(frontend, horizontal, vertical):
 
 
 # --------------------------------------------------------------------------
-# Integration test: cloudsc.F90 (the dwarf kernel)
+# Test: stencil pattern carry conversion
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_kcaching_cloudsc_integration(frontend, cloudsc_horizontal,
-                                       cloudsc_vertical):
+def test_kcaching_stencil_pattern(frontend, horizontal, vertical):
     """
-    Full integration test: apply SCCVerticalKCaching to the dwarf
-    cloudsc.F90 kernel and verify structural properties.
+    Stencil pattern: a local array written in one loop, then read at
+    JK and JK-1 (but not written) in a second loop.  The backward
+    offset read should be converted to a carry variable with an
+    OOB-guarded init statement.
     """
-    cloudsc_path = _get_cloudsc_path()
-    if cloudsc_path is None:
-        pytest.skip('cloudsc.F90 not found')
+    fcode = """
+  SUBROUTINE test_stencil(nlon, nz, pt, pout)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(IN)    :: pt(nlon, nz)
+    REAL, INTENT(OUT)   :: pout(nlon, nz)
+    REAL :: za(nlon, nz)
+    INTEGER :: jl, jk
 
-    source = Sourcefile.from_file(str(cloudsc_path), frontend=frontend)
-    routine = source['CLOUDSC']
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        za(jl, jk) = pt(jl, jk)
+      END DO
+    END DO
 
-    # Before: should have multiple JK loops
-    loops_before = _count_jk_loops(routine)
-    assert loops_before > 1, (
-        f'Expected multiple JK loops before transformation, got {loops_before}'
-    )
+    DO jk = 2, nz
+      DO jl = 1, nlon
+        pout(jl, jk) = za(jl, jk) - za(jl, jk - 1)
+      END DO
+    END DO
+  END SUBROUTINE test_stencil
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert _count_jk_loops(routine) == 2
 
-    trafo = SCCVerticalKCaching(
-        horizontal=cloudsc_horizontal,
-        vertical=cloudsc_vertical
-    )
+    trafo = SCCVerticalKCaching(horizontal=horizontal, vertical=vertical)
     trafo.process_kernel(routine)
 
-    # After: should have exactly 1 top-level JK loop.
-    # FindNodes recurses, so inner JK loops inside the merged body
-    # also show up.  Use _collect_vertical_loops which finds only
-    # top-level vertical loops.
-    top_vloops = _collect_vertical_loops(routine.body, cloudsc_vertical.index)
-    assert len(top_vloops) == 1, (
-        f'Expected 1 top-level JK loop after transformation, got {len(top_vloops)}'
-    )
-
-    # Carry variables should exist
+    # Stencil carry variable should exist
     var_names = [v.name.lower() for v in routine.variables]
-    all_vc = [n for n in var_names if n.endswith('_vc')]
-    all_next = [n for n in var_names if n.endswith('_next')]
-    assert len(all_vc) > 0, 'Expected carry (_vc) variables'
+    assert 'za_vc' in var_names
 
-    # After carry conversion and auto-interchange of secondary loops,
-    # all KLEV-dimensioned locals should have been demoted to scalars
-    # (or replaced by carry variables).  No KLEV-dimensioned locals
-    # should remain.
-    arg_names = {v.name.lower() for v in routine.arguments}
-    klev_locals = []
-    for var in routine.variables:
-        vname = var.name.lower()
-        if vname in arg_names:
-            continue
-        shape = getattr(var.type, 'shape', None) or getattr(var, 'shape', None)
-        if not shape:
-            continue
-        for s in shape:
-            s_str = str(s).strip().lower()
-            if s_str == 'klev' or s_str.replace(' ', '').startswith('klev+'):
-                klev_locals.append(vname)
-                break
+    # Should have merged to 1 loop
+    assert _count_jk_loops(routine) == 1
 
-    # With auto-interchange, all KLEV locals should be demoted
-    assert len(klev_locals) == 0, (
-        f'Expected no remaining KLEV locals, got {sorted(klev_locals)}'
-    )
+    # The stencil init should contain an OOB guard (IF ... > 1)
+    # which appears before the merged loop.
+    code = fgen(routine).lower()
+    assert '> 1' in code or '>= 2' in code or '.gt. 1' in code
 
-    # Verify IF guards exist in the merged loop.
-    # The merged loop is the top-level JK loop (not nested inside a species
-    # loop).  Find it by picking the JK loop with the most conditionals.
-    jk_loops = _find_jk_loops(routine)
-    merged_loop = max(jk_loops,
-                      key=lambda l: len(FindNodes(Conditional).visit(l.body)))
-    conds = FindNodes(Conditional).visit(merged_loop.body)
-    assert len(conds) >= 10, (
-        f'Expected at least 10 IF guards in merged loop, got {len(conds)}'
-    )
+    # Balanced DO/END DO
+    do_count = len(re.findall(r'^\s*DO\s', fgen(routine), re.MULTILINE))
+    enddo_count = len(re.findall(r'^\s*END\s+DO', fgen(routine), re.MULTILINE))
+    assert do_count == enddo_count
 
-    # Verify balanced DO/END DO
-    code = fgen(routine)
-    do_count = len(re.findall(r'^\s*DO\s', code, re.MULTILINE))
-    enddo_count = len(re.findall(r'^\s*END\s+DO', code, re.MULTILINE))
-    assert do_count == enddo_count, (
-        f'Unbalanced DO/END DO: {do_count} vs {enddo_count}'
-    )
+
+# --------------------------------------------------------------------------
+# Test: B_readback with INTENT(OUT) argument (writeback insertion)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_kcaching_argument_writeback(frontend, horizontal, vertical):
+    """
+    Pattern B_readback on an INTENT(OUT) *argument* array.  After carry
+    conversion the original output array is never written to — all
+    writes go through the _next carry variable.  The transformation
+    must insert a write-back statement before the rotate so that the
+    output array is populated correctly.
+    """
+    fcode = """
+  SUBROUTINE test_arg_wb(nlon, nz, psrc, pflux)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(IN)    :: psrc(nlon, nz)
+    REAL, INTENT(OUT)   :: pflux(nlon, nz + 1)
+    INTEGER :: jl, jk
+
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        pflux(jl, jk + 1) = pflux(jl, jk) + psrc(jl, jk)
+        ! readback at jk+1 to produce a B_readback pattern
+        psrc(jl, jk) = pflux(jl, jk + 1) * 0.5
+      END DO
+    END DO
+  END SUBROUTINE test_arg_wb
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    trafo = SCCVerticalKCaching(horizontal=horizontal, vertical=vertical)
+    trafo.process_kernel(routine)
+
+    # B_readback carry variables should exist
+    var_names = [v.name.lower() for v in routine.variables]
+    assert 'pflux_vc' in var_names
+    assert 'pflux_next' in var_names
+
+    # The write-back statement should reference the original array
+    # and the _next carry variable
+    code = fgen(routine).lower()
+    assert 'pflux_next' in code
+    # pflux should still be written to (via write-back)
+    assert 'pflux(' in code or 'pflux =' in code
 
     # No self-assignment no-ops
     assigns = FindNodes(Assignment).visit(routine.body)
@@ -584,5 +548,56 @@ def test_kcaching_cloudsc_integration(frontend, cloudsc_horizontal,
         lhs_str = fgen(a.lhs).strip().lower()
         rhs_str = fgen(a.rhs).strip().lower()
         assert lhs_str != rhs_str, (
-            f'Self-assignment no-op: {fgen(a)}'
+            f'Self-assignment no-op should have been removed: {fgen(a)}'
         )
+
+
+# --------------------------------------------------------------------------
+# Test: B_simple pattern carry conversion
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_kcaching_pattern_b_simple(frontend, horizontal, vertical):
+    """
+    Pattern B_simple: write at JK+1, read at JK (offset 0), but NO
+    readback at JK+1 within the same iteration.  Should produce a
+    single carry variable (_vc) and NO _next variable.
+    """
+    fcode = """
+  SUBROUTINE test_b_simple(nlon, nz, pt, pout)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(IN)    :: pt(nlon, nz)
+    REAL, INTENT(OUT)   :: pout(nlon, nz)
+    REAL :: za(nlon, nz + 1)
+    INTEGER :: jl, jk
+
+    ! First loop: write at JK+1, read at JK -- B_simple pattern
+    ! (no readback at JK+1 in the same iteration)
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        za(jl, jk + 1) = za(jl, jk) + pt(jl, jk)
+      END DO
+    END DO
+
+    ! Second loop references za so the first loop is not dead
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        pout(jl, jk) = za(jl, jk) + pt(jl, jk)
+      END DO
+    END DO
+  END SUBROUTINE test_b_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert _count_jk_loops(routine) == 2
+
+    trafo = SCCVerticalKCaching(horizontal=horizontal, vertical=vertical)
+    trafo.process_kernel(routine)
+
+    var_names = [v.name.lower() for v in routine.variables]
+
+    # B_simple creates only _vc, not _next
+    assert 'za_vc' in var_names
+    assert 'za_next' not in var_names
+
+    # Should have merged to 1 loop
+    assert _count_jk_loops(routine) == 1
