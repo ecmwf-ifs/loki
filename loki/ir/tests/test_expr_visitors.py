@@ -546,7 +546,7 @@ end subroutine test_routine
 
     # Replace original assignment with the conditional assignment
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    from loki.ir import Transformer
+    from loki.ir import Transformer  # pylint: disable=import-outside-toplevel
     routine.body = Transformer({assigns[0]: cond_assign}).visit(routine.body)
 
     # Create an expression map: b -> b + 1
