@@ -866,11 +866,10 @@ end subroutine test_no_dep
     assert len(loops) == 1
 
     deps = array_loop_carried_dependencies(loops[0])
-    # arr is written and read at offset 0 only -- no cross-offset dependency
-    if 'arr' in deps:
-        # Should have no flow or output deps (both read and write at offset 0)
-        assert all(d['write_offset'] == d['read_offset'] == 0 for d in deps['arr']) is False or \
-               len(deps['arr']) == 0
+    # arr is written and read at offset 0 only -- no cross-offset dependency,
+    # so we expect no loop-carried dependencies to be reported for arr.
+    assert 'arr' not in deps or len(deps['arr']) == 0, \
+        f"Expected no loop-carried deps for arr, got {deps.get('arr')}"
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

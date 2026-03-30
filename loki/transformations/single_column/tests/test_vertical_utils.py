@@ -11,11 +11,10 @@ Tests for :mod:`loki.transformations.single_column.vertical_utils`.
 
 import pytest
 
-from loki import Subroutine, Dimension
+from loki import Subroutine
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
-from loki.ir import FindNodes, Loop, Assignment, Conditional
-from loki.backend import fgen
+from loki.ir import FindNodes, Loop, Conditional
 
 from loki.transformations.single_column.vertical_utils import (
     _is_klev_plus_n,
