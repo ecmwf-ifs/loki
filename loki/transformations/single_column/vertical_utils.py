@@ -111,8 +111,14 @@ def _collect_vertical_loops(body, vertical_index):
     Loops nested inside ``Conditional`` wrappers are returned as
     ``(loop, conditional_wrapper)`` pairs; top-level loops are returned
     as ``(loop, None)`` pairs.
+
+    .. note::
+
+       This function matches the induction variable by name only and
+       does not consult ``Dimension.index_aliases``.  If a routine uses
+       an alias (e.g. ``NLEV``) instead of the primary index name, those
+       loops will not be collected.
     """
-    # TODO [K-CACHING]: index aliases could exist
     vertical_index_lower = vertical_index.lower()
     result = []
     nodes = body if isinstance(body, (tuple, list)) else body.body
@@ -196,14 +202,13 @@ def _mark_jk1_conditionals(loop, arr_name, dim_idx, cond_to_remove,
             # Check if the ELSE branch contains assignments to our carry array
             # at JK with RHS being ARRAY(JK-1)
             else_body = cond.else_body or ()
-            # TODO [K-CACHING]: rename has_our_array to has_array in this function
-            has_our_array = False
+            has_array = False
             for stmt in FindNodes(ir.Assignment).visit(else_body):
                 if isinstance(stmt.lhs, sym.Array) and stmt.lhs.name.lower() == arr_name.lower():
-                    has_our_array = True
+                    has_array = True
                     break
 
-            if has_our_array:
+            if has_array:
                 # The ELSE branch assignments like X(JK) = X(JK-1) are already
                 # handled by the expr_map (X(JK-1) → carry). But we need to
                 # replace the entire IF/ELSE block with just the ELSE branch
@@ -301,8 +306,7 @@ def _substitute_jk_in_expr(expr, jk_var, replacement):
     vmap = {}
     all_vars = FindVariables().visit(expr)
     for var in all_vars:
-        # TODO [K-CACHING]: if it is a sym.Array there is no need to check for `hasattr(var, 'dimensions')`
-        if isinstance(var, sym.Array) and hasattr(var, 'dimensions') and var.dimensions:
+        if isinstance(var, sym.Array) and var.dimensions:
             new_dims = tuple(
                 replacement
                 if (isinstance(d, (sym.Scalar, sym.DeferredTypeSymbol))
@@ -478,17 +482,14 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size,
 
     An array is demotable if:
 
-    .. note::
-
-       It is not safe to demote if a variable is used in multiple
-       vertical loops that could not be fused.  This check is not yet
-       implemented.
-
     1. It is a local variable (not an argument, not imported).
     2. It has ``vertical_size`` (or ``vertical_size + 1``) in its shape.
     3. It is NOT accessed outside all vertical loops in the routine.
     4. Within every vertical loop, every access uses offset 0.
     5. It is NOT passed as an argument to any subroutine/function call.
+    6. It is NOT referenced in more than one vertical loop (otherwise
+       data written in one loop and read in another would be lost after
+       demotion).
 
     Parameters
     ----------
@@ -555,6 +556,25 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size,
     if not safe:
         return []
 
+    # Exclude arrays referenced in more than one vertical loop.
+    # After demotion the vertical dimension is removed, so data written
+    # in one loop and read in another would be lost.
+    if len(all_vloops) > 1:
+        arr_loop_count = defaultdict(int)
+        for loop, _cond in all_vloops:
+            loop_vars = {v.name.lower() for v in FindVariables().visit(loop.body)}
+            for cand in safe:
+                if cand in loop_vars:
+                    arr_loop_count[cand] += 1
+        multi_loop = {name for name, count in arr_loop_count.items() if count > 1}
+        if multi_loop:
+            info('[_find_demotable_arrays] Excluding %s: used in multiple '
+                 'vertical loops', ', '.join(sorted(multi_loop)))
+            safe -= multi_loop
+
+    if not safe:
+        return []
+
     # Check that within each vertical loop, every access is at offset 0
     for loop, _cond in all_vloops:
         access_map = classify_array_access_offsets(
@@ -613,18 +633,140 @@ def _find_dead_loops_all(routine, vertical_index):
     return dead
 
 
+def _build_carry_expr_entries(all_vars, arr_name, dim_idx, loop_var,
+                              target_offsets, carry_decl,
+                              alt_carry_decl=None, alt_offsets=None):
+    """
+    Build expression-substitution map entries that replace array
+    accesses at specific loop-variable offsets with a carry variable.
+
+    Parameters
+    ----------
+    all_vars : iterable of expression
+        Result of ``FindVariables(unique=False).visit(loop.body)``.
+    arr_name : str
+        Name of the original array.
+    dim_idx : int
+        Index of the vertical dimension in the array's subscript list.
+    loop_var : expression
+        Loop induction variable (e.g. ``JK``).
+    target_offsets : set or callable
+        Either a set of integer offsets whose references should be
+        rewritten to *carry_decl*, or a callable
+        ``(offset) -> bool``.
+    carry_decl : expression
+        The carry variable to substitute in.
+    alt_carry_decl : expression, optional
+        A second carry variable (e.g. ``_next``) used for a second
+        group of offsets.
+    alt_offsets : set or callable, optional
+        Offsets whose references should be rewritten to
+        *alt_carry_decl* instead of *carry_decl*.
+
+    Returns
+    -------
+    dict
+        Mapping ``{old_expr: new_expr}`` suitable for merging into an
+        ``expr_map`` passed to ``SubstituteExpressions``.
+    """
+    arr_lower = arr_name.lower()
+    entries = {}
+
+    def _match(offset, target):
+        if callable(target):
+            return target(offset)
+        return offset in target
+
+    for v in all_vars:
+        if not isinstance(v, sym.Array) or not v.dimensions:
+            continue
+        if v.name.lower() != arr_lower:
+            continue
+        if dim_idx >= len(v.dimensions):
+            continue
+        offset = _extract_offset(v.dimensions[dim_idx], loop_var)
+        if offset is None:
+            continue
+
+        new_dims = tuple(
+            d for i, d in enumerate(v.dimensions) if i != dim_idx
+        )
+
+        if alt_carry_decl is not None and alt_offsets is not None and _match(offset, alt_offsets):
+            entries[v] = alt_carry_decl.clone(
+                dimensions=new_dims if new_dims else None
+            )
+        elif _match(offset, target_offsets):
+            entries[v] = carry_decl.clone(
+                dimensions=new_dims if new_dims else None
+            )
+
+    return entries
+
+
+def _build_save_assignment(orig_decl, carry_decl, orig_shape, dim_idx,
+                           save_index_expr, actual_non_vert_dims,
+                           out_of_loop_dim_fn):
+    """
+    Build an assignment ``carry = X(..., <save_index>, ...)`` that
+    captures the current iteration's value for use in the next.
+
+    Parameters
+    ----------
+    orig_decl : expression
+        The original array declaration (with full shape).
+    carry_decl : expression
+        The carry variable declaration.
+    orig_shape : tuple
+        Shape of the original array.
+    dim_idx : int
+        Index of the vertical dimension.
+    save_index_expr : expression
+        The index expression for the vertical dimension in the save
+        statement (e.g. ``loop_var`` or ``Sum((loop_var, IntLiteral(1)))``).
+    actual_non_vert_dims : tuple or None
+        Actual non-vertical dimension expressions from the loop body.
+    out_of_loop_dim_fn : callable
+        ``(dim_expr) -> dim_expr`` that sanitises dimension
+        expressions for out-of-loop context (replaces non-horizontal
+        loop variables with ``':'``).
+
+    Returns
+    -------
+    :any:`Assignment`
+    """
+    save_orig_dims = []
+    save_carry_dims = []
+    nv_idx = 0
+    for i, _s in enumerate(orig_shape):
+        if i == dim_idx:
+            save_orig_dims.append(save_index_expr)
+        else:
+            if (actual_non_vert_dims is not None
+                    and nv_idx < len(actual_non_vert_dims)):
+                dim_expr = out_of_loop_dim_fn(actual_non_vert_dims[nv_idx])
+            else:
+                dim_expr = sym.RangeIndex((None, None, None))
+            save_orig_dims.append(dim_expr)
+            save_carry_dims.append(dim_expr)
+            nv_idx += 1
+    save_rhs = orig_decl.clone(dimensions=tuple(save_orig_dims))
+    save_lhs = carry_decl.clone(
+        dimensions=tuple(save_carry_dims) if save_carry_dims else None
+    )
+    return ir.Assignment(lhs=save_lhs, rhs=save_rhs)
+
+
 def _convert_all_carries(routine, loop, vertical_index, vertical_size,
                          horizontal_index=None,
                          carry_suffix='_vc', next_suffix='_next'):
     """
-    .. note::
-
-       This function is long and would benefit from extracting
-       pattern-specific logic (A, B_simple, B_readback, stencil)
-       into dedicated helper or nested functions.
-
     Convert all carry and stencil patterns in *loop* to scalar carry
     variables, making the loop body level-local.
+
+    Shared logic for building expression substitution entries and save
+    assignments is delegated to :func:`_build_carry_expr_entries` and
+    :func:`_build_save_assignment`.
 
     Four patterns are recognised:
 
@@ -980,43 +1122,18 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
 
         if pattern == 'A':
             # Replace reads at JK-1 with carry
-            for v in all_vars:
-                if not isinstance(v, sym.Array) or not v.dimensions:
-                    continue
-                if v.name.lower() != arr_name.lower():
-                    continue
-                if dim_idx >= len(v.dimensions):
-                    continue
-                offset = _extract_offset(v.dimensions[dim_idx], loop_var)
-                if offset == -1:
-                    new_dims = tuple(
-                        d for i, d in enumerate(v.dimensions)
-                        if i != dim_idx
-                    )
-                    expr_map[v] = carry_decl.clone(
-                        dimensions=new_dims if new_dims else None
-                    )
+            expr_map.update(_build_carry_expr_entries(
+                all_vars, arr_name, dim_idx, loop_var,
+                target_offsets={-1}, carry_decl=carry_decl
+            ))
 
             # Save: carry = X(JL, JK) at end of body
-            save_orig_dims = []
-            save_carry_dims = []
-            nv_idx = 0
-            for i, _s in enumerate(orig_shape):
-                if i == dim_idx:
-                    save_orig_dims.append(loop_var)
-                else:
-                    if actual_non_vert_dims is not None and nv_idx < len(actual_non_vert_dims):
-                        dim_expr = _out_of_loop_dim(actual_non_vert_dims[nv_idx])
-                    else:
-                        dim_expr = sym.RangeIndex((None, None, None))
-                    save_orig_dims.append(dim_expr)
-                    save_carry_dims.append(dim_expr)
-                    nv_idx += 1
-            save_rhs = orig_decl.clone(dimensions=tuple(save_orig_dims))
-            save_lhs = carry_decl.clone(
-                dimensions=tuple(save_carry_dims) if save_carry_dims else None
-            )
-            save_stmts.append(ir.Assignment(lhs=save_lhs, rhs=save_rhs))
+            save_stmts.append(_build_save_assignment(
+                orig_decl, carry_decl, orig_shape, dim_idx,
+                save_index_expr=loop_var,
+                actual_non_vert_dims=actual_non_vert_dims,
+                out_of_loop_dim_fn=_out_of_loop_dim
+            ))
 
             # Remove IF(JK==1) conditionals
             _mark_jk1_conditionals(loop, arr_name, dim_idx,
@@ -1024,71 +1141,27 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
 
         elif pattern == 'B_simple':
             # Replace reads at JK (offset 0) with carry
-            for v in all_vars:
-                if not isinstance(v, sym.Array) or not v.dimensions:
-                    continue
-                if v.name.lower() != arr_name.lower():
-                    continue
-                if dim_idx >= len(v.dimensions):
-                    continue
-                offset = _extract_offset(v.dimensions[dim_idx], loop_var)
-                if offset == 0:
-                    new_dims = tuple(
-                        d for i, d in enumerate(v.dimensions)
-                        if i != dim_idx
-                    )
-                    expr_map[v] = carry_decl.clone(
-                        dimensions=new_dims if new_dims else None
-                    )
+            expr_map.update(_build_carry_expr_entries(
+                all_vars, arr_name, dim_idx, loop_var,
+                target_offsets={0}, carry_decl=carry_decl
+            ))
 
             # Save: carry = X(JL, JK+1) at end of body
-            save_orig_dims = []
-            save_carry_dims = []
-            nv_idx = 0
-            for i, _s in enumerate(orig_shape):
-                if i == dim_idx:
-                    save_orig_dims.append(
-                        sym.Sum((loop_var, sym.IntLiteral(1)))
-                    )
-                else:
-                    if actual_non_vert_dims is not None and nv_idx < len(actual_non_vert_dims):
-                        dim_expr = _out_of_loop_dim(actual_non_vert_dims[nv_idx])
-                    else:
-                        dim_expr = sym.RangeIndex((None, None, None))
-                    save_orig_dims.append(dim_expr)
-                    save_carry_dims.append(dim_expr)
-                    nv_idx += 1
-            save_rhs = orig_decl.clone(dimensions=tuple(save_orig_dims))
-            save_lhs = carry_decl.clone(
-                dimensions=tuple(save_carry_dims) if save_carry_dims else None
-            )
-            save_stmts.append(ir.Assignment(lhs=save_lhs, rhs=save_rhs))
+            save_stmts.append(_build_save_assignment(
+                orig_decl, carry_decl, orig_shape, dim_idx,
+                save_index_expr=sym.Sum((loop_var, sym.IntLiteral(1))),
+                actual_non_vert_dims=actual_non_vert_dims,
+                out_of_loop_dim_fn=_out_of_loop_dim
+            ))
 
         elif pattern == 'B_readback':
             # Two carries: _vc for reads at offset 0, _next for
             # write at +1 and reads at +1
-            for v in all_vars:
-                if not isinstance(v, sym.Array) or not v.dimensions:
-                    continue
-                if v.name.lower() != arr_name.lower():
-                    continue
-                if dim_idx >= len(v.dimensions):
-                    continue
-                offset = _extract_offset(v.dimensions[dim_idx], loop_var)
-                if offset is None:
-                    continue
-                new_dims = tuple(
-                    d for i, d in enumerate(v.dimensions)
-                    if i != dim_idx
-                )
-                if offset == 0:
-                    expr_map[v] = carry_decl.clone(
-                        dimensions=new_dims if new_dims else None
-                    )
-                elif offset == 1:
-                    expr_map[v] = next_decl.clone(
-                        dimensions=new_dims if new_dims else None
-                    )
+            expr_map.update(_build_carry_expr_entries(
+                all_vars, arr_name, dim_idx, loop_var,
+                target_offsets={0}, carry_decl=carry_decl,
+                alt_carry_decl=next_decl, alt_offsets={1}
+            ))
 
             # Rotate: carry = next at end of body
             rot_lhs = carry_decl.clone(dimensions=_init_rotate_dims())
@@ -1105,43 +1178,18 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
 
         elif pattern == 'stencil':
             # Replace reads at negative offsets with carry
-            for v in all_vars:
-                if not isinstance(v, sym.Array) or not v.dimensions:
-                    continue
-                if v.name.lower() != arr_name.lower():
-                    continue
-                if dim_idx >= len(v.dimensions):
-                    continue
-                offset = _extract_offset(v.dimensions[dim_idx], loop_var)
-                if offset is not None and offset < 0:
-                    new_dims = tuple(
-                        d for i, d in enumerate(v.dimensions)
-                        if i != dim_idx
-                    )
-                    expr_map[v] = carry_decl.clone(
-                        dimensions=new_dims if new_dims else None
-                    )
+            expr_map.update(_build_carry_expr_entries(
+                all_vars, arr_name, dim_idx, loop_var,
+                target_offsets=lambda off: off < 0, carry_decl=carry_decl
+            ))
 
             # Save: carry = X(JL, JK) at end of body
-            save_orig_dims = []
-            save_carry_dims = []
-            nv_idx = 0
-            for i, _s in enumerate(orig_shape):
-                if i == dim_idx:
-                    save_orig_dims.append(loop_var)
-                else:
-                    if actual_non_vert_dims is not None and nv_idx < len(actual_non_vert_dims):
-                        dim_expr = _out_of_loop_dim(actual_non_vert_dims[nv_idx])
-                    else:
-                        dim_expr = sym.RangeIndex((None, None, None))
-                    save_orig_dims.append(dim_expr)
-                    save_carry_dims.append(dim_expr)
-                    nv_idx += 1
-            save_rhs = orig_decl.clone(dimensions=tuple(save_orig_dims))
-            save_lhs = carry_decl.clone(
-                dimensions=tuple(save_carry_dims) if save_carry_dims else None
-            )
-            save_stmts.append(ir.Assignment(lhs=save_lhs, rhs=save_rhs))
+            save_stmts.append(_build_save_assignment(
+                orig_decl, carry_decl, orig_shape, dim_idx,
+                save_index_expr=loop_var,
+                actual_non_vert_dims=actual_non_vert_dims,
+                out_of_loop_dim_fn=_out_of_loop_dim
+            ))
 
         # Record conversion
         conv_entry = {
