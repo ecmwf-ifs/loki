@@ -1173,7 +1173,7 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
             # _insert_writebacks_for_argument_carries(), which runs AFTER
             # Phase 2b cross-loop carry substitution.  Generating write-backs
             # here would cause Phase 2b's SubstituteExpressions to turn them
-            # into self-assignments (e.g. pfsqlf_next = pfsqlf_next) that
+            # into self-assignments (e.g. ``arr_next = arr_next``) that
             # Phase 4a then removes.
 
         elif pattern == 'stencil':
@@ -1798,7 +1798,7 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
 
     # Relocate inter-loop code: move statements that sit between
     # consecutive vertical loops to just before the merged loop.
-    # This prevents scalar resets (e.g. ZCOVPTOT = 0.0) from ending
+    # This prevents scalar resets (e.g. ``result = 0.0``) from ending
     # up after the merged loop when the loops they were sandwiched
     # between are merged together.
     routine.body = _relocate_interloop_code(
@@ -1878,10 +1878,10 @@ def _hoist_rotates_to_end(routine, merged_loop, carry_registry):
     see the pre-rotate carry values.
 
     After merging, guarded blocks from different original loops appear
-    in source order.  A carry rotate like ``zpfplsx_vc = zpfplsx_next``
+    in source order.  A carry rotate like ``arr_vc = arr_next``
     that was at the end of one original loop's body now sits inside a
     guarded block that may precede another guarded block reading
-    ``zpfplsx_vc``.  If the reader block expects the value at offset 0
+    ``arr_vc``.  If the reader block expects the value at offset 0
     (current JK), but the rotate has already advanced it, the reader
     gets the wrong value.
 

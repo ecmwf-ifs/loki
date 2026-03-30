@@ -181,7 +181,9 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
     vi_lower = vertical_index.lower()
     loop_map = {}
 
-    # TODO [K-CACHING]: FindNodes(ir.Loop) will give all loops, not only the outermost
+    # NOTE: FindNodes(ir.Loop) visits all loops (not only outermost), but
+    # the filter below (exactly one inner vertical loop, no other executable
+    # code) ensures only genuine two-level nests are interchanged.
     for outer_loop in FindNodes(ir.Loop).visit(routine.body):
         # Skip if this is already a vertical loop
         if outer_loop.variable.name.lower() == vi_lower:
@@ -230,7 +232,8 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
             )
             loop_map[outer_loop] = new_outer
 
-    # TODO [K-CACHING]: loop interchange via utility: `do_loop_interchange`?!
+    # TODO: Consider extracting loop interchange into a reusable utility
+    # (e.g. ``do_loop_interchange``) if other transformations need it.
     if loop_map:
         routine.body = Transformer(loop_map).visit(routine.body)
     return len(loop_map)
@@ -368,7 +371,7 @@ class SCCVerticalKCaching(Transformation):
                 ).visit(routine.body)
 
         # Phase 1c-post: Carry-aware dead-loop elimination.
-        # After carry conversion, some zeroing loops (e.g. ZPFPLSX = 0)
+        # After carry conversion, some zeroing loops (e.g. ``arr = 0``)
         # that were NOT dead before (because other loops still read the
         # original array) become dead because Phase 2b cross-loop carry
         # substitution will replace all remaining reads with carry
