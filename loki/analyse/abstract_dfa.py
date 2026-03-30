@@ -7,6 +7,7 @@
 
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from typing import Any
 
 from loki import Transformer
 
@@ -22,10 +23,10 @@ class AbstractDataflowAnalysis(ABC):
     class _Detacher(Transformer):
         """Default base class for analysis detachers."""
 
-    def get_attacher(self):
+    def get_attacher(self) -> Any:
         return self._Attacher()
 
-    def get_detacher(self):
+    def get_detacher(self) -> Any:
         return self._Detacher()
 
     @abstractmethod
