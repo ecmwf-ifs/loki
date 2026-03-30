@@ -11,7 +11,7 @@ from loki import Module, Sourcefile, Subroutine
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies,
     classify_array_access_offsets, array_loop_carried_dependencies,
-    detect_vertical_carry_variables, classify_multilevel_arrays
+    detect_loop_carry_variables, classify_nonzero_offset_arrays
 )
 from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.backend import fgen
@@ -941,7 +941,7 @@ end subroutine test_multi_dep
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_detect_vertical_carry_variables_scalar(frontend):
+def test_detect_loop_carry_variables_scalar(frontend):
     """
     Test detection of scalar carry variables (1D variables that are
     both read and written inside a loop over JK).
@@ -969,13 +969,13 @@ end subroutine test_carry_vars
     jk_loops = [l for l in loops if l.variable.name.lower() == 'jk']
     assert len(jk_loops) == 1
 
-    result = detect_vertical_carry_variables(jk_loops[0])
+    result = detect_loop_carry_variables(jk_loops[0])
     scalar_names = {c['name'] for c in result['scalar_carries']}
     assert 'carry_val' in scalar_names
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_detect_vertical_carry_variables_shift_register(frontend):
+def test_detect_loop_carry_variables_shift_register(frontend):
     """
     Test detection of shift register patterns (array written at JK+1,
     read at JK).
@@ -998,7 +998,7 @@ end subroutine test_shift_detect
     loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
 
-    result = detect_vertical_carry_variables(loops[0])
+    result = detect_loop_carry_variables(loops[0])
     shift_names = {s['name'] for s in result['shift_registers']}
     assert 'flux' in shift_names
     # Check direction: write at +1, read at 0 => downward
@@ -1008,9 +1008,9 @@ end subroutine test_shift_detect
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_classify_multilevel_arrays_basic(frontend):
+def test_classify_nonzero_offset_arrays_basic(frontend):
     """
-    Test that classify_multilevel_arrays correctly identifies arrays accessed
+    Test that classify_nonzero_offset_arrays correctly identifies arrays accessed
     at non-zero offsets across multiple loops in a routine.
     """
     fcode = """
@@ -1042,7 +1042,7 @@ end subroutine test_ml_classify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loop_var = routine.variable_map['jk']
 
-    result = classify_multilevel_arrays(routine, loop_var)
+    result = classify_nonzero_offset_arrays(routine, loop_var)
 
     # za has offset -1 in loop 2 => multilevel
     assert 'za' in result
@@ -1055,9 +1055,9 @@ end subroutine test_ml_classify
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_classify_multilevel_arrays_empty(frontend):
+def test_classify_nonzero_offset_arrays_empty(frontend):
     """
-    Test that classify_multilevel_arrays returns an empty set when all
+    Test that classify_nonzero_offset_arrays returns an empty set when all
     accesses are at offset 0.
     """
     fcode = """
@@ -1083,5 +1083,5 @@ end subroutine test_ml_none
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loop_var = routine.variable_map['jk']
 
-    result = classify_multilevel_arrays(routine, loop_var)
+    result = classify_nonzero_offset_arrays(routine, loop_var)
     assert len(result) == 0

@@ -15,9 +15,6 @@ multi-level array dependencies to scalar carry variables (two-scalar
 dimensioned temporaries to scalars, and performs cross-loop carry
 substitution — dramatically reducing GPU memory pressure.
 
-This is the full "k-caching" optimisation that produces code
-structurally equivalent to manually-written SCC-K-CACHING kernels.
-
 The transformation operates in the following phases:
 
 **Phase 1 — Preparation**
@@ -93,7 +90,7 @@ def _find_dead_loops_carry_aware(routine, vertical_index, carry_registry):
        be replaced by carry variables during Phase 2b cross-loop carry
        substitution.
 
-    Without this, zeroing loops like ``ZPFPLSX(JK,JM) = 0.0`` survive
+    Without this, zeroing loops like ``X(JK,JM) = 0.0`` survive
     the merge and zero the carry variable on every iteration, destroying
     inter-level accumulation (e.g. precipitation sedimentation).
 
@@ -184,6 +181,7 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
     vi_lower = vertical_index.lower()
     loop_map = {}
 
+    # TODO [K-CACHING]: FindNodes(ir.Loop) will give all loops, not only the outermost
     for outer_loop in FindNodes(ir.Loop).visit(routine.body):
         # Skip if this is already a vertical loop
         if outer_loop.variable.name.lower() == vi_lower:
@@ -232,6 +230,7 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
             )
             loop_map[outer_loop] = new_outer
 
+    # TODO [K-CACHING]: loop interchange via utility: `do_loop_interchange`?!
     if loop_map:
         routine.body = Transformer(loop_map).visit(routine.body)
     return len(loop_map)
@@ -242,13 +241,13 @@ class SCCVerticalKCaching(Transformation):
     Full k-caching vertical-loop merge transformation.
 
     Merges **all** vertical loops in a routine into a single
-    ``DO JK = 1, KLEV+1`` loop with IF guards, converts array
+    vertical loop with IF guards, converts array
     dependencies to scalar carry variables (``_vc``/``_next``),
     performs cross-loop carry substitution, and demotes all eligible
     local arrays.
 
     This is designed as a general-purpose transformation that works
-    on any kernel with KLEV-dimensioned vertical loops.
+    on any kernel with proper-dimensioned vertical loops.
 
     Parameters
     ----------
@@ -295,6 +294,7 @@ class SCCVerticalKCaching(Transformation):
 
         Phases 1-4 as described in the module docstring.
         """
+        # TODO [K-CACHING]: there are possibly also aliases of index and size
         vertical_index = self.vertical.index
         vertical_size = str(self.vertical.size)
         horizontal_index = (
@@ -402,6 +402,7 @@ class SCCVerticalKCaching(Transformation):
                  'zero-inits for %s', routine.name,
                  ', '.join(sorted(removed)))
 
+        # TODO [K-CACHING]: merge all vertical loops if possible
         # Phase 2: Merge all vertical loops
         merged = _merge_vertical_loops(
             routine, vertical_index, vertical_size

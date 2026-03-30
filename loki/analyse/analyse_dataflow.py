@@ -27,8 +27,8 @@ from loki.tools.util import CaseInsensitiveDict
 __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
     'loop_carried_dependencies', 'classify_array_access_offsets',
-    'array_loop_carried_dependencies', 'detect_vertical_carry_variables',
-    'classify_multilevel_arrays'
+    'array_loop_carried_dependencies', 'detect_loop_carry_variables',
+    'classify_nonzero_offset_arrays'
 ]
 
 
@@ -938,23 +938,21 @@ def array_loop_carried_dependencies(loop, loop_var=None):
     return dict(deps)
 
 
-def detect_vertical_carry_variables(loop, loop_var=None):
+def detect_loop_carry_variables(loop, loop_var=None):
     """
     Detect variables that serve as inter-iteration state carriers within
-    a vertical loop.
+    a loop.
 
-    This identifies two patterns commonly found in column-based physics
-    parameterizations:
+    This identifies two patterns commonly found in iterative
+    computations:
 
-    1. **Scalar carries**: Variables with no vertical dimension (e.g.,
-       1-D horizontal arrays or scalars) that are both read and written
-       within the loop body. These propagate state from one level to the
-       next (e.g., ``ZANEWM1``, ``ZCOVPTOT`` in CLOUDSC).
+    1. **Scalar carries**: Variables with no loop-variable dimension (e.g.,
+       1-D arrays or scalars) that are both read and written within the
+       loop body. These propagate state from one iteration to the next.
 
-    2. **Shift registers**: Arrays with a vertical dimension that are
+    2. **Shift registers**: Arrays with a loop-variable dimension that are
        written at one offset and read at a different offset of the loop
-       variable (e.g., written at ``JK+1`` and read at ``JK``). This is the
-       sedimentation flux pattern (``ZPFPLSX``).
+       variable (e.g., written at ``JK+1`` and read at ``JK``).
 
     Parameters
     ----------
@@ -976,7 +974,7 @@ def detect_vertical_carry_variables(loop, loop_var=None):
             - ``'write_offset'``: integer offset of the write
             - ``'read_offset'``: integer offset of the read
             - ``'direction'``: ``'downward'`` if write_offset > read_offset
-              (data flows from top to bottom in an ascending loop),
+              (data flows from lower to higher index in an ascending loop),
               ``'upward'`` otherwise
     """
     if loop_var is None:
@@ -1052,18 +1050,18 @@ def detect_vertical_carry_variables(loop, loop_var=None):
     }
 
 
-def classify_multilevel_arrays(routine_or_node, loop_var):
+def classify_nonzero_offset_arrays(routine_or_node, loop_var):
     """
-    Scan all vertical loops in a routine (or IR subtree) and return the set
-    of array names that are accessed at any non-zero offset of the given
-    loop variable.
+    Scan all loops in a routine (or IR subtree) whose induction variable
+    matches *loop_var* and return the set of array names that are accessed
+    at any non-zero offset of that variable.
 
     This is a routine-wide version of the per-loop
     :func:`classify_array_access_offsets`.  It collects information from
     **every** loop whose induction variable matches *loop_var* (by name,
-    case-insensitive).  An array is classified as "multilevel" if, in *any*
-    of those loops, it is accessed at an offset other than ``0`` (e.g.,
-    ``JK-1``, ``JK+1``).
+    case-insensitive).  An array is classified as "non-zero offset" if,
+    in *any* of those loops, it is accessed at an offset other than ``0``
+    (e.g., ``JK-1``, ``JK+1``).
 
     The result can be used to decide which arrays in a mixed init loop need
     to remain in a separate (non-fused) loop and which can safely participate
