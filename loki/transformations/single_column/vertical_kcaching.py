@@ -211,6 +211,12 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
             # and bounds between the two loop levels.
             # Collect any pragmas/comments from the outer loop body
             # (e.g., !DIR$ IVDEP) and attach them to the new inner loop.
+            # TODO: Pragmas/comments between the outer loop header and
+            # the inner loop are currently placed inside the new inner
+            # loop body.  For directive-style pragmas that annotate the
+            # *following* loop, this may change which loop they apply to
+            # after interchange.  Consider keeping them as siblings
+            # before the new inner loop in the outer loop body instead.
             non_loop_items = tuple(
                 n for n in outer_loop.body
                 if isinstance(n, (ir.Comment, ir.Pragma))
@@ -330,8 +336,7 @@ class SCCVerticalKCaching(Transformation):
 
         for loop, _cond in all_vloops:
             new_loop, init_stmts, conversions = _convert_all_carries(
-                routine, loop, vertical_size,
-                horizontal_index=horizontal_index
+                routine, loop, vertical_size
             )
             if conversions:
                 routine.body = Transformer(

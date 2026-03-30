@@ -22,14 +22,32 @@ from loki.ir import (
 )
 from loki.logging import info, warning
 from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.types import BasicType
 from loki.expression.symbolic import simplify
 from loki.analyse.analyse_dataflow import (
     classify_array_access_offsets, array_loop_carried_dependencies,
-    _extract_offset,
+    extract_offset,
 )
 
 
 __all__ = []
+
+
+def _make_zero_literal(orig_type):
+    """
+    Return a type-appropriate zero literal for carry variable initialisation.
+
+    Returns :any:`IntLiteral` for INTEGER arrays, :any:`LogicLiteral`
+    for LOGICAL arrays, and :any:`FloatLiteral` (with the original kind)
+    for REAL and all other types.
+    """
+    dtype = getattr(orig_type, 'dtype', None)
+    if dtype == BasicType.INTEGER:
+        return sym.IntLiteral(0)
+    if dtype == BasicType.LOGICAL:
+        return sym.LogicLiteral('.FALSE.')
+    # Default: REAL (or COMPLEX, DEFERRED, etc.)
+    return sym.FloatLiteral(0.0, kind=orig_type.kind)
 
 
 def _loop_upper_bound_expr(loop):
@@ -683,7 +701,7 @@ def _build_carry_expr_entries(all_vars, arr_name, dim_idx, loop_var,
             continue
         if dim_idx >= len(v.dimensions):
             continue
-        offset = _extract_offset(v.dimensions[dim_idx], loop_var)
+        offset = extract_offset(v.dimensions[dim_idx], loop_var)
         if offset is None:
             continue
 
@@ -757,7 +775,6 @@ def _build_save_assignment(orig_decl, carry_decl, orig_shape, dim_idx,
 
 
 def _convert_all_carries(routine, loop, vertical_size,
-                         horizontal_index=None,
                          carry_suffix='_vc', next_suffix='_next'):
     """
     Convert all carry and stencil patterns in *loop* to scalar carry
@@ -806,12 +823,6 @@ def _convert_all_carries(routine, loop, vertical_size,
     loop : :any:`Loop`
         The vertical loop to transform.
     vertical_size : str
-    horizontal_index : str, optional
-        Name of the horizontal loop variable (e.g. ``'JL'``).  Used to
-        distinguish the horizontal subscript from other loop indices
-        (like ``JM``) in multi-dimensional arrays.  Non-horizontal loop
-        indices are replaced with ``':'`` in init and rotate statements
-        (which are placed outside their enclosing loops).
     carry_suffix : str
     next_suffix : str
 
@@ -1025,43 +1036,26 @@ def _convert_all_carries(routine, loop, vertical_size,
             ) if carry_shape else None
 
         # range dims for init/rotate (out-of-loop context)
-        # Non-horizontal loop variables (e.g. JM) are invalid outside
-        # their enclosing loop, so replace them with ':' (RangeIndex).
-        # The horizontal index (e.g. JL) is kept as-is because the SCC
-        # pipeline converts it to a scalar parameter.
-        _horiz_lower = horizontal_index.lower() if horizontal_index else None
-
-        def _is_horizontal_var(expr):
-            """Check if expr is the horizontal index variable."""
-            if _horiz_lower and isinstance(expr, sym.Scalar):
-                return expr.name.lower() == _horiz_lower
-            return False
+        # All non-vertical dimensions (including the horizontal index)
+        # are replaced with ':' (RangeIndex) so that init, save, and
+        # rotate statements use array-section notation.  This makes the
+        # transformation independent of whether SCCDevector has already
+        # converted the horizontal loop variable to a scalar parameter.
 
         def _init_rotate_dims():
-            """Dims for init/rotate statements placed outside inner loops."""
-            if actual_non_vert_dims is None:
-                return tuple(
-                    sym.RangeIndex((None, None, None))
-                    for _ in carry_shape
-                ) if carry_shape else None
-            result = []
-            for d in actual_non_vert_dims:
-                if _is_horizontal_var(d):
-                    result.append(d)  # keep JL
-                else:
-                    result.append(sym.RangeIndex((None, None, None)))
-            return tuple(result) if result else None
+            """Dims for init/rotate statements (all non-vertical dims become ':')."""
+            return tuple(
+                sym.RangeIndex((None, None, None))
+                for _ in carry_shape
+            ) if carry_shape else None
 
         def _out_of_loop_dim(dim_expr):
             """Sanitize a single dim expr for out-of-loop (init/save/rotate) context.
 
-            Keeps the horizontal index as-is, replaces other loop
-            variables with ':' (RangeIndex).
+            Replaces all scalar loop variables (including the horizontal
+            index) with ':' (RangeIndex).  Integer literals and other
+            non-variable expressions are kept as-is.
             """
-            if _is_horizontal_var(dim_expr):
-                return dim_expr
-            # If it's a scalar variable that isn't the horizontal index,
-            # it's probably a loop variable (like JM) — replace with ':'
             if isinstance(dim_expr, sym.Scalar) and not isinstance(dim_expr, sym.IntLiteral):
                 return sym.RangeIndex((None, None, None))
             return dim_expr
@@ -1082,10 +1076,9 @@ def _convert_all_carries(routine, loop, vertical_size,
                 else:
                     if actual_non_vert_dims is not None and nv_idx < len(actual_non_vert_dims):
                         dim_expr = actual_non_vert_dims[nv_idx]
-                        # For init (outside loops), replace non-horizontal
-                        # loop variables with ':'
-                        if not _is_horizontal_var(dim_expr):
-                            dim_expr = sym.RangeIndex((None, None, None))
+                        # For init (outside loops), replace all loop
+                        # variables (including horizontal) with ':'
+                        dim_expr = _out_of_loop_dim(dim_expr)
                     else:
                         dim_expr = sym.RangeIndex((None, None, None))
                     init_orig_dims.append(dim_expr)
@@ -1102,7 +1095,7 @@ def _convert_all_carries(routine, loop, vertical_size,
             zero_lhs = carry_decl.clone(
                 dimensions=tuple(init_carry_dims) if init_carry_dims else None
             )
-            zero_rhs = sym.FloatLiteral(0.0, kind=orig_decl.type.kind)
+            zero_rhs = _make_zero_literal(orig_decl.type)
             zero_assign = ir.Assignment(lhs=zero_lhs, rhs=zero_rhs)
 
             guard_cond = sym.Comparison(
@@ -1117,7 +1110,7 @@ def _convert_all_carries(routine, loop, vertical_size,
             # Init: carry = 0.0
             init_dims = _init_rotate_dims()
             init_lhs = carry_decl.clone(dimensions=init_dims)
-            init_rhs = sym.FloatLiteral(0.0, kind=orig_decl.type.kind)
+            init_rhs = _make_zero_literal(orig_decl.type)
             init_stmts.append(ir.Assignment(lhs=init_lhs, rhs=init_rhs))
 
         # --- Build expression substitution map ---
@@ -1760,6 +1753,13 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
     merged_body = []
 
     for loop, cond_wrapper in all_vloops:
+        # TODO: If the same Conditional wrapper contains vertical loops
+        # in both its IF and ELSE branches, only the first-encountered
+        # branch's loop is correctly merged.  The second loop (from the
+        # other branch) may be lost because _collect_vertical_loops
+        # returns the same wrapper reference for both, and the
+        # replacement logic only operates on cond_wrapper.body.  This
+        # edge case does not occur in the IFS/cloudsc kernels.
         body = loop.body
         lower_expr = loop.bounds.children[0]
         upper_expr = loop.bounds.children[1]
@@ -2051,7 +2051,7 @@ def _cross_loop_carry_substitution(routine, merged_loop, carry_registry):
         if dim_idx >= len(v.dimensions):
             continue
 
-        offset = _extract_offset(v.dimensions[dim_idx], loop_var)
+        offset = extract_offset(v.dimensions[dim_idx], loop_var)
         if offset is None:
             continue
 
@@ -2178,10 +2178,9 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
         # Build write-back: ARRAY(JL, JK+1) = array_next
         # For the vertical dimension, use JK+1.
         # For the horizontal dimension, use the horizontal index variable
-        # (e.g. JL) so that SCCBase's resolve_vector_dimension and
-        # SCCDevector handle it correctly.  A bare ':' would NOT be
-        # converted by resolve_vector_dimension and would remain as
-        # array-section notation, writing to all horizontal indices.
+        # (e.g. JL) on BOTH LHS and RHS to keep ranks consistent.
+        # Using ':' (RangeIndex) on one side and a scalar on the other
+        # would produce a rank mismatch in the generated Fortran.
         wb_orig_dims = []
         wb_next_dims = []
         nv_idx = 0
@@ -2193,21 +2192,11 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
             else:
                 next_shape = next_decl.type.shape if next_decl.type.shape else ()
                 if horiz_var is not None:
-                    # Use the horizontal index variable (e.g. JL).
-                    # This is correct because the write-back is inside
-                    # the merged JK loop which is itself inside the
-                    # DO JL = KIDIA, KFDIA horizontal loop.
-                    # SCCDevector will later strip that loop and make JL
-                    # a scalar parameter.
+                    # Use the horizontal index variable (e.g. JL) on
+                    # both LHS and RHS for rank-consistent indexing.
                     wb_orig_dims.append(horiz_var)
-                    # Don't add horizontal dim to the RHS next variable:
-                    # the _next carry var has the same KLON dimension
-                    # but SCCDemote will demote it.  For now, keep ':'
-                    # on the RHS if next_shape has this dimension.
                     if nv_idx < len(next_shape):
-                        wb_next_dims.append(
-                            sym.RangeIndex((None, None, None))
-                        )
+                        wb_next_dims.append(horiz_var)
                 elif nv_idx < len(next_shape):
                     wb_next_dims.append(
                         sym.RangeIndex((None, None, None))
