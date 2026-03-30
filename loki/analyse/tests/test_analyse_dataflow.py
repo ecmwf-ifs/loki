@@ -877,7 +877,7 @@ end subroutine test_no_dep
 def test_array_loop_carried_dependencies_shift_register(frontend):
     """
     Test the shift register pattern: write at JK+1, read at JK.
-    This is the sedimentation flux pattern from CLOUDSC.
+    This is the sedimentation flux pattern common in atmospheric physics kernels.
     """
     fcode = """
 subroutine test_shift_register(flux, source, n)

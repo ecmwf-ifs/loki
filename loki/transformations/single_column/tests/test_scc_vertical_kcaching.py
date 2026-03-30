@@ -535,14 +535,10 @@ def test_kcaching_cloudsc_integration(frontend, cloudsc_horizontal,
     all_next = [n for n in var_names if n.endswith('_next')]
     assert len(all_vc) > 0, 'Expected carry (_vc) variables'
 
-    # The remaining KLEV-dimensioned locals should be only 3D arrays
-    # with a species (NCLV) dimension that have computed-index subscripts
-    # (e.g. JC(JCC)) preventing demotion.  All pure 2D (KLON,KLEV) temps
-    # should have been demoted to scalars.
-    # With auto-interchange of JM/JK loops, the 3D arrays (zqx, zqx0,
-    # zpfplsx, zlneg, zqxn2d) are also demoted because their JK loops
-    # are now inside the merged loop.  No KLEV-dimensioned locals should
-    # remain.
+    # After carry conversion and auto-interchange of secondary loops,
+    # all KLEV-dimensioned locals should have been demoted to scalars
+    # (or replaced by carry variables).  No KLEV-dimensioned locals
+    # should remain.
     arg_names = {v.name.lower() for v in routine.arguments}
     klev_locals = []
     for var in routine.variables:

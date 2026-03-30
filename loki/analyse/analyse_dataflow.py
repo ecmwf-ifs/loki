@@ -812,8 +812,8 @@ def classify_array_access_offsets(loop, loop_var=None):
         ``'read'`` and/or ``'write'``. For example::
 
             {
-                ('zpfplsx', 2): {0: {'read'}, 1: {'write'}},
-                ('za', 1):      {0: {'read', 'write'}, -1: {'read'}},
+                ('flux', 2): {0: {'read'}, 1: {'write'}},
+                ('temp', 1):  {0: {'read', 'write'}, -1: {'read'}},
             }
     """
     if loop_var is None:
@@ -878,11 +878,11 @@ def array_loop_carried_dependencies(loop, loop_var=None):
         Example::
 
             {
-                'zpfplsx': [
+                'flux': [
                     {'type': 'flow', 'dim_index': 2, 'write_offset': 1,
                      'read_offset': 0, 'distance': -1}
                 ],
-                'za': [
+                'temp': [
                     {'type': 'flow', 'dim_index': 1, 'write_offset': 0,
                      'read_offset': -1, 'distance': -1}
                 ]
