@@ -40,6 +40,12 @@ def _make_zero_literal(orig_type):
     Returns :any:`IntLiteral` for INTEGER arrays, :any:`LogicLiteral`
     for LOGICAL arrays, and :any:`FloatLiteral` (with the original kind)
     for REAL and all other types.
+
+    When the kind is an :any:`InlineCall` (e.g. ``selected_real_kind(13, 300)``
+    as produced by the OMNI frontend), it is omitted from the literal because
+    Fortran requires kind parameters in literals to be named constants or
+    integer literals.  A plain ``0.0`` is safe here since Fortran performs
+    implicit type conversion in assignment context.
     """
     dtype = getattr(orig_type, 'dtype', None)
     if dtype == BasicType.INTEGER:
@@ -47,7 +53,10 @@ def _make_zero_literal(orig_type):
     if dtype == BasicType.LOGICAL:
         return sym.LogicLiteral('.FALSE.')
     # Default: REAL (or COMPLEX, DEFERRED, etc.)
-    return sym.FloatLiteral(0.0, kind=orig_type.kind)
+    kind = orig_type.kind
+    if isinstance(kind, sym.InlineCall):
+        return sym.FloatLiteral(0.0)
+    return sym.FloatLiteral(0.0, kind=kind)
 
 
 def _loop_upper_bound_expr(loop):
