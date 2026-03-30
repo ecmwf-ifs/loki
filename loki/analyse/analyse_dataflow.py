@@ -28,7 +28,8 @@ __all__ = [
     'dataflow_analysis_attached', 'read_after_write_vars',
     'loop_carried_dependencies', 'classify_array_access_offsets',
     'array_loop_carried_dependencies', 'detect_loop_carry_variables',
-    'classify_nonzero_offset_arrays'
+    'classify_nonzero_offset_arrays',
+    'extract_offset'
 ]
 
 
@@ -664,7 +665,7 @@ def loop_carried_dependencies(loop):
     return loop.uses_symbols & loop.defines_symbols
 
 
-def _extract_offset(dim, loop_var):
+def extract_offset(dim, loop_var):
     """
     Extract the integer offset of an array subscript expression relative to
     a loop variable.
@@ -758,12 +759,21 @@ def _collect_array_accesses(node, loop_var):
     # captured.  This is intentional: the carry-pattern analysis that
     # consumes these results operates on assignment-level read/write
     # semantics within vertical loops.
+    #
+    # In particular, arrays passed as subroutine call arguments
+    # represent opaque operations whose internal read/write semantics
+    # cannot be determined from the caller side.  Conditional
+    # expressions (e.g. ``IF (arr(JK) > 0)``) are pure reads with no
+    # write counterpart, and loop bounds are similarly read-only
+    # contexts.  Extending this to non-assignment contexts would
+    # require a separate access-type classification strategy and is
+    # not needed for the carry-pattern and stencil-detection use cases.
     for assign in FindNodes(Assignment).visit(node):
         # --- LHS: write access ---
         lhs = assign.lhs
         if isinstance(lhs, sym.Array) and lhs.dimensions:
             for dim_idx, dim in enumerate(lhs.dimensions):
-                offset = _extract_offset(dim, loop_var)
+                offset = extract_offset(dim, loop_var)
                 if offset is not None:
                     accesses.append((lhs.name.lower(), dim_idx, offset, 'write'))
 
@@ -772,7 +782,7 @@ def _collect_array_accesses(node, loop_var):
         for var in rhs_vars:
             if isinstance(var, sym.Array) and var.dimensions:
                 for dim_idx, dim in enumerate(var.dimensions):
-                    offset = _extract_offset(dim, loop_var)
+                    offset = extract_offset(dim, loop_var)
                     if offset is not None:
                         accesses.append((var.name.lower(), dim_idx, offset, 'read'))
 
