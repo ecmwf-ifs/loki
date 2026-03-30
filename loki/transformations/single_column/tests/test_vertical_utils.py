@@ -17,6 +17,7 @@ from loki.frontend import available_frontends
 from loki.ir import FindNodes, Loop, Conditional
 from loki.backend import fgen
 
+from loki.types import BasicType, SymbolAttributes
 from loki.transformations.single_column.vertical_utils import (
     _is_klev_plus_n,
     _extract_plus_n,
@@ -27,6 +28,7 @@ from loki.transformations.single_column.vertical_utils import (
     _collect_vertical_loops,
     _build_bounds_guard,
     _find_demotable_arrays,
+    _make_zero_literal,
     _merge_vertical_loops,
 )
 
@@ -538,3 +540,68 @@ def test_merge_vertical_loops_cond_else_body(frontend):
     code = fgen(routine).lower()
     assert 'else' in code
     assert 'b = 0.0' in code or 'b = 0' in code
+
+
+# --------------------------------------------------------------------------
+# _make_zero_literal
+# --------------------------------------------------------------------------
+
+
+class TestMakeZeroLiteral:
+    """Tests for the _make_zero_literal helper."""
+
+    def test_integer_type(self):
+        """INTEGER type should produce IntLiteral(0)."""
+        stype = SymbolAttributes(BasicType.INTEGER)
+        result = _make_zero_literal(stype)
+        assert isinstance(result, sym.IntLiteral)
+        assert result.value == 0
+
+    def test_logical_type(self):
+        """LOGICAL type should produce LogicLiteral('.FALSE.')."""
+        stype = SymbolAttributes(BasicType.LOGICAL)
+        result = _make_zero_literal(stype)
+        assert isinstance(result, sym.LogicLiteral)
+        assert fgen(result).upper() == '.FALSE.'
+
+    def test_real_with_named_kind(self):
+        """REAL with a named kind (e.g. JPRB) should keep the kind."""
+        kind_var = sym.Variable(name='JPRB')
+        stype = SymbolAttributes(BasicType.REAL, kind=kind_var)
+        result = _make_zero_literal(stype)
+        assert isinstance(result, sym.FloatLiteral)
+        assert result.kind is kind_var
+        assert fgen(result) == '0.0_JPRB'
+
+    def test_real_with_inline_call_kind(self):
+        """REAL with an InlineCall kind (OMNI-resolved) should omit the kind.
+
+        When the OMNI frontend resolves ``JPRB`` to
+        ``selected_real_kind(13, 300)``, the kind is an :any:`InlineCall`.
+        The literal must not embed it (``0.0_selected_real_kind(...)`` is
+        invalid Fortran).
+        """
+        call_kind = sym.InlineCall(
+            function=sym.ProcedureSymbol(name='selected_real_kind'),
+            parameters=(sym.IntLiteral(13), sym.IntLiteral(300)),
+        )
+        stype = SymbolAttributes(BasicType.REAL, kind=call_kind)
+        result = _make_zero_literal(stype)
+        assert isinstance(result, sym.FloatLiteral)
+        assert result.kind is None
+        assert fgen(result) == '0.0'
+
+    def test_real_without_kind(self):
+        """REAL without an explicit kind should produce a plain 0.0."""
+        stype = SymbolAttributes(BasicType.REAL)
+        result = _make_zero_literal(stype)
+        assert isinstance(result, sym.FloatLiteral)
+        assert result.kind is None
+        assert fgen(result) == '0.0'
+
+    def test_deferred_type(self):
+        """DEFERRED dtype should fall through to the REAL branch."""
+        stype = SymbolAttributes(BasicType.DEFERRED)
+        result = _make_zero_literal(stype)
+        assert isinstance(result, sym.FloatLiteral)
+        assert fgen(result) == '0.0'
