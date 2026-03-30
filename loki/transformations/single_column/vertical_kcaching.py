@@ -330,7 +330,7 @@ class SCCVerticalKCaching(Transformation):
 
         for loop, _cond in all_vloops:
             new_loop, init_stmts, conversions = _convert_all_carries(
-                routine, loop, vertical_index, vertical_size,
+                routine, loop, vertical_size,
                 horizontal_index=horizontal_index
             )
             if conversions:
@@ -437,7 +437,7 @@ class SCCVerticalKCaching(Transformation):
             if all_vloops:
                 merged_loop = all_vloops[0][0]
                 n_subs = _cross_loop_carry_substitution(
-                    routine, merged_loop, carry_registry, vertical_index
+                    routine, merged_loop, carry_registry
                 )
                 if n_subs:
                     info('[SCCVerticalKCaching] %s: Phase 2b - '
@@ -451,7 +451,7 @@ class SCCVerticalKCaching(Transformation):
             if all_vloops:
                 merged_loop = all_vloops[0][0]
                 n_wb = _insert_writebacks_for_argument_carries(
-                    routine, merged_loop, carry_registry, vertical_index,
+                    routine, merged_loop, carry_registry,
                     horizontal_index=horizontal_index
                 )
                 if n_wb:

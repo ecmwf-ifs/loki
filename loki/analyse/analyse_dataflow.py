@@ -749,8 +749,12 @@ def _collect_array_accesses(node, loop_var):
         - ``access_type`` : str, either ``'read'`` or ``'write'``
     """
     accesses = []
-    loop_var_name = loop_var.name.lower() if hasattr(loop_var, 'name') else str(loop_var).lower()
 
+    # NOTE: Only Assignment nodes are inspected.  Array accesses in
+    # CallStatement arguments or Conditional expressions are not
+    # captured.  This is intentional: the carry-pattern analysis that
+    # consumes these results operates on assignment-level read/write
+    # semantics within vertical loops.
     for assign in FindNodes(Assignment).visit(node):
         # --- LHS: write access ---
         lhs = assign.lhs

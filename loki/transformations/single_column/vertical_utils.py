@@ -163,8 +163,7 @@ def _is_jk_eq_1(expr, loop_var_name):
     return False
 
 
-def _mark_jk1_conditionals(loop, arr_name, dim_idx, cond_to_remove,
-                            carry_decl, expr_map):
+def _mark_jk1_conditionals(loop, arr_name, cond_to_remove):
     """
     For Pattern A carries, find ``IF (JK == 1)`` conditionals in the loop
     body that initialise the carry array and mark them for removal.
@@ -757,7 +756,7 @@ def _build_save_assignment(orig_decl, carry_decl, orig_shape, dim_idx,
     return ir.Assignment(lhs=save_lhs, rhs=save_rhs)
 
 
-def _convert_all_carries(routine, loop, vertical_index, vertical_size,
+def _convert_all_carries(routine, loop, vertical_size,
                          horizontal_index=None,
                          carry_suffix='_vc', next_suffix='_next'):
     """
@@ -806,7 +805,6 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
     routine : :any:`Subroutine`
     loop : :any:`Loop`
         The vertical loop to transform.
-    vertical_index : str
     vertical_size : str
     horizontal_index : str, optional
         Name of the horizontal loop variable (e.g. ``'JL'``).  Used to
@@ -1136,8 +1134,7 @@ def _convert_all_carries(routine, loop, vertical_index, vertical_size,
             ))
 
             # Remove IF(JK==1) conditionals
-            _mark_jk1_conditionals(loop, arr_name, dim_idx,
-                                   cond_to_remove, carry_decl, expr_map)
+            _mark_jk1_conditionals(loop, arr_name, cond_to_remove)
 
         elif pattern == 'B_simple':
             # Replace reads at JK (offset 0) with carry
@@ -1772,12 +1769,24 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
         )
 
         if cond_wrapper is not None:
-            # Nest inside the original conditional
-            nested = ir.Conditional(
-                condition=cond_wrapper.condition,
-                body=(guarded,),
-                else_body=()
-            )
+            # Nest inside the original conditional, preserving its
+            # else_body if present.  If the wrapper has a non-trivial
+            # else branch we keep it intact and only replace the loop
+            # in the body branch with the guarded version.
+            if cond_wrapper.else_body:
+                # Preserve the original conditional structure: replace
+                # the loop inside the body branch, keep else_body.
+                new_body = tuple(
+                    guarded if stmt is loop else stmt
+                    for stmt in cond_wrapper.body
+                )
+                nested = cond_wrapper.clone(body=new_body)
+            else:
+                nested = ir.Conditional(
+                    condition=cond_wrapper.condition,
+                    body=(guarded,),
+                    else_body=()
+                )
             merged_body.append(nested)
         else:
             merged_body.append(guarded)
@@ -1981,8 +1990,7 @@ def _hoist_rotates_to_end(routine, merged_loop, carry_registry):
     return len(remove_map)
 
 
-def _cross_loop_carry_substitution(routine, merged_loop, carry_registry,
-                                    vertical_index):
+def _cross_loop_carry_substitution(routine, merged_loop, carry_registry):
     """
     Replace remaining raw array references in the merged loop body with
     the carry variables created in Phase 1c.
@@ -1995,7 +2003,7 @@ def _cross_loop_carry_substitution(routine, merged_loop, carry_registry,
 
     Substitution rules by offset:
 
-    * **offset 0** → ``<array>_vc``  (all patterns)
+    * **offset 0** → ``<array>_vc``  (all patterns except ``A`` and ``stencil``)
     * **offset +1** → ``<array>_next``  (B_readback only)
     * **offset -1** → ``<array>_vc``  (Pattern A / stencil)
 
@@ -2007,7 +2015,6 @@ def _cross_loop_carry_substitution(routine, merged_loop, carry_registry,
     carry_registry : dict
         ``{array_name_lower: {'carry': str, 'pattern': str,
         'next': str or None, 'dim_index': int}}``
-    vertical_index : str
 
     Returns
     -------
@@ -2093,7 +2100,7 @@ def _cross_loop_carry_substitution(routine, merged_loop, carry_registry,
 
 
 def _insert_writebacks_for_argument_carries(routine, merged_loop,
-                                             carry_registry, vertical_index,
+                                             carry_registry,
                                              horizontal_index=None):
     """
     Insert write-back statements for INTENT(OUT) argument arrays that
@@ -2124,7 +2131,6 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
     carry_registry : dict
         ``{array_name_lower: {'carry': str, 'pattern': str,
         'next': str or None, 'dim_index': int}}``
-    vertical_index : str
     horizontal_index : str, optional
         Name of the horizontal loop variable (e.g. ``'JL'``).  Used to
         construct correct array subscripts for write-back statements.
