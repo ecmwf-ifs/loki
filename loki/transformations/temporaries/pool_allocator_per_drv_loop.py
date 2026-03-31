@@ -249,10 +249,25 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 if driver_loops:
                     self.add_driver_imports(routine)
 
+                    # First pass: compute per-loop stack sizes for ALL driver
+                    # loops, then aggregate with MAX.  This is necessary because
+                    # _get_stack_storage_and_size_var creates the ISTSZ variable
+                    # and its assignment only on the first call; subsequent calls
+                    # reuse the existing variable.  Without aggregation, ISTSZ
+                    # would be set to only the first loop's stack size, which
+                    # may be 0 even when later loops need non-zero stack space.
+                    per_loop_sizes = []
+                    for drv_loop in driver_loops:
+                        per_loop_sizes.append(
+                            self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
+                        )
+                    aggregate_stack_size = self._aggregate_stack_sizes(per_loop_sizes)
+
                     drv_loop_map = {}
                     for drv_loop in driver_loops:
-                        stack_size = self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
-                        drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(routine, stack_size, drv_loop=drv_loop)
+                        drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(
+                            routine, aggregate_stack_size, drv_loop=drv_loop
+                        )
 
                     if drv_loop_map:
                         routine.body = Transformer(drv_loop_map).visit(routine.body)
@@ -577,6 +592,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
         stack_sizes = []
+
         for call in FindNodes(CallStatement).visit(section):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
@@ -611,6 +627,56 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         # Re-build the max expressions, taking into account the local stack size and calls to successors
         stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
         return stack_size
+
+    @staticmethod
+    def _aggregate_stack_sizes(sizes):
+        """
+        Combine a list of stack-size expressions into a single aggregate.
+
+        Unwraps nested ``MAX(...)`` calls, removes zero literals and
+        duplicates, then returns ``Literal(0)`` (all zero), a single
+        expression, or ``MAX(...)`` of all unique non-zero expressions.
+
+        Parameters
+        ----------
+        sizes : list of :any:`Expression`
+            Per-loop or per-section stack-size expressions produced by
+            :meth:`_determine_stack_size`.
+
+        Returns
+        -------
+        :any:`Expression`
+            The aggregated stack size (the maximum across all inputs).
+        """
+        # Flatten nested MAX(...) calls
+        flat = []
+        for s in sizes:
+            if isinstance(s, InlineCall) and s.function == 'MAX':
+                flat.extend(s.parameters)
+            else:
+                flat.append(s)
+
+        # Remove literal zeros and de-duplicate by string representation
+        # (two expressions with the same fgen output are functionally identical)
+        seen = set()
+        non_zero = []
+        for s in flat:
+            if isinstance(s, (Literal, IntLiteral)) and int(s) == 0:
+                continue
+            key = str(s)
+            if key not in seen:
+                seen.add(key)
+                non_zero.append(s)
+
+        if not non_zero:
+            return Literal(0)
+        if len(non_zero) == 1:
+            return non_zero[0]
+        return InlineCall(
+            function=Variable(name='MAX'),
+            parameters=as_tuple(non_zero),
+            kw_parameters=()
+        )
 
     def _get_c_sizeof_arg(self, arr):
         """

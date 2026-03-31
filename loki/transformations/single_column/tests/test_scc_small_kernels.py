@@ -840,6 +840,97 @@ end subroutine kernel_cat5
 
 
 # ---------------------------------------------------------------------------
+# Cat 3 driver-level: ISTSZ must be MAX across ALL driver loops
+# A driver with two driver loops.  Loop 1 calls kernel_no_temp (no
+# temporaries → stack_size=0).  Loop 2 calls kernel_with_temp (has a
+# local temporary → non-zero stack_size).
+# The generated ISTSZ must reflect the MAX, not just loop 1's zero.
+# ---------------------------------------------------------------------------
+
+FCODE_DRIVER_CAT3_MULTI = """
+module driver_cat3m_mod
+  implicit none
+contains
+  subroutine driver_cat3m(ngpblks, bnds, opts, t, q, r)
+    use bnds_type_mod, only: bnds_type
+    use opts_type_mod, only: opts_type
+    implicit none
+    #include "kernel_no_temp.intfb.h"
+    #include "kernel_with_temp.intfb.h"
+    integer, intent(in) :: ngpblks
+    type(bnds_type), intent(inout) :: bnds
+    type(opts_type), intent(in) :: opts
+    real, intent(inout) :: t(:,:,:)
+    real, intent(inout) :: q(:,:,:)
+    real, intent(inout) :: r(:,:,:)
+
+    integer :: ibl
+
+    ! Driver loop 1: calls kernel with NO temporaries
+    do ibl = 1, ngpblks
+      bnds%kbl = ibl
+      bnds%kidia = 1
+      bnds%kfdia = opts%klon
+
+      !$loki small-kernels
+      call kernel_no_temp(opts%klon, opts%kflevg, bnds, t(:,:,ibl), q(:,:,ibl))
+    end do
+
+    ! Driver loop 2: calls kernel WITH temporaries
+    do ibl = 1, ngpblks
+      bnds%kbl = ibl
+      bnds%kidia = 1
+      bnds%kfdia = opts%klon
+
+      !$loki small-kernels
+      call kernel_with_temp(opts%klon, opts%kflevg, bnds, q(:,:,ibl), r(:,:,ibl))
+    end do
+  end subroutine driver_cat3m
+end module driver_cat3m_mod
+""".strip()
+
+FCODE_KERNEL_NO_TEMP = """
+subroutine kernel_no_temp(klon, klev, bnds, t, q)
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: klon, klev
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: t(klon, klev)
+  real, intent(inout) :: q(klon, klev)
+
+  integer :: jrof, jk
+
+  do jk = 1, klev
+    do jrof = bnds%kidia, bnds%kfdia
+      q(jrof, jk) = t(jrof, jk) + 1.0
+    end do
+  end do
+end subroutine kernel_no_temp
+""".strip()
+
+FCODE_KERNEL_WITH_TEMP = """
+subroutine kernel_with_temp(klon, klev, bnds, q, r)
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: klon, klev
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: q(klon, klev)
+  real, intent(inout) :: r(klon, klev)
+
+  integer :: jrof, jk
+  real :: ztmp(klon, klev)
+
+  do jk = 1, klev
+    do jrof = bnds%kidia, bnds%kfdia
+      ztmp(jrof, jk) = q(jrof, jk) * 3.0
+      r(jrof, jk) = ztmp(jrof, jk) + 1.0
+    end do
+  end do
+end subroutine kernel_with_temp
+""".strip()
+
+
+# ---------------------------------------------------------------------------
 # Helper: run the SCCSmallKernelsPipeline on a driver+kernel pair
 # ---------------------------------------------------------------------------
 
@@ -867,14 +958,26 @@ def _apply_small_kernels_pipeline(driver_source, kernel_source, horizontal,
     sgraph = SGraph.from_dict({driver_item: [kernel_item]})
 
     for transform in pipeline.transformations:
-        transform.apply(
-            driver_routine, role='driver', item=driver_item,
-            targets=[kernel_name], sub_sgraph=sgraph
-        )
-        transform.apply(
-            kernel_routine, role='kernel', item=kernel_item,
-            targets=[], sub_sgraph=sgraph
-        )
+        if getattr(transform, 'reverse_traversal', False):
+            # Bottom-up: kernel first, then driver
+            transform.apply(
+                kernel_routine, role='kernel', item=kernel_item,
+                targets=[], sub_sgraph=sgraph
+            )
+            transform.apply(
+                driver_routine, role='driver', item=driver_item,
+                targets=[kernel_name], sub_sgraph=sgraph
+            )
+        else:
+            # Top-down: driver first, then kernel
+            transform.apply(
+                driver_routine, role='driver', item=driver_item,
+                targets=[kernel_name], sub_sgraph=sgraph
+            )
+            transform.apply(
+                kernel_routine, role='kernel', item=kernel_item,
+                targets=[], sub_sgraph=sgraph
+            )
 
     return driver_routine, kernel_routine
 
@@ -910,7 +1013,9 @@ def _apply_small_kernels_pipeline_3level(
         mid_item: [sub_item],
     })
 
-    # Apply in top-down order: driver, mid, sub
+    # Apply in top-down order by default, but reverse for transformations
+    # that have reverse_traversal=True (e.g. pool allocator needs bottom-up
+    # so that kernel stack_sizes are computed before drivers read them).
     items_in_order = [
         (driver_routine, 'driver', driver_item, [mid_name]),
         (mid_routine, 'kernel', mid_item, [sub_name]),
@@ -918,7 +1023,10 @@ def _apply_small_kernels_pipeline_3level(
     ]
 
     for transform in pipeline.transformations:
-        for routine, role, item, targets in items_in_order:
+        order = items_in_order
+        if getattr(transform, 'reverse_traversal', False):
+            order = list(reversed(items_in_order))
+        for routine, role, item, targets in order:
             transform.apply(
                 routine, role=role, item=item,
                 targets=targets, sub_sgraph=sgraph
@@ -1605,3 +1713,104 @@ def test_cat3_kernel_no_spurious_istsz(frontend, horizontal, block_dim, tmp_path
         f"Kernel should NOT have ISTSZ assignment. "
         f"Found: {[fgen(a) for a in istsz_assignments]}"
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_cat3_driver_istsz_max_across_loops(frontend, horizontal, block_dim, tmp_path):
+    """
+    Category 3 driver-level bug: when a driver has multiple driver loops,
+    ``ISTSZ`` must be set to ``MAX(...)`` across ALL loops, not just the
+    first loop's stack size.
+
+    In the real IFS, ``ecphys_setup_layer_loki`` has its first driver loop
+    calling ``GPMKTEND`` (stack_size=0) while later loops call routines
+    with non-zero stack sizes.  The old code set ``ISTSZ = 0`` because
+    ``_get_stack_storage_and_size_var`` only creates the assignment on
+    the first call.
+
+    This test applies only the pool allocator transformation directly
+    (not the full pipeline), because earlier pipeline stages would remove
+    the driver loops.
+    """
+    bnds_mod = Module.from_source(FCODE_BNDS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    opts_mod = Module.from_source(FCODE_OPTS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    kernel_no_temp_source = Sourcefile.from_source(
+        FCODE_KERNEL_NO_TEMP, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    kernel_with_temp_source = Sourcefile.from_source(
+        FCODE_KERNEL_WITH_TEMP, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    driver_source = Sourcefile.from_source(
+        FCODE_DRIVER_CAT3_MULTI, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+
+    driver_routine = driver_source['driver_cat3m']
+    kernel_no_temp_routine = kernel_no_temp_source['kernel_no_temp']
+    kernel_with_temp_routine = kernel_with_temp_source['kernel_with_temp']
+
+    driver_routine.enrich(kernel_no_temp_routine)
+    driver_routine.enrich(kernel_with_temp_routine)
+
+    driver_item = ProcedureItem(name='driver_cat3m_mod#driver_cat3m', source=driver_source)
+    kernel_no_temp_item = ProcedureItem(name='#kernel_no_temp', source=kernel_no_temp_source)
+    kernel_with_temp_item = ProcedureItem(name='#kernel_with_temp', source=kernel_with_temp_source)
+
+    sgraph = SGraph.from_dict({
+        driver_item: [kernel_no_temp_item, kernel_with_temp_item],
+    })
+
+    # Apply ONLY the pool allocator transformation, in bottom-up order
+    # (reverse_traversal=True).  We skip the full pipeline because
+    # SCCBlockSectionTransformation removes driver loops before the
+    # pool allocator runs.  In the real IFS build, drivers with
+    # mode='scc-stack' are not subject to block-section transforms.
+    pool_alloc = TemporariesPoolAllocatorPerDrvLoopTransformation(
+        block_dim=block_dim, directive='openacc'
+    )
+
+    # Bottom-up: kernels first, then driver
+    pool_alloc.apply(
+        kernel_no_temp_routine, role='kernel', item=kernel_no_temp_item,
+        targets=[], sub_sgraph=sgraph
+    )
+    pool_alloc.apply(
+        kernel_with_temp_routine, role='kernel', item=kernel_with_temp_item,
+        targets=[], sub_sgraph=sgraph
+    )
+    pool_alloc.apply(
+        driver_routine, role='driver', item=driver_item,
+        targets=['kernel_no_temp', 'kernel_with_temp'], sub_sgraph=sgraph
+    )
+
+    # After transformation, the driver must have an ISTSZ assignment
+    # whose RHS is NOT just 0 — it must include the non-zero stack size
+    # from kernel_with_temp's temporary array.
+    driver_code = fgen(driver_routine)
+    assignments = FindNodes(Assignment).visit(driver_routine.body)
+    istsz_assignments = [a for a in assignments if str(a.lhs).lower() == 'istsz']
+
+    assert len(istsz_assignments) >= 1, (
+        f"Driver should have an ISTSZ assignment. "
+        f"Driver code:\n{driver_code}"
+    )
+
+    for assign in istsz_assignments:
+        rhs_str = str(assign.rhs).lower()
+        # ISTSZ must NOT be just "0" — it must include the stack size
+        # contribution from kernel_with_temp
+        assert rhs_str != '0', (
+            f"ISTSZ should not be just 0 when kernel_with_temp has "
+            f"temporaries. Got: ISTSZ = {assign.rhs}\n"
+            f"Driver code:\n{driver_code}"
+        )
+        # It should contain ISHFT or C_SIZEOF (from the stack size
+        # computation of kernel_with_temp's ztmp array)
+        assert 'ishft' in rhs_str or 'c_sizeof' in rhs_str or 'max' in rhs_str, (
+            f"ISTSZ should contain stack size computation (ISHFT/C_SIZEOF/MAX). "
+            f"Got: ISTSZ = {assign.rhs}\n"
+            f"Driver code:\n{driver_code}"
+        )
