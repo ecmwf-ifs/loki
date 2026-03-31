@@ -185,21 +185,15 @@ class CreateLocalCopiesTransformation(Transformation):
 
     def _remove_bounds_parents_from_device_present(self, routine):
         """
-        Remove bounds-parent variable names (e.g. ``YDCPG_BNDS``) from
-        ``!$loki device-present vars(...)`` pragmas.
+        Remove bounds-parent variable names (e.g. ``YDCPG_BNDS``, ``DIMS``)
+        from ``!$loki device-present vars(...)`` pragmas.
 
         These variables are derived-type containers for loop bounds
         (KIDIA, KFDIA, KBL, etc.) and are never accessed as device data.
         The annotation step adds them because they are derived-type
-        arguments, but they should be excluded from ``present()`` clauses.
-
-        .. note::
-           This assumes that bounds-parent variables are used *only* for
-           loop bounds / block indices.  If a routine also accesses other
-           components of the same derived type as device data, this
-           heuristic would incorrectly remove it from ``present()``.
-           In the IFS this is safe because ``YDCPG_BNDS`` is purely a
-           bounds container.
+        arguments, but they should be excluded from ``present()`` clauses
+        since their components are only used as scalar loop bounds / block
+        indices that do not require device-side data transfers.
         """
         bounds_parents = self._get_bounds_parent_names()
         if bounds_parents:
