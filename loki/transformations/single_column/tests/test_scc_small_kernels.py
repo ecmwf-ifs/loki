@@ -15,7 +15,9 @@ IFS small-kernels GPU build, verifying that:
   excluded from ``!$acc data present()`` clauses.
 - Category 2: DO loop bounds referencing derived-type members (e.g.
   ``YDCPG_BNDS%KIDIA``) are properly updated to their local copies.
-- Category 13: Derived-type components are not placed in ``private()`` clauses.
+- Category 7: Variables that appear in both ``horizontal.size`` and
+  ``horizontal.upper`` (e.g. ``KLON``) must NOT be localized to
+  ``local_KLON``.
 """
 
 import pytest
@@ -53,6 +55,19 @@ def fixture_block_dim():
         name='block_dim',
         size='ngpblks',
         index=('ibl', 'bnds%kbl')
+    )
+
+
+@pytest.fixture(scope='module', name='horizontal_klon_upper')
+def fixture_horizontal_klon_upper():
+    """
+    Like the real IFS config, ``klon`` appears in both ``size`` and ``upper``.
+    This triggers the Cat 7 bug if not handled.
+    """
+    return Dimension(
+        name='horizontal', size='klon', index='jrof',
+        lower=('kst', 'kidia', 'bnds%kidia'),
+        upper=('kend', 'kfdia', 'bnds%kfdia', 'klon')
     )
 
 
@@ -132,12 +147,73 @@ end subroutine kernel
 """.strip()
 
 
+# Source for Cat 7: KLON in both horizontal.size and horizontal.upper.
+# The kernel uses KLON as an array dimension AND as a loop upper bound.
+# The driver uses KLON (via opts%klon) as the block size.
+
+FCODE_DRIVER_CAT7 = """
+module driver_cat7_mod
+  implicit none
+contains
+  subroutine driver_cat7(ngpblks, bnds, opts, pd, pt, psp)
+    use bnds_type_mod, only: bnds_type
+    use opts_type_mod, only: opts_type
+    implicit none
+    #include "kernel_cat7.intfb.h"
+    integer, intent(in) :: ngpblks
+    type(bnds_type), intent(inout) :: bnds
+    type(opts_type), intent(in) :: opts
+    real, intent(inout) :: pd(:,:,:)
+    real, intent(in) :: pt(:,:,:)
+    real, intent(in) :: psp(:,:)
+
+    integer :: ibl
+
+    do ibl = 1, ngpblks
+      bnds%kbl = ibl
+      bnds%kstglo = 1 + (ibl - 1) * opts%klon
+      bnds%kidia = 1
+      bnds%kfdia = min(opts%klon, opts%kgpcomp - bnds%kstglo + 1)
+
+      !$loki small-kernels
+      call kernel_cat7(opts%klon, opts%kflevg, bnds%kidia, bnds%kfdia, pd(:,:,ibl), pt(:,:,ibl), psp(:,ibl))
+    end do
+  end subroutine driver_cat7
+end module driver_cat7_mod
+""".strip()
+
+FCODE_KERNEL_CAT7 = """
+subroutine kernel_cat7(klon, klev, kst, kend, pd, pt, psp)
+  implicit none
+  integer, intent(in) :: klon, klev, kst, kend
+  real, intent(out) :: pd(klon, klev)
+  real, intent(in) :: pt(klon, klev)
+  real, intent(in) :: psp(klon)
+
+  integer :: jrof, jlev
+  real :: zfoo(klon)
+
+  ! Use KLON in a computation (like ISTSZ in the real code)
+  zfoo(1:klon) = 0.0
+
+  do jlev = 1, klev
+    do jrof = kst, kend
+      pd(jrof, jlev) = pt(jrof, jlev) * psp(jrof)
+    end do
+  end do
+end subroutine kernel_cat7
+""".strip()
+
+
 # ---------------------------------------------------------------------------
 # Helper: run the SCCSmallKernelsPipeline on a driver+kernel pair
 # ---------------------------------------------------------------------------
 
 def _apply_small_kernels_pipeline(driver_source, kernel_source, horizontal,
-                                  block_dim, tmp_path):
+                                  block_dim, tmp_path,
+                                  driver_name='driver', kernel_name='kernel',
+                                  driver_item_name='driver_mod#driver',
+                                  kernel_item_name='#kernel'):
     """
     Parse *driver_source* and *kernel_source*, enrich, build the required
     item / sgraph objects, and apply the full ``SCCSmallKernelsPipeline``.
@@ -148,18 +224,18 @@ def _apply_small_kernels_pipeline(driver_source, kernel_source, horizontal,
         horizontal=horizontal, block_dim=block_dim, directive='openacc'
     )
 
-    driver_routine = driver_source['driver']
-    kernel_routine = kernel_source['kernel']
+    driver_routine = driver_source[driver_name]
+    kernel_routine = kernel_source[kernel_name]
     driver_routine.enrich(kernel_routine)
 
-    driver_item = ProcedureItem(name='driver_mod#driver', source=driver_source)
-    kernel_item = ProcedureItem(name='#kernel', source=kernel_source)
+    driver_item = ProcedureItem(name=driver_item_name, source=driver_source)
+    kernel_item = ProcedureItem(name=kernel_item_name, source=kernel_source)
     sgraph = SGraph.from_dict({driver_item: [kernel_item]})
 
     for transform in pipeline.transformations:
         transform.apply(
             driver_routine, role='driver', item=driver_item,
-            targets=['kernel'], sub_sgraph=sgraph
+            targets=[kernel_name], sub_sgraph=sgraph
         )
         transform.apply(
             kernel_routine, role='kernel', item=kernel_item,
@@ -264,3 +340,50 @@ def test_cat1_present_clause_excludes_local_copy_vars(frontend, horizontal, bloc
         assert 'bnds' not in content_lower or 'local_bnds' in content_lower, (
             f"'bnds' should not appear in present clause (only local_bnds is used): {pragma.content}"
         )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_cat7_no_local_klon_when_size_and_upper(frontend, horizontal_klon_upper, block_dim, tmp_path):
+    """
+    Category 7 bug: when ``klon`` appears in both ``horizontal.size``
+    and ``horizontal.upper``, the ``CreateLocalCopiesTransformation``
+    must NOT create a ``local_KLON`` variable.
+
+    ``KLON`` is an array dimension size (e.g. ``REAL :: PD(KLON, KLEV)``)
+    and is used in ISTSZ computations before the block loop.  Localizing
+    it to ``local_KLON`` produces code that reads an uninitialized variable
+    outside the block loop.
+    """
+    bnds_mod = Module.from_source(FCODE_BNDS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    opts_mod = Module.from_source(FCODE_OPTS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    kernel_source = Sourcefile.from_source(
+        FCODE_KERNEL_CAT7, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    driver_source = Sourcefile.from_source(
+        FCODE_DRIVER_CAT7, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+
+    driver, kernel = _apply_small_kernels_pipeline(
+        driver_source, kernel_source, horizontal_klon_upper, block_dim, tmp_path,
+        driver_name='driver_cat7', kernel_name='kernel_cat7',
+        driver_item_name='driver_cat7_mod#driver_cat7',
+        kernel_item_name='#kernel_cat7'
+    )
+
+    # After transformation, there should be NO ``local_klon`` variable
+    # declared in the kernel.
+    kernel_var_names = {v.name.lower() for v in kernel.variables}
+    assert 'local_klon' not in kernel_var_names, (
+        f"local_KLON should NOT be created when KLON is a horizontal size variable. "
+        f"Found variables: {sorted(kernel_var_names)}"
+    )
+
+    # Additionally, the generated code should still use plain ``klon`` (or
+    # ``KLON``) in all expressions, not ``local_klon``.
+    code = fgen(kernel)
+    assert 'local_klon' not in code.lower(), (
+        f"Generated code should not contain 'local_KLON':\n{code}"
+    )

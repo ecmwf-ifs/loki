@@ -105,8 +105,19 @@ class CreateLocalCopiesTransformation(Transformation):
 
     def _create_local_copies(self, routine):
         routine_variable_map = routine.variable_map
+
+        # Variables that match horizontal.size are array dimension sizes
+        # (e.g. KLON, NPROMA) and must NOT be localized even if they also
+        # appear in horizontal.upper (as loop bounds).  Localizing them
+        # would substitute ``local_KLON`` into pool-allocator ISTSZ
+        # expressions and other code outside the block loop where the
+        # local copy is never assigned.
+        size_names = {s.split('%')[-1].lower() for s in (self.horizontal.sizes or ())}
+
         create_local_copy = []
         for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
+            if _index.split('%')[-1].lower() in size_names:
+                continue
             if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
                 create_local_copy.append(block_index)
         local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy if f'local_{var.name}' not in routine_variable_map}

@@ -267,6 +267,13 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                     stack_size = self._determine_stack_size(routine, successors, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
 
+    def add_driver_imports(self, routine):
+        """
+        Hook for subclasses to inject additional imports into driver
+        routines when driver loops are present.  The default
+        implementation is a no-op.
+        """
+
     @staticmethod
     def import_c_sizeof(routine):
         """
