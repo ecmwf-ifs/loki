@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import re
 from collections import  defaultdict
 
 from loki.batch import Transformation
@@ -18,7 +17,7 @@ from loki.expression import (
 from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, Transformer, Intrinsic,
     Assignment, Conditional, CallStatement, Import, Allocation,
-    Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
+    Deallocation, Loop, Pragma, Interface,
     SubstituteExpressions, pragmas_attached
 )
 from loki.logging import warning, debug
@@ -222,7 +221,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
         if item:
             # Initialize set to store kind imports
-            # if 'kind_imports' not in item.trafo_data[self._key]:
             item.trafo_data[self._key] = {'kind_imports': {}}
 
         # add iso_c_binding import if necessary
@@ -233,30 +231,15 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
-        # if role == 'kernel':
-        #     stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
-        
-        # if item:
-        #     if role == 'kernel':
-        #         stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
-        #     else:
-        #         stack_size = self._determine_stack_size(routine, successors, item=item)
-        #     item.trafo_data[self._key]['stack_size'] = stack_size
-
         with pragmas_attached(routine, Loop):
             driver_loops = find_driver_loops(section=routine.body, targets=targets)
 
             if driver_loops:
                 self.add_driver_imports(routine)
-                # if item:
-                #     # print(f"add import allocation types for routine {routine}")
-                #     self.import_allocation_types(routine, item)
 
                 drv_loop_map = {}
                 for drv_loop in driver_loops:
                     if role == 'kernel':
-                        # TODO: needed/really to be called with argument 'stack_size'
-                        # stack_size = self._determine_stack_size(routine, successors, stack_size, item=item, drv_loop=drv_loop)
                         stack_size = self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
                     elif role == 'driver':
                         stack_size = self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
@@ -268,50 +251,16 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 for drv_loop in driver_loops:
                     self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver', drv_loop=drv_loop)
 
-                # no driver loops ...
-                # else:
-                # if True:
-                # if item:
-                #     if role == 'kernel':
-                #         stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
-                #         stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
-                #     else:
-                #         stack_size = self._determine_stack_size(routine, successors, item=item)
-                #     item.trafo_data[self._key]['stack_size'] = stack_size
-                # else:
-                # if item:
-                #     self.import_allocation_types(routine, item)
             self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
-            if True:
-                if item:
-                    self.import_allocation_types(routine, item)
-                    if role == 'kernel':
-                        stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
-                        stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
-                    else:
-                        stack_size = self._determine_stack_size(routine, successors, item=item)
-                    item.trafo_data[self._key]['stack_size'] = stack_size
-                    
-
-        # if role == 'kernel':
-        #     stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
-        #     if item:
-        #         stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
-        #         item.trafo_data[self._key]['stack_size'] = stack_size
-
-        # elif role == 'driver':
-        #     self.add_driver_imports(routine)
-        #     stack_size = self._determine_stack_size(routine, successors, item=item)
-        #     if item:
-        #         # import variable type specifiers used in stack allocations
-        #         self.import_allocation_types(routine, item)
-        #     self.create_pool_allocator(routine, stack_size)
-
-        # self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
-
-    def add_driver_imports(self, routine):
-        pass
+            if item:
+                self.import_allocation_types(routine, item)
+                if role == 'kernel':
+                    stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
+                    stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
+                else:
+                    stack_size = self._determine_stack_size(routine, successors, item=item)
+                item.trafo_data[self._key]['stack_size'] = stack_size
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -611,7 +560,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
         stack_sizes = []
-        for call in FindNodes(CallStatement).visit(section): # routine.body):
+        for call in FindNodes(CallStatement).visit(section):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
                 # Replace any occurence of routine arguments in the stack size expression
@@ -883,16 +832,14 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
 
-        # TODO: adapt pragma loop
+        # TODO: adapt pragma loop
         # Find first block loop and assign local stack pointers there
-        loop_map = {}
-        # for loop in FindNodes(Loop).visit(routine.body):
         if True:
             assignments = FindNodes(Assignment).visit(drv_loop.body)
             if drv_loop.variable != self.block_dim.index:
                 # Check if block variable is assigned in loop body
                 for assignment in assignments:
-                    if assignment.lhs in self.block_dim.indices: # == self.block_dim.index:
+                    if assignment.lhs in self.block_dim.indices:
                         assert assignment in drv_loop.body
                         # Need to insert the pointer assignment after block dimension is set
                         assign_pos = drv_loop.body.index(assignment)
@@ -925,7 +872,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                         function=Variable(name='LOC'),
                         parameters=(
                             stack_storage.clone(
-                                # dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
                                 dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
                             ),
                         ),
@@ -951,135 +897,10 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
             new_assignments = (ptr_assignment,)
             if self.check_bounds:
                 new_assignments += (stack_incr,)
-            # loop_map[loop] = loop.clone(
-            #     body=loop.body[:assign_pos + 1] + new_assignments + loop.body[assign_pos + 1:]
-            # )
             new_loop = drv_loop.clone(
                     body=drv_loop.body[:assign_pos + 1] + new_assignments + drv_loop.body[assign_pos + 1:]
             )
         return new_loop
-
-        # if loop_map:
-        #     routine.body = Transformer(loop_map).visit(routine.body)
-
-
-
-    def create_pool_allocator(self, routine, stack_size):
-        """
-        Create a pool allocator in the driver
-        """
-        # Create and allocate the stack
-        stack_storage, stack_size_var = self._get_stack_storage_and_size_var(routine, stack_size)
-        stack_var = self._get_local_stack_var(routine)
-        stack_var_end = self._get_local_stack_var_end(routine) if self.check_bounds else None
-        stack_ptr = self._get_stack_ptr(routine)
-        stack_end = self._get_stack_end(routine)
-
-        pragma_map = {}
-        pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'loki']
-        for pragma in pragmas:
-            if pragma.content.lower().startswith('loop gang'):
-                parameters = get_pragma_parameters(pragma, starts_with='loop gang', only_loki_pragmas=False)
-                if 'private' in [p.lower() for p in parameters]:
-                    var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                    content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str} ',
-                            pragma.content.lower())
-                else:
-                    var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
-                    content = pragma.content + f' private({stack_var.name}{var_end_str})'
-                pragma_map[pragma] = pragma.clone(content=content)
-        # problem being that code, like e.g. ecwam transformed for 'idem-stack', already having
-        #  OpenMP pragmas rely on the following. Once we (decide to) implement a
-        #  'reverse PragmaModel' trafo that converts e.g., OpenMP pragmas to generic Loki pragmas
-        #  we do not longer rely on the following
-        omp_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
-        for pragma in omp_pragmas:
-            if pragma.content.lower().startswith('parallel'):
-                parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
-                if 'private' in [p.lower() for p in parameters]:
-                    var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                    content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str}',
-                            pragma.content.lower())
-                else:
-                    var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
-                    content = pragma.content + f' private({stack_var.name}{var_end_str})'
-                pragma_map[pragma] = pragma.clone(content=content)
-
-        if pragma_map:
-            routine.body = Transformer(pragma_map).visit(routine.body)
-
-        # Find first block loop and assign local stack pointers there
-        loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.body):
-            assignments = FindNodes(Assignment).visit(loop.body)
-            if loop.variable != self.block_dim.index:
-                # Check if block variable is assigned in loop body
-                for assignment in assignments:
-                    if assignment.lhs == self.block_dim.index:
-                        assert assignment in loop.body
-                        # Need to insert the pointer assignment after block dimension is set
-                        assign_pos = loop.body.index(assignment)
-                        break
-                else:
-                    warning(
-                        f'{self.__class__.__name__}: '
-                        f'Could not find a block dimension for loop with variable {loop.variable} and '
-                        f'bounds {loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
-                    )
-                    continue
-            else:
-                # block variable is the loop variable: pointer assignment can happen
-                # at the beginning of the loop body
-                assign_pos = -1
-
-            # Check for existing pointer assignment
-            if any(a.lhs == f'{self.stack_local_var_name}_{self.stack_ptr_name}' for a in assignments):
-                debug(
-                    f'{self.__class__.__name__}: '
-                    f'Stack (pointer) already exists within/for loop with variable {loop.variable} and '
-                    f'bounds {loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
-                )
-                break
-            if self.cray_ptr_loc_rhs:
-                ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
-            else:
-                ptr_assignment = Assignment(
-                    lhs=stack_ptr, rhs=InlineCall(
-                        function=Variable(name='LOC'),
-                        parameters=(
-                            stack_storage.clone(
-                                # dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
-                                dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
-                            ),
-                        ),
-                        kw_parameters=None
-                    )
-                )
-
-            # Retrieve kind parameter of stack storage
-            _kind = routine.imported_symbol_map.get('REAL64')
-
-            # Stack increment
-            if self.cray_ptr_loc_rhs:
-                stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
-                )
-            else:
-                _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
-                _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
-                                              parameters=as_tuple(_real_size_bytes))
-                stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
-                )
-            new_assignments = (ptr_assignment,)
-            if self.check_bounds:
-                new_assignments += (stack_incr,)
-            loop_map[loop] = loop.clone(
-                body=loop.body[:assign_pos + 1] + new_assignments + loop.body[assign_pos + 1:]
-            )
-
-        if loop_map:
-            routine.body = Transformer(loop_map).visit(routine.body)
 
     def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False, drv_loop=None):
         """
@@ -1112,7 +933,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         if drv_loop is not None:
             section = drv_loop
 
-        for call in FindNodes(CallStatement).visit(section.body): # routine.body):
+        for call in FindNodes(CallStatement).visit(section.body):
             if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
@@ -1135,7 +956,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
-            # section.body = Transformer(call_map).visit(section.body)
 
         # Now repeat the process for InlineCalls
         call_map = {}

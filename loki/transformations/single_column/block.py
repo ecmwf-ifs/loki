@@ -15,14 +15,9 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import BasicType
-from loki.expression import symbols as sym
 
-# from loki.transformations.utilities import (
-#     find_driver_loops, check_routine_sequential
-# )
 from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds, find_driver_loops,
-    check_routine_sequential, single_variable_declaration
+    find_driver_loops, check_routine_sequential
 )
 
 
@@ -84,30 +79,6 @@ class ReblockSectionTransformer(Transformer):
         # Rebuild loop after recursing to children
         return self._rebuild(s, self.visit(s.children))
 
-# class RemoveLoopTransformer(Transformer):
-#     """
-#     A :any:`Transformer` that removes all loops over the specified
-#     dimension.
-# 
-#     Parameters
-#     ----------
-#     horizontal : :any:`Dimension`
-#         The dimension specifying the horizontal vector dimension
-#     """
-#     # pylint: disable=unused-argument
-# 
-#     def __init__(self, dimension, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         self.dimension = dimension
-# 
-#     def visit_Loop(self, loop, **kwargs):
-#         if loop.variable == self.dimension.index:
-#             # Recurse and return body as replacement
-#             return self.visit(loop.body, **kwargs)
-# 
-#         # Rebuild loop after recursing to children
-#         return self._rebuild(loop, self.visit(loop.children, **kwargs))
-
 
 class SCCBlockSectionToLoopTransformation(Transformation):
 
@@ -134,7 +105,6 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         return None
 
     def _create_local_copies(self, routine):
-        # indices = self.block_dim.indices
         routine_variable_map = routine.variable_map
         create_local_copy = []
         for _index in self.block_dim.indices:
@@ -166,7 +136,6 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         """
         role = kwargs['role']
         item = kwargs.get('item', None)
-        # targets = kwargs.get('targets', ())
 
         if role == 'kernel':
             routine.body = ReblockSectionTransformer(routine, item, self.horizontal).visit(routine.body)
@@ -244,9 +213,7 @@ class SCCBlockSectionTransformation(Transformation):
                 # check if called routine is marked as sequential
                 if check_routine_sequential(routine=call.routine):
                     continue
-            # if call.pragma
             call_pragmas = call.pragma
-            # print(f"  call {call} with pragmas: {call_pragmas}")
             if not call_pragmas:
                 continue
             early_exit = True
@@ -260,46 +227,12 @@ class SCCBlockSectionTransformation(Transformation):
         
             separator_nodes = cls._add_separator(call, section, separator_nodes)
 
-        # for pragma in FindNodes(ir.Pragma).visit(section):
-        #     # Reductions over thread-parallel regions should be marked as a separator node
-        #     if (is_loki_pragma(pragma, starts_with='vector-reduction') or
-        #         is_loki_pragma(pragma, starts_with='end vector-reduction') or
-        #         is_loki_pragma(pragma, starts_with='separator')):
-
-        #         separator_nodes = cls._add_separator(pragma, section, separator_nodes)
-
-        # for assign in FindNodes(ir.Assignment).visit(section):
-        #     if assign.ptr and isinstance(assign.rhs, sym.Array):
-        #         if any(s in assign.rhs.shape for s in horizontal.size_expressions):
-        #             separator_nodes = cls._add_separator(assign, section, separator_nodes)
-
-        #     if isinstance(assign.rhs, sym.InlineCall):
-        #         # filter out array arguments
-        #         # we can't use arg_map here because intrinsic functions are not enriched
-        #         _params = assign.rhs.parameters + as_tuple(assign.rhs.kw_parameters.values())
-        #         _params = [p for p in _params if isinstance(p, sym.Array)]
-
-        #         # check if a horizontal array is passed as an argument, meaning we have a vector
-        #         # InlineCall, e.g. an array reduction intrinsic
-        #         for p in _params:
-        #             if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions):
-        #                 separator_nodes = cls._add_separator(assign, section, separator_nodes)
-
-        # # Extract contiguous node sections between separator nodes
-        # assert all(n in section for n in separator_nodes)
         subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
 
-        # # Filter sub-sections that do not use the horizontal loop index variable
-        # subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
         subsections = [s for s in subsections if any([index in list(FindVariables().visit(s)) for index in block_dim.indices])]
 
         # Recurse on all separator nodes that might contain further vector sections
         for separator in separator_nodes:
-
-            # if isinstance(separator, ir.Loop):
-            #     subsec_body = cls.extract_vector_sections(separator.body, horizontal)
-            #     if subsec_body:
-            #         subsections += subsec_body
 
             if isinstance(separator, ir.Conditional):
                 subsec_body = cls.extract_block_sections(separator.body, block_dim, successor_map)
@@ -332,7 +265,6 @@ class SCCBlockSectionTransformation(Transformation):
         trimmed_sections = ()
         with dataflow_analysis_attached(routine):
             for sec in sections:
-                # vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
                 block_nodes = [node for node in sec if any([index.lower() in node.uses_symbols for index in block_dim.indices])]
                 start = sec.index(block_nodes[0])
                 # don't loose e.g. loop vector pragmas ...
@@ -371,37 +303,6 @@ class SCCBlockSectionTransformation(Transformation):
         if role == "driver":
             self.process_driver(routine, item, successor_map, targets=targets)
 
-    def process_driver_backup(self, routine, item, successor_map, targets):
-        with pragmas_attached(routine, ir.CallStatement):
-            calls = FindNodes(ir.CallStatement).visit(routine.body)
-            
-            for call in calls:
-                call_pragmas = call.pragma
-                if not call_pragmas:
-                    continue
-                for pragma in call_pragmas:
-                    if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
-                        successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
-
-    def process_driver_backup_2(self, routine, item, successor_map, targets):
-        loop_map = {}
-        with pragmas_attached(routine, (ir.CallStatement, ir.Loop), attach_pragma_post=True):
-            loops = FindNodes(ir.Loop).visit(routine.body)
-            driver_loops = find_driver_loops(section=routine.body, targets=targets)
-            for driver_loop in driver_loops:
-                calls = FindNodes(ir.CallStatement).visit(driver_loop.body)
-                for call in calls:
-                    call_pragmas = call.pragma
-                    if not call_pragmas:
-                        continue
-                    for pragma in call_pragmas:
-                        if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
-                            successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
-                            loop_map[driver_loop] = (ir.Comment(text='! former driver loop ...'), driver_loop.body, ir.Comment(text='! END: former driver loop ...'))
-                            break
-            if loop_map:
-                routine.body = Transformer(loop_map).visit(routine.body)
-
     def process_driver(self, routine, item, successor_map, targets):
         with pragmas_attached(routine, ir.CallStatement):
             calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -415,7 +316,6 @@ class SCCBlockSectionTransformation(Transformation):
                         successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
         loop_map = {}
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-            loops = FindNodes(ir.Loop).visit(routine.body)
             driver_loops = find_driver_loops(section=routine.body, targets=targets)
             for driver_loop in driver_loops:
                 pragmas = FindNodes(ir.Pragma).visit(driver_loop.body)
@@ -439,7 +339,6 @@ class SCCBlockSectionTransformation(Transformation):
         """
 
         # Remove all vector loops over the specified dimension
-        # routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
         
         if not item.trafo_data.get('BlockSectionTrafo', False):
             return
@@ -449,7 +348,6 @@ class SCCBlockSectionTransformation(Transformation):
         pragma_map = {pragma: None for pragma in pragmas}
         routine.spec = Transformer(pragma_map).visit(routine.spec)
         routine.body = Transformer(pragma_map).visit(routine.body)
-        ##
 
         # Extract vector-level compute sections from the kernel
         with pragmas_attached(routine, ir.CallStatement):
@@ -461,51 +359,4 @@ class SCCBlockSectionTransformation(Transformation):
         # Replace sections with marked Section node
         section_mapper = {s: ir.Section(body=s, label='block_section') for s in sections
                 if s and [s for s in s if not isinstance(s, (ir.Comment, ir.Pragma, ir.CommentBlock))]}
-        # try:
         routine.body = NestedTransformer(section_mapper).visit(routine.body)
-
-        # relevant_vars = ['ibl', 'jkglo']
-        # update_dic = {}
-        # variable_map = routine.variable_map
-        # for _var in relevant_vars:
-        #     if _var in routine.symbol_attrs:
-        #         print(f"changing intent for var {_var} to inout within routine {routine}")
-        #         update_dic[_var] = variable_map[_var].clone(type=variable_map[_var].type.clone(intent='inout'))
-        #         # routine.symbol_attrs[_var].intent = 'inout'
-
-        # except Exception as e:
-        #     print(f"{e}")
-        #     assert False
-
-        # routine.body = ReblockSectionTransformer(routine).visit(routine.body)
-
-    # def process_driver(self, routine, targets=()):
-    #     """
-    #     Applies the SCCDevector utilities to a "driver". This consists simply
-    #     of stripping vector loops and determining which sections of the IR can be
-    #     placed within thread-parallel loops.
-
-    #     Parameters
-    #     ----------
-    #     routine : :any:`Subroutine`
-    #         Subroutine to apply this transformation to.
-    #     targets : list or string
-    #         List of subroutines that are to be considered as part of
-    #         the transformation call tree.
-    #     """
-
-    #     with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-    #         driver_loops = find_driver_loops(section=routine.body, targets=targets)
-
-    #     # remove vector loops
-    #     driver_loop_map = {}
-    #     for loop in driver_loops:
-    #         new_driver_loop = RemoveLoopTransformer(dimension=self.horizontal).visit(loop.body)
-    #         new_driver_loop = loop.clone(body=new_driver_loop)
-    #         sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
-    #         if self.trim_vector_sections:
-    #             sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
-    #         section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
-    #         new_driver_loop = NestedTransformer(section_mapper).visit(new_driver_loop)
-    #         driver_loop_map[loop] = new_driver_loop
-    #     routine.body = Transformer(driver_loop_map).visit(routine.body)

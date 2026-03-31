@@ -6,11 +6,8 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation
-from loki.expression import is_dimension_constant, Array
-from loki.ir import nodes as ir, FindNodes, FindInlineCalls
-from loki.tools import flatten, as_tuple, OrderedSet
+from loki.ir import nodes as ir, FindNodes
 
-# from loki.transformations.array_indexing import demote_variables
 from loki.transformations.array_indexing import promote_variables
 from loki.transformations.utilities import get_local_arrays, get_integer_variable
 
@@ -33,51 +30,7 @@ class SCCPromoteTransformation(Transformation):
         # Create a list of local temporary arrays to filter down
         candidates = get_local_arrays(routine, routine.spec)
 
-        # # Only  local arrays with the horizontal as fast dimension
-        # candidates = [
-        #     v for v in candidates if v.shape and
-        #     v.shape[0] in horizontal.sizes
-        # ]
-        # # Also demote arrays whose remaning dimensions are known constants
-        # candidates = [
-        #     v for v in candidates
-        #     if all(is_dimension_constant(d) for d in v.shape[1:])
-        # ]
-
-        # Create an index into all variable uses per vector-level section
-        vars_per_section = {
-            s: OrderedSet(
-                v.name.lower() for v in get_local_arrays(routine, s, unique=False)
-            ) for s in sections
-        }
-
-        # Count in how many sections each temporary is used
-        counts = {}
-        for arr in candidates:
-            counts[arr] = sum(
-                1 if arr.name.lower() in v else 0
-                for v in vars_per_section.values()
-            )
-
-        # Demote temporaries that are only used in one section or not at all
-        # to_promote = [k for k, v in counts.items() if v > 1]
         to_promote = candidates
-
-        # # Get InlineCall args containing a horizontal array section
-        # icalls = FindInlineCalls().visit(routine.body)
-        # _params = flatten([call.parameters + as_tuple(call.kw_parameters.values()) for call in icalls])
-        # _params = [p for p in _params if isinstance(p, Array)]
-
-        # call_args = [
-        #     p.clone(dimensions=None) for p in _params
-        #     if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions)
-        # ]
-
-        # # Filter out variables that we will pass down the call tree
-        # calls = FindNodes(ir.CallStatement).visit(routine.body)
-        # call_args += flatten(call.arguments for call in calls)
-        # call_args += flatten(list(dict(call.kwarguments).values()) for call in calls)
-        # to_promote = [v for v in to_promote if v.name not in call_args]
 
         return set(to_promote)
 
@@ -100,8 +53,6 @@ class SCCPromoteTransformation(Transformation):
             preserve_arrays = []
             if item:
                 promote_locals = item.config.get('promote_locals', self.promote_local_arrays)
-                # preserve_arrays = item.config.get('preserve_arrays', [])
-                preseve_arrays = []
             self.process_kernel(routine, promote_locals=promote_locals, preserve_arrays=preserve_arrays)
 
     def process_kernel(self, routine, promote_locals=True, preserve_arrays=None):
@@ -140,16 +91,8 @@ class SCCPromoteTransformation(Transformation):
         # Demote all private local variables that do not buffer values between sections
         if promote_locals:
             variables = tuple(v.name for v in to_promote)
-            # if variables:
-            #     print(f"[PROMOTE ROUTINE {routine}]: {variables}")
-            variables = tuple(v.name for v in to_promote)
             promote_variables(
                     routine, variable_names=variables,
                     pos=-1, index=block_index, size=block_size,
                     ignore_index_undefined=True
             )
-            # if variables:
-            #     demote_variables(
-            #         routine, variable_names=variables,
-            #         dimensions=self.horizontal.sizes
-            #     )

@@ -229,9 +229,6 @@ class SCCAnnotateTransformation(Transformation):
                         parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
                                 only_loki_pragmas=False)
                 if parameters is not None:
-                    # driver_loops = find_driver_loops(section=region.body, targets=targets)
-                    # if not driver_loops:
-                    #     continue
 
                     # When a key is given multiple times, get_pragma_parameters returns a list
                     # We merge them here into single entries to make our life easier below
@@ -345,7 +342,7 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
         private_sym = arrays
 
-        if self.privatise_derived_types: #  and privatise_derived_types:
+        if self.privatise_derived_types:
             # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
             # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
             # scalars must also be privatised.

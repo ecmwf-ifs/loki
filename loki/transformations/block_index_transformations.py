@@ -538,8 +538,6 @@ class LowerBlockIndexTransformation(Transformation):
         successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
 
         # dispatch driver in any case and recurse to kernels if corresponding flag is set
-        # if role == 'driver' or (self.recurse_to_kernels and role == 'kernel'):
-        #     self.process(routine, targets, role)
         if role == 'driver':
             self.process_driver(routine, targets, item, successors)
         if self.recurse_to_kernels and role == 'kernel':
@@ -590,37 +588,10 @@ class LowerBlockIndexTransformation(Transformation):
         if not relevant_calls:
             return
 
-        ##
-        # # promote locals
-        # local_vars = get_local_arrays(routine, routine.spec)
-        # # TODO: further filtering, constant dims, ...
-        # # routine_variable_map = call.routine.variable_map
-        # var_map = {}
-        # routine_variable_map = routine.variable_map
-        # routine_block_dim_size = None
-        # for block_dim_size in self.block_dim.sizes:
-        #     if block_dim_size in routine_variable_map:
-        #         routine_block_dim_size = routine_variable_map[block_dim_size]
-        #         break
-        #     if block_dim_size.split('%')[0] in routine_variable_map:
-        #         routine_block_dim_size = get_integer_variable(routine, block_dim_size)
-        #         break
-        # if routine_block_dim_size is None:
-        #     print(f"routine {routine}")
-        #     assert False
-        # for local_var in local_vars:
-        #     new_dims = local_var.dimensions + (routine_block_dim_size,)
-        #     new_shape = local_var.shape + (routine_block_dim_size,)
-        #     new_type = local_var.type.clone(shape=new_shape)
-        #     var_map[local_var] = local_var.clone(dimensions=new_dims, type=new_type)
-        # routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
-        ##
-
         relevant_vars = ()
         if 'LowerBlockIndex' in item.trafo_data:
             relevant_vars = item.trafo_data['LowerBlockIndex'].get('relevant_vars', ())
         else:
-            # assert False
             return
 
         for call in relevant_calls:
@@ -639,29 +610,14 @@ class LowerBlockIndexTransformation(Transformation):
             for imp in call_all_imports:
                 call_all_imported_symbols += as_tuple([_.name.lower() for _ in imp.symbols])
 
-            # relevant_vars = () # (driver_loop.variable,)
-            # relevant_vars += (driver_loop.bounds.lower, driver_loop.bounds.upper)
-            # if driver_loop.bounds.step is not None:
-            #     relevant_vars += (driver_loop.bounds.step,)
-            # relevant_vars += as_tuple(FindVariables().visit(driver_loop_header[driver_loop]))
-            # relevant_vars = set(relevant_vars)
             new_args = []
             new_kwargs = []
 
-            for _var in relevant_vars:
-                if isinstance(_var, sym._Literal):
-                    continue
-                if _var.parent is not None:
-                    _parent_var = _get_parent(_var)
-
             already_arg = []
             for _var in relevant_vars:
-                # if _var == driver_loop.variable:
-                #     continue
                 if isinstance(_var, sym._Literal):
                     continue
                 if _var in call_arg_map:
-                    # already_arg.append(_get_parent(_var))
                     already_arg.append(call_arg_map[_var])
                     continue
                 else:
@@ -686,9 +642,6 @@ class LowerBlockIndexTransformation(Transformation):
                 if _new_args:
                     call.routine.arguments += as_tuple([_new_arg.clone(scope=call.routine, type=_new_arg.type.clone(intent='inout')) for _new_arg in _new_args])
 
-            # if driver_loop.variable not in call.routine.variable_map:
-            #     call.routine.variables += (driver_loop.variable.clone(scope=call.routine),)
-
             if already_arg:
                 for var in already_arg:
                     call.routine.symbol_attrs.update({var.name: call.routine.variable_map[var.name].type.clone(intent='inout')})
@@ -701,16 +654,9 @@ class LowerBlockIndexTransformation(Transformation):
             if new_imports:
                 call.routine.spec.prepend(as_tuple(new_imports))
 
-            ##
-            # promote locals
-            # local_vars = get_local_arrays(routine, routine.spec)
-            # TODO: further filtering, constant dims, ...
-            # routine_variable_map = call.routine.variable_map
-            ##
             local_vars = get_local_arrays(call.routine, call.routine.spec)
             local_vars = [local_var for local_var in local_vars if not local_var.dimensions[-1] in self.block_dim.sizes]
             # TODO: further filtering, constant dims, ...
-            # routine_variable_map = call.routine.variable_map
             var_map = {}
             call_variable_map = call.routine.variable_map
             call_block_dim_size = None
@@ -751,11 +697,6 @@ class LowerBlockIndexTransformation(Transformation):
             if call_block_dim_size is None:
                 assert False
             for arg, call_arg in call.arg_iter():
-                if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
-                    # if not (InjectBlockIndexTransformation.get_call_arg_rank(call_arg) > len(arg.shape)):
-                    if not self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
-                        pass  # Disagreement between call_arg rank and arg shape
-                # if isinstance(arg, Array) and InjectBlockIndexTransformation.get_call_arg_rank(call_arg) > len(arg.shape):  
                 if isinstance(arg, Array) and self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
                     call_routine_var = call_variable_map[arg.name]
                     new_dims = call_routine_var.dimensions + (call_block_dim_size,) # TODO
@@ -801,51 +742,14 @@ class LowerBlockIndexTransformation(Transformation):
                     else:
                         _kwarguments += ((kwarg_name, kwarg),)
             call._update(arguments=_arguments, kwarguments=_kwarguments)
-            # for arg in call.arguments:
-            #     if isinstance(arg, sym.Array) and arg.dimensions:
-            #         if any([str(dim).lower() in block_dim_indices for dim in arg.dimensions]):
-            #             new_dim = tuple(
-            #                 sym.RangeIndex((None, None)) if str(dim).lower() in block_dim_indices # == self.block_dim.index.lower()
-            #                 else dim for dim in arg.dimensions
-            #             )
-            #         else:
-            #             new_dim = arg.dimensions + (sym.RangeIndex((None, None)),)
-            #         _arguments += (arg.clone(dimensions=new_dim),)
-            #     else:
-            #         _arguments += (arg,)
-            # _kwarguments = ()
-            # for kwarg_name, kwarg in call.kwarguments:
-            #     if isinstance(kwarg, sym.Array) and kwarg.dimensions:
-            #         if any([str(dim).lower() in block_dim_indices for dim in kwarg.dimensions]):
-            #             new_dim = tuple(
-            #                 sym.RangeIndex((None, None)) if str(dim).lower() in block_dim_indices # == self.block_dim.index.lower()
-            #                 else dim for dim in kwarg.dimensions
-            #             )
-            #         else:
-            #             new_dim = kwarg.dimensions + (sym.RangeIndex((None, None)),)
-            #         _kwarguments += ((kwarg_name, kwarg.clone(dimensions=new_dim)),)
-            #     else:
-            #         _kwarguments += ((kwarg_name, kwarg),)
-            # call._update(arguments=_arguments, kwarguments=_kwarguments)
- 
 
             successor_map[str(call.name)].trafo_data.setdefault('LowerBlockIndex', {})
             successor_map[str(call.name)].trafo_data['LowerBlockIndex'].setdefault('assignments', {})
-            # TODO: include this check?
-            # if not 'relevant_vars' in successor_map[str(call.name)].trafo_data['LowerBlockIndex']:
-            # successor_map[str(call.name)].trafo_data['LowerBlockIndex']['relevant_vars'] = SubstituteExpressions(call_arg_map).visit(as_tuple(relevant_vars))
-            # TODO: need for update?
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
             successor_map[str(call.name)].trafo_data['LowerBlockIndex']['relevant_vars'] = SubstituteExpressions(call_arg_map).visit(as_tuple(relevant_vars))
             drv_loop = item.trafo_data['LowerBlockIndex']['driver_loop']
             drv_loop = SubstituteExpressions(call_arg_map).visit(drv_loop)
-            # if 'driver_loop' not in successor_map[str(call.name)].trafo_data['LowerBlockIndex']:
             successor_map[str(call.name)].trafo_data['LowerBlockIndex']['driver_loop'] = drv_loop
-
-
-           
-
-        # relevant_vars = successor_map[str(call.name)].trafo_data['LowerBlockIndex'].get('relevant_vars', ())
 
 
 
@@ -894,7 +798,6 @@ class LowerBlockIndexTransformation(Transformation):
                 continue
 
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
-            # call_arg_dtype_map = dict((k.type.dtype,v) for k,v in call_arg_map.items() if hasattr(k, 'type'))
             call_arg_dtype_map = dict((v.type.dtype, v) for v in call.routine.arguments if hasattr(v, 'type'))
 
             call_all_imports = call.routine.all_imports
@@ -906,19 +809,9 @@ class LowerBlockIndexTransformation(Transformation):
             relevant_vars += (driver_loop.bounds.lower, driver_loop.bounds.upper)
             if driver_loop.bounds.step is not None:
                 relevant_vars += (driver_loop.bounds.step,)
-            # relevant_vars += as_tuple(FindVariables().visit(driver_loop_header[driver_loop]))
             relevant_vars += as_tuple(FindUsedVariables().visit(driver_loop_header[driver_loop]))
-            # TODO: is this really making a difference?
-            # _assigns_rhs = [assign.rhs for assign in FindNodes(ir.Assignment).visit(driver_loop_header[driver_loop])]
-            # relevant_vars += as_tuple(FindUsedVariables().visit(as_tuple(_assigns_rhs)))
-            ##
             relevant_vars = set(relevant_vars)
             new_args = []
-            for _var in relevant_vars:
-                if isinstance(_var, sym._Literal):
-                    continue
-                if _var.parent is not None:
-                    _parent_var = _get_parent(_var)
 
             new_kwargs = []
             already_arg = []
@@ -928,7 +821,6 @@ class LowerBlockIndexTransformation(Transformation):
                 if isinstance(_var, sym._Literal):
                     continue
                 if _var in call_arg_map:
-                    # already_arg.append(_get_parent(_var))
                     already_arg.append(call_arg_map[_var])
                     continue
                 else:
@@ -967,15 +859,8 @@ class LowerBlockIndexTransformation(Transformation):
             if new_imports:
                 call.routine.spec.prepend(as_tuple(new_imports))
 
-            ##
-            # promote locals
-            # local_vars = get_local_arrays(routine, routine.spec)
-            # TODO: further filtering, constant dims, ...
-            # routine_variable_map = call.routine.variable_map
-            ##
             local_vars = get_local_arrays(call.routine, call.routine.spec)
             # TODO: further filtering, constant dims, ...
-            # routine_variable_map = call.routine.variable_map
             var_map = {}
             call_variable_map = call.routine.variable_map
             call_block_dim_size = None
@@ -1044,8 +929,6 @@ class LowerBlockIndexTransformation(Transformation):
 
             successor_map[str(call.name)].trafo_data.setdefault('LowerBlockIndex', {})
             successor_map[str(call.name)].trafo_data['LowerBlockIndex'].setdefault('assignments', {})
-            # successor_map[str(call.name)].trafo_data['LowerBlockIndex']['relevant_vars'] = SubstituteExpressions(call_arg_map).visit(as_tuple(relevant_vars))
-            # TODO: need for update?
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
             successor_map[str(call.name)].trafo_data['LowerBlockIndex']['relevant_vars'] = SubstituteExpressions(call_arg_map).visit(as_tuple(relevant_vars))
             drv_loop = driver_loop.clone()
@@ -1056,89 +939,11 @@ class LowerBlockIndexTransformation(Transformation):
 
     def process(self, routine, targets, role):
         """
-        This method adds the blocking index and size as arguments (if not already
-        there yet) for calls and corresponding callees and updates the dimension
-        and shape of arguments for calls and callees.
-
-        .. note::
-            The injection of the block index for promoted arrays is not part of this
-            method (and also not part of this transformation!)
+        .. deprecated::
+            This method is dead code, superseded by process_driver/process_kernel.
+            Retained temporarily for reference; will be removed.
         """
-        processed_routines = ()
-        variable_map = routine.variable_map
-        block_dim_index = get_integer_variable(routine, self.block_dim.index)
-        block_dim_size = get_integer_variable(routine, self.block_dim.size)
-
-        relevant_calls = []
-        with pragmas_attached(routine, ir.CallStatement):
-            calls = FindNodes(ir.CallStatement).visit(routine.body)
-            for call in calls:
-                if call.pragma:
-                    if any([_pragma.keyword.lower() == 'loki' and _pragma.content.lower() == 'small-kernels' for _pragma in call.pragma]):
-                        relevant_calls.append(call)
-
-        for call in relevant_calls: # FindNodes(ir.CallStatement).visit(routine.body):
-            if str(call.name).lower() not in targets:
-                continue
-            if call.routine is BasicType.DEFERRED:
-                warning('[LowerBlockIndexTransformation] Not processing routine ' \
-                        f'{call.name}. Call statement not enriched')
-                continue
-
-            
-            # self._propagate_missing_args(call, variable_map, block_dim_index, block_dim_size, processed_routines)
-
-            # # update dimensions and shape
-            # self._update_dims_shapes(call, variable_map)
-            
-            # if role == 'driver':
-            #     self._driver_adapt_calls(call)
-            # processed_routines += (call.routine.name,)
-
-    def _propagate_missing_args(self, call, variable_map, block_dim_index, block_dim_size, processed_routines):
-        call_arg_map = dict((v,k) for k,v in call.arg_map.items())
-        call_block_dim_size = call_arg_map.get(block_dim_size, block_dim_size)
-        new_args = tuple(var for var in [block_dim_index, block_dim_size] if var not in call_arg_map)
-        if new_args:
-            call._update(kwarguments=call.kwarguments+tuple((new_arg.name, new_arg) for new_arg in new_args))
-            if call.routine.name not in processed_routines:
-                call.routine.arguments += tuple((variable_map[new_arg.name].clone(scope=call.routine,
-                    type=new_arg.type.clone(intent='in')) for new_arg in new_args))
-
-    def _update_dims_shapes(self, call, variable_map):
-       var_map = {}
-       call_variable_map = call.routine.variable_map
-       for arg, call_arg in call.arg_iter():
-           if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
-               call_routine_var = call_variable_map[arg.name]
-               new_dims = call_routine_var.dimensions + (call_variable_map[call_block_dim_size.name],)
-               new_shape = call_routine_var.shape + (call_variable_map[call_block_dim_size.name],)
-               new_type = call_routine_var.type.clone(shape=new_shape)
-               var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims, type=new_type)
-       call.routine.spec = SubstituteExpressions(var_map).visit(call.routine.spec)
-
-    def _driver_adapt_calls(self, call):
-        _arguments = ()
-        for arg in call.arguments:
-            if isinstance(arg, sym.Array):
-                new_dim = tuple(
-                    sym.RangeIndex((None, None)) if str(dim).lower() == self.block_dim.index.lower()
-                    else dim for dim in arg.dimensions
-                )
-                _arguments += (arg.clone(dimensions=new_dim),)
-            else:
-                _arguments += (arg,)
-        _kwarguments = ()
-        for kwarg_name, kwarg in call.kwarguments:
-            if isinstance(kwarg, sym.Array):
-                new_dim = tuple(
-                    sym.RangeIndex((None, None)) if str(dim).lower() == self.block_dim.index.lower()
-                    else dim for dim in kwarg.dimensions
-                )
-                _kwarguments += ((kwarg_name, kwarg.clone(dimensions=new_dim)),)
-            else:
-                _kwarguments += ((kwarg_name, kwarg),)
-        call._update(arguments=_arguments, kwarguments=_kwarguments)
+        raise NotImplementedError("Dead method: use process_driver/process_kernel instead")
 
 
 class LowerBlockLoopTransformation(Transformation):

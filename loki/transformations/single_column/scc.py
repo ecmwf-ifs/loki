@@ -20,7 +20,6 @@ from loki.transformations.temporaries import (
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
-from loki.transformations.single_column.promote import SCCPromoteTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
 from loki.transformations.single_column.devector import SCCDevectorTransformation
 from loki.transformations.single_column.revector import (
@@ -32,11 +31,10 @@ from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
 from loki.transformations.block_index_transformations import (
         LowerBlockLoopTransformation, InjectBlockIndexTransformation,
-        LowerBlockIndexTransformation# , LowerBlockLoopTransformation2
+        LowerBlockIndexTransformation
 )
-from loki.transformations.array_indexing import LowerConstantArrayIndices
 from loki.ir import SubstituteExpressions
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import as_tuple
 
 __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
@@ -45,7 +43,7 @@ __all__ = [
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
-    'SCCSEcStackPipeline', 'SCCSmallKernelsPipeline', 'SCCSmallKernelsTestPipeline'
+    'SCCSEcStackPipeline', 'SCCSmallKernelsPipeline'
 ]
 
 
@@ -68,7 +66,6 @@ class CreateLocalCopiesTransformation(Transformation):
         """
         role = kwargs['role']
         item = kwargs.get('item', None)
-        # targets = kwargs.get('targets', ())
 
         if role == 'kernel':
             if 'LowerBlockIndex' in item.trafo_data:
@@ -86,7 +83,6 @@ class CreateLocalCopiesTransformation(Transformation):
         return None
 
     def _create_local_copies(self, routine):
-        # indices = self.block_dim.indices
         routine_variable_map = routine.variable_map
         create_local_copy = []
         for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
@@ -118,16 +114,6 @@ class RemoveUnusedVarTransformation(RemoveCodeTransformation):
         super().__init__(remove_unused_vars=remove_unused_vars, remove_only_arrays=remove_only_arrays,
                 remove_marked_regions=False, kernel_only=True)
 
-SCCSmallKernelsBackupPipeline = partial(
-    Pipeline, classes=(
-        # LowerConstantArrayIndices,
-        LowerBlockIndexTransformation,
-        InjectBlockIndexTransformation,
-        SCCBaseTransformation,
-        # SCCBlockSectionTransformation,
-        )
-)
-
 SCCSmallKernelsPipeline = partial(
     Pipeline, classes=(
         LowerBlockIndexTransformation,
@@ -136,31 +122,11 @@ SCCSmallKernelsPipeline = partial(
         SCCDevectorTransformation,
         SCCDemoteTransformation,
         SCCVecRevectorTransformation,
-        # SCCAnnotateTransformation,
         SCCBlockSectionTransformation,
-        # # SCCPromoteTransformation,
         SCCBlockSectionToLoopTransformation,
         SCCAnnotateTransformation,
         TemporariesPoolAllocatorPerDrvLoopTransformation,
         CreateLocalCopiesTransformation,
-        PragmaModelTransformation
-        )
-)
-
-SCCSmallKernelsTestPipeline = partial(
-    Pipeline, classes=(
-        # LowerConstantArrayIndices,
-        # LowerBlockIndexTransformation,
-        # InjectBlockIndexTransformation,
-        #  SCCBaseTransformation,
-        SCCBaseTransformation,
-        SCCDevectorTransformation,
-        SCCDemoteTransformation,
-        SCCVecRevectorTransformation,
-        SCCAnnotateTransformation,
-        SCCBlockSectionTransformation,
-        SCCPromoteTransformation,
-        SCCBlockSectionToLoopTransformation,
         PragmaModelTransformation
         )
 )
