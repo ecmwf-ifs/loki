@@ -7,7 +7,7 @@
 
 from functools import partial
 
-from loki.batch import Pipeline
+from loki.batch import Pipeline, Transformation
 
 from loki.transformations.temporaries import (
         HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
@@ -35,6 +35,8 @@ from loki.transformations.block_index_transformations import (
         LowerBlockIndexTransformation# , LowerBlockLoopTransformation2
 )
 from loki.transformations.array_indexing import LowerConstantArrayIndices
+from loki.ir import SubstituteExpressions
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 
 __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
@@ -46,6 +48,54 @@ __all__ = [
     'SCCSEcStackPipeline', 'SCCSmallKernelsPipeline', 'SCCSmallKernelsTestPipeline'
 ]
 
+
+class CreateLocalCopiesTransformation(Transformation):
+    
+    def __init__(self, block_dim, horizontal):
+        self.block_dim = block_dim 
+        self.horizontal = horizontal
+   
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply SCCDevector utilities to a :any:`Subroutine`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : string
+            Role of the subroutine in the call tree; should be ``"kernel"``
+        """
+        role = kwargs['role']
+        item = kwargs.get('item', None)
+        # targets = kwargs.get('targets', ())
+
+        if role == 'kernel':
+            if 'LowerBlockIndex' in item.trafo_data:
+                self._create_local_copies(routine)
+
+    def get_block_index(self, routine, variable_map, index):
+        """
+        Utility to retrieve the block-index loop induction variable.
+        """
+        if (block_index := variable_map.get(index, None)):
+            return block_index
+        if (index.split('%', maxsplit=1)[0] in variable_map):
+            block_index = index.split('%', maxsplit=1)
+            return routine.resolve_typebound_var(block_index[0], variable_map)
+        return None
+
+    def _create_local_copies(self, routine):
+        # indices = self.block_dim.indices
+        routine_variable_map = routine.variable_map
+        create_local_copy = []
+        for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
+            if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
+                create_local_copy.append(block_index)
+        print(f"create local copy {routine}: {create_local_copy}")
+        local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy if f'local_{var.name}' not in routine_variable_map}
+        routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
+        routine.variables += as_tuple(local_copy_map.values())
 
 class RemoveUnusedVarTransformation(RemoveCodeTransformation):
     """
@@ -89,10 +139,11 @@ SCCSmallKernelsPipeline = partial(
         SCCVecRevectorTransformation,
         # SCCAnnotateTransformation,
         SCCBlockSectionTransformation,
-        # SCCPromoteTransformation,
+        # # SCCPromoteTransformation,
         SCCBlockSectionToLoopTransformation,
         SCCAnnotateTransformation,
         TemporariesPoolAllocatorPerDrvLoopTransformation,
+        CreateLocalCopiesTransformation,
         PragmaModelTransformation
         )
 )

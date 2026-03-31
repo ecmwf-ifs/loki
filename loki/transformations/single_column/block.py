@@ -11,7 +11,7 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.ir import (
     nodes as ir, FindNodes, FindScopes, FindVariables, Transformer,
-    NestedTransformer, is_loki_pragma, pragmas_attached,
+    NestedTransformer, is_loki_pragma, pragmas_attached, SubstituteExpressions
 )
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import BasicType
@@ -48,10 +48,11 @@ class ReblockSectionTransformer(Transformer):
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, routine, item, *args, insert_pragma=True, **kwargs):
+    def __init__(self, routine, item, horizontal, *args, insert_pragma=True, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.routine = routine
+        self.horizontal = horizontal
 
         self.insert_pragma = insert_pragma
         self.item = item
@@ -65,24 +66,21 @@ class ReblockSectionTransformer(Transformer):
         if s.label == 'block_section':
             # Derive the loop bounds wrap section in loop
             # bounds = get_loop_bounds(self.routine, dimension=self.horizontal)
-            index = get_integer_variable(self.routine, 'j_tmp') 
-            bounds = sym.LoopRange((1,1))
+            symbol_map = self.routine.symbol_map
+            sizes = tuple(
+                self.routine.resolve_typebound_var(size, symbol_map) for size in self.horizontal.size_expressions
+                if size.split('%')[0] in symbol_map
+            )
+            vector_length = f' vector_length({sizes[0]})' if sizes else ''
             if self.driver_loop is None:
-                print(f"MISSING driver loop for {self.routine}")
+                # TODO: raise proper exception
                 assert False
-                return (ir.Comment(text='! START OF BLOCK LOOP'), ir.Loop(variable=index, bounds=bounds, body=s.body), ir.Comment(text='! END OF BLOCK LOOP'))
             else:
                 return (ir.Comment(text='! START OF BLOCK LOOP'), ir.Comment(text=''),
-                        self.driver_loop.clone(body=self.driver_loop.body+s.body, pragma=(ir.Pragma(keyword='loki', content='loop driver'),)),
+                        self.driver_loop.clone(body=self.driver_loop.body+s.body, pragma=(ir.Pragma(keyword='loki', content=f'loop driver{vector_length}'),)),
                         ir.Comment(text=''), 
                         ir.Comment(text='! END OF BLOCK LOOP'))
-            # return (ir.Comment(text='! START OF BLOCK LOOP'),
-            #         s, ir.Comment(text='! END OF BLOCK LOOP'))
-            # return wrap_vector_section(
-            #     s.body, self.routine, bounds=bounds, index=self.horizontal.index,
-            #     insert_pragma=self.insert_pragma
-            # )
-
+        
         # Rebuild loop after recursing to children
         return self._rebuild(s, self.visit(s.children))
 
@@ -113,8 +111,9 @@ class ReblockSectionTransformer(Transformer):
 
 class SCCBlockSectionToLoopTransformation(Transformation):
 
-    def __init__(self, block_dim):
+    def __init__(self, block_dim, horizontal):
         self.block_dim = block_dim
+        self.horizontal = horizontal
 
     def activate_pragmas(self, routine):
         # !$loki inactive-small-kernels routine seq
@@ -122,6 +121,38 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         for pragma in pragmas:
             if is_loki_pragma(pragma, starts_with='inactive-small-kernels'):
                 pragma._update(content=pragma.content.replace('inactive-small-kernels', ''))
+
+    def get_block_index(self, routine, variable_map, index):
+        """
+        Utility to retrieve the block-index loop induction variable.
+        """
+        if (block_index := variable_map.get(index, None)):
+            return block_index
+        if (index.split('%', maxsplit=1)[0] in variable_map):
+            block_index = index.split('%', maxsplit=1)
+            return routine.resolve_typebound_var(block_index[0], variable_map)
+        return None
+
+    def _create_local_copies(self, routine):
+        # indices = self.block_dim.indices
+        routine_variable_map = routine.variable_map
+        create_local_copy = []
+        for _index in self.block_dim.indices:
+            if not "%" in _index:
+                continue
+            if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
+                create_local_copy.append(block_index)
+        print(f"create local copy {routine}: {create_local_copy}")
+        local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy}
+        routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
+        routine.variables += as_tuple(local_copy_map.values())
+
+        new_assignments = ()
+        for key, val in local_copy_map.items():
+            new_assignments += (ir.Assignment(lhs=val, rhs=key),)
+        if new_assignments:
+            routine.body.prepend(new_assignments)
+
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -139,8 +170,10 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         # targets = kwargs.get('targets', ())
 
         if role == 'kernel':
-            routine.body = ReblockSectionTransformer(routine, item).visit(routine.body)
+            routine.body = ReblockSectionTransformer(routine, item, self.horizontal).visit(routine.body)
             self.activate_pragmas(routine)
+            if 'LowerBlockIndex' in item.trafo_data:
+                self._create_local_copies(routine)
 
 
 class SCCBlockSectionTransformation(Transformation):
@@ -341,19 +374,60 @@ class SCCBlockSectionTransformation(Transformation):
         if role == "driver":
             self.process_driver(routine, item, successor_map, targets=targets)
 
-    def process_driver(self, routine, item, successor_map, targets):
+    def process_driver_backup(self, routine, item, successor_map, targets):
         with pragmas_attached(routine, ir.CallStatement):
             calls = FindNodes(ir.CallStatement).visit(routine.body)
             
             for call in calls:
-                print(f"BLOCKSECTION: call {call} | {call.pragma}")
                 call_pragmas = call.pragma
                 if not call_pragmas:
                     continue
                 for pragma in call_pragmas:
                     if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
-                        print(f"[BLOCKSECTION] driver {successor_map[str(call.name)]} -> True")
                         successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
+
+    def process_driver_backup_2(self, routine, item, successor_map, targets):
+        loop_map = {}
+        with pragmas_attached(routine, (ir.CallStatement, ir.Loop), attach_pragma_post=True):
+            loops = FindNodes(ir.Loop).visit(routine.body)
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            for driver_loop in driver_loops:
+                calls = FindNodes(ir.CallStatement).visit(driver_loop.body)
+                for call in calls:
+                    call_pragmas = call.pragma
+                    if not call_pragmas:
+                        continue
+                    for pragma in call_pragmas:
+                        if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
+                            successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
+                            loop_map[driver_loop] = (ir.Comment(text='! former driver loop ...'), driver_loop.body, ir.Comment(text='! END: former driver loop ...'))
+                            break
+            if loop_map:
+                routine.body = Transformer(loop_map).visit(routine.body)
+
+    def process_driver(self, routine, item, successor_map, targets):
+        with pragmas_attached(routine, ir.CallStatement):
+            calls = FindNodes(ir.CallStatement).visit(routine.body)
+
+            for call in calls:
+                call_pragmas = call.pragma
+                if not call_pragmas:
+                    continue
+                for pragma in call_pragmas:
+                    if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
+                        successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
+        loop_map = {}
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            loops = FindNodes(ir.Loop).visit(routine.body)
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            for driver_loop in driver_loops:
+                pragmas = FindNodes(ir.Pragma).visit(driver_loop.body)
+                for pragma in pragmas:
+                    if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
+                        loop_map[driver_loop] = (ir.Comment(text='! former driver loop ...'), driver_loop.body, ir.Comment(text='! END: former driver loop ...'))
+                        break
+            if loop_map:
+                routine.body = Transformer(loop_map).visit(routine.body)
 
     def process_kernel(self, routine, item, successor_map):
         """
@@ -372,6 +446,13 @@ class SCCBlockSectionTransformation(Transformation):
         
         if not item.trafo_data.get('BlockSectionTrafo', False):
             return
+
+        # remove 'loki routine seq/vec' pragmas
+        pragmas = [pragma for pragma in FindNodes(ir.Pragma).visit(routine.ir) if is_loki_pragma(pragma, starts_with='routine')]
+        pragma_map = {pragma: None for pragma in pragmas}
+        routine.spec = Transformer(pragma_map).visit(routine.spec)
+        routine.body = Transformer(pragma_map).visit(routine.body)
+        ##
 
         # Extract vector-level compute sections from the kernel
         print(f"extract_block_sections for routine {routine}")

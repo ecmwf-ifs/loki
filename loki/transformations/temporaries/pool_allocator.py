@@ -771,6 +771,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         return stack_size
 
+    def get_block_index(self, routine, variable_map):
+        """
+        Utility to retrieve the block-index loop induction variable.
+        """
+
+        if (block_index := variable_map.get(self.block_dim.index, None)):
+            return block_index
+        if (block_index := [i for i in self.block_dim.indices
+                            if i.split('%', maxsplit=1)[0] in variable_map]):
+            return routine.resolve_typebound_var(block_index[0], variable_map)
+        return None
+
     def create_pool_allocator(self, routine, stack_size):
         """
         Create a pool allocator in the driver
@@ -855,7 +867,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                         function=Variable(name='LOC'),
                         parameters=(
                             stack_storage.clone(
-                                dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+                                # dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+                                dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
                             ),
                         ),
                         kw_parameters=None

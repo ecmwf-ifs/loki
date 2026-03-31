@@ -185,12 +185,12 @@ class SCCAnnotateTransformation(Transformation):
                     # # Find variables with existing OpenACC data declarations
                     # acc_vars = self.find_acc_vars(routine, targets)
                     # TODO: acc_vars
-                    acc_vars = {}
-
+                    acc_vars = self.find_kernel_acc_vars(routine) # , targets)
+                    print(f"routine {routine} acc_vars: {acc_vars}")
                     driver_loops = find_driver_loops(section=routine.body, targets=targets)
                     print(f"[ANNOTATE] kernel {routine} : driver_loops: {driver_loops}")
                     for loop in driver_loops:
-                        self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+                        self.annotate_driver_loop(loop, acc_vars, privatise_derived_types=False)
 
 
         if role == 'driver':
@@ -208,6 +208,61 @@ class SCCAnnotateTransformation(Transformation):
                     driver_loops = find_driver_loops(section=routine.body, targets=targets)
                     for loop in driver_loops:
                         self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+
+    def find_kernel_acc_vars(self, routine):
+        """
+        Find variables already specified in loki/acc data clauses.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        """
+
+        acc_vars = []
+
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            pragma_keyword = region.pragma.keyword.lower()
+            print(f"pragma_keyword: {pragma_keyword}")
+            print(f"region.pragma: {region.pragma}")
+            if pragma_keyword in ['loki', 'acc']:
+                if pragma_keyword == 'acc':
+                    parameters = get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)
+                else:
+                    if 'device-present' in region.pragma.content.lower():
+                        parameters = get_pragma_parameters(region.pragma, starts_with='device-present',
+                                only_loki_pragmas=False)
+                    else:
+                        parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
+                                only_loki_pragmas=False)
+                if parameters is not None:
+                    # driver_loops = find_driver_loops(section=region.body, targets=targets)
+                    # if not driver_loops:
+                    #     continue
+
+                    # When a key is given multiple times, get_pragma_parameters returns a list
+                    # We merge them here into single entries to make our life easier below
+                    parameters = {key: ', '.join(as_tuple(value)) for key, value in parameters.items()}
+                    print(f"  parameters: {parameters}")
+                    if (default := parameters.get('default', None)):
+                        if not 'none' in [p.strip().lower() for p in default.split(',')]:
+                            # for loop in driver_loops:
+
+                            _vars = [var.name.lower() for var in FindVariables(unique=True).visit(routine.body)]
+                            print(f"  [1] _vars: {_vars}")
+                            acc_vars += _vars
+                    else:
+                        _vars = [
+                            p.strip().lower()
+                            for category in ('present', 'copy', 'copyin', 'copyout', 'deviceptr', 'vars')
+                            for p in parameters.get(category, '').split(',')
+                        ]
+                        print(f"  [2] _vars: {_vars}")
+
+                        # for loop in driver_loops:
+                        acc_vars += _vars
+
+        return acc_vars
 
     def find_acc_vars(self, routine, targets):
         """
@@ -279,7 +334,7 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-    def annotate_driver_loop(self, loop, acc_vars):
+    def annotate_driver_loop(self, loop, acc_vars, privatise_derived_types=True):
         """
         Annotate driver block loop with generic Loki pragmas.
 
@@ -301,7 +356,7 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
         private_sym = arrays
 
-        if self.privatise_derived_types:
+        if self.privatise_derived_types: #  and privatise_derived_types:
             # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
             # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
             # scalars must also be privatised.
