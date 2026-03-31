@@ -22,7 +22,7 @@ from loki.ir import (
         is_loki_pragma, pragmas_attached
 )
 from loki.expression import symbols as sym
-from loki.analyse.analyse_dataflow import DataflowAnalysis
+from loki.analyse.dataflow_analysis import DataflowAnalysis
 from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
 from loki.tools import as_tuple, OrderedSet
