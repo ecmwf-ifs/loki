@@ -48,6 +48,24 @@ __all__ = [
 
 
 class CreateLocalCopiesTransformation(Transformation):
+    """
+    Create local scalar copies of block-dimension and horizontal-dimension
+    index variables inside kernel routines.
+
+    For each variable in ``block_dim.indices``, ``horizontal.upper``, and
+    ``horizontal.lower`` that appears in the routine's variable map, a new
+    ``local_<name>`` variable is created and all body references are
+    rewritten to use the local copy.  This prevents accidental aliasing
+    when the caller-side variable is a derived-type component (e.g.
+    ``YDCPG_BNDS%KIDIA``).
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        Dimension object describing the blocking data dimension.
+    horizontal : :any:`Dimension`
+        Dimension object describing the horizontal (column) dimension.
+    """
     
     def __init__(self, block_dim, horizontal):
         self.block_dim = block_dim 

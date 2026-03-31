@@ -88,7 +88,10 @@ class BlockViewToFieldViewTransformation(Transformation):
         self.global_gfl_ptr = global_gfl_ptr
 
     def transform_subroutine(self, routine, **kwargs):
-
+        """
+        Dispatch to :meth:`process_kernel` or :meth:`process_driver`
+        depending on the routine's role in the call tree.
+        """
         if not (item := kwargs.get('item', None)):
             raise RuntimeError('Cannot apply BlockViewToFieldViewTransformation without item to store definitions')
         sub_sgraph = kwargs.get('sub_sgraph', None)
@@ -190,8 +193,11 @@ class BlockViewToFieldViewTransformation(Transformation):
             child.trafo_data.update({key: {'definitions': definitions}})
 
     def process_driver(self, routine, item, successors, targets, exclude_var_names):
-
-        # create dummy definitions for field_api wrapper types
+        """
+        Process a driver routine: create dummy FIELD_API definitions,
+        propagate them to children, and rewrite view pointers to field
+        pointers in driver loop bodies.
+        """
         field_array_mod_imports = [imp for imp in routine.imports if imp.module.lower() == 'field_array_module']
         definitions = []
         if field_array_mod_imports:
@@ -221,8 +227,12 @@ class BlockViewToFieldViewTransformation(Transformation):
                          parent=parent, type=_type)
 
     def process_body(self, body, item, successors, targets, exclude_var_names):
-
-        # build list of type-bound array access using the horizontal index
+        """
+        Build a substitution map that rewrites block-view (``%P_*``)
+        array accesses to field-view (``%F_*``) accesses in the given
+        *body* section, then apply the substitution and return the
+        transformed body.
+        """
         _vars = [var for var in FindVariables(unique=False).visit(body)
                 if isinstance(var, Array) and var.parents and self.horizontal.index in var.dimensions]
 
@@ -257,8 +267,11 @@ class BlockViewToFieldViewTransformation(Transformation):
 
 
     def process_kernel(self, routine, item, successors, targets, exclude_var_names):
-
-        # Sanitize the subroutine
+        """
+        Process a kernel routine: resolve associates, convert horizontal
+        vector notation to explicit loops, rewrite view pointers to field
+        pointers, and propagate definitions to successor routines.
+        """
         do_resolve_associates(routine)
 
         # Bail if routine is marked as sequential
@@ -354,6 +367,11 @@ class InjectBlockIndexTransformation(Transformation):
         self.block_dim = block_dim
 
     def transform_subroutine(self, routine, **kwargs):
+        """
+        Dispatch to :meth:`process_body` for both driver and kernel
+        routines, injecting the block index into array dimensions and
+        call-statement arguments.
+        """
 
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
@@ -414,8 +432,12 @@ class InjectBlockIndexTransformation(Transformation):
         return None
 
     def process_body(self, body, block_index, targets, exclude_arrays, force_inject_arrays):
-        # The logic for callstatement args differs from other variables in the body,
-        # so we build a list to filter
+        """
+        Inject the *block_index* variable into array dimensions and
+        call-statement arguments for all arrays whose last dimension
+        matches ``block_dim.size`` (field-view arrays that need the
+        block index appended).
+        """
         call_args = []
 
         # First get rank mismatched call statement args
@@ -530,6 +552,11 @@ class LowerBlockIndexTransformation(Transformation):
         self.recurse_to_kernels = recurse_to_kernels
 
     def transform_subroutine(self, routine, **kwargs):
+        """
+        Dispatch to :meth:`process_driver` for driver routines and
+        :meth:`process_kernel` for kernel routines (if
+        ``recurse_to_kernels`` is enabled).
+        """
 
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
@@ -593,7 +620,14 @@ class LowerBlockIndexTransformation(Transformation):
         return _var
 
     def process_kernel(self, routine, targets, item, successors):
-        
+        """
+        Lower the block index for a kernel routine: for each call marked
+        with ``!$loki small-kernels``, pass relevant variables as new
+        arguments, promote local arrays with the block dimension, update
+        argument dimensions/shapes, replace block-index references with
+        range indices in call arguments, and propagate transformation
+        data to successors.
+        """
         all_imports = routine.all_imports
         all_import_map = {}
         for imp in all_imports:
@@ -765,8 +799,14 @@ class LowerBlockIndexTransformation(Transformation):
 
         
     def process_driver(self, routine, targets, item, successors):
-
-        successor_map = CaseInsensitiveDict( 
+        """
+        Lower the block index for a driver routine: find driver loops
+        containing calls marked with ``!$loki small-kernels``, collect
+        relevant variables from loop headers, pass them as new arguments,
+        promote callee local arrays, update argument dimensions, and
+        propagate transformation data to successors.
+        """
+        successor_map = CaseInsensitiveDict(
             (successor.local_name, successor)
             for successor in successors
         )
@@ -1003,6 +1043,10 @@ class LowerBlockLoopTransformation(Transformation):
         self.block_dim = block_dim
 
     def transform_subroutine(self, routine, **kwargs):
+        """
+        Dispatch to :meth:`process_driver` for driver routines to lower
+        block loops into the called kernel routines.
+        """
         role = kwargs['role']
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets', None)))
         if role == 'driver':
@@ -1010,12 +1054,21 @@ class LowerBlockLoopTransformation(Transformation):
 
     @staticmethod
     def arg_to_local_var(routine, var):
+        """
+        Convert a subroutine argument to a local variable by removing
+        it from the argument list and clearing its intent attribute.
+        """
         new_args = tuple(arg for arg in routine.arguments if arg.name.lower() != var.name.lower())
         routine.arguments = new_args
         routine.variables += (routine.variable_map[var.name].clone(scope=routine,
             type=routine.variable_map[var.name].type.clone(intent=None)),)
 
     def local_var(self, call, variables):
+        """
+        For each variable in *variables*, make it local in the called
+        routine: if it is currently passed as an argument, convert it
+        to a local; otherwise, declare it as a new local variable.
+        """
         inv_call_arg_map = {v: k for k, v in call.arg_map.items()}
         call_routine_variables = call.routine.variables
         for var in variables:
@@ -1027,11 +1080,20 @@ class LowerBlockLoopTransformation(Transformation):
 
     @staticmethod
     def generate_pragma(loop):
+        """
+        Generate a ``!$loki removed_loop`` pragma recording the original
+        loop variable, bounds, and step for a lowered block loop.
+        """
         return ir.Pragma(keyword="loki", content=f"removed_loop var({loop.variable}) \
                     lower({loop.bounds.lower}) upper({loop.bounds.upper}) \
                     step({loop.bounds.step if loop.bounds.step else 1})")
 
     def update_call_signature(self, call, loop, loop_defined_symbols, additional_kwargs):
+        """
+        Update a call statement by removing loop-defined symbols from
+        its arguments and appending *additional_kwargs*, then attach a
+        ``removed_loop`` pragma recording the original loop metadata.
+        """
         ignore_symbols = [loop.variable.name.lower()] +\
             [symbol.name.lower() for symbol in loop_defined_symbols]
         _arguments = tuple(arg for arg in call.arguments\
@@ -1043,7 +1105,12 @@ class LowerBlockLoopTransformation(Transformation):
                 pragma=(call.pragma if call.pragma else ()) + call_pragmas)
 
     def process_driver(self, routine, targets):
-        # find block loops
+        """
+        Find block loops in a driver routine and lower them: move the
+        loop body into the called kernel, update call signatures, and
+        replace the original block loop with the bare call statement
+        plus a ``removed_loop`` pragma.
+        """
         with pragma_regions_attached(routine):
             with pragmas_attached(routine, ir.Loop):
                 loops = FindNodes(ir.Loop).visit(routine.body)

@@ -83,13 +83,33 @@ class ReblockSectionTransformer(Transformer):
 
 
 class SCCBlockSectionToLoopTransformation(Transformation):
+    """
+    Wrap identified vector-level block sections in ``!$acc parallel loop gang``
+    block loops and create local copies of block-dimension index variables.
+
+    This transformation operates on kernel routines that have been marked
+    with ``!$loki small-kernels`` pragmas.  It activates inactive pragmas,
+    creates local copies of block-index variables, and wraps vector
+    computation sections in block loops with appropriate OpenACC annotations.
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        Dimension object describing the blocking data dimension.
+    horizontal : :any:`Dimension`
+        Dimension object describing the horizontal (column) dimension.
+    """
 
     def __init__(self, block_dim, horizontal):
         self.block_dim = block_dim
         self.horizontal = horizontal
 
     def activate_pragmas(self, routine):
-        # !$loki inactive-small-kernels routine seq
+        """
+        Replace ``!$loki inactive-small-kernels`` pragmas with active
+        ``!$loki`` pragmas by stripping the ``inactive-small-kernels``
+        prefix from the pragma content.
+        """
         pragmas = FindNodes(ir.Pragma).visit(routine.body)
         for pragma in pragmas:
             if is_loki_pragma(pragma, starts_with='inactive-small-kernels'):
@@ -306,6 +326,12 @@ class SCCBlockSectionTransformation(Transformation):
             self.process_driver(routine, item, successor_map, targets=targets)
 
     def process_driver(self, routine, item, successor_map, targets):
+        """
+        Process a driver-level routine by marking call statements that
+        have ``!$loki small-kernels`` pragmas for block-section treatment,
+        and wrapping relevant driver loops with ``!$loki driver-loop``
+        pragmas.
+        """
         with pragmas_attached(routine, ir.CallStatement):
             calls = FindNodes(ir.CallStatement).visit(routine.body)
 

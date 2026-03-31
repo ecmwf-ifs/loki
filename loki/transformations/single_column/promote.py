@@ -16,6 +16,19 @@ __all__ = ['SCCPromoteTransformation']
 
 class SCCPromoteTransformation(Transformation):
     """
+    Promote local temporary arrays in kernel routines by appending the
+    block dimension as an additional trailing dimension.
+
+    This is the inverse of demoting: arrays that are local to a kernel
+    are extended with the block dimension so that each block operates on
+    its own slice, enabling parallelism across blocks on the GPU.
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        Dimension object describing the blocking data dimension.
+    promote_local_arrays : bool, optional
+        If ``True`` (default), promote all eligible local arrays.
     """
 
     def __init__(self, block_dim, promote_local_arrays=True):
@@ -26,6 +39,22 @@ class SCCPromoteTransformation(Transformation):
     @classmethod
     def get_locals_to_promote(cls, routine, sections, block_dim):
         """
+        Determine the set of local temporary arrays eligible for promotion.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine whose locals are inspected.
+        sections : list
+            Block sections extracted from the routine body (currently unused
+            but reserved for future filtering logic).
+        block_dim : :any:`Dimension`
+            The block dimension descriptor.
+
+        Returns
+        -------
+        set
+            Set of :any:`Variable` objects to promote.
         """
         # Create a list of local temporary arrays to filter down
         candidates = get_local_arrays(routine, routine.spec)

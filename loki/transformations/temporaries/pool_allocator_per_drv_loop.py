@@ -213,7 +213,12 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 f'"stack_end_name": "{self.stack_end_name}" must be different!')
 
     def transform_subroutine(self, routine, **kwargs):
-
+        """
+        Main entry point: dispatch pool allocator logic based on routine
+        role.  For kernels, replace temporaries with Cray-pointer stack
+        allocations.  For drivers, determine aggregate stack sizes and
+        create the pool allocator setup within each driver loop.
+        """
         role = kwargs['role']
         item = kwargs.get('item', None)
         ignore = item.ignore if item else ()
@@ -828,6 +833,12 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
 
     def create_pool_allocator_drv_loop(self, routine, stack_size, drv_loop):
+        """
+        Create the pool allocator setup within a driver loop: allocate
+        the stack storage array, inject stack pointer initialisation at
+        the top of the first block loop, and pass the stack storage as
+        an additional argument to each call within the driver loop.
+        """
         stack_storage, stack_size_var = self._get_stack_storage_and_size_var(routine, stack_size)
         stack_var = self._get_local_stack_var(routine)
         stack_var_end = self._get_local_stack_var_end(routine) if self.check_bounds else None
