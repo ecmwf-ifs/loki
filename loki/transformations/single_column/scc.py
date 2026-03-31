@@ -19,6 +19,7 @@ from loki.transformations.temporaries import (
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
+from loki.transformations.single_column.demote_vertical import SCCDemoteVerticalTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
 from loki.transformations.single_column.devector import SCCDevectorTransformation
 from loki.transformations.single_column.revector import (
@@ -343,6 +344,7 @@ SCCSStackPipeline = partial(
         SCCFuseVerticalLoops,
         SCCBaseTransformation,
         SCCDevectorTransformation,
+        SCCDemoteVerticalTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         RemoveUnusedVarTransformation,
