@@ -10,6 +10,7 @@
 from itertools import count
 
 from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.expression.symbolic import simplify
 from loki.frontend import HAVE_FP
 from loki.ir import (
     nodes as ir, FindNodes, FindExpressions, Transformer,
@@ -108,9 +109,17 @@ def add_explicit_array_dimensions(routine):
     routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
 
-def resolve_vector_notation(routine):
+def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True):
     """
-    Resolve implicit vector notation by inserting explicit loops
+    Resolve implicit vector notation by inserting explicit loops.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to resolve vector notation usage.
+    resolve_implicit_rhs_ranges : bool
+        When ``True`` (default), resolve all LHS range dimensions even
+        if the corresponding RHS arrays use bare ``:`` ranges.
     """
 
     # Find loops and map their range to the loop index variable
@@ -122,7 +131,8 @@ def resolve_vector_notation(routine):
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True,
         derive_qualified_ranges=True,
-        map_unknown_ranges=True
+        map_unknown_ranges=True,
+        resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges
     )
     routine.body = transformer.visit(routine.body)
 
@@ -130,18 +140,28 @@ def resolve_vector_notation(routine):
     routine.variables += tuple(OrderedSet(transformer.index_vars))
 
 
-def get_loop_bounds_test(routine, lower, upper):
+def _get_all_valid_loop_bounds(routine, lower, upper):
     """
-    Check loop bounds for a particular :any:`Dimension` in a
-    :any:`Subroutine`.
+    Find all valid combinations of loop bounds from candidate lists.
+
+    For each candidate in ``lower`` and ``upper``, checks whether the
+    variable exists in the routine's scope (or is a numeric literal).
+    Returns the cross-product of all valid lower/upper pairs.
 
     Parameters
     ----------
     routine : :any:`Subroutine`
-        Subroutine to perform checks on.
-    dimension : :any:`Dimension`
-        :any:`Dimension` object describing the variable conventions
-        used to define the data dimension and iteration space.
+        Subroutine whose variable scope is used to validate bound names.
+    lower : tuple of str
+        Candidate lower bound variable names or numeric strings.
+    upper : tuple of str
+        Candidate upper bound variable names or numeric strings.
+
+    Returns
+    -------
+    tuple of tuple
+        Each inner tuple is ``(lower_expr, upper_expr)`` as resolved
+        expression nodes.
     """
     def get_valid(elem, variable_map):
         if isinstance(elem, str) and elem.isnumeric():
@@ -162,12 +182,13 @@ def get_loop_bounds_test(routine, lower, upper):
             bounds += ((_lower, _upper),)
     return bounds
 
-def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False):
+def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
+                             resolve_implicit_rhs_ranges=True):
     """
     Resolve vector notation for a given dimension only. The dimension
     is defined by a loop variable and the bounds of the given range.
 
-    Unliked the related :meth:`resolve_vector_notation` utility, this
+    Unlike the related :meth:`resolve_vector_notation` utility, this
     will only resolve the defined dimension according to ``bounds``
     and ``loop_variable``.
 
@@ -180,13 +201,16 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False):
     derive_qualified_ranges : bool
         Flag to enable the derivation of (all) range bounds from
         shape information.
+    resolve_implicit_rhs_ranges : bool
+        When ``True`` (default), resolve all LHS range dimensions even
+        if the corresponding RHS arrays use bare ``:`` ranges.
     """
     # Find the iteration index variable and bound variables
     index = get_integer_variable(routine, name=dimension.index)
     
     _lower = as_tuple(dimension.lower) + ('1',)
     _upper = as_tuple(dimension.upper) + as_tuple(dimension.sizes)
-    bounds = get_loop_bounds_test(routine, lower=_lower, upper=_upper)
+    bounds = _get_all_valid_loop_bounds(routine, lower=_lower, upper=_upper)
 
     # Map any range indices to the given loop index variable
     loop_map = {sym.RangeIndex(_bounds): index for _bounds in bounds}
@@ -194,7 +218,8 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False):
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True,
         derive_qualified_ranges=derive_qualified_ranges,
-        map_unknown_ranges=False
+        map_unknown_ranges=False,
+        resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges
     )
     routine.body = transformer.visit(routine.body)
 
@@ -317,11 +342,17 @@ class ResolveVectorNotationTransformer(Transformer):
     map_unknown_ranges : bool
         Flag to indicate whether unknown, but fully qualified range
         indices are to be remapped to loops.
+    resolve_implicit_rhs_ranges : bool
+        When ``True`` (default), resolve all LHS range dimensions even
+        if the corresponding RHS arrays use bare ``:`` (unqualified)
+        ranges. When ``False``, only resolve dimensions where all RHS
+        arrays have explicit (qualified) ranges.
     """
 
     def __init__(
             self, *args, loop_map=None, scope=None,
             derive_qualified_ranges=True, map_unknown_ranges=True,
+            resolve_implicit_rhs_ranges=True,
             **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -332,26 +363,224 @@ class ResolveVectorNotationTransformer(Transformer):
 
         self.map_unknown_ranges = map_unknown_ranges
         self.derive_qualified_ranges = derive_qualified_ranges
+        self.resolve_implicit_rhs_ranges = resolve_implicit_rhs_ranges
         self.infer_iteration_shape = True
 
+        # Build a lookup of existing scalar assignments of the form:
+        #   SCALAR = DERIVED_TYPE_MEMBER  (e.g., KLEVS = KDIM%KLEVS)
+        # Keys are canonical (lowercased) string forms of the RHS expression.
+        # Used by _substitute_derived_type_bounds to replace shape-derived
+        # loop bounds that reference derived-type members.
+        self._scalar_assignment_map = {}
+        if scope is not None:
+            for assign in FindNodes(ir.Assignment).visit(scope.body):
+                rhs = assign.rhs
+                lhs = assign.lhs
+                # Only record simple scalar = derived-type-member assignments
+                if (isinstance(lhs, sym.Scalar) and lhs.parent is None
+                        and isinstance(rhs, sym.Scalar) and rhs.parent is not None):
+                    self._scalar_assignment_map[str(rhs).lower().replace(' ', '')] = lhs
+
+    @staticmethod
+    def _find_range_positions(dims):
+        """Return list of positions in ``dims`` that are :any:`RangeIndex`."""
+        return [i for i, dim in enumerate(dims) if isinstance(dim, sym.RangeIndex)]
+
+    @staticmethod
+    def _find_qualified_range_indices(dims, range_positions):
+        """
+        Return indices into ``range_positions`` excluding bare ``(:)``
+        (i.e. ``RangeIndex((None, None))``) ranges.
+        """
+        return [
+            i for i, j in enumerate(range_positions)
+            if dims[j] != sym.RangeIndex((None, None))
+        ]
+
+    @staticmethod
+    def _compute_shifted_index(loop_var, lhs_range, rhs_range):
+        """
+        Compute the RHS array index for a shifted range.
+
+        When LHS has range ``a:b`` and RHS has range ``c:d``, the RHS index
+        for loop variable ``i`` (iterating over ``a:b``) is: ``i - a + c``.
+
+        Parameters
+        ----------
+        loop_var : expression
+            The loop index variable replacing the LHS range.
+        lhs_range : :any:`RangeIndex`
+            The range on the LHS array.
+        rhs_range : :any:`RangeIndex`
+            The range on the RHS array.
+
+        Returns
+        -------
+        expression
+            The offset-adjusted index expression, simplified.
+        """
+        return simplify(sym.Sum((loop_var, sym.Product((-1, lhs_range.lower)), rhs_range.lower)))
+
+    @staticmethod
+    def _map_ranges_to_indices(dims, loop_map, map_unknown_ranges=True, basename='i', scope=None):
+        """
+        Map :any:`RangeIndex` dimensions to loop index variables.
+
+        For each ``RangeIndex`` in ``dims``, either reuse a known index
+        from ``loop_map`` or create a new integer variable. Returns the
+        new dimension tuple, a mapping from index variables to their
+        corresponding ranges, and a set of the newly created (synthesized)
+        index variables.
+
+        Parameters
+        ----------
+        dims : tuple
+            The dimension expressions to process.
+        loop_map : dict
+            Map of known ``RangeIndex`` to loop variables.
+        map_unknown_ranges : bool
+            Whether to create new indices for unknown ranges.
+        basename : str
+            Base name for newly created index variables.
+        scope : :any:`Subroutine` or :any:`Module`
+            Scope for newly created variables.
+
+        Returns
+        -------
+        tuple
+            ``(new_dims, index_range_map, synthesized_ivars)`` where
+            ``new_dims`` has loop variables replacing ranges,
+            ``index_range_map`` maps each new variable to its original
+            range, and ``synthesized_ivars`` is the set of index variables
+            that were newly created (as opposed to reused from
+            ``loop_map``).
+        """
+        index_range_map = {}
+        shape_index_map = {}
+        synthesized_ivars = set()
+        for i, dim in zip(count(), dims):
+            if isinstance(dim, sym.RangeIndex):
+                # See if index variable is known for this loop range
+                if dim in loop_map:
+                    ivar = loop_map[dim]
+                else:
+                    # Skip if we're not supposed to create new indices
+                    if not map_unknown_ranges or dim == sym.RangeIndex((None, None)):
+                        continue
+                    vtype = SymbolAttributes(BasicType.INTEGER)
+                    ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
+                    synthesized_ivars.add(ivar)
+                shape_index_map[(i, dim)] = ivar
+                index_range_map[ivar] = dim
+        # Build new dimensions tuple, substituting mapped ranges
+        new_dims = as_tuple(
+            shape_index_map.get((i, d), d) for i, d in zip(count(), dims)
+        )
+        return new_dims, index_range_map, synthesized_ivars
+
+    def _substitute_derived_type_bounds(self, index_range_map, synthesized_ivars):
+        """
+        For synthesized loop bounds that contain derived-type member references,
+        substitute with existing scalar variables from the routine, or create
+        new ones if none exist.
+
+        Only applies to variables in ``synthesized_ivars`` (i.e. those whose
+        loop range was created from array shape information, not from an
+        explicit range in the source code).  Ranges from ``loop_map``
+        (Case A — explicit source-code ranges) are left untouched.
+
+        Parameters
+        ----------
+        index_range_map : dict
+            Maps loop index variables to their :any:`RangeIndex` ranges.
+        synthesized_ivars : set
+            The subset of keys in ``index_range_map`` that were newly
+            created by :meth:`_map_ranges_to_indices` (i.e. not reused
+            from ``loop_map``).
+
+        Returns
+        -------
+        tuple
+            ``(new_index_range_map, pre_stmts, new_vars)`` where
+            ``new_index_range_map`` has substituted bounds,
+            ``pre_stmts`` is a (possibly empty) tuple of
+            :any:`Assignment` nodes to prepend before the loop nest, and
+            ``new_vars`` is a tuple of newly declared scalar variables.
+        """
+        new_index_range_map = {}
+        pre_stmts = ()
+        new_vars = ()
+
+        for ivar, irange in index_range_map.items():
+            # Case A: range came from loop_map (explicit source-code range) — skip
+            if ivar not in synthesized_ivars:
+                new_index_range_map[ivar] = irange
+                continue
+
+            # Find all derived-type member variables in the range bounds
+            derived_members = [
+                v for v in FindVariables().visit(irange)
+                if isinstance(v, sym.Scalar) and v.parent is not None
+            ]
+
+            if not derived_members:
+                new_index_range_map[ivar] = irange
+                continue
+
+            # Build substitution map: derived-type member -> scalar variable
+            subst_map = {}
+            for member in derived_members:
+                key = str(member).lower().replace(' ', '')
+                if key in self._scalar_assignment_map:
+                    # Existing scalar found — reuse it
+                    subst_map[member] = self._scalar_assignment_map[key]
+                else:
+                    # No existing scalar — create one with the member's basename
+                    scalar_name = member.basename
+                    # Check for name collision in scope
+                    if self.scope is not None:
+                        existing = self.scope.variable_map.get(scalar_name.lower())
+                        if existing is not None and existing != member:
+                            # Name collision with a different variable — skip substitution
+                            continue
+                    vtype = SymbolAttributes(BasicType.INTEGER)
+                    new_scalar = sym.Variable(
+                        name=scalar_name, type=vtype, scope=self.scope
+                    )
+                    subst_map[member] = new_scalar
+                    # Record new variable and assignment for insertion
+                    new_vars += (new_scalar,)
+                    pre_stmts += (ir.Assignment(lhs=new_scalar, rhs=member),)
+                    # Also register in the map so subsequent dimensions reuse it
+                    self._scalar_assignment_map[key] = new_scalar
+
+            if subst_map:
+                new_irange = SubstituteExpressions(subst_map).visit(irange)
+                new_index_range_map[ivar] = new_irange
+            else:
+                new_index_range_map[ivar] = irange
+
+        return new_index_range_map, pre_stmts, new_vars
+
     def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
-        
-        # early exit since pointer assignment
+
+        # --- Step 1: Early exits ---
+
+        # Pointer assignment
         if stmt.ptr:
             return stmt
 
-        # early exit since lhs is not an array
+        # LHS is not an array
         if not isinstance(stmt.lhs, sym.Array):
             return stmt
 
-        # early exit since rhs is/has and literal list
-        rhs_literal_lists = FindLiteralLists().visit(stmt.rhs)
-        if rhs_literal_lists:
+        # RHS contains a literal list (e.g., (/ 1.0, 2.0 /))
+        if FindLiteralLists().visit(stmt.rhs):
             return stmt
 
         create_loops = kwargs.get('create_loops', True)
 
-        # check for forbidden calls in the rhs
+        # Forbidden intrinsic calls in the RHS
         inline_calls = [(_.name).lower() for _ in FindInlineCalls().visit(stmt.rhs)]
         forbidden_ops = ['present', 'sum']
         if any(op in inline_calls for op in forbidden_ops):
@@ -361,106 +590,120 @@ class ResolveVectorNotationTransformer(Transformer):
                    for redux_op in Fortran2003.Intrinsic_Name.array_reduction_names):
                 return stmt
 
-        # replace all unbounded ranges with bounded ranges based on array shape
+        # --- Step 2: Derive qualified ranges from shapes ---
         if self.derive_qualified_ranges:
             shape_mapper = IterationRangeShapeMapper()
             stmt._update(lhs=shape_mapper(stmt.lhs), rhs=shape_mapper(stmt.rhs))
-       
-        # find all arrays in the rhs
+
+        # --- Step 3: Identify range-indexed dimensions ---
+
+        # RHS arrays that have at least one RangeIndex dimension
         rhs_vars = FindVariables(unique=False).visit(stmt.rhs)
-        arrays = [var for var in rhs_vars if isinstance(var, sym.Array) and any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions)]
-        # get the corresponding array dimensions
-        arrays_dims = [array.dimensions for array in arrays]
-        # get the indices for each array dimensions being a range index, e.g., ':' or '1:n'
-        arrays_dims_gri = [[i for i, dim in enumerate(dims) if isinstance(dim, sym.RangeIndex)] for dims in arrays_dims]
-        
-        # get the lhs array
+        rhs_arrays = [
+            var for var in rhs_vars
+            if isinstance(var, sym.Array)
+            and any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions)
+        ]
+        rhs_arrays_dims = [array.dimensions for array in rhs_arrays]
+        rhs_range_positions_per_array = [
+            self._find_range_positions(dims) for dims in rhs_arrays_dims
+        ]
+
+        # LHS array dimensions
         lhs_array = stmt.lhs
-        # and the corresponding dimensions
         lhs_dims = lhs_array.dimensions
-        # get the indices for the lhs array being a range index e.g., ':' or '1:n'
-        lhs_dims_gri = [i for i, dim in enumerate(lhs_dims) if isinstance(dim, sym.RangeIndex)]
-        # exclude the generic range indices: ':' 
-        lhs_dims_ri = [i for i, j in enumerate(lhs_dims_gri) if lhs_dims[j] != sym.RangeIndex((None, None))]
+        lhs_range_positions = self._find_range_positions(lhs_dims)
+        lhs_qualified_range_indices = self._find_qualified_range_indices(
+            lhs_dims, lhs_range_positions
+        )
 
-        # allow and imply ranges for ":" on the rhs
-        # TODO: make this an option
-        if True:
-            rel_dim_indices = lhs_dims_ri
+        # --- Step 4: Filter to resolvable dimensions ---
+        if self.resolve_implicit_rhs_ranges:
+            resolved_dim_indices = lhs_qualified_range_indices
         else:
-            rel_dim_indices = [i for i, j in enumerate(lhs_dims_ri) if all(array_dims[array_dims_gri[i]] != sym.RangeIndex((None, None))
-                for array_dims, array_dims_gri in zip(arrays_dims, arrays_dims_gri))]
+            resolved_dim_indices = [
+                i for i, j in enumerate(lhs_qualified_range_indices)
+                if all(
+                    array_dims[rhs_pos[i]] != sym.RangeIndex((None, None))
+                    for array_dims, rhs_pos in zip(rhs_arrays_dims, rhs_range_positions_per_array)
+                )
+            ]
 
-        # nothing to do here, therefore return stmt as is
-        if not rel_dim_indices:
+        # Nothing to resolve
+        if not resolved_dim_indices:
             return stmt
 
-        def map_dims(dims, loop_map, map_unknown_ranges=True, basename='i', scope=None):
-            index_range_map = {}
-            shape_index_map = {}
-            for i, dim in zip(count(), dims):
-                if isinstance(dim, sym.RangeIndex):
-                    # See if index variable is knwon for this loop range
-                    if dim in loop_map:
-                        ivar = loop_map[dim]
-                    else:
-                        # Skip if we're not supposed to create new indices
-                        if not map_unknown_ranges or dim == sym.RangeIndex((None, None)):
-                            continue
-                        vtype = SymbolAttributes(BasicType.INTEGER)
-                        ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
-                    shape_index_map[(i, dim)] = ivar
-                    index_range_map[ivar] = dim
-            # Add index variable to range replacement
-            new_dims = as_tuple(
-                shape_index_map.get((i, d), d) for i, d in zip(count(), dims)
-            )
-            return new_dims, index_range_map
-        
-        def _shift(lhs, lhs_range, rhs_range):
-            _sum = sym.Product((-1, lhs_range.lower))
-            _sum = sym.Sum((lhs, _sum, rhs_range.lower))
-            return _sum # TODO: call simplify
+        # --- Step 5: Map LHS ranges to loop index variables ---
+        resolved_lhs_ranges = [
+            lhs_dims[lhs_range_positions[i]] for i in resolved_dim_indices
+        ]
+        new_lhs_dims, index_range_map, synthesized_ivars = self._map_ranges_to_indices(
+            resolved_lhs_ranges, self.loop_map,
+            map_unknown_ranges=self.map_unknown_ranges,
+            scope=self.scope, basename=f'i_{stmt.lhs.basename}'
+        )
 
-        # get the relevant dimensions from the lhs
-        rel_lhs_dims = [lhs_dims[lhs_dims_gri[i]] for i in rel_dim_indices]
-        # derive new relevant lhs dims
-        new_lhs_dims, index_range_map = map_dims(rel_lhs_dims, self.loop_map, scope=self.scope, basename=f'i_{stmt.lhs.basename}')
-        # map this to the rhs arrays
-        rel_arrays_rhs_dims = [[array_dims[array_dims_gri[i]] for i in rel_dim_indices] for array_dims, array_dims_gri in zip(arrays_dims, arrays_dims_gri)]
-        new_rel_arrays_rhs_dims = []
-        for array, rel_rhs_dims in zip(arrays, rel_arrays_rhs_dims): 
-            new_rel_rhs_dims = []
-            for i, lhs_dim, new_lhs_dim, rhs_dim in zip(count(), rel_lhs_dims, new_lhs_dims, rel_rhs_dims):
-                if lhs_dim == rhs_dim or rhs_dim == sym.RangeIndex((None, None)) or isinstance(rhs_dim, sym.RangeIndex) and rhs_dim.lower == 1:
-                    new_rel_rhs_dims.append(new_lhs_dim)
+        # --- Step 6: Compute RHS index expressions (with offset) ---
+        resolved_rhs_ranges_per_array = [
+            [array_dims[rhs_pos[i]] for i in resolved_dim_indices]
+            for array_dims, rhs_pos in zip(rhs_arrays_dims, rhs_range_positions_per_array)
+        ]
+        new_rhs_dims_per_array = []
+        for array, resolved_rhs_ranges in zip(rhs_arrays, resolved_rhs_ranges_per_array):
+            new_rhs_dims = []
+            for lhs_range, new_lhs_dim, rhs_range in zip(
+                resolved_lhs_ranges, new_lhs_dims, resolved_rhs_ranges
+            ):
+                if (lhs_range == rhs_range
+                        or rhs_range == sym.RangeIndex((None, None))
+                        or isinstance(rhs_range, sym.RangeIndex) and rhs_range.lower == 1):
+                    new_rhs_dims.append(new_lhs_dim)
                 else:
-                    new_rel_rhs_dims.append(_shift(new_lhs_dim, lhs_dim, rhs_dim))
-            new_rel_arrays_rhs_dims.append(new_rel_rhs_dims)
+                    new_rhs_dims.append(
+                        self._compute_shifted_index(new_lhs_dim, lhs_range, rhs_range)
+                    )
+            new_rhs_dims_per_array.append(new_rhs_dims)
 
-        # create new array for lhs
-        _new_lhs_arr_dims = list(lhs_dims)
+        # --- Step 7: Build new array expressions ---
+
+        # New LHS array with loop indices replacing ranges
+        new_lhs_arr_dims = list(lhs_dims)
         for i, d in enumerate(new_lhs_dims):
-            _new_lhs_arr_dims[lhs_dims_gri[rel_dim_indices[i]]] = d
-        new_lhs_arr = lhs_array.clone(dimensions=as_tuple(_new_lhs_arr_dims))
+            new_lhs_arr_dims[lhs_range_positions[resolved_dim_indices[i]]] = d
+        new_lhs_arr = lhs_array.clone(dimensions=as_tuple(new_lhs_arr_dims))
 
-        # create new array(s) for rhs
-        new_arrays = []
-        for i_arr, _array in enumerate(arrays):
-            _new_arr_dims = list(arrays_dims[i_arr])
-            for i, d in enumerate(new_rel_arrays_rhs_dims[i_arr]):
-                # _new_arr_dims[array_dims_gri[rel_dim_indices[i]]] = d
-                _new_arr_dims[arrays_dims_gri[i_arr][rel_dim_indices[i]]] = d
-            new_arrays.append(_array.clone(dimensions=as_tuple(_new_arr_dims)))
+        # New RHS arrays with loop indices replacing ranges
+        new_rhs_array_list = []
+        for i_arr, _array in enumerate(rhs_arrays):
+            new_arr_dims = list(rhs_arrays_dims[i_arr])
+            for i, d in enumerate(new_rhs_dims_per_array[i_arr]):
+                new_arr_dims[rhs_range_positions_per_array[i_arr][resolved_dim_indices[i]]] = d
+            new_rhs_array_list.append(_array.clone(dimensions=as_tuple(new_arr_dims)))
 
-        # FINALLY: update the statement
-        stmt._update(lhs=new_lhs_arr, rhs=SubstituteExpressions({old: new for old, new in zip(arrays, new_arrays)}).visit(stmt.rhs))
+        # Update the statement in-place
+        rhs_substitution = {
+            old: new for old, new in zip(rhs_arrays, new_rhs_array_list)
+        }
+        stmt._update(
+            lhs=new_lhs_arr,
+            rhs=SubstituteExpressions(rhs_substitution).visit(stmt.rhs)
+        )
 
-        # Record all newly create loop index variables,
-        # so that we can declare them in the outer context
+        # Record all newly created loop index variables for declaration
         self.index_vars.update(list(index_range_map.keys()))
 
-        # Recursively build new loop nest over all implicit dims
+        # --- Step 8: Substitute derived-type members in synthesized bounds ---
+        # For bounds that were derived from array shapes (not from explicit
+        # source-code ranges), replace any derived-type member references
+        # (e.g., KDIM%KLEVS) with existing or new plain scalar variables
+        # (e.g., KLEVS) so that generated loops are device-safe.
+        index_range_map, pre_stmts, new_vars = self._substitute_derived_type_bounds(
+            index_range_map, synthesized_ivars
+        )
+        if new_vars:
+            self.index_vars.update(new_vars)
+
+        # --- Step 9: Wrap in loop nest ---
         if create_loops and len(index_range_map):
             loop = None
             body = stmt
@@ -472,7 +715,7 @@ class ResolveVectorNotationTransformer(Transformer):
                 loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                 body = loop
 
-            return (ir.Comment('! loki resolved vector notation'), loop)
+            return (ir.Comment('! loki resolved vector notation'),) + pre_stmts + (loop,)
 
         # No vector dimensions encountered, return unchanged
         return stmt
