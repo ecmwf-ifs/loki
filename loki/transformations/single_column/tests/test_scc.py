@@ -103,6 +103,67 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
+    """
+    Test that per-routine config key ``resolve_vector_notation = False`` prevents
+    vector notation from being resolved in the kernel.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      t(start:end, jk) = c * jk
+      q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+    END DO
+  END SUBROUTINE compute_column
+"""
+
+    # --- Case 1: resolve_vector_notation = False => vector notation NOT resolved ---
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel = kernel_source.subroutines[0]
+    kernel_item = ProcedureItem(
+        name='#compute_column', source=kernel_source,
+        config={'resolve_vector_notation': False}
+    )
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel', item=kernel_item)
+
+    # Vector notation should NOT have been resolved: no horizontal loop added
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    assert len(kernel_loops) == 1
+    assert kernel_loops[0].variable == 'jk'
+
+    # Assignments still use range notation
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert 'start:end' in fgen(assigns[1]).lower()
+
+    # --- Case 2: resolve_vector_notation = True (default) => vector notation IS resolved ---
+    kernel_source2 = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel2 = kernel_source2.subroutines[0]
+    kernel_item2 = ProcedureItem(
+        name='#compute_column', source=kernel_source2,
+        config={'resolve_vector_notation': True}
+    )
+
+    scc_transform2 = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform2.apply(kernel2, role='kernel', item=kernel_item2)
+
+    # Vector notation should have been resolved: horizontal loops added
+    kernel_loops2 = FindNodes(Loop).visit(kernel2.body)
+    assert len(kernel_loops2) == 3
+    assert any(str(loop.variable) == 'jl' for loop in kernel_loops2)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('rel_index', ('jl', 'jcol', 'ji'))
 @pytest.mark.parametrize('indices', (('jl', 'jcol', 'jlll'), ('jcol','jcol', 'jcol'),
     ('jl', 'jl', 'jl'), ('jcol', 'jlll', 'jlll')))
@@ -992,27 +1053,33 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
         scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.ir)
-    assert len(pragmas) == 6
+    # Note: local_dims%wrk = 0 (wrk is a 100-element array) gets resolved to an
+    # explicit loop, which receives an '!$acc loop seq' pragma, giving 7 pragmas total.
+    assert len(pragmas) == 7
 
     assert pragmas[0].keyword.lower() == 'acc'
     assert pragmas[0].content == 'data present(dims)'
-    assert pragmas[5].content == 'end data'
-    assert pragmas[5].keyword.lower() == 'acc'
+    assert pragmas[6].content == 'end data'
+    assert pragmas[6].keyword.lower() == 'acc'
 
     if data_offload:
-        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:5])
+        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:6])
         assert pragmas[2].content == 'parallel loop gang private(local_dims) vector_length(dims%klon)'
-        assert pragmas[3].content == 'end parallel loop'
-        assert pragmas[4].content == 'end data'
+        assert pragmas[3].keyword.lower() == 'acc'
+        assert pragmas[3].content == 'loop seq'
+        assert pragmas[4].content == 'end parallel loop'
+        assert pragmas[5].content == 'end data'
 
         assert 'data copy(work)' in pragmas[1].content
     else:
         assert pragmas[1].keyword == 'loki'
         assert pragmas[2].keyword.lower() == 'omp'
-        assert pragmas[3].keyword.lower() == 'omp'
-        assert pragmas[4].keyword == 'loki'
+        assert pragmas[3].keyword.lower() == 'acc'
+        assert pragmas[3].content == 'loop seq'
+        assert pragmas[4].keyword.lower() == 'omp'
+        assert pragmas[5].keyword == 'loki'
         assert pragmas[2].content == 'parallel do private(b) shared(work, nproma)'
-        assert pragmas[3].content == 'end parallel do'
+        assert pragmas[4].content == 'end parallel do'
 
     # check that pointer association was correctly identified as a separator node
     routine = source['some_kernel']
