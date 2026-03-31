@@ -20,9 +20,7 @@ from loki.ir import (
 from loki.tools import as_tuple, dict_override, OrderedSet
 from loki.types import SymbolAttributes, BasicType
 
-from loki.transformations.utilities import (
-    get_integer_variable, get_loop_bounds
-)
+from loki.transformations.utilities import get_integer_variable
 
 if HAVE_FP:
     from fparser.two import Fortran2003
@@ -176,7 +174,7 @@ def _get_all_valid_loop_bounds(routine, lower, upper):
     valid_lower = [_ for _ in valid_lower if _ is not None]
     valid_upper = [get_valid(_upper, variable_map) for _upper in upper]
     valid_upper = [_ for _ in valid_upper if _ is not None]
-   
+
     for _lower in valid_lower:
         for _upper in valid_upper:
             bounds += ((_lower, _upper),)
@@ -207,7 +205,7 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
     """
     # Find the iteration index variable and bound variables
     index = get_integer_variable(routine, name=dimension.index)
-    
+
     _lower = as_tuple(dimension.lower) + ('1',)
     _upper = as_tuple(dimension.upper) + as_tuple(dimension.sizes)
     bounds = _get_all_valid_loop_bounds(routine, lower=_lower, upper=_upper)
@@ -309,7 +307,7 @@ class IterationRangeIndexMapper(LokiIdentityMapper):
                     # Skip if we're not supposed to create new indices
                     if not self.map_unknown_ranges or dim == sym.RangeIndex((None, None)):
                         continue
-                
+
                     # Create new index variable
                     vtype = SymbolAttributes(BasicType.INTEGER)
                     ivar = sym.Variable(name=f'{self.basename}_{i}', type=vtype, scope=self.scope)
@@ -681,9 +679,7 @@ class ResolveVectorNotationTransformer(Transformer):
             new_rhs_array_list.append(_array.clone(dimensions=as_tuple(new_arr_dims)))
 
         # Update the statement in-place
-        rhs_substitution = {
-            old: new for old, new in zip(rhs_arrays, new_rhs_array_list)
-        }
+        rhs_substitution = dict(zip(rhs_arrays, new_rhs_array_list))
         stmt._update(
             lhs=new_lhs_arr,
             rhs=SubstituteExpressions(rhs_substitution).visit(stmt.rhs)

@@ -710,7 +710,6 @@ end subroutine test_ifs_patterns
     resolve_vector_notation(routine)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
-    assigns = FindNodes(ir.Assignment).visit(routine.body)
 
     # --- Pattern 1: work(kidia:kfdia) = 1.0 -> DO jl=kidia,kfdia; work(jl)=1.0 ---
     p1_loops = [l for l in loops
@@ -897,7 +896,6 @@ end subroutine test_broadcast_nesting
     resolve_vector_notation(routine)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
-    assigns = FindNodes(ir.Assignment).visit(routine.body)
 
     # --- Case 1: arr2d(jl, 1:n) = arr1d(1:n) ---
     # Should create inner loop for dim 2, RHS and LHS use same index
@@ -980,9 +978,9 @@ end subroutine test_dt_existing_scalar
     assert 'klevs' in upper_bounds, \
         f"Expected loop bound 'klevs', got: {upper_bounds}"
     assert 'kdim%klon' not in upper_bounds, \
-        f"Loop bound must not reference derived-type member kdim%klon"
+        "Loop bound must not reference derived-type member kdim%klon"
     assert 'kdim%klevs' not in upper_bounds, \
-        f"Loop bound must not reference derived-type member kdim%klevs"
+        "Loop bound must not reference derived-type member kdim%klevs"
 
     # No new scalar assignment statements should have been prepended
     # (the existing klon=... and klevs=... are sufficient)
