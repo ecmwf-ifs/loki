@@ -237,24 +237,27 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         with pragmas_attached(routine, Loop):
-            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            # Only create driver-level pool allocator setup (ISTSZ/ZSTACK/
+            # ALLOCATE/DEALLOCATE) for driver routines.  Kernels may contain
+            # loops with calls to target routines (e.g. larcinb's DO JFLD
+            # loop), which find_driver_loops would incorrectly match.
+            # Kernels still need inject_pool_allocator_into_calls (below)
+            # to propagate stack arguments to their callees.
+            if role == 'driver':
+                driver_loops = find_driver_loops(section=routine.body, targets=targets)
 
-            if driver_loops:
-                self.add_driver_imports(routine)
+                if driver_loops:
+                    self.add_driver_imports(routine)
 
-                drv_loop_map = {}
-                for drv_loop in driver_loops:
-                    if role == 'kernel':
+                    drv_loop_map = {}
+                    for drv_loop in driver_loops:
                         stack_size = self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
-                    elif role == 'driver':
-                        stack_size = self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
+                        drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(routine, stack_size, drv_loop=drv_loop)
 
-                    drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(routine, stack_size, drv_loop=drv_loop)
-
-                if drv_loop_map:
-                    routine.body = Transformer(drv_loop_map).visit(routine.body)
-                for drv_loop in driver_loops:
-                    self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver', drv_loop=drv_loop)
+                    if drv_loop_map:
+                        routine.body = Transformer(drv_loop_map).visit(routine.body)
+                    for drv_loop in driver_loops:
+                        self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=True, drv_loop=drv_loop)
 
             self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 

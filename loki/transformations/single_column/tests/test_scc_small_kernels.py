@@ -1178,7 +1178,6 @@ def test_cat8_jpim_import_propagated_to_kernel(frontend, horizontal, block_dim, 
 
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-@pytest.mark.xfail(reason='Cat 12: Pool allocator incorrectly generates ISTSZ/ZSTACK inside kernels')
 def test_cat12_kernel_no_pool_allocator_setup(frontend, horizontal, block_dim, tmp_path):
     """
     Category 12 bug: when a kernel contains a loop with calls to target
@@ -1556,7 +1555,6 @@ def test_cat5_rank_mismatch_no_extra_block_index(frontend, horizontal, block_dim
 
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-@pytest.mark.xfail(reason='Cat 3: Pool allocator generates ISTSZ=0 when successors not found in loop')
 def test_cat3_kernel_no_spurious_istsz(frontend, horizontal, block_dim, tmp_path):
     """
     Category 3 bug: when a kernel contains a loop with calls to target
