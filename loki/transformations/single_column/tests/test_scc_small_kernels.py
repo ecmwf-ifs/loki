@@ -454,6 +454,91 @@ subroutine sub_kernel_cat12p(klon, klev, bnds, t, q)
 end subroutine sub_kernel_cat12p
 """.strip()
 
+# ---------------------------------------------------------------------------
+# Cat 12 refinement: "Nested driver" kernel that SHOULD get pool allocator.
+#
+# A "nested driver" kernel (like sigam_gp in the real IFS) is a kernel
+# (role='kernel') that calls sub-kernels via ``!$loki small-kernels``.
+# After SCCBlockSectionToLoopTransformation, these kernels get a block
+# loop whose variable matches block_dim.indices (e.g. local_IBL).
+# The pool allocator must generate ISTSZ/ZSTACK for these kernels,
+# unlike simple kernels (Cat 12) whose loops are NOT block-dimension.
+# ---------------------------------------------------------------------------
+
+FCODE_DRIVER_NESTED_DRV = """
+module driver_nested_drv_mod
+  implicit none
+contains
+  subroutine driver_nested_drv(ngpblks, bnds, opts, t, q)
+    use bnds_type_mod, only: bnds_type
+    use opts_type_mod, only: opts_type
+    implicit none
+    #include "nested_drv_kernel.intfb.h"
+    integer, intent(in) :: ngpblks
+    type(bnds_type), intent(inout) :: bnds
+    type(opts_type), intent(in) :: opts
+    real, intent(inout) :: t(:,:,:)
+    real, intent(inout) :: q(:,:,:)
+
+    integer :: ibl
+
+    do ibl = 1, ngpblks
+      bnds%kbl = ibl
+      bnds%kstglo = 1 + (ibl - 1) * opts%klon
+      bnds%kidia = 1
+      bnds%kfdia = min(opts%klon, opts%kgpcomp - bnds%kstglo + 1)
+
+      !$loki small-kernels
+      call nested_drv_kernel(opts%klon, opts%kflevg, bnds, t(:,:,ibl), q(:,:,ibl))
+    end do
+  end subroutine driver_nested_drv
+end module driver_nested_drv_mod
+""".strip()
+
+FCODE_NESTED_DRV_KERNEL = """
+subroutine nested_drv_kernel(klon, klev, bnds, t, q)
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  #include "leaf_kernel.intfb.h"
+  integer, intent(in) :: klon, klev
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: t(klon, klev)
+  real, intent(inout) :: q(klon, klev)
+
+  integer :: jrof
+
+  ! Use bnds%kbl so extract_block_sections recognises this section
+  ! (the filter requires a block_dim.indices variable to be present).
+  ! In the real IFS, nested-driver kernels like sigam_gp reference
+  ! YDCPG_BNDS%KBL in VERDISINT calls or block-header computations.
+  jrof = bnds%kbl
+
+  !$loki small-kernels
+  call leaf_kernel(klon, klev, bnds, t, q)
+end subroutine nested_drv_kernel
+""".strip()
+
+FCODE_LEAF_KERNEL = """
+subroutine leaf_kernel(klon, klev, bnds, t, q)
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: klon, klev
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: t(klon, klev)
+  real, intent(inout) :: q(klon, klev)
+
+  integer :: jrof, jk
+  real :: ztmp(klon, klev)
+
+  do jk = 1, klev
+    do jrof = bnds%kidia, bnds%kfdia
+      ztmp(jrof, jk) = t(jrof, jk) * 2.0
+      q(jrof, jk) = ztmp(jrof, jk) + 1.0
+    end do
+  end do
+end subroutine leaf_kernel
+""".strip()
+
 
 # ---------------------------------------------------------------------------
 # Cat 10: Derived-type components in private clause
@@ -1814,3 +1899,90 @@ def test_cat3_driver_istsz_max_across_loops(frontend, horizontal, block_dim, tmp
             f"Got: ISTSZ = {assign.rhs}\n"
             f"Driver code:\n{driver_code}"
         )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_cat12_nested_driver_kernel_gets_pool_allocator(frontend, horizontal, block_dim, tmp_path):
+    """
+    Cat 12 refinement: a "nested driver" kernel — one that calls sub-kernels
+    via ``!$loki small-kernels`` — must GET pool allocator infrastructure
+    (ISTSZ/ZSTACK/ALLOCATE/DEALLOCATE), because
+    ``SCCBlockSectionToLoopTransformation`` creates block-dimension loops
+    (whose loop variable matches ``block_dim.indices``) inside such kernels.
+
+    This is the complement of ``test_cat12_kernel_no_pool_allocator_setup``:
+    that test verifies simple kernels do NOT get pool allocator; this test
+    verifies "nested driver" kernels DO get pool allocator.
+
+    In the real IFS, ``sigam_gp``, ``sitnu_gp``, ``gpcty_expl``, and
+    ``gpgrgeo_expl`` are "nested driver" kernels.
+    """
+    bnds_mod = Module.from_source(FCODE_BNDS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    opts_mod = Module.from_source(FCODE_OPTS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    leaf_source = Sourcefile.from_source(
+        FCODE_LEAF_KERNEL, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    mid_source = Sourcefile.from_source(
+        FCODE_NESTED_DRV_KERNEL, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    driver_source = Sourcefile.from_source(
+        FCODE_DRIVER_NESTED_DRV, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+
+    driver, nested_kernel, leaf_kernel = _apply_small_kernels_pipeline_3level(
+        driver_source, mid_source, leaf_source,
+        horizontal, block_dim, tmp_path,
+        driver_name='driver_nested_drv',
+        mid_name='nested_drv_kernel',
+        sub_name='leaf_kernel',
+        driver_item_name='driver_nested_drv_mod#driver_nested_drv',
+        mid_item_name='#nested_drv_kernel',
+        sub_item_name='#leaf_kernel'
+    )
+
+    nested_code = fgen(nested_kernel)
+
+    # The nested driver kernel MUST have a block-dimension loop
+    # (created by SCCBlockSectionToLoopTransformation)
+    loops = FindNodes(Loop).visit(nested_kernel.body)
+    block_loops = [
+        l for l in loops
+        if str(l.variable).lower().replace('local_', '') in
+           [idx.lower() for idx in block_dim.indices]
+    ]
+    assert len(block_loops) >= 1, (
+        f"Nested driver kernel should have a block-dimension loop "
+        f"(matching block_dim.indices={block_dim.indices}). "
+        f"Found loops: {[str(l.variable) for l in loops]}\n"
+        f"Code:\n{nested_code}"
+    )
+
+    # The nested driver kernel MUST have ISTSZ and ZSTACK variables
+    # (pool allocator infrastructure for the block loop)
+    kernel_var_names = {v.name.lower() for v in nested_kernel.variables}
+    assert 'istsz' in kernel_var_names, (
+        f"Nested driver kernel MUST have 'ISTSZ' variable (pool allocator). "
+        f"Found: {sorted(kernel_var_names)}\n"
+        f"Code:\n{nested_code}"
+    )
+    assert 'zstack' in kernel_var_names, (
+        f"Nested driver kernel MUST have 'ZSTACK' variable (pool allocator). "
+        f"Found: {sorted(kernel_var_names)}\n"
+        f"Code:\n{nested_code}"
+    )
+
+    # The nested driver kernel MUST have ALLOCATE/DEALLOCATE for ZSTACK
+    allocations = FindNodes(Allocation).visit(nested_kernel.body)
+    deallocations = FindNodes(Deallocation).visit(nested_kernel.body)
+    assert len(allocations) >= 1, (
+        f"Nested driver kernel MUST have ALLOCATE statements (pool allocator). "
+        f"Code:\n{nested_code}"
+    )
+    assert len(deallocations) >= 1, (
+        f"Nested driver kernel MUST have DEALLOCATE statements (pool allocator). "
+        f"Code:\n{nested_code}"
+    )

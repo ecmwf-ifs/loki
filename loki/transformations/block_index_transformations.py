@@ -696,10 +696,10 @@ class LowerBlockIndexTransformation(Transformation):
                         new_args.append(_var)
 
            
-            new_kwargs = set(new_kwargs)
+            new_kwargs = sorted(set(new_kwargs), key=lambda x: x[0].lower())
             new_args = sorted(as_tuple(set(new_args)), key=lambda x: str(x.name))
 
-            if new_args:
+            if new_args or new_kwargs:
                 call._update(kwarguments=call.kwarguments+as_tuple([(_new_arg.name, _new_arg) for _new_arg in new_args])+as_tuple(new_kwargs))
                 _new_args = [_new_arg for _new_arg in new_args if _new_arg not in call.routine.arguments]
                 if _new_args:
@@ -884,10 +884,10 @@ class LowerBlockIndexTransformation(Transformation):
                     else:
                         new_args.append(_var)
            
-            new_kwargs = set(new_kwargs)
+            new_kwargs = sorted(set(new_kwargs), key=lambda x: x[0].lower())
             new_args = sorted(as_tuple(set(new_args)), key=lambda x: str(x.name))
 
-            if new_args:
+            if new_args or new_kwargs:
                 call._update(kwarguments=call.kwarguments+as_tuple([(_new_arg.name, _new_arg) for _new_arg in new_args])+as_tuple(new_kwargs))
                 _new_args = [_new_arg for _new_arg in new_args if _new_arg not in call.routine.arguments]
                 if _new_args:

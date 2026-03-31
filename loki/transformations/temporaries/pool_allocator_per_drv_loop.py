@@ -237,42 +237,47 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         with pragmas_attached(routine, Loop):
-            # Only create driver-level pool allocator setup (ISTSZ/ZSTACK/
-            # ALLOCATE/DEALLOCATE) for driver routines.  Kernels may contain
-            # loops with calls to target routines (e.g. larcinb's DO JFLD
-            # loop), which find_driver_loops would incorrectly match.
-            # Kernels still need inject_pool_allocator_into_calls (below)
-            # to propagate stack arguments to their callees.
-            if role == 'driver':
-                driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            # Determine which loops need pool allocator infrastructure
+            # (ISTSZ/ZSTACK/ALLOCATE/DEALLOCATE).
+            #
+            # For drivers: all driver loops get pool allocator setup.
+            # For kernels: only *block-dimension* loops (created by
+            # SCCBlockSectionToLoopTransformation for "nested driver"
+            # kernels like sigam_gp, sitnu_gp) get pool allocator setup.
+            # Regular kernel loops (e.g. larcinb's DO JFLD loop) do NOT
+            # get pool allocator -- their loop variable does not match
+            # any block_dim index.
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            if role == 'kernel':
+                driver_loops = self._filter_block_dim_loops(driver_loops)
 
-                if driver_loops:
-                    self.add_driver_imports(routine)
+            if driver_loops:
+                self.add_driver_imports(routine)
 
-                    # First pass: compute per-loop stack sizes for ALL driver
-                    # loops, then aggregate with MAX.  This is necessary because
-                    # _get_stack_storage_and_size_var creates the ISTSZ variable
-                    # and its assignment only on the first call; subsequent calls
-                    # reuse the existing variable.  Without aggregation, ISTSZ
-                    # would be set to only the first loop's stack size, which
-                    # may be 0 even when later loops need non-zero stack space.
-                    per_loop_sizes = []
-                    for drv_loop in driver_loops:
-                        per_loop_sizes.append(
-                            self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
-                        )
-                    aggregate_stack_size = self._aggregate_stack_sizes(per_loop_sizes)
+                # First pass: compute per-loop stack sizes for ALL driver
+                # loops, then aggregate with MAX.  This is necessary because
+                # _get_stack_storage_and_size_var creates the ISTSZ variable
+                # and its assignment only on the first call; subsequent calls
+                # reuse the existing variable.  Without aggregation, ISTSZ
+                # would be set to only the first loop's stack size, which
+                # may be 0 even when later loops need non-zero stack space.
+                per_loop_sizes = []
+                for drv_loop in driver_loops:
+                    per_loop_sizes.append(
+                        self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
+                    )
+                aggregate_stack_size = self._aggregate_stack_sizes(per_loop_sizes)
 
-                    drv_loop_map = {}
-                    for drv_loop in driver_loops:
-                        drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(
-                            routine, aggregate_stack_size, drv_loop=drv_loop
-                        )
+                drv_loop_map = {}
+                for drv_loop in driver_loops:
+                    drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(
+                        routine, aggregate_stack_size, drv_loop=drv_loop
+                    )
 
-                    if drv_loop_map:
-                        routine.body = Transformer(drv_loop_map).visit(routine.body)
-                    for drv_loop in driver_loops:
-                        self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=True, drv_loop=drv_loop)
+                if drv_loop_map:
+                    routine.body = Transformer(drv_loop_map).visit(routine.body)
+                for drv_loop in driver_loops:
+                    self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=True, drv_loop=drv_loop)
 
             self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
@@ -291,6 +296,47 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         routines when driver loops are present.  The default
         implementation is a no-op.
         """
+
+    def _filter_block_dim_loops(self, driver_loops):
+        """
+        Filter driver loops to keep only those whose loop variable
+        matches a ``block_dim`` index (accounting for ``local_`` prefix).
+
+        In "nested driver" kernels (e.g. ``sigam_gp``, ``sitnu_gp``),
+        ``SCCBlockSectionToLoopTransformation`` creates block-dimension
+        loops (``DO local_JKGLO = ...``) that need pool allocator
+        infrastructure.  Regular kernel loops (e.g. ``larcinb``'s
+        ``DO JFLD = ...``) should NOT get pool allocator setup because
+        their loop variable is not a block-dimension index.
+
+        Parameters
+        ----------
+        driver_loops : list of :any:`Loop`
+            Driver loops found by :func:`find_driver_loops`.
+
+        Returns
+        -------
+        list of :any:`Loop`
+            Subset of *driver_loops* whose loop variable matches a
+            ``block_dim`` index.
+        """
+        # Build a set of normalised block-dim index names.
+        # For compound names like "YDCPG_BNDS%KBL" we match the final
+        # component ("KBL") as well as the full name.
+        block_indices = set()
+        for idx in self.block_dim.indices:
+            block_indices.add(idx.lower())
+            if '%' in idx:
+                block_indices.add(idx.split('%')[-1].lower())
+
+        filtered = []
+        for loop in driver_loops:
+            var_name = str(loop.variable).lower()
+            # Strip 'local_' prefix that SCCBlockSectionToLoopTransformation adds
+            bare_name = var_name.replace('local_', '', 1) if var_name.startswith('local_') else var_name
+            if var_name in block_indices or bare_name in block_indices:
+                filtered.append(loop)
+        return filtered
 
     @staticmethod
     def import_c_sizeof(routine):
