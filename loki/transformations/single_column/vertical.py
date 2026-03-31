@@ -53,8 +53,6 @@ class SCCFuseVerticalLoops(Transformation):
 
         if self.vertical is None:
             info('[SCCFuseVerticalLoops] is not applied as the vertical dimension is not defined!')
-        else:
-            print(f"[SCCFuseVerticalLoops] vertical: {self.vertical}")
 
     def transform_subroutine(self, routine, **kwargs):
         """
