@@ -153,7 +153,9 @@ class SCCBaseTransformation(Transformation):
             try:
                 get_loop_bounds(routine, dimension=self.horizontal)
             except RuntimeError as e:
-                raise TransformationError(str(e)) from e
+                raise TransformationError(
+                    message=str(e), transformation=type(self), source=routine
+                ) from e
 
             # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
             resolve_vector_dimension(
