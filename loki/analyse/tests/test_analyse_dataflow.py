@@ -11,7 +11,7 @@ from loki import Module, Sourcefile, Subroutine
 from loki.analyse import (
     dataflow_analysis_attached, read_after_write_vars, loop_carried_dependencies
 )
-from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
+from loki.analyse.dataflow_analysis import DataflowAnalysisAttacher, DataflowAnalysisDetacher
 from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
