@@ -245,10 +245,8 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
         with pragmas_attached(routine, Loop):
             driver_loops = find_driver_loops(section=routine.body, targets=targets)
-            print(f"routine {routine} | driver_loops: {driver_loops}")
 
             if driver_loops:
-                # print(f"add driver imports for routine {routine}")
                 self.add_driver_imports(routine)
                 # if item:
                 #     # print(f"add import allocation types for routine {routine}")
@@ -267,9 +265,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
                 if drv_loop_map:
                     routine.body = Transformer(drv_loop_map).visit(routine.body)
-                # print(f"  inject_pool_allocator into calls drv_loop {drv_loop} | targets: {targets} | ignore: {ignore}")
                 for drv_loop in driver_loops:
-                    print(f"calling per drv_loop inject pool allocator")
                     self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver', drv_loop=drv_loop)
 
                 # no driver loops ...
@@ -285,7 +281,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 # else:
                 # if item:
                 #     self.import_allocation_types(routine, item)
-            print(f"calling generic inject pool allocator")
             self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
             if True:
@@ -351,7 +346,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         Import all the variable types used in allocations.
         """
 
-        print(f"import_allocation_types for routine {routine} -> {item.trafo_data[self._key]['kind_imports'].items()}")
         new_imports = defaultdict(OrderedSet)
         for s, m in item.trafo_data[self._key]['kind_imports'].items():
             new_imports[m] |= OrderedSet(as_tuple(s))
@@ -534,7 +528,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                     block_size = routine.resolve_typebound_var(_size, routine.symbol_map)
                     break
                 except Exception as e:
-                    print(f"{e}")
+                    pass
             if block_size is None:
                  assert False
             # block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
@@ -736,7 +730,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         try:
             stack_size = simplify(Sum((stack_size, arr_size)))
         except Exception as e:
-            print(f"can't simplify sum stack_size {stack_size} | arr_size: {arr_size}")
             stack_size = Sum((stack_size, arr_size))
 
         if self.cray_ptr_loc_rhs:
@@ -849,9 +842,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         declarations = []
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
-        print(f"apply pool allocator to temporaries - routine {routine}")
         for arr in temporary_arrays:
-            print(f"  arr: {arr} | {arr.dimensions}")
             ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
             declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
             allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr,
@@ -866,7 +857,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 dims = [d for d in arr.shape if d in routine.imported_symbols]
                 for d in dims:
                     item.trafo_data[self._key]['kind_imports'][d] = routine.import_map[d.name].module.lower()
-                print(f"set kind_imports for {item}: {item.trafo_data[self._key]['kind_imports']}")
 
         routine.spec.append(declarations)
         routine.body.prepend(allocations)
@@ -893,7 +883,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
 
-        print(f"create_pool_allocator_drv_loop for routine {routine}")
         # TODO: adapt pragma loop
         # Find first block loop and assign local stack pointers there
         loop_map = {}
@@ -903,7 +892,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
             if drv_loop.variable != self.block_dim.index:
                 # Check if block variable is assigned in loop body
                 for assignment in assignments:
-                    print(f"  assignment.lhs: {assignment.lhs} vs. {self.block_dim.indices}")
                     if assignment.lhs in self.block_dim.indices: # == self.block_dim.index:
                         assert assignment in drv_loop.body
                         # Need to insert the pointer assignment after block dimension is set
@@ -915,7 +903,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                         f'Could not find a block dimension for loop with variable {drv_loop.variable} and '
                         f'bounds {drv_loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
                     )
-                    print(f"  early exit ...")
                     return drv_loop
             else:
                 # block variable is the loop variable: pointer assignment can happen
@@ -962,7 +949,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                     lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
                 )
             new_assignments = (ptr_assignment,)
-            print(f"  new_assignments: {new_assignments}")
             if self.check_bounds:
                 new_assignments += (stack_incr,)
             # loop_map[loop] = loop.clone(
@@ -1126,9 +1112,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         if drv_loop is not None:
             section = drv_loop
 
-        print(f"inject_pool_allocator_into_calls: {routine} | section: {section}")
         for call in FindNodes(CallStatement).visit(section.body): # routine.body):
-            print(f"  call: {call}")
             if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
@@ -1145,7 +1129,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                             break
                     if skip:
                         continue
-                    print(f"    adding kwarguments!")
                     call_map[call] = call.clone(
                         kwarguments=call.kwarguments + new_kwarguments
                     )

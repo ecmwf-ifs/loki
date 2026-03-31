@@ -575,7 +575,6 @@ class LowerBlockIndexTransformation(Transformation):
 
 
 
-        print(f"[PROCESS KERNEL] routine {routine}")
         successor_map = CaseInsensitiveDict(
             (successor.local_name, successor)
             for successor in successors
@@ -595,7 +594,6 @@ class LowerBlockIndexTransformation(Transformation):
         # # promote locals
         # local_vars = get_local_arrays(routine, routine.spec)
         # # TODO: further filtering, constant dims, ...
-        # print(f"  local_vars: {local_vars}")
         # # routine_variable_map = call.routine.variable_map
         # var_map = {}
         # routine_variable_map = routine.variable_map
@@ -619,17 +617,13 @@ class LowerBlockIndexTransformation(Transformation):
         ##
 
         relevant_vars = ()
-        print(f"[PROCESS KERNEL] routine {routine} -> relevant_calls: {relevant_calls}")
         if 'LowerBlockIndex' in item.trafo_data:
             relevant_vars = item.trafo_data['LowerBlockIndex'].get('relevant_vars', ())
-            print(f"  relevant_vars: {relevant_vars}")
         else:
-            print(f"  no LowerBlockIndex not in trafo_data for item: {item}")
             # assert False
             return
 
         for call in relevant_calls:
-            print(f"routine {routine}: relevant_call: {call}")
             if str(call.name).lower() not in targets:
                 continue
             if call.routine is BasicType.DEFERRED:
@@ -645,7 +639,6 @@ class LowerBlockIndexTransformation(Transformation):
             for imp in call_all_imports:
                 call_all_imported_symbols += as_tuple([_.name.lower() for _ in imp.symbols])
 
-            # print(f"PROCESSING routine {routine} -> call: {call} \n  header: {driver_loop_header[driver_loop]}")
             # relevant_vars = () # (driver_loop.variable,)
             # relevant_vars += (driver_loop.bounds.lower, driver_loop.bounds.upper)
             # if driver_loop.bounds.step is not None:
@@ -677,17 +670,12 @@ class LowerBlockIndexTransformation(Transformation):
                         if _parent_var not in call_arg_map:
                             _dtype = _parent_var.type.dtype
                             if _dtype in call_arg_dtype_map:
-                                # print(f"YES! _parent_var: {_parent_var} | call_arg_dtype_map[_dtype]: {call_arg_dtype_map[_dtype]}")
                                 new_kwargs.append((call_arg_dtype_map[_dtype].name, _parent_var))
                             else:
                                 new_args.append(_parent_var)
                     else:
                         new_args.append(_var)
 
-            print(f"  new_args: {new_args}")
-            print(f"  new_kwargs: {new_kwargs}")
-            print(f"  call_arg_map: {call_arg_map}")
-            print(f"  relevant_vars: {relevant_vars}")
            
             new_kwargs = set(new_kwargs)
             new_args = sorted(as_tuple(set(new_args)), key=lambda x: str(x.name))
@@ -717,13 +705,11 @@ class LowerBlockIndexTransformation(Transformation):
             # promote locals
             # local_vars = get_local_arrays(routine, routine.spec)
             # TODO: further filtering, constant dims, ...
-            # print(f"  local_vars: {local_vars}")
             # routine_variable_map = call.routine.variable_map
             ##
             local_vars = get_local_arrays(call.routine, call.routine.spec)
             local_vars = [local_var for local_var in local_vars if not local_var.dimensions[-1] in self.block_dim.sizes]
             # TODO: further filtering, constant dims, ...
-            print(f"  local_vars: {local_vars}")
             # routine_variable_map = call.routine.variable_map
             var_map = {}
             call_variable_map = call.routine.variable_map
@@ -736,7 +722,6 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                print(f"routine {routine} | call {call}")
                 assert False
             for local_var in local_vars:
                 new_dims = local_var.dimensions + (call_block_dim_size,)
@@ -764,13 +749,12 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                print(f"routine {routine} | call {call}")
                 assert False
             for arg, call_arg in call.arg_iter():
                 if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
                     # if not (InjectBlockIndexTransformation.get_call_arg_rank(call_arg) > len(arg.shape)):
                     if not self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
-                        print(f"  routine {routine} disagreeing call {call} for arg {arg}")
+                        pass  # Disagreement between call_arg rank and arg shape
                 # if isinstance(arg, Array) and InjectBlockIndexTransformation.get_call_arg_rank(call_arg) > len(arg.shape):  
                 if isinstance(arg, Array) and self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
                     call_routine_var = call_variable_map[arg.name]
@@ -795,7 +779,6 @@ class LowerBlockIndexTransformation(Transformation):
                     _arguments += (arg.clone(dimensions=new_dim),)
                 else:
                     if isinstance(arg, sym.Array):
-                        # print(f"     wtf: {arg.dimensions}")
                         new_dim = tuple(sym.RangeIndex((None, None)) for dim in arg.shape)
                         _arguments += (arg.clone(dimensions=new_dim),)
                     else:
@@ -844,10 +827,8 @@ class LowerBlockIndexTransformation(Transformation):
             #     else:
             #         _kwarguments += ((kwarg_name, kwarg),)
             # call._update(arguments=_arguments, kwarguments=_kwarguments)
-            print(f"  updating call to {call} | _arguments: {_arguments} | _kwarguments: {_kwarguments}")
  
 
-            print(f"  setting trafo_data LowerBlockIndex for item {successor_map[str(call.name)]}")
             successor_map[str(call.name)].trafo_data.setdefault('LowerBlockIndex', {})
             successor_map[str(call.name)].trafo_data['LowerBlockIndex'].setdefault('assignments', {})
             # TODO: include this check?
@@ -865,7 +846,6 @@ class LowerBlockIndexTransformation(Transformation):
            
 
         # relevant_vars = successor_map[str(call.name)].trafo_data['LowerBlockIndex'].get('relevant_vars', ())
-        # print(f"[PROCESS KERNEL] routine {routine} -> call: {call}") #  | relevant_vars: {relevant_vars}")
 
 
 
@@ -884,12 +864,10 @@ class LowerBlockIndexTransformation(Transformation):
 
         with pragmas_attached(routine, ir.Loop):
             driver_loops = find_driver_loops(routine.body, targets)
-        # print(f"driver_loops: {driver_loops}")
         relevant_calls = []
         for driver_loop in driver_loops:
             with pragmas_attached(routine, ir.CallStatement):
                 calls = FindNodes(ir.CallStatement).visit(driver_loop.body)
-                # print(f"calls within driver_loop: {driver_loop}: {calls}")
                 for call in calls:
                     if call.pragma:
                         if any([_pragma.keyword.lower() == 'loki' and _pragma.content.lower() == 'small-kernels' for _pragma in call.pragma]):
@@ -924,7 +902,6 @@ class LowerBlockIndexTransformation(Transformation):
             for imp in call_all_imports:
                 call_all_imported_symbols += as_tuple([_.name.lower() for _ in imp.symbols])
 
-            print(f"PROCESSING routine {routine} -> call: {call} \n  header: {driver_loop_header[driver_loop]}")
             relevant_vars = () # (driver_loop.variable,)
             relevant_vars += (driver_loop.bounds.lower, driver_loop.bounds.upper)
             if driver_loop.bounds.step is not None:
@@ -937,19 +914,12 @@ class LowerBlockIndexTransformation(Transformation):
             ##
             relevant_vars = set(relevant_vars)
             new_args = []
-            print(f"  relevant_vars:")
             for _var in relevant_vars:
                 if isinstance(_var, sym._Literal):
                     continue
-                print(f"    {_var}")
-                print(f"      var in call_arg_map? {_var in call_arg_map} -> {call_arg_map.get(_var, None)}")
                 if _var.parent is not None:
                     _parent_var = _get_parent(_var)
-                    print(f"      parent {_parent_var} in call_arg_map? {_parent_var in call_arg_map} -> {call_arg_map.get(_parent_var, None)}")
 
-            print(f"call_arg_map:") #  {call_arg_map}")
-            for k,v in call_arg_map.items():
-                print(f"  {k} -> {v}")
             new_kwargs = []
             already_arg = []
             for _var in relevant_vars:
@@ -967,7 +937,6 @@ class LowerBlockIndexTransformation(Transformation):
                         if _parent_var not in call_arg_map:
                             _dtype = _parent_var.type.dtype
                             if _dtype in call_arg_dtype_map:
-                                print(f"YES! _parent_var: {_parent_var} | call_arg_dtype_map[_dtype]: {call_arg_dtype_map[_dtype]}")
                                 new_kwargs.append((call_arg_dtype_map[_dtype].name, _parent_var))
                             else:
                                 new_args.append(_parent_var)
@@ -975,10 +944,7 @@ class LowerBlockIndexTransformation(Transformation):
                         new_args.append(_var)
            
             new_kwargs = set(new_kwargs)
-            print(f"  therefore new args:")
             new_args = sorted(as_tuple(set(new_args)), key=lambda x: str(x.name))
-            for _new_arg in new_args:
-                print(f"    {_new_arg}")
 
             if new_args:
                 call._update(kwarguments=call.kwarguments+as_tuple([(_new_arg.name, _new_arg) for _new_arg in new_args])+as_tuple(new_kwargs))
@@ -1005,12 +971,10 @@ class LowerBlockIndexTransformation(Transformation):
             # promote locals
             # local_vars = get_local_arrays(routine, routine.spec)
             # TODO: further filtering, constant dims, ...
-            # print(f"  local_vars: {local_vars}")
             # routine_variable_map = call.routine.variable_map
             ##
             local_vars = get_local_arrays(call.routine, call.routine.spec)
             # TODO: further filtering, constant dims, ...
-            print(f"  local_vars: {local_vars}")
             # routine_variable_map = call.routine.variable_map
             var_map = {}
             call_variable_map = call.routine.variable_map
@@ -1023,7 +987,6 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                print(f"routine {routine} | call {call}")
                 assert False
             for local_var in local_vars:
                 new_dims = local_var.dimensions + (call_block_dim_size,)
@@ -1044,7 +1007,6 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                print(f"routine {routine} | call {call}")
                 assert False
             for arg, call_arg in call.arg_iter():
                 if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
@@ -1078,14 +1040,10 @@ class LowerBlockIndexTransformation(Transformation):
                 else:
                     _kwarguments += ((kwarg_name, kwarg),)
             call._update(arguments=_arguments, kwarguments=_kwarguments)
-            print(f"  updating call to {call} | _arguments: {_arguments} | _kwarguments: {_kwarguments}")
  
 
-            print(f"  setting trafo_data LowerBlockIndex for item {successor_map[str(call.name)]}")
             successor_map[str(call.name)].trafo_data.setdefault('LowerBlockIndex', {})
             successor_map[str(call.name)].trafo_data['LowerBlockIndex'].setdefault('assignments', {})
-            print(f"  driver: relevant_vars before: {relevant_vars}")
-            print(f"  driver: relevant_vars after : {SubstituteExpressions(call_arg_map).visit(as_tuple(relevant_vars))}")
             # successor_map[str(call.name)].trafo_data['LowerBlockIndex']['relevant_vars'] = SubstituteExpressions(call_arg_map).visit(as_tuple(relevant_vars))
             # TODO: need for update?
             call_arg_map = dict((v,k) for k,v in call.arg_map.items())
@@ -1127,7 +1085,6 @@ class LowerBlockIndexTransformation(Transformation):
                         f'{call.name}. Call statement not enriched')
                 continue
 
-            print(f"PROCESSING routine {routine} -> call: {call}")
             
             # self._propagate_missing_args(call, variable_map, block_dim_index, block_dim_size, processed_routines)
 

@@ -136,12 +136,6 @@ class SCCPromoteTransformation(Transformation):
             if _size.split('%', maxsplit=1)[0] in variable_map:
                 block_size = get_integer_variable(routine, _size)
 
-        if to_promote:
-            print(f"\n[SCC PROMOTE] routine {routine} |\n  to_promote: {to_promote}\n  block_index: {block_index}\n  block_size: {block_size}\n")
-
-        # Filter out arrays marked explicitly for preservation
-        # if preserve_arrays:
-        #     to_demote = [v for v in to_demote if not v.name in preserve_arrays]
 
         # Demote all private local variables that do not buffer values between sections
         if promote_locals:

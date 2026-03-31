@@ -92,7 +92,6 @@ class CreateLocalCopiesTransformation(Transformation):
         for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
             if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
                 create_local_copy.append(block_index)
-        print(f"create local copy {routine}: {create_local_copy}")
         local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy if f'local_{var.name}' not in routine_variable_map}
         routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
         routine.variables += as_tuple(local_copy_map.values())

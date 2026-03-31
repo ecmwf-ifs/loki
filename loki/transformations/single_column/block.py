@@ -142,7 +142,6 @@ class SCCBlockSectionToLoopTransformation(Transformation):
                 continue
             if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
                 create_local_copy.append(block_index)
-        print(f"create local copy {routine}: {create_local_copy}")
         local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy}
         routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
         routine.variables += as_tuple(local_copy_map.values())
@@ -253,14 +252,12 @@ class SCCBlockSectionTransformation(Transformation):
             early_exit = True
             for pragma in call_pragmas:
                 if pragma.keyword.lower() == 'loki' and pragma.content.lower() == "small-kernels":
-                    print(f"[BLOCKSECTION] kernel {successor_map[str(call.name)]} -> True")
                     successor_map[str(call.name)].trafo_data['BlockSectionTrafo'] = True
                     early_exit = False
                     break
             if early_exit:
                 continue
         
-            print(f"  adding separator node for call: {call}")
             separator_nodes = cls._add_separator(call, section, separator_nodes)
 
         # for pragma in FindNodes(ir.Pragma).visit(section):
@@ -455,7 +452,6 @@ class SCCBlockSectionTransformation(Transformation):
         ##
 
         # Extract vector-level compute sections from the kernel
-        print(f"extract_block_sections for routine {routine}")
         with pragmas_attached(routine, ir.CallStatement):
             sections = self.extract_block_sections(routine.body.body, self.block_dim, successor_map)
 

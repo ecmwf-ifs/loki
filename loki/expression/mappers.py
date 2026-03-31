@@ -228,7 +228,6 @@ class LokiWalkMapper(WalkMapper):
     
     def __init__(self, recurse_var_parent=True, **kwargs):
         self.recurse_var_parent = recurse_var_parent
-        print(f"recurse_var_parent: {recurse_var_parent}")
 
     def map_variable_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):

@@ -182,13 +182,8 @@ class SCCAnnotateTransformation(Transformation):
 
             with pragma_regions_attached(routine):
                 with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
-                    # # Find variables with existing OpenACC data declarations
-                    # acc_vars = self.find_acc_vars(routine, targets)
-                    # TODO: acc_vars
-                    acc_vars = self.find_kernel_acc_vars(routine) # , targets)
-                    print(f"routine {routine} acc_vars: {acc_vars}")
+                    acc_vars = self.find_kernel_acc_vars(routine)
                     driver_loops = find_driver_loops(section=routine.body, targets=targets)
-                    print(f"[ANNOTATE] kernel {routine} : driver_loops: {driver_loops}")
                     for loop in driver_loops:
                         self.annotate_driver_loop(loop, acc_vars, privatise_derived_types=False)
 
@@ -223,8 +218,6 @@ class SCCAnnotateTransformation(Transformation):
 
         for region in FindNodes(ir.PragmaRegion).visit(routine.body):
             pragma_keyword = region.pragma.keyword.lower()
-            print(f"pragma_keyword: {pragma_keyword}")
-            print(f"region.pragma: {region.pragma}")
             if pragma_keyword in ['loki', 'acc']:
                 if pragma_keyword == 'acc':
                     parameters = get_pragma_parameters(region.pragma, starts_with='data', only_loki_pragmas=False)
@@ -243,13 +236,11 @@ class SCCAnnotateTransformation(Transformation):
                     # When a key is given multiple times, get_pragma_parameters returns a list
                     # We merge them here into single entries to make our life easier below
                     parameters = {key: ', '.join(as_tuple(value)) for key, value in parameters.items()}
-                    print(f"  parameters: {parameters}")
                     if (default := parameters.get('default', None)):
                         if not 'none' in [p.strip().lower() for p in default.split(',')]:
                             # for loop in driver_loops:
 
                             _vars = [var.name.lower() for var in FindVariables(unique=True).visit(routine.body)]
-                            print(f"  [1] _vars: {_vars}")
                             acc_vars += _vars
                     else:
                         _vars = [
@@ -257,9 +248,7 @@ class SCCAnnotateTransformation(Transformation):
                             for category in ('present', 'copy', 'copyin', 'copyout', 'deviceptr', 'vars')
                             for p in parameters.get(category, '').split(',')
                         ]
-                        print(f"  [2] _vars: {_vars}")
 
-                        # for loop in driver_loops:
                         acc_vars += _vars
 
         return acc_vars
