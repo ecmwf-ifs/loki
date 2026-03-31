@@ -5,12 +5,12 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.batch import Transformation
+from loki.batch import Transformation, TransformationError
 
 from loki.transformations.array_indexing import resolve_vector_dimension, resolve_vector_notation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    check_routine_sequential, rename_variables
+    check_routine_sequential, get_loop_bounds, rename_variables
 )
 
 
@@ -148,6 +148,13 @@ class SCCBaseTransformation(Transformation):
         do_resolve_associates(routine)
 
         if do_resolve_vector_notation:
+            # Check that horizontal loop bounds are present in the routine;
+            # raise TransformationError early rather than silently skipping.
+            try:
+                get_loop_bounds(routine, dimension=self.horizontal)
+            except RuntimeError as e:
+                raise TransformationError(str(e)) from e
+
             # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
             resolve_vector_dimension(
                 routine, dimension=self.horizontal, derive_qualified_ranges=True
