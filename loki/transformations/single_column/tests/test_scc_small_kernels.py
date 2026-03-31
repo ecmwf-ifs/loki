@@ -205,6 +205,84 @@ end subroutine kernel_cat7
 """.strip()
 
 
+# Cat 1 residual: three-level hierarchy — driver → mid_kernel → sub_kernel.
+# Only the driver→mid_kernel call has ``!$loki small-kernels``.
+# The sub_kernel receives ``bnds`` but is NOT directly marked, so
+# ``LowerBlockIndex`` trafo_data does NOT propagate to it.
+# Despite that, ``bnds`` should still be excluded from ``!$acc data present``.
+
+FCODE_DRIVER_CAT1_RESIDUAL = """
+module driver_cat1r_mod
+  implicit none
+contains
+  subroutine driver_cat1r(ngpblks, bnds, opts, t, q)
+    use bnds_type_mod, only: bnds_type
+    use opts_type_mod, only: opts_type
+    implicit none
+    #include "mid_kernel.intfb.h"
+    integer, intent(in) :: ngpblks
+    type(bnds_type), intent(inout) :: bnds
+    type(opts_type), intent(in) :: opts
+    real, intent(inout) :: t(:,:,:)
+    real, intent(inout) :: q(:,:,:)
+
+    integer :: ibl
+
+    do ibl = 1, ngpblks
+      bnds%kbl = ibl
+      bnds%kstglo = 1 + (ibl - 1) * opts%klon
+      bnds%kidia = 1
+      bnds%kfdia = min(opts%klon, opts%kgpcomp - bnds%kstglo + 1)
+
+      !$loki small-kernels
+      call mid_kernel(opts%klon, opts%kflevg, bnds, t(:,:,ibl), q(:,:,ibl))
+    end do
+  end subroutine driver_cat1r
+end module driver_cat1r_mod
+""".strip()
+
+FCODE_MID_KERNEL = """
+subroutine mid_kernel(klon, klev, bnds, t, q)
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  #include "sub_kernel.intfb.h"
+  integer, intent(in) :: klon, klev
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: t(klon, klev)
+  real, intent(inout) :: q(klon, klev)
+
+  integer :: jrof, jk
+
+  do jk = 1, klev
+    do jrof = bnds%kidia, bnds%kfdia
+      t(jrof, jk) = t(jrof, jk) + 1.0
+    end do
+  end do
+
+  call sub_kernel(bnds, t, q, klon, klev)
+end subroutine mid_kernel
+""".strip()
+
+FCODE_SUB_KERNEL = """
+subroutine sub_kernel(bnds, t, q, klon, klev)
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  type(bnds_type), intent(in) :: bnds
+  integer, intent(in) :: klon, klev
+  real, intent(in) :: t(klon, klev)
+  real, intent(inout) :: q(klon, klev)
+
+  integer :: jrof, jk
+
+  do jk = 1, klev
+    do jrof = bnds%kidia, bnds%kfdia
+      q(jrof, jk) = t(jrof, jk) * 2.0
+    end do
+  end do
+end subroutine sub_kernel
+""".strip()
+
+
 # ---------------------------------------------------------------------------
 # Helper: run the SCCSmallKernelsPipeline on a driver+kernel pair
 # ---------------------------------------------------------------------------
@@ -243,6 +321,54 @@ def _apply_small_kernels_pipeline(driver_source, kernel_source, horizontal,
         )
 
     return driver_routine, kernel_routine
+
+
+def _apply_small_kernels_pipeline_3level(
+        driver_source, mid_source, sub_source, horizontal, block_dim, tmp_path,
+        driver_name='driver_cat1r', mid_name='mid_kernel', sub_name='sub_kernel',
+        driver_item_name='driver_cat1r_mod#driver_cat1r',
+        mid_item_name='#mid_kernel', sub_item_name='#sub_kernel'):
+    """
+    Three-level variant: driver → mid_kernel → sub_kernel.
+
+    Only the driver→mid_kernel call has ``!$loki small-kernels``.
+    The mid_kernel→sub_kernel call is a plain call (no pragma).
+    """
+    pipeline = SCCSmallKernelsPipeline(
+        horizontal=horizontal, block_dim=block_dim, directive='openacc'
+    )
+
+    driver_routine = driver_source[driver_name]
+    mid_routine = mid_source[mid_name]
+    sub_routine = sub_source[sub_name]
+
+    driver_routine.enrich(mid_routine)
+    mid_routine.enrich(sub_routine)
+
+    driver_item = ProcedureItem(name=driver_item_name, source=driver_source)
+    mid_item = ProcedureItem(name=mid_item_name, source=mid_source)
+    sub_item = ProcedureItem(name=sub_item_name, source=sub_source)
+
+    sgraph = SGraph.from_dict({
+        driver_item: [mid_item],
+        mid_item: [sub_item],
+    })
+
+    # Apply in top-down order: driver, mid, sub
+    items_in_order = [
+        (driver_routine, 'driver', driver_item, [mid_name]),
+        (mid_routine, 'kernel', mid_item, [sub_name]),
+        (sub_routine, 'kernel', sub_item, []),
+    ]
+
+    for transform in pipeline.transformations:
+        for routine, role, item, targets in items_in_order:
+            transform.apply(
+                routine, role=role, item=item,
+                targets=targets, sub_sgraph=sgraph
+            )
+
+    return driver_routine, mid_routine, sub_routine
 
 
 # ---------------------------------------------------------------------------
@@ -387,3 +513,54 @@ def test_cat7_no_local_klon_when_size_and_upper(frontend, horizontal_klon_upper,
     assert 'local_klon' not in code.lower(), (
         f"Generated code should not contain 'local_KLON':\n{code}"
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_cat1_residual_sub_kernel_bnds_not_in_present(frontend, horizontal, block_dim, tmp_path):
+    """
+    Category 1 residual bug: a sub-kernel that receives ``BNDS`` as an
+    argument but is NOT directly called via ``!$loki small-kernels`` should
+    still have ``BNDS`` excluded from its ``!$acc data present(...)`` clause.
+
+    In the real IFS, routines like ``GPINISLB_PART2_EXPL`` are called from
+    an intermediate kernel without a ``!$loki small-kernels`` pragma, so
+    ``LowerBlockIndex`` trafo_data does NOT propagate to them.  But they
+    still receive ``YDCPG_BNDS`` which is only used for loop bounds and
+    should not appear in ``present()``.
+    """
+    bnds_mod = Module.from_source(FCODE_BNDS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    opts_mod = Module.from_source(FCODE_OPTS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    driver_source = Sourcefile.from_source(
+        FCODE_DRIVER_CAT1_RESIDUAL, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    mid_source = Sourcefile.from_source(
+        FCODE_MID_KERNEL, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    sub_source = Sourcefile.from_source(
+        FCODE_SUB_KERNEL, frontend=frontend,
+        definitions=[bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+
+    driver, mid_kernel, sub_kernel = _apply_small_kernels_pipeline_3level(
+        driver_source, mid_source, sub_source, horizontal, block_dim, tmp_path
+    )
+
+    # The sub_kernel should have ``!$acc data present(...)`` that does NOT
+    # contain ``bnds`` — only arrays like ``t``, ``q`` should be there.
+    pragmas = FindNodes(Pragma).visit(sub_kernel.ir)
+    present_pragmas = [p for p in pragmas
+                       if p.keyword.lower() == 'acc'
+                       and 'present' in p.content.lower()]
+
+    assert len(present_pragmas) >= 1, \
+        "Expected at least one !$acc data present pragma in sub_kernel"
+
+    for pragma in present_pragmas:
+        content_lower = pragma.content.lower()
+        # Split out the present(...) content and check variable names
+        assert ' bnds' not in f' {content_lower}' or 'local_bnds' in content_lower, (
+            f"'bnds' should not appear in sub_kernel's present clause: {pragma.content}"
+        )

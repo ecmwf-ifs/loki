@@ -91,6 +91,11 @@ class CreateLocalCopiesTransformation(Transformation):
         if role == 'kernel':
             if 'LowerBlockIndex' in item.trafo_data:
                 self._create_local_copies(routine)
+            # Always clean up device-present pragmas for bounds-parent
+            # variables, even when LowerBlockIndex did not propagate to
+            # this item (e.g. sub-sub-kernels not directly marked with
+            # ``!$loki small-kernels``).
+            self._remove_bounds_parents_from_device_present(routine)
 
     def get_block_index(self, routine, variable_map, index):
         """
@@ -137,24 +142,68 @@ class CreateLocalCopiesTransformation(Transformation):
         # created the local copy, causing local_copy_map to be empty here.
         replaced_names = {str(var.name).lower() for var in create_local_copy}
         if replaced_names:
-            pragma_map = {}
-            for pragma in FindNodes(Pragma).visit(routine.body):
-                if not is_loki_pragma(pragma, starts_with='device-present'):
-                    continue
-                params = get_pragma_parameters(pragma, starts_with='device-present',
-                                               only_loki_pragmas=False)
-                if params is None or 'vars' not in params:
-                    continue
-                var_list = [v.strip() for v in params['vars'].split(',')]
-                filtered = [v for v in var_list if v.lower() not in replaced_names]
-                if len(filtered) < len(var_list):
-                    if filtered:
-                        new_content = f'device-present vars({", ".join(filtered)})'
-                    else:
-                        new_content = 'device-present'
-                    pragma_map[pragma] = pragma.clone(content=new_content)
-            if pragma_map:
-                routine.body = Transformer(pragma_map).visit(routine.body)
+            self._filter_device_present_pragma(routine, replaced_names)
+
+    @staticmethod
+    def _filter_device_present_pragma(routine, names_to_remove):
+        """
+        Remove variable names in *names_to_remove* from any
+        ``!$loki device-present vars(...)`` pragmas in *routine*.
+        """
+        pragma_map = {}
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            if not is_loki_pragma(pragma, starts_with='device-present'):
+                continue
+            params = get_pragma_parameters(pragma, starts_with='device-present',
+                                           only_loki_pragmas=False)
+            if params is None or 'vars' not in params:
+                continue
+            var_list = [v.strip() for v in params['vars'].split(',')]
+            filtered = [v for v in var_list if v.lower() not in names_to_remove]
+            if len(filtered) < len(var_list):
+                if filtered:
+                    new_content = f'device-present vars({", ".join(filtered)})'
+                else:
+                    new_content = 'device-present'
+                pragma_map[pragma] = pragma.clone(content=new_content)
+        if pragma_map:
+            routine.body = Transformer(pragma_map).visit(routine.body)
+
+    def _get_bounds_parent_names(self):
+        """
+        Return the set of lower-cased parent variable names from all
+        ``block_dim.indices``, ``horizontal.upper``, and ``horizontal.lower``
+        entries that contain a ``%`` (i.e. are derived-type components).
+
+        For example, ``YDCPG_BNDS%KIDIA`` yields ``ydcpg_bnds``.
+        """
+        parents = set()
+        for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
+            if '%' in _index:
+                parents.add(_index.split('%')[0].lower())
+        return parents
+
+    def _remove_bounds_parents_from_device_present(self, routine):
+        """
+        Remove bounds-parent variable names (e.g. ``YDCPG_BNDS``) from
+        ``!$loki device-present vars(...)`` pragmas.
+
+        These variables are derived-type containers for loop bounds
+        (KIDIA, KFDIA, KBL, etc.) and are never accessed as device data.
+        The annotation step adds them because they are derived-type
+        arguments, but they should be excluded from ``present()`` clauses.
+
+        .. note::
+           This assumes that bounds-parent variables are used *only* for
+           loop bounds / block indices.  If a routine also accesses other
+           components of the same derived type as device data, this
+           heuristic would incorrectly remove it from ``present()``.
+           In the IFS this is safe because ``YDCPG_BNDS`` is purely a
+           bounds container.
+        """
+        bounds_parents = self._get_bounds_parent_names()
+        if bounds_parents:
+            self._filter_device_present_pragma(routine, bounds_parents)
 
 class RemoveUnusedVarTransformation(RemoveCodeTransformation):
     """
