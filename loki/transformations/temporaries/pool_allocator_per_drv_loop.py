@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from collections import  defaultdict
+from collections import defaultdict
 
 from loki.batch import Transformation
 from loki.expression import (
@@ -269,7 +269,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         """
 
         # add qualified iso_c_binding import
-        if not 'C_SIZEOF' in routine.imported_symbols:
+        if 'C_SIZEOF' not in routine.imported_symbols:
             imp = Import(
                 module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)),
                 nature='intrinsic'
@@ -283,7 +283,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         """
 
         # add qualified iso_fortran_env import
-        if not 'REAL64' in routine.imported_symbols:
+        if 'REAL64' not in routine.imported_symbols:
             imp = Import(
                 module='ISO_FORTRAN_ENV', symbols=as_tuple(ProcedureSymbol('REAL64', scope=routine)),
                 nature='intrinsic'
@@ -476,11 +476,13 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 try:
                     block_size = routine.resolve_typebound_var(_size, routine.symbol_map)
                     break
-                except Exception as e:
-                    pass
+                except (KeyError, AttributeError):
+                    continue
             if block_size is None:
-                 assert False
-            # block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve any block dimension size '
+                    f'({self.block_dim.sizes}) in {routine.name}'
+                )
             stack_alloc = self._get_stack_alloc(routine, stack_storage, stack_size_var, block_size)
             stack_dealloc = self._get_stack_dealloc(routine, stack_storage, stack_size_var, block_size)
 
@@ -675,10 +677,10 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         ishift_func = InlineCall(function=Variable(name='ISHFT'))
         arr_size = ishift_func.clone(parameters=(Sum((arr_size, 7)), -3))
 
-        # Increment stack size
+        # Increment stack size; fall back to unsimplified expression if simplify fails
         try:
             stack_size = simplify(Sum((stack_size, arr_size)))
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError):
             stack_size = Sum((stack_size, arr_size))
 
         if self.cray_ptr_loc_rhs:
@@ -747,7 +749,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         # Filter out variables with the block size as last dimension
         temporary_arrays = [
             var for var in temporary_arrays
-            if not var.shape[-1] in self.block_dim.sizes
+            if var.shape[-1] not in self.block_dim.sizes
         ]
 
         # filter arrays with dimensions being :, :
@@ -834,72 +836,71 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
         # TODO: adapt pragma loop
         # Find first block loop and assign local stack pointers there
-        if True:
-            assignments = FindNodes(Assignment).visit(drv_loop.body)
-            if drv_loop.variable != self.block_dim.index:
-                # Check if block variable is assigned in loop body
-                for assignment in assignments:
-                    if assignment.lhs in self.block_dim.indices:
-                        assert assignment in drv_loop.body
-                        # Need to insert the pointer assignment after block dimension is set
-                        assign_pos = drv_loop.body.index(assignment)
-                        break
-                else:
-                    warning(
-                        f'{self.__class__.__name__}: '
-                        f'Could not find a block dimension for loop with variable {drv_loop.variable} and '
-                        f'bounds {drv_loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
-                    )
-                    return drv_loop
+        assignments = FindNodes(Assignment).visit(drv_loop.body)
+        if drv_loop.variable != self.block_dim.index:
+            # Check if block variable is assigned in loop body
+            for assignment in assignments:
+                if assignment.lhs in self.block_dim.indices:
+                    assert assignment in drv_loop.body
+                    # Need to insert the pointer assignment after block dimension is set
+                    assign_pos = drv_loop.body.index(assignment)
+                    break
             else:
-                # block variable is the loop variable: pointer assignment can happen
-                # at the beginning of the loop body
-                assign_pos = -1
-
-            # Check for existing pointer assignment
-            if any(a.lhs == f'{self.stack_local_var_name}_{self.stack_ptr_name}' for a in assignments):
-                debug(
+                warning(
                     f'{self.__class__.__name__}: '
-                    f'Stack (pointer) already exists within/for loop with variable {drv_loop.variable} and '
-                    f'bounds {drv_loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
+                    f'Could not find a block dimension for loop with variable {drv_loop.variable} and '
+                    f'bounds {drv_loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
                 )
                 return drv_loop
-            if self.cray_ptr_loc_rhs:
-                ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
-            else:
-                ptr_assignment = Assignment(
-                    lhs=stack_ptr, rhs=InlineCall(
-                        function=Variable(name='LOC'),
-                        parameters=(
-                            stack_storage.clone(
-                                dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
-                            ),
-                        ),
-                        kw_parameters=None
-                    )
-                )
+        else:
+            # block variable is the loop variable: pointer assignment can happen
+            # at the beginning of the loop body
+            assign_pos = -1
 
-            # Retrieve kind parameter of stack storage
-            _kind = routine.imported_symbol_map.get('REAL64')
-
-            # Stack increment
-            if self.cray_ptr_loc_rhs:
-                stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
-                )
-            else:
-                _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
-                _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
-                                              parameters=as_tuple(_real_size_bytes))
-                stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
-                )
-            new_assignments = (ptr_assignment,)
-            if self.check_bounds:
-                new_assignments += (stack_incr,)
-            new_loop = drv_loop.clone(
-                    body=drv_loop.body[:assign_pos + 1] + new_assignments + drv_loop.body[assign_pos + 1:]
+        # Check for existing pointer assignment
+        if any(a.lhs == f'{self.stack_local_var_name}_{self.stack_ptr_name}' for a in assignments):
+            debug(
+                f'{self.__class__.__name__}: '
+                f'Stack (pointer) already exists within/for loop with variable {drv_loop.variable} and '
+                f'bounds {drv_loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
             )
+            return drv_loop
+        if self.cray_ptr_loc_rhs:
+            ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
+        else:
+            ptr_assignment = Assignment(
+                lhs=stack_ptr, rhs=InlineCall(
+                    function=Variable(name='LOC'),
+                    parameters=(
+                        stack_storage.clone(
+                            dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
+                        ),
+                    ),
+                    kw_parameters=None
+                )
+            )
+
+        # Retrieve kind parameter of stack storage
+        _kind = routine.imported_symbol_map.get('REAL64')
+
+        # Stack increment
+        if self.cray_ptr_loc_rhs:
+            stack_incr = Assignment(
+                lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
+            )
+        else:
+            _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
+            _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                          parameters=as_tuple(_real_size_bytes))
+            stack_incr = Assignment(
+                lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
+            )
+        new_assignments = (ptr_assignment,)
+        if self.check_bounds:
+            new_assignments += (stack_incr,)
+        new_loop = drv_loop.clone(
+                body=drv_loop.body[:assign_pos + 1] + new_assignments + drv_loop.body[assign_pos + 1:]
+        )
         return new_loop
 
     def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False, drv_loop=None):

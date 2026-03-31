@@ -68,8 +68,10 @@ class ReblockSectionTransformer(Transformer):
             )
             vector_length = f' vector_length({sizes[0]})' if sizes else ''
             if self.driver_loop is None:
-                # TODO: raise proper exception
-                assert False
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: driver_loop is None but '
+                    f'a block section needs to be wrapped in a driver loop'
+                )
             else:
                 return (ir.Comment(text='! START OF BLOCK LOOP'), ir.Comment(text=''),
                         self.driver_loop.clone(body=self.driver_loop.body+s.body, pragma=(ir.Pragma(keyword='loki', content=f'loop driver{vector_length}'),)),
@@ -108,7 +110,7 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         routine_variable_map = routine.variable_map
         create_local_copy = []
         for _index in self.block_dim.indices:
-            if not "%" in _index:
+            if "%" not in _index:
                 continue
             if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
                 create_local_copy.append(block_index)

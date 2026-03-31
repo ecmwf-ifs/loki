@@ -655,7 +655,7 @@ class LowerBlockIndexTransformation(Transformation):
                 call.routine.spec.prepend(as_tuple(new_imports))
 
             local_vars = get_local_arrays(call.routine, call.routine.spec)
-            local_vars = [local_var for local_var in local_vars if not local_var.dimensions[-1] in self.block_dim.sizes]
+            local_vars = [local_var for local_var in local_vars if local_var.dimensions[-1] not in self.block_dim.sizes]
             # TODO: further filtering, constant dims, ...
             var_map = {}
             call_variable_map = call.routine.variable_map
@@ -668,7 +668,10 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                assert False
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve block dimension size '
+                    f'({self.block_dim.sizes}) in {call.routine.name}'
+                )
             for local_var in local_vars:
                 new_dims = local_var.dimensions + (call_block_dim_size,)
                 new_shape = local_var.shape + (call_block_dim_size,)
@@ -695,7 +698,10 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                assert False
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve block dimension size '
+                    f'({self.block_dim.sizes}) in {call.routine.name}'
+                )
             for arg, call_arg in call.arg_iter():
                 if isinstance(arg, Array) and self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
                     call_routine_var = call_variable_map[arg.name]
@@ -872,7 +878,10 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                assert False
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve block dimension size '
+                    f'({self.block_dim.sizes}) in {call.routine.name}'
+                )
             for local_var in local_vars:
                 new_dims = local_var.dimensions + (call_block_dim_size,)
                 new_shape = local_var.shape + (call_block_dim_size,)
@@ -892,7 +901,10 @@ class LowerBlockIndexTransformation(Transformation):
                     call_block_dim_size = get_integer_variable(call.routine, block_dim_size)
                     break
             if call_block_dim_size is None:
-                assert False
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve block dimension size '
+                    f'({self.block_dim.sizes}) in {call.routine.name}'
+                )
             for arg, call_arg in call.arg_iter():
                 if isinstance(arg, Array) and len(call_arg.shape) > len(arg.shape):
                     call_routine_var = call_variable_map[arg.name]
