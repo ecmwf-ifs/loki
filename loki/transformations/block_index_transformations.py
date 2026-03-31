@@ -714,6 +714,11 @@ class LowerBlockIndexTransformation(Transformation):
                 if isinstance(_new_arg.type.dtype, DerivedType):
                     if _new_arg.type.dtype.name.lower() not in call_all_imported_symbols:
                         new_imports.add(all_import_map[_new_arg.type.dtype.name.lower()])
+                # Also import kind parameters (e.g. JPIM from PARKIND1)
+                if _new_arg.type.kind is not None:
+                    kind_name = str(_new_arg.type.kind).lower()
+                    if kind_name not in call_all_imported_symbols and kind_name in all_import_map:
+                        new_imports.add(all_import_map[kind_name])
             if new_imports:
                 call.routine.spec.prepend(as_tuple(new_imports))
 
@@ -900,6 +905,11 @@ class LowerBlockIndexTransformation(Transformation):
                 if isinstance(_new_arg.type.dtype, DerivedType):
                     if _new_arg.type.dtype.name.lower() not in call_all_imported_symbols:
                         new_imports.add(all_import_map[_new_arg.type.dtype.name.lower()])
+                # Also import kind parameters (e.g. JPIM from PARKIND1)
+                if _new_arg.type.kind is not None:
+                    kind_name = str(_new_arg.type.kind).lower()
+                    if kind_name not in call_all_imported_symbols and kind_name in all_import_map:
+                        new_imports.add(all_import_map[kind_name])
             if new_imports:
                 call.routine.spec.prepend(as_tuple(new_imports))
 

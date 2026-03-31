@@ -18,6 +18,8 @@ IFS small-kernels GPU build, verifying that:
 - Category 7: Variables that appear in both ``horizontal.size`` and
   ``horizontal.upper`` (e.g. ``KLON``) must NOT be localized to
   ``local_KLON``.
+- Category 8: Kind parameters (e.g. ``JPIM``) used by block-index variables
+  propagated to callees must be imported.
 """
 
 import pytest
@@ -30,7 +32,7 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import (
     FindNodes, Assignment, CallStatement, Loop,
-    Pragma, FindVariables, FindInlineCalls, Section
+    Pragma, FindVariables, FindInlineCalls, Section, Import
 )
 from loki.transformations.single_column import (
     SCCSmallKernelsPipeline
@@ -280,6 +282,73 @@ subroutine sub_kernel(bnds, t, q, klon, klev)
     end do
   end do
 end subroutine sub_kernel
+""".strip()
+
+
+# Cat 8: JPIM kind import propagation.
+# The driver declares ``IBL`` as ``INTEGER(KIND=JPIM)`` and imports ``JPIM``
+# from ``parkind1``.  The kernel does NOT import ``JPIM``.
+# After LowerBlockIndexTransformation propagates block-index variables to
+# the kernel, ``JPIM`` must be imported in the kernel as well.
+
+FCODE_PARKIND1_MOD = """
+module parkind1
+  implicit none
+  integer, parameter :: jpim = selected_int_kind(9)
+  integer, parameter :: jprb = selected_real_kind(13, 300)
+end module parkind1
+""".strip()
+
+FCODE_DRIVER_CAT8 = """
+module driver_cat8_mod
+  implicit none
+contains
+  subroutine driver_cat8(ngpblks, bnds, opts, t, q)
+    use parkind1, only: jpim, jprb
+    use bnds_type_mod, only: bnds_type
+    use opts_type_mod, only: opts_type
+    implicit none
+    #include "kernel_cat8.intfb.h"
+    integer(kind=jpim), intent(in) :: ngpblks
+    type(bnds_type), intent(inout) :: bnds
+    type(opts_type), intent(in) :: opts
+    real(kind=jprb), intent(inout) :: t(:,:,:)
+    real(kind=jprb), intent(inout) :: q(:,:,:)
+
+    integer(kind=jpim) :: ibl
+
+    do ibl = 1, ngpblks
+      bnds%kbl = ibl
+      bnds%kstglo = 1 + (ibl - 1) * opts%klon
+      bnds%kidia = 1
+      bnds%kfdia = min(opts%klon, opts%kgpcomp - bnds%kstglo + 1)
+
+      !$loki small-kernels
+      call kernel_cat8(opts%klon, opts%kflevg, bnds, t(:,:,ibl), q(:,:,ibl))
+    end do
+  end subroutine driver_cat8
+end module driver_cat8_mod
+""".strip()
+
+FCODE_KERNEL_CAT8 = """
+subroutine kernel_cat8(klon, klev, bnds, t, q)
+  use parkind1, only: jprb
+  use bnds_type_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: klon, klev
+  type(bnds_type), intent(in) :: bnds
+  real(kind=jprb), intent(inout) :: t(klon, klev)
+  real(kind=jprb), intent(inout) :: q(klon, klev)
+
+  integer :: jrof, jk
+
+  do jk = 1, klev
+    do jrof = bnds%kidia, bnds%kfdia
+      t(jrof, jk) = t(jrof, jk) + 1.0_jprb
+      q(jrof, jk) = t(jrof, jk) * 2.0_jprb
+    end do
+  end do
+end subroutine kernel_cat8
 """.strip()
 
 
@@ -564,3 +633,49 @@ def test_cat1_residual_sub_kernel_bnds_not_in_present(frontend, horizontal, bloc
         assert ' bnds' not in f' {content_lower}' or 'local_bnds' in content_lower, (
             f"'bnds' should not appear in sub_kernel's present clause: {pragma.content}"
         )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_cat8_jpim_import_propagated_to_kernel(frontend, horizontal, block_dim, tmp_path):
+    """
+    Category 8 bug: when ``LowerBlockIndexTransformation`` propagates block-
+    index variables (like ``IBL``) typed as ``INTEGER(KIND=JPIM)`` to callee
+    routines, the ``JPIM`` kind parameter must also be imported in the callee.
+
+    In the real IFS, this manifests as ``lacdyn`` and ``cpg_dyn_slg`` missing
+    ``JPIM`` from their ``USE PARKIND1`` statement, causing compilation errors
+    because the generated code declares ``INTEGER(KIND=JPIM) :: local_IBL``
+    without importing ``JPIM``.
+    """
+    parkind1_mod = Module.from_source(FCODE_PARKIND1_MOD, frontend=frontend, xmods=[tmp_path])
+    bnds_mod = Module.from_source(FCODE_BNDS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    opts_mod = Module.from_source(FCODE_OPTS_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    kernel_source = Sourcefile.from_source(
+        FCODE_KERNEL_CAT8, frontend=frontend,
+        definitions=[parkind1_mod, bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+    driver_source = Sourcefile.from_source(
+        FCODE_DRIVER_CAT8, frontend=frontend,
+        definitions=[parkind1_mod, bnds_mod, opts_mod], xmods=[tmp_path]
+    )
+
+    driver, kernel = _apply_small_kernels_pipeline(
+        driver_source, kernel_source, horizontal, block_dim, tmp_path,
+        driver_name='driver_cat8', kernel_name='kernel_cat8',
+        driver_item_name='driver_cat8_mod#driver_cat8',
+        kernel_item_name='#kernel_cat8'
+    )
+
+    # After transformation, the kernel should import JPIM (needed for
+    # block-index variables like IBL that were propagated from the driver).
+    all_imports = FindNodes(Import).visit(kernel.spec)
+    all_imported_symbols = set()
+    for imp in all_imports:
+        for s in imp.symbols:
+            all_imported_symbols.add(s.name.lower())
+
+    assert 'jpim' in all_imported_symbols, (
+        f"Expected 'jpim' to be imported in kernel after transformation. "
+        f"Found imports: {[str(imp) for imp in all_imports]}"
+    )
