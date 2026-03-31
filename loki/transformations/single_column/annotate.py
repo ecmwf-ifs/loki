@@ -228,6 +228,10 @@ class SCCAnnotateTransformation(Transformation):
                     else:
                         parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
                                 only_loki_pragmas=False)
+                        if not parameters:
+                            # Also handle `!$loki data` pragmas (e.g. `!$loki data present(...)`)
+                            parameters = get_pragma_parameters(region.pragma, starts_with='data',
+                                    only_loki_pragmas=False)
                 if parameters is not None:
 
                     # When a key is given multiple times, get_pragma_parameters returns a list
@@ -273,6 +277,10 @@ class SCCAnnotateTransformation(Transformation):
                 else:
                     parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
                             only_loki_pragmas=False)
+                    if not parameters:
+                        # Also handle `!$loki data` pragmas (e.g. `!$loki data present(...)`)
+                        parameters = get_pragma_parameters(region.pragma, starts_with='data',
+                                only_loki_pragmas=False)
                 if parameters is not None:
                     driver_loops = find_driver_loops(section=region.body, targets=targets)
                     if not driver_loops:
@@ -342,13 +350,25 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
         private_sym = arrays
 
-        if self.privatise_derived_types:
+        if privatise_derived_types:
             # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
             # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
             # scalars must also be privatised.
             structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
             structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
             structs = [v for v in structs if not v.type.intent]
+            # Exclude derived-type components whose root variable is a subroutine argument
+            # (has intent) or is imported from a module, as these are not loop-local variables
+            # and should not be privatised.
+            def _is_non_local_root(v):
+                root_name = v.name_parts[0]
+                if v.scope:
+                    root_type = v.scope.symbol_attrs.lookup(root_name)
+                    if root_type is not None:
+                        if root_type.intent or root_type.imported:
+                            return True
+                return False
+            structs = [v for v in structs if not _is_non_local_root(v)]
             structs = [v for v in structs if not v in arrays]
 
             # only privatise derived-type parent
