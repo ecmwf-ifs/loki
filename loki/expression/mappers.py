@@ -749,7 +749,23 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
     def __init__(self, expr_map):
         super().__init__()
 
-        self.expr_map = expr_map
+        # Build internal map that includes unwrapped VariableSymbol entries
+        # for any MetaSymbol keys (Scalar, Array).
+        #
+        # Background: MetaSymbol subclasses like Scalar wrap a VariableSymbol
+        # internally. When derived-type members like ``bnds%kidia`` are
+        # traversed, the parent ``bnds`` may appear as a raw VariableSymbol
+        # in the expression tree (especially after pipeline transformations).
+        # Since VariableSymbol.__eq__(Scalar) returns False despite identical
+        # names, dict lookups against a Scalar key would miss these raw
+        # parents. By also registering the unwrapped VariableSymbol in the
+        # map, we ensure parent substitutions are applied consistently.
+        from loki.expression.symbols import MetaSymbol  # pylint: disable=import-outside-toplevel
+        self.expr_map = dict(expr_map)
+        for expr, replacement in list(expr_map.items()):
+            if isinstance(expr, MetaSymbol) and expr._symbol not in self.expr_map:
+                self.expr_map[expr._symbol] = replacement
+
         for expr in self.expr_map.keys():
             setattr(self, expr.mapper_method, self.map_from_expr_map)
 

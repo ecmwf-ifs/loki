@@ -33,7 +33,10 @@ from loki.transformations.block_index_transformations import (
         LowerBlockLoopTransformation, InjectBlockIndexTransformation,
         LowerBlockIndexTransformation
 )
-from loki.ir import SubstituteExpressions
+from loki.ir import (
+    SubstituteExpressions, FindNodes, Pragma, Transformer,
+    is_loki_pragma, get_pragma_parameters
+)
 from loki.tools import as_tuple
 
 __all__ = [
@@ -109,6 +112,38 @@ class CreateLocalCopiesTransformation(Transformation):
         local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy if f'local_{var.name}' not in routine_variable_map}
         routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
         routine.variables += as_tuple(local_copy_map.values())
+
+        # Remove replaced variable names from !$loki device-present vars(...)
+        # pragmas.  The annotation step (SCCAnnotateTransformation) runs before
+        # local-copy creation, so it includes the original derived-type arguments
+        # (e.g. ``bnds``) in the vars list.  After the substitution above, the
+        # original variable is no longer accessed on the device and should be
+        # excluded from the ``present()`` clause that PragmaModelTransformation
+        # will generate.
+        #
+        # We use create_local_copy (not local_copy_map) because an earlier
+        # pipeline step (SCCBlockSectionToLoopTransformation) may have already
+        # created the local copy, causing local_copy_map to be empty here.
+        replaced_names = {str(var.name).lower() for var in create_local_copy}
+        if replaced_names:
+            pragma_map = {}
+            for pragma in FindNodes(Pragma).visit(routine.body):
+                if not is_loki_pragma(pragma, starts_with='device-present'):
+                    continue
+                params = get_pragma_parameters(pragma, starts_with='device-present',
+                                               only_loki_pragmas=False)
+                if params is None or 'vars' not in params:
+                    continue
+                var_list = [v.strip() for v in params['vars'].split(',')]
+                filtered = [v for v in var_list if v.lower() not in replaced_names]
+                if len(filtered) < len(var_list):
+                    if filtered:
+                        new_content = f'device-present vars({", ".join(filtered)})'
+                    else:
+                        new_content = 'device-present'
+                    pragma_map[pragma] = pragma.clone(content=new_content)
+            if pragma_map:
+                routine.body = Transformer(pragma_map).visit(routine.body)
 
 class RemoveUnusedVarTransformation(RemoveCodeTransformation):
     """
