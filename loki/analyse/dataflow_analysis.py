@@ -391,14 +391,24 @@ class DataflowAnalysis(AbstractDataflowAnalysis):
             live_symbols |= module_or_routine.spec.defines_symbols
 
         if hasattr(module_or_routine, 'body'):
-            attacher.visit(module_or_routine.body, live_symbols=live_symbols)
+            if hasattr(module_or_routine, 'spec'):
+                attacher.visit(module_or_routine.body, live_symbols=live_symbols)
+            else:
+                attacher.visit(module_or_routine, live_symbols=live_symbols)
+        elif not hasattr(module_or_routine, 'spec'):
+            attacher.visit(module_or_routine, live_symbols=live_symbols)
 
     def detach_dataflow_analysis(self, module_or_routine):
         detacher = self.get_detacher()
         if hasattr(module_or_routine, 'spec'):
             detacher.visit(module_or_routine.spec)
         if hasattr(module_or_routine, 'body'):
-            detacher.visit(module_or_routine.body)
+            if hasattr(module_or_routine, 'spec'):
+                detacher.visit(module_or_routine.body)
+            else:
+                detacher.visit(module_or_routine)
+        elif not hasattr(module_or_routine, 'spec'):
+            detacher.visit(module_or_routine)
 
 
 def attach_dataflow_analysis(module_or_routine):
