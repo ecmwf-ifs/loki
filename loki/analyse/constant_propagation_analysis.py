@@ -18,8 +18,10 @@ from loki.expression import (
     Array, DeferredTypeSymbol, FloatLiteral, IntLiteral, LogicLiteral,
     LokiIdentityMapper, LoopRange, Product, RangeIndex, StringLiteral
 )
-from loki.expression.symbolic import get_pyrange
+from loki.expression.symbolic import get_pyrange, is_constant
 from loki.expression.symbols import _Literal
+from loki.ir import FindNodes, Assignment
+from loki.tools import as_tuple
 
 __all__ = ['ConstantPropagationAnalysis']
 
@@ -100,6 +102,41 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                 else_body=new_else_body,
                 _constants_map=incoming_constants_map,
             )
+            return o
+
+        def visit_Loop(self, o, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            mapper = self.parent.ConstPropMapper(self.parent.fold_floats)
+            mapper_kwargs = dict(kwargs)
+            mapper_kwargs['constants_map'] = constants_map
+            incoming_constants_map = deepcopy(constants_map)
+
+            new_bounds = mapper(o.bounds, **mapper_kwargs)
+            new_loop = o.clone(bounds=new_bounds)
+
+            step = new_bounds.step if new_bounds.step is not None else IntLiteral(1)
+            can_unroll = self.parent.apply_transform and self.parent.unroll_loops
+            can_unroll = can_unroll and all(is_constant(expr) for expr in (new_bounds.start, new_bounds.stop, step))
+
+            if can_unroll:
+                from loki.transformations.transform_loop import LoopUnrollTransformer  # pylint: disable=import-outside-toplevel
+                unrolled = LoopUnrollTransformer(warn_iterations_length=False).visit(new_loop)
+                if not isinstance(unrolled, type(o)):
+                    unrolled_body = self.visit(as_tuple(unrolled), **kwargs)
+                    if not unrolled_body:
+                        return None
+                    return as_tuple(unrolled_body)
+
+            body_kwargs = dict(kwargs)
+            body_kwargs['constants_map'] = deepcopy(constants_map)
+            body_kwargs['constants_map'].pop((o.variable.basename, ()), None)
+            new_body = self.visit(o.body, **body_kwargs)
+
+            for assign in FindNodes(Assignment).visit(o.body):
+                self.parent.invalidate_constants_map(assign.lhs, constants_map)
+            self.parent.invalidate_constants_map(o.variable, constants_map)
+
+            o._update(bounds=new_bounds, body=new_body, _constants_map=incoming_constants_map)
             return o
 
     class Detacher(Transformer):
