@@ -98,7 +98,7 @@ subroutine test_1d_splitting(a, b, n)
   do i=1,n
     a(i) = real(i, kind=8)
   end do
-    end subroutine test_1d_splitting
+end subroutine test_1d_splitting
     """
     block_size = 117
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -121,6 +121,9 @@ subroutine test_1d_splitting(a, b, n)
         ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
         ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
     ]
+    # Ensure inner loop bound has been parametrised correctly
+    assert routine.variable_map['i_loop_block_size'].type.initial == block_size
+
     assert assignment_symbols(routine.body) == [
         ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
         ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
@@ -171,6 +174,9 @@ end subroutine test_1d_splitting_multi_var
         ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
         ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
     ]
+    # Ensure inner loop bound has been parametrised correctly
+    assert routine.variable_map['i_loop_block_size'].type.initial == block_size
+
     assert assignment_symbols(routine.body) == [
         ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
         ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
@@ -219,6 +225,9 @@ def test_2d_splitting(frontend):
         ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
         ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
     ]
+    # Ensure inner loop bound has been parametrised correctly
+    assert routine.variable_map['i_loop_block_size'].type.initial == block_size
+
     assert assignment_symbols(routine.body) == [
         ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
         ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),
@@ -341,6 +350,9 @@ end subroutine test_1d_blocking
         ('i_loop_block_idx', 1, 'i_loop_num_blocks', None),
         ('i_loop_local', 1, 'i_loop_block_end - i_loop_block_start + 1', None)
     ]
+    # Ensure inner loop bound has been parametrised correctly
+    assert routine.variable_map['i_loop_block_size'].type.initial == block_size
+
     assert assignment_symbols(routine.body) == [
         ('i_loop_num_blocks', '1 + (-1 + n) / i_loop_block_size'),
         ('i_loop_block_start', '(i_loop_block_idx - 1)*i_loop_block_size + 1'),

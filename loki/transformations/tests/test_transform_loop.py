@@ -132,7 +132,7 @@ subroutine transform_loop_interchange(a, m, n, nclv)
       end do
     end do
   end do
-    end subroutine transform_loop_interchange
+end subroutine transform_loop_interchange
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -183,7 +183,7 @@ subroutine transform_loop_interchange_project(a, m, n)
       a(j, i) = i + j
     end do
   end do
-    end subroutine transform_loop_interchange_project
+end subroutine transform_loop_interchange_project
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 

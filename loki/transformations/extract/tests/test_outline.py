@@ -56,7 +56,7 @@ subroutine test_outline(a, b, c)
 !$loki end outline
 
   c = a + b
-    end subroutine test_outline
+end subroutine test_outline
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
