@@ -10,6 +10,7 @@ import itertools
 import math
 import operator
 from copy import deepcopy
+from typing import Any
 
 from loki import Transformer
 from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
@@ -25,6 +26,28 @@ __all__ = ['ConstantPropagationAnalysis']
 
 class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
     """Scaffolding for constant-propagation analysis over Loki IR."""
+
+    class Attacher(Transformer):
+        """Attach placeholder constant maps without mutating the IR."""
+
+        def __init__(self, parent, **kwargs):
+            self.parent = parent
+            super().__init__(inplace=False, invalidate_source=False, **kwargs)
+
+        def visit_Node(self, o, **kwargs):
+            constants_map = deepcopy(kwargs.get('constants_map', {}))
+            o._update(_constants_map=constants_map)
+            return super().visit_Node(o, **kwargs)
+
+    class Detacher(Transformer):
+        """Remove transient constant-propagation metadata from IR nodes."""
+
+        def __init__(self, **kwargs):
+            super().__init__(inplace=True, invalidate_source=False, **kwargs)
+
+        def visit_Node(self, o, **kwargs):
+            o._update(_constants_map=None)
+            return super().visit_Node(o, **kwargs)
 
     class ConstPropMapper(LokiIdentityMapper):
         """Mapper for expression-level constant replacement and folding."""
@@ -54,46 +77,46 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def map_product(self, expr, *args, **kwargs):
             mapped_product = self.binary_num_op_helper(expr, math.prod, math.prod, *args, **kwargs)
-            if getattr(mapped_product, 'children', (False,))[0] == IntLiteral(-1):
-                mapped_product = Product((-1, mapped_product.children[1]))
+            children = getattr(mapped_product, 'children', None)
+            if children and children[0] == IntLiteral(-1):
+                mapped_product = Product((-1, children[1]))
             return mapped_product
 
         def map_quotient(self, expr, *args, **kwargs):
-            return self.binary_num_op_helper(
-                expr, operator.floordiv, operator.truediv,
-                left_attr='numerator', right_attr='denominator', *args, **kwargs
-            )
+            numerator = self.rec(expr.numerator, *args, **kwargs)
+            denominator = self.rec(expr.denominator, *args, **kwargs)
+            literals, non_literals = ConstantPropagationAnalysis._separate_literals((numerator, denominator))
+            if not non_literals:
+                if any(isinstance(v, FloatLiteral) for v in literals):
+                    if self.fold_floats:
+                        return FloatLiteral(str(operator.truediv(float(numerator.value), float(denominator.value))))
+                    return expr
+                return IntLiteral(operator.floordiv(numerator.value, denominator.value))
+            return expr.__class__(numerator=numerator, denominator=denominator)
 
         def map_power(self, expr, *args, **kwargs):
-            return self.binary_num_op_helper(
-                expr, operator.pow, operator.pow,
-                left_attr='base', right_attr='exponent', *args, **kwargs
-            )
+            base = self.rec(expr.base, *args, **kwargs)
+            exponent = self.rec(expr.exponent, *args, **kwargs)
+            literals, non_literals = ConstantPropagationAnalysis._separate_literals((base, exponent))
+            if not non_literals:
+                if any(isinstance(v, FloatLiteral) for v in literals):
+                    if self.fold_floats:
+                        return FloatLiteral(str(operator.pow(float(base.value), float(exponent.value))))
+                    return expr
+                return IntLiteral(operator.pow(base.value, exponent.value))
+            return expr.__class__(base=base, exponent=exponent)
 
-        def binary_num_op_helper(self, expr, int_op, float_op, *args, left_attr=None, right_attr=None, **kwargs):
-            lr_fields = not (left_attr is None and right_attr is None)
-            if lr_fields:
-                children = [getattr(expr, left_attr), getattr(expr, right_attr)]
-            else:
-                children = expr.children
-
+        def binary_num_op_helper(self, expr, int_op, float_op, *args, **kwargs):
+            children = self.rec(expr.children, *args, **kwargs)
             children = self.rec(children, *args, **kwargs)
             literals, non_literals = ConstantPropagationAnalysis._separate_literals(children)
             if not non_literals:
                 if any(isinstance(v, FloatLiteral) for v in literals):
                     if self.fold_floats:
-                        if lr_fields:
-                            return FloatLiteral(str(float_op(float(children[0].value), float(children[1].value))))
-                    else:
-                        return expr
-                    return FloatLiteral(str(float_op([float(c.value) for c in children])))
-
-                if lr_fields:
-                    return IntLiteral(int_op(children[0].value, children[1].value))
+                        return FloatLiteral(str(float_op([float(c.value) for c in children])))
+                    return expr
                 return IntLiteral(int_op([c.value for c in children]))
 
-            if lr_fields:
-                return expr.__class__(children[0], children[1])
             return expr.__class__(children)
 
         def map_logical_and(self, expr, *args, **kwargs):
@@ -153,35 +176,16 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
                 return StringLiteral(''.join(c.value for c in children))
             return expr.__class__(children)
 
-    class _Attacher(Transformer):
-        """Attach placeholder constant maps without mutating the IR."""
-
-        def __init__(self, parent, **kwargs):
-            self.parent = parent
-            super().__init__(inplace=False, invalidate_source=False, **kwargs)
-
-        def visit_Node(self, o, **kwargs):
-            constants_map = deepcopy(kwargs.get('constants_map', {}))
-            o._update(_constants_map=constants_map)
-            return super().visit_Node(o, **kwargs)
-
-    class _Detacher(Transformer):
-        """Remove transient constant-propagation metadata from IR nodes."""
-
-        def __init__(self, **kwargs):
-            super().__init__(inplace=True, invalidate_source=False, **kwargs)
-
-        def visit_Node(self, o, **kwargs):
-            o._update(_constants_map=None)
-            return super().visit_Node(o, **kwargs)
-
     def __init__(self, fold_floats=True, unroll_loops=True, apply_transform=False):
         self.fold_floats = fold_floats
         self.unroll_loops = unroll_loops
         self.apply_transform = apply_transform
 
-    def get_attacher(self):
-        return self._Attacher(self)
+    def get_attacher(self) -> Any:
+        return self.Attacher(self)
+
+    def get_detacher(self) -> Any:
+        return self.Detacher()
 
     def attach_dataflow_analysis(self, module_or_routine):
         constants_map = self.generate_declarations_map(module_or_routine)
