@@ -71,3 +71,30 @@ end subroutine const_prop_attach
 
     analysis.detach_dataflow_analysis(routine)
     assert assignments[0]._constants_map is None
+
+
+def test_constant_propagation_analysis_dynamic_array_invalidation():
+    fcode = """
+subroutine const_prop_dynamic_array(a, i)
+  integer, intent(inout) :: a(3)
+  integer, intent(in) :: i
+  a(1) = 1
+  a(2) = 2
+  a(i) = 5
+end subroutine const_prop_dynamic_array
+    """.strip()
+    routine = Subroutine.from_source(fcode)
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+
+    analysis = ConstantPropagationAnalysis()
+    constants_map = {
+        ('a', (IntLiteral(1),)): IntLiteral(1),
+        ('a', (IntLiteral(2),)): IntLiteral(2),
+        ('a', (IntLiteral(3),)): IntLiteral(3),
+    }
+
+    analysis.get_attacher().visit(assignments[-1], constants_map=constants_map)
+
+    assert ('a', (IntLiteral(1),)) not in constants_map
+    assert ('a', (IntLiteral(2),)) not in constants_map
+    assert ('a', (IntLiteral(3),)) not in constants_map

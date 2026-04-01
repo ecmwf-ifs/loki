@@ -32,6 +32,43 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
     class Attacher(Transformer):
         """Attach placeholder constant maps without mutating the IR."""
 
+        def _pop_array_accesses(self, lhs, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            new_shape = ConstantPropagationAnalysis.ConstPropMapper(self.parent.fold_floats)(
+                lhs.shape, constants_map=constants_map
+            )
+
+            literal_mask = [is_constant(dimension) for dimension in lhs.dimensions]
+            computable_dimension_mask = [is_constant(extent) for extent in new_shape]
+
+            masked_indices = []
+            ignore_mask = []
+            partial = False
+            for literal, computable, dimension in zip(literal_mask, computable_dimension_mask, lhs.dimensions):
+                if literal:
+                    masked_indices.append(dimension)
+                    ignore_mask.append(False)
+                elif computable:
+                    masked_indices.append(RangeIndex((None, None, None)))
+                    ignore_mask.append(False)
+                else:
+                    partial = True
+                    masked_indices.append(-1)
+                    ignore_mask.append(True)
+
+            possible_accesses = ConstantPropagationAnalysis._array_indices_to_accesses(masked_indices, new_shape)
+            keys = tuple(constants_map.keys())
+            for access in possible_accesses:
+                if partial:
+                    for key in keys:
+                        if key[0] == lhs.name and all(
+                                current == candidate or ignore
+                                for current, candidate, ignore in zip(key[1], access, ignore_mask)
+                        ):
+                            constants_map.pop(key, None)
+                else:
+                    constants_map.pop((lhs.basename, access), None)
+
         def __init__(self, parent, **kwargs):
             self.parent = parent
             super().__init__(inplace=True, invalidate_source=False, **kwargs)
@@ -54,6 +91,12 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             if isinstance(o.lhs, Array):
                 new_dimensions = tuple(mapper(d, **mapper_kwargs) for d in o.lhs.dimensions)
                 new_lhs = o.lhs.clone(dimensions=new_dimensions)
+
+                _, non_literal_dimensions = ConstantPropagationAnalysis._separate_literals(new_dimensions)
+                if non_literal_dimensions:
+                    self._pop_array_accesses(new_lhs, constants_map=constants_map)
+                    o._update(lhs=new_lhs, rhs=new_rhs, _constants_map=incoming_constants_map)
+                    return o
 
             _, non_literals = ConstantPropagationAnalysis._separate_literals((new_rhs,))
             if not non_literals and not isinstance(new_lhs, Array):
