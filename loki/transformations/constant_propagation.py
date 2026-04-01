@@ -35,10 +35,10 @@ class ConstantPropagationTransformer(Transformer):
             attacher = const_prop.get_attacher()
             detacher = const_prop.get_detacher()
             if expr.spec:
-                attacher.visit(expr.spec, *args, constants_map=declarations_map, **kwargs)
+                expr.spec = attacher.visit(expr.spec, *args, constants_map=declarations_map, **kwargs)
                 detacher.visit(expr.spec)
             if expr.body:
-                attacher.visit(expr.body, *args, constants_map=declarations_map, **kwargs)
+                expr.body = attacher.visit(expr.body, *args, constants_map=declarations_map, **kwargs)
                 detacher.visit(expr.body)
             return expr
 
