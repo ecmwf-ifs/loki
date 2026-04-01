@@ -12,9 +12,11 @@ constructs to unify code structure and make reasoning about Fortran
 code easier.
 """
 
+import re
 from loki.batch import Transformation
 from loki.expression import symbols as sym,  LokiIdentityMapper
-from loki.ir import nodes as ir, Transformer, NestedTransformer
+
+from loki.ir import nodes as ir, Transformer, NestedTransformer, FindNodes
 from loki.logging import warning
 from loki.tools import dict_override
 from loki.types import SymbolTable
@@ -187,6 +189,11 @@ class ResolveAssociateMapper(LokiIdentityMapper):
 
         new = self.map_scalar(expr, *args, **kwargs)
 
+        # If map_scalar returned a general expression (e.g. a Sum/Product),
+        # it has no clone() - return it directly without applying dimensions.
+        if not hasattr(new, 'clone'):
+            return new
+
         # Recurse over array dimensions
         if isinstance(new, sym.Array) and new.dimensions:
             # Resolve unbound range symbols form existing indices
@@ -230,6 +237,86 @@ class ResolveAssociatesTransformer(Transformer):
     def visit_Expression(self, o, **kwargs):
         return ResolveAssociateMapper(start_depth=self.start_depth)(o)
 
+    @staticmethod
+    def _has_top_level_additive_op(s):
+        """True if *s* contains a top-level ``+`` or ``-`` operator."""
+        depth = 0
+        in_str = False
+        str_ch = None
+        for ch in s:
+            if in_str:
+                if ch == str_ch:
+                    in_str = False
+            elif ch in '"\'':
+                in_str = True
+                str_ch = ch
+            elif ch in '([':
+                depth += 1
+            elif ch in ')]':
+                depth -= 1
+            elif ch in '+-' and depth == 0:
+                return True
+        return False
+
+    @staticmethod
+    def _needs_parens_after(text, pos):
+        """True if text at *pos* (skipping spaces) starts with ``*`` or ``/``."""
+        while pos < len(text) and text[pos] == ' ':
+            pos += 1
+        return pos < len(text) and text[pos] in '*/'
+
+    @staticmethod
+    def _string_mask(text):
+        """Return a boolean list: True where ``text[i]`` is inside a string literal."""
+        mask = [False] * len(text)
+        in_str = False
+        str_ch = None
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if in_str:
+                mask[i] = True
+                if ch == str_ch:
+                    if i + 1 < len(text) and text[i + 1] == str_ch:
+                        i += 1  # Fortran doubled-quote escape
+                        mask[i] = True
+                    else:
+                        in_str = False
+            elif ch in '"\'':
+                mask[i] = True
+                in_str = True
+                str_ch = ch
+            i += 1
+        return mask
+
+    def _resolve_in_intrinsic_text(self, text, associations):
+        """Replace associated names in *text* using *associations* mappings,
+        skipping occurrences inside Fortran string literals."""
+        for sel_expr, name_sym in associations:
+            name = name_sym.basename.lower()
+            sel_str = str(sel_expr)
+            needs_parens = self._has_top_level_additive_op(sel_str)
+            pat = re.compile(r'\b' + re.escape(name) + r'\b', re.IGNORECASE)
+            str_mask = self._string_mask(text)
+            replacements = []
+            for m in pat.finditer(text):
+                if str_mask[m.start()]:
+                    continue  # do not replace inside string literals
+                repl = (f'({sel_str})'
+                        if needs_parens and self._needs_parens_after(text, m.end())
+                        else sel_str)
+                replacements.append((m.start(), m.end(), repl))
+            if replacements:
+                parts = []
+                prev_end = 0
+                for start, end, repl in replacements:
+                    parts.append(text[prev_end:start])
+                    parts.append(repl)
+                    prev_end = end
+                parts.append(text[prev_end:])
+                text = ''.join(parts)
+        return text
+
     def visit_Associate(self, o, **kwargs):
         """
         Replaces an :any:`Associate` node with its transformed body
@@ -244,6 +331,23 @@ class ResolveAssociatesTransformer(Transformer):
 
         if depth <= self.start_depth:
             return o.clone(body=body)
+
+        # Resolve potential remaining ASSOCIATE aliases in intrinsic statement
+        # text (PRINT/READ/WRITE etc.), which are stored as raw text in
+        # ir.Intrinsic nodes and therefore cannot be reached by the expression
+        # mapper above.
+        intrinsics = FindNodes(ir.Intrinsic).visit(body)
+        if intrinsics:
+            intrinsic_map = {
+                node: node.clone(text=self._resolve_in_intrinsic_text(
+                    node.text, o.associations
+                ))
+                for node in intrinsics
+            }
+            intrinsic_map = {k: v for k, v in intrinsic_map.items()
+                             if v.text != k.text}
+            if intrinsic_map:
+                body = Transformer(intrinsic_map).visit(body)
 
         return body
 
