@@ -177,7 +177,6 @@ end subroutine test_transform_region_const_prop_conditional_basic
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Loop unrolling propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_for_loop_basic(frontend):
     fcode = """
 subroutine test_transform_region_const_prop_for_loop_basic(c)
@@ -203,7 +202,6 @@ end subroutine test_transform_region_const_prop_for_loop_basic
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Loop fallback propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_for_loop_basic_no_unroll(frontend):
     fcode = """
 subroutine test_transform_region_const_prop_for_loop_basic_no_unroll(c)
@@ -232,7 +230,6 @@ end subroutine test_transform_region_const_prop_for_loop_basic_no_unroll
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Loop sibling propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_for_loop_nested_siblings_no_unroll(frontend):
     fcode = """
 subroutine test_transform_region_const_prop_loop_nested_siblings_no_unroll(c)
