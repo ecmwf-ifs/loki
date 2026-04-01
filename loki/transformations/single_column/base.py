@@ -186,6 +186,7 @@ class SCCBaseTransformation(Transformation):
 
         if do_resolve_vector_notation:
             resolve_vector_dimension(
-                routine, dimension=self.horizontal, derive_qualified_ranges=True
+                routine, dimension=self.horizontal, derive_qualified_ranges=True,
+                substitute_derived_type_bounds=True,
             )
-            resolve_vector_notation(routine)
+            resolve_vector_notation(routine, substitute_derived_type_bounds=True)

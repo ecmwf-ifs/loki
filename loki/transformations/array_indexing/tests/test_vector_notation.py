@@ -958,7 +958,7 @@ subroutine test_dt_existing_scalar(kdim, nb)
 end subroutine test_dt_existing_scalar
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    resolve_vector_notation(routine)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
@@ -1022,7 +1022,7 @@ subroutine test_dt_new_scalar(kdim, nb)
 end subroutine test_dt_new_scalar
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    resolve_vector_notation(routine)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
@@ -1102,7 +1102,7 @@ end subroutine test_dt_no_subst_explicit
     routine = Subroutine.from_source(fcode, frontend=frontend)
     # resolve_vector_dimension handles arr(kidia:kfdia) via loop_map -> jl
     resolve_vector_dimension(routine, dimension=horizontal, derive_qualified_ranges=True)
-    resolve_vector_notation(routine)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
@@ -1163,7 +1163,7 @@ subroutine test_dt_collision(kdim, nb)
 end subroutine test_dt_collision
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    resolve_vector_notation(routine)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
 
@@ -1177,6 +1177,119 @@ end subroutine test_dt_collision
     upper_bound = str(inner_loops[0].bounds.stop).lower().replace(' ', '')
     assert 'kdim%klevs' in upper_bound, \
         f"Expected loop bound to retain 'kdim%klevs' due to collision, got: {upper_bound}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_nested(frontend):
+    """
+    Regression test for nested derived-type bounds in
+    ``_substitute_derived_type_bounds``.
+
+    The array ``arr`` has shape ``(ydg%yrdimv%nflevg, ydm%ndhcvsun)`` where
+    ``ydg%yrdimv%nflevg`` is a two-level chain (``ydg`` -> ``yrdimv`` ->
+    ``nflevg``) and ``ydm%ndhcvsun`` is a single-level chain.
+
+    **Kernel path** (``substitute_derived_type_bounds=False``, the default):
+    no scalar-extraction assignments must be introduced; the generated loop
+    bounds must reference the derived-type members directly.
+
+    **Driver path** (``substitute_derived_type_bounds=True``):
+    only the *leaf* integer members must be extracted (``nflevg`` and
+    ``ndhcvsun``); the intermediate struct ``yrdimv`` must NOT appear as a
+    new variable; correct assignments of the form
+    ``nflevg = ydg%yrdimv%nflevg`` and ``ndhcvsun = ydm%ndhcvsun`` must be
+    present; loop bounds must use the plain scalar names.
+    """
+    fcode = """
+subroutine test_dt_nested(ydg, ydm, nb)
+  implicit none
+  type :: dimv_t
+    integer :: nflevg
+  end type dimv_t
+  type :: geo_t
+    type(dimv_t) :: yrdimv
+  end type geo_t
+  type :: met_t
+    integer :: ndhcvsun
+  end type met_t
+  type(geo_t),  intent(in) :: ydg
+  type(met_t),  intent(in) :: ydm
+  integer,      intent(in) :: nb
+  real :: arr(ydg%yrdimv%nflevg, ydm%ndhcvsun, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    arr(:, :, ibl) = 0.0
+  enddo
+end subroutine test_dt_nested
+    """.strip()
+
+    # --- Kernel path: no scalar substitution ---
+    routine_k = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine_k)  # substitute_derived_type_bounds=False by default
+
+    loops_k = FindNodes(ir.Loop).visit(routine_k.body)
+    assigns_k = FindNodes(ir.Assignment).visit(routine_k.body)
+
+    # Two inner loops must be generated
+    inner_loops_k = [l for l in loops_k if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops_k) == 2, \
+        f"[kernel] Expected 2 inner loops, got {len(inner_loops_k)}"
+
+    # No new scalar-extraction assignments (only the original arr(:,:,ibl)=0.0 -> arr(...)=0.0)
+    scalar_ext_k = [
+        a for a in assigns_k
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+    ]
+    assert not scalar_ext_k, \
+        f"[kernel] No scalar-extraction assignments expected, got: {scalar_ext_k}"
+
+    # Loop bounds must reference derived-type members directly
+    upper_bounds_k = {str(l.bounds.stop).lower().replace(' ', '') for l in inner_loops_k}
+    assert any('ydg%yrdimv%nflevg' in b for b in upper_bounds_k), \
+        f"[kernel] Expected loop bound to reference 'ydg%yrdimv%nflevg', got: {upper_bounds_k}"
+    assert any('ydm%ndhcvsun' in b for b in upper_bounds_k), \
+        f"[kernel] Expected loop bound to reference 'ydm%ndhcvsun', got: {upper_bounds_k}"
+
+    # --- Driver path: scalar substitution enabled ---
+    routine_d = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine_d, substitute_derived_type_bounds=True)
+
+    loops_d = FindNodes(ir.Loop).visit(routine_d.body)
+    assigns_d = FindNodes(ir.Assignment).visit(routine_d.body)
+
+    # Two inner loops must be generated
+    inner_loops_d = [l for l in loops_d if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops_d) == 2, \
+        f"[driver] Expected 2 inner loops, got {len(inner_loops_d)}"
+
+    # Exactly two scalar-extraction assignments (nflevg and ndhcvsun)
+    scalar_ext_d = [
+        a for a in assigns_d
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+    ]
+    assert len(scalar_ext_d) == 2, \
+        f"[driver] Expected 2 scalar-extraction assignments, got: {scalar_ext_d}"
+
+    scalar_lhs_names = {str(a.lhs).lower() for a in scalar_ext_d}
+    assert 'nflevg' in scalar_lhs_names, \
+        f"[driver] Expected scalar 'nflevg', got: {scalar_lhs_names}"
+    assert 'ndhcvsun' in scalar_lhs_names, \
+        f"[driver] Expected scalar 'ndhcvsun', got: {scalar_lhs_names}"
+
+    # Intermediate struct yrdimv must NOT appear as a new variable or LHS
+    declared_d = {v.name.lower() for v in routine_d.variables}
+    assert 'yrdimv' not in declared_d, \
+        "[driver] Intermediate struct 'yrdimv' must not be declared as a new variable"
+
+    # Loop bounds must use plain scalar names
+    upper_bounds_d = {str(l.bounds.stop).lower().replace(' ', '') for l in inner_loops_d}
+    assert any('nflevg' in b for b in upper_bounds_d), \
+        f"[driver] Expected loop bound 'nflevg', got: {upper_bounds_d}"
+    assert any('ndhcvsun' in b for b in upper_bounds_d), \
+        f"[driver] Expected loop bound 'ndhcvsun', got: {upper_bounds_d}"
+    assert not any('ydg%' in b or 'ydm%' in b for b in upper_bounds_d), \
+        f"[driver] Loop bounds must not reference derived-type members, got: {upper_bounds_d}"
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

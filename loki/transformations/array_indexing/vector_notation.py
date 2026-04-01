@@ -108,7 +108,8 @@ def add_explicit_array_dimensions(routine):
     routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
 
-def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True):
+def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True,
+                            substitute_derived_type_bounds=False):
     """
     Resolve implicit vector notation by inserting explicit loops.
 
@@ -119,6 +120,10 @@ def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True):
     resolve_implicit_rhs_ranges : bool
         When ``True`` (default), resolve all LHS range dimensions even
         if the corresponding RHS arrays use bare ``:`` ranges.
+    substitute_derived_type_bounds : bool
+        When ``True``, replace derived-type member references in
+        synthesized loop bounds with plain scalar variables.  Only
+        needed for driver routines.  Defaults to ``False``.
     """
 
     # Find loops and map their range to the loop index variable
@@ -131,7 +136,8 @@ def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True):
         loop_map=loop_map, scope=routine, inplace=True,
         derive_qualified_ranges=True,
         map_unknown_ranges=True,
-        resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges
+        resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges,
+        substitute_derived_type_bounds=substitute_derived_type_bounds,
     )
     routine.body = transformer.visit(routine.body)
 
@@ -182,7 +188,8 @@ def _get_all_valid_loop_bounds(routine, lower, upper):
     return bounds
 
 def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
-                             resolve_implicit_rhs_ranges=True):
+                             resolve_implicit_rhs_ranges=True,
+                             substitute_derived_type_bounds=False):
     """
     Resolve vector notation for a given dimension only. The dimension
     is defined by a loop variable and the bounds of the given range.
@@ -203,6 +210,10 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
     resolve_implicit_rhs_ranges : bool
         When ``True`` (default), resolve all LHS range dimensions even
         if the corresponding RHS arrays use bare ``:`` ranges.
+    substitute_derived_type_bounds : bool
+        When ``True``, replace derived-type member references in
+        synthesized loop bounds with plain scalar variables.  Only
+        needed for driver routines.  Defaults to ``False``.
     """
     # Find the iteration index variable and bound variables
     index = get_integer_variable(routine, name=dimension.index)
@@ -225,7 +236,8 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
         loop_map=loop_map, scope=routine, inplace=True,
         derive_qualified_ranges=derive_qualified_ranges,
         map_unknown_ranges=False,
-        resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges
+        resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges,
+        substitute_derived_type_bounds=substitute_derived_type_bounds,
     )
     routine.body = transformer.visit(routine.body)
 
@@ -353,12 +365,20 @@ class ResolveVectorNotationTransformer(Transformer):
         if the corresponding RHS arrays use bare ``:`` (unqualified)
         ranges. When ``False``, only resolve dimensions where all RHS
         arrays have explicit (qualified) ranges.
+    substitute_derived_type_bounds : bool
+        When ``True``, replace derived-type member references in
+        synthesized loop bounds with existing or newly created plain
+        scalar variables (see :meth:`_substitute_derived_type_bounds`).
+        This is intended for **driver** routines where device-safe plain
+        scalars are required.  Defaults to ``False``; kernels should
+        leave derived-type bounds as-is.
     """
 
     def __init__(
             self, *args, loop_map=None, scope=None,
             derive_qualified_ranges=True, map_unknown_ranges=True,
             resolve_implicit_rhs_ranges=True,
+            substitute_derived_type_bounds=False,
             **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -370,6 +390,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.map_unknown_ranges = map_unknown_ranges
         self.derive_qualified_ranges = derive_qualified_ranges
         self.resolve_implicit_rhs_ranges = resolve_implicit_rhs_ranges
+        self.substitute_derived_type_bounds_flag = substitute_derived_type_bounds
         self.infer_iteration_shape = True
 
         # Build a lookup of existing scalar assignments of the form:
@@ -523,10 +544,15 @@ class ResolveVectorNotationTransformer(Transformer):
                 new_index_range_map[ivar] = irange
                 continue
 
-            # Find all derived-type member variables in the range bounds
+            # Find all derived-type member variables in the range bounds.
+            # Only consider leaf integer scalars (e.g. ydgeometry%yrdimv%nflevg),
+            # not intermediate struct members (e.g. ydgeometry%yrdimv whose type
+            # is a derived type), which would cause incorrect struct-to-integer
+            # assignments to be generated.
             derived_members = [
                 v for v in FindVariables().visit(irange)
                 if isinstance(v, sym.Scalar) and v.parent is not None
+                and v.type and v.type.dtype == BasicType.INTEGER
             ]
 
             if not derived_members:
@@ -718,11 +744,15 @@ class ResolveVectorNotationTransformer(Transformer):
         # source-code ranges), replace any derived-type member references
         # (e.g., KDIM%KLEVS) with existing or new plain scalar variables
         # (e.g., KLEVS) so that generated loops are device-safe.
-        index_range_map, pre_stmts, new_vars = self._substitute_derived_type_bounds(
-            index_range_map, synthesized_ivars
-        )
-        if new_vars:
-            self.index_vars.update(new_vars)
+        # Only performed when substitute_derived_type_bounds_flag is True
+        # (i.e. for driver routines); kernels leave derived-type bounds as-is.
+        pre_stmts = ()
+        if self.substitute_derived_type_bounds_flag:
+            index_range_map, pre_stmts, new_vars = self._substitute_derived_type_bounds(
+                index_range_map, synthesized_ivars
+            )
+            if new_vars:
+                self.index_vars.update(new_vars)
 
         # --- Step 9: Wrap in loop nest ---
         if create_loops and len(index_range_map):
