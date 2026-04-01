@@ -19,7 +19,6 @@ def test_constant_propagation_transformer_export():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Assignment propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_literals_expected_future(tmp_path, frontend):
     fcode = """
 subroutine const_prop_literals
@@ -58,7 +57,6 @@ end subroutine const_prop_literals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Assignment propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_ops_int_expected_future(tmp_path, frontend):
     fcode = """
 subroutine const_prop_ops_int(a_add, a_sub, a_mul, a_pow, a_div, a_lt, a_leq, a_eq, a_neq, a_geq, a_gt)
@@ -110,7 +108,6 @@ end subroutine const_prop_ops_int
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Assignment propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_ops_bool_short_circuiting_expected_future(tmp_path, frontend):
     fcode = """
 subroutine test_transform_region_const_prop_ops_bool_short_circuiting(a_and, a_or)
@@ -152,7 +149,6 @@ end subroutine test_transform_region_const_prop_ops_bool_short_circuiting
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.xfail(reason='Conditional propagation from PR #515 not replayed yet')
 def test_transform_region_const_prop_conditional_basic(frontend):
     fcode = """
 subroutine test_transform_region_const_prop_conditional_basic(c)

@@ -32,12 +32,35 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def __init__(self, parent, **kwargs):
             self.parent = parent
-            super().__init__(inplace=False, invalidate_source=False, **kwargs)
+            super().__init__(inplace=True, invalidate_source=False, **kwargs)
 
         def visit_Node(self, o, **kwargs):
             constants_map = deepcopy(kwargs.get('constants_map', {}))
             o._update(_constants_map=constants_map)
             return super().visit_Node(o, **kwargs)
+
+        def visit_Assignment(self, o, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            mapper = self.parent.ConstPropMapper(self.parent.fold_floats)
+            mapper_kwargs = dict(kwargs)
+            mapper_kwargs['constants_map'] = constants_map
+            incoming_constants_map = deepcopy(constants_map)
+
+            new_rhs = mapper(o.rhs, **mapper_kwargs)
+            new_lhs = o.lhs
+
+            if isinstance(o.lhs, Array):
+                new_dimensions = tuple(mapper(d, **mapper_kwargs) for d in o.lhs.dimensions)
+                new_lhs = o.lhs.clone(dimensions=new_dimensions)
+
+            _, non_literals = ConstantPropagationAnalysis._separate_literals((new_rhs,))
+            if not non_literals and not isinstance(new_lhs, Array):
+                self.parent.update_constants_map(new_lhs, new_rhs, constants_map)
+            else:
+                self.parent.invalidate_constants_map(new_lhs, constants_map)
+
+            o._update(lhs=new_lhs, rhs=new_rhs, _constants_map=incoming_constants_map)
+            return o
 
     class Detacher(Transformer):
         """Remove transient constant-propagation metadata from IR nodes."""
@@ -245,6 +268,17 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             else:
                 accesses = functools.partial(accesses, [dimension])
         return accesses()
+
+    def update_constants_map(self, lhs, value, constants_map):
+        constants_map[(lhs.basename, ())] = value
+
+    def invalidate_constants_map(self, lhs, constants_map):
+        if isinstance(lhs, Array):
+            for access in tuple(key for key in constants_map if key[0] == lhs.basename):
+                constants_map.pop((lhs.basename, access), None)
+            return
+
+        constants_map.pop((lhs.basename, ()), None)
 
     @staticmethod
     def _separate_literals(children):
