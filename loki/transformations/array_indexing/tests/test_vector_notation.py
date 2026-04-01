@@ -1132,3 +1132,133 @@ end subroutine test_dt_no_subst_explicit
     ]
     assert len(scalar_assigns) == 2, \
         f"Expected exactly 2 scalar assignments (kidia/kfdia extractions), got {len(scalar_assigns)}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_name_collision(frontend):
+    """
+    When the basename of a derived-type member collides with an existing,
+    *different* variable in scope, the substitution must be skipped and the
+    loop bound should retain the derived-type member expression.
+
+    Here ``klevs`` is declared as ``REAL`` in the routine scope, which is a
+    different variable from the INTEGER member ``kdim%klevs``.  The transformer
+    must not substitute ``kdim%klevs`` with the ``REAL :: klevs`` variable.
+    """
+    fcode = """
+subroutine test_dt_collision(kdim, nb)
+  implicit none
+  type :: dims_t
+    integer :: klevs
+  end type dims_t
+  type(dims_t), intent(in) :: kdim
+  integer, intent(in) :: nb
+  real :: klevs                        ! REAL -- different from INTEGER kdim%klevs
+  real :: arr(kdim%klevs, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    arr(:, ibl) = 0.0
+  enddo
+end subroutine test_dt_collision
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+
+    # An inner loop should still be generated for the ':' dimension
+    inner_loops = [l for l in loops if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops) == 1, \
+        f"Expected 1 inner loop, got {len(inner_loops)}"
+
+    # The loop bound must NOT use the REAL klevs variable (name collision);
+    # it must retain the derived-type member kdim%klevs.
+    upper_bound = str(inner_loops[0].bounds.stop).lower().replace(' ', '')
+    assert 'kdim%klevs' in upper_bound, \
+        f"Expected loop bound to retain 'kdim%klevs' due to collision, got: {upper_bound}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_no_implicit_rhs(frontend):
+    """
+    When ``resolve_implicit_rhs_ranges=False`` is passed to
+    ``resolve_vector_dimension``, assignments whose RHS arrays use bare ``:``
+    ranges (without explicit bounds) must NOT be resolved.
+
+    Only assignments where all RHS ranges are explicit should be resolved.
+    """
+    fcode = """
+subroutine test_no_implicit_rhs(start, end, n, a, b, c)
+  implicit none
+  integer, intent(in) :: start, end, n
+  real, intent(inout) :: a(n), b(n), c(n)
+
+  ! RHS uses bare ':' -- should NOT be resolved with resolve_implicit_rhs_ranges=False
+  a(start:end) = b(:)
+
+  ! Both sides use explicit range -- SHOULD be resolved
+  a(start:end) = c(start:end)
+
+end subroutine test_no_implicit_rhs
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    dim = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+    resolve_vector_dimension(routine, dimension=dim, resolve_implicit_rhs_ranges=False)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Exactly one loop should be generated (for the explicit-range assignment only)
+    assert len(loops) == 1, \
+        f"Expected exactly 1 loop (for explicit-range assignment), got {len(loops)}"
+
+    # The unresolved assignment (bare RHS ':') should remain as a vector assignment
+    unresolved = [a for a in assigns if isinstance(a.lhs, sym.Array)
+                  and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
+    assert len(unresolved) >= 1, \
+        "Assignment with bare RHS ':' should remain unresolved (LHS still has RangeIndex)"
+
+    # The resolved loop should contain the explicit-range assignment (c)
+    loop_assigns = FindNodes(ir.Assignment).visit(loops[0].body)
+    assert len(loop_assigns) == 1
+    assert 'c(' in str(loop_assigns[0].rhs), \
+        f"Expected resolved c(...) in loop body, got: {loop_assigns[0].rhs}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension_empty_bounds_warning(frontend, caplog):
+    """
+    When ``resolve_vector_dimension`` is called with a dimension whose
+    lower/upper bounds are not present in the routine's scope, it should
+    emit a warning and leave the routine unchanged.
+    """
+    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
+
+    fcode = """
+subroutine test_empty_bounds(n, a)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: a(n)
+
+  a(1:n) = 0.0
+
+end subroutine test_empty_bounds
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Use a dimension whose bounds ('xstart', 'xend') don't exist in the routine
+    dim = Dimension(name='horizontal', index='jl', lower='xstart', upper='xend')
+
+    caplog.set_level(WARNING)
+    resolve_vector_dimension(routine, dimension=dim)
+
+    # The routine body should be unchanged -- the range is still present
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assert any(isinstance(d, sym.RangeIndex) for d in assigns[0].lhs.dimensions), \
+        "Assignment should remain unresolved when no valid bounds are found"
+
+    # A warning should have been emitted
+    assert any('No valid loop bounds' in r.message for r in caplog.records), \
+        f"Expected a 'No valid loop bounds' warning, got: {[r.message for r in caplog.records]}"

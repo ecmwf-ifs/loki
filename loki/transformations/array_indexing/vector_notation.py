@@ -12,6 +12,7 @@ from itertools import count
 from loki.expression import symbols as sym, LokiIdentityMapper
 from loki.expression.symbolic import simplify
 from loki.frontend import HAVE_FP
+from loki.logging import warning
 from loki.ir import (
     nodes as ir, FindNodes, FindExpressions, Transformer,
     FindVariables, SubstituteExpressions, FindInlineCalls,
@@ -209,6 +210,13 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
     _lower = as_tuple(dimension.lower) + ('1',)
     _upper = as_tuple(dimension.upper) + as_tuple(dimension.sizes)
     bounds = _get_all_valid_loop_bounds(routine, lower=_lower, upper=_upper)
+
+    if not bounds:
+        warning(
+            f'[resolve_vector_dimension] No valid loop bounds found for dimension '
+            f'"{dimension.name}" in routine "{routine.name}". No transformation applied.'
+        )
+        return
 
     # Map any range indices to the given loop index variable
     loop_map = {sym.RangeIndex(_bounds): index for _bounds in bounds}
@@ -654,7 +662,9 @@ class ResolveVectorNotationTransformer(Transformer):
             ):
                 if (lhs_range == rhs_range
                         or rhs_range == sym.RangeIndex((None, None))
-                        or isinstance(rhs_range, sym.RangeIndex) and rhs_range.lower == 1):
+                        or isinstance(lhs_range, sym.RangeIndex)
+                        and isinstance(rhs_range, sym.RangeIndex)
+                        and lhs_range.lower == rhs_range.lower):
                     new_rhs_dims.append(new_lhs_dim)
                 else:
                     new_rhs_dims.append(
