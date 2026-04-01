@@ -1262,3 +1262,149 @@ end subroutine test_empty_bounds
     # A warning should have been emitted
     assert any('No valid loop bounds' in r.message for r in caplog.records), \
         f"Expected a 'No valid loop bounds' warning, got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_shifted_range_in_intrinsic(frontend):
+    """
+    Regression test: when a vertical range on the RHS is shifted relative to
+    the LHS range (e.g. ``zdsng(jl, 0:klevsn-1)`` vs LHS ``1:klevsn``), both
+    ``resolve_vector_notation`` alone and the two-step pipeline
+    ``resolve_vector_dimension`` + ``resolve_vector_notation`` must produce the
+    same, correct result.
+
+    Before the fix, the two-step pipeline would leave a corrupt ``RangeIndex``
+    embedded in arithmetic (e.g. ``-1 + (1:klevsn)``) instead of substituting
+    the loop index variable.
+    """
+    fcode = """
+subroutine test_shifted_intrinsic(jl, kidia, kfdia, klevsn, jk, ztmpl1, zdsnnewg, zdsng)
+  implicit none
+  integer, intent(in) :: kidia, kfdia, klevsn, jl, jk
+  real, intent(inout) :: ztmpl1(kfdia, klevsn)
+  real, intent(in)    :: zdsnnewg(kfdia, klevsn)
+  real, intent(in)    :: zdsng(kfdia, 0:klevsn)
+  do jl = kidia, kfdia
+    ztmpl1(jl, 1:klevsn) = MAX(zdsnnewg(jl, jk-1), zdsng(jl, 0:klevsn-1))
+  end do
+end subroutine test_shifted_intrinsic
+    """.strip()
+
+    # --- Approach 1: resolve_vector_dimension + resolve_vector_notation ---
+    routine1 = Subroutine.from_source(fcode, frontend=frontend)
+    dim = Dimension(name='horizontal', index='jl', lower='kidia', upper='kfdia')
+    resolve_vector_dimension(routine1, dimension=dim, derive_qualified_ranges=True)
+    resolve_vector_notation(routine1)
+
+    # --- Approach 2: resolve_vector_notation only ---
+    routine2 = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine2)
+
+    for label, routine in [('pipeline', routine1), ('notation-only', routine2)]:
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        # Outer jl-loop + inner vertical loop
+        assert len(loops) == 2, f'[{label}] Expected 2 loops, got {len(loops)}'
+
+        inner_loop = loops[1]
+        assigns = FindNodes(ir.Assignment).visit(inner_loop.body)
+        assert len(assigns) == 1, f'[{label}] Expected 1 assignment in inner loop'
+
+        assign = assigns[0]
+        rhs_str = str(assign.rhs)
+
+        # The zdsng dimension must NOT contain a RangeIndex (e.g. '1:klevsn')
+        rhs_arrays = [
+            v for v in FindVariables(unique=False).visit(assign.rhs)
+            if isinstance(v, sym.Array)
+        ]
+        zdsng_arr = next((a for a in rhs_arrays if 'zdsng' in a.name.lower()), None)
+        assert zdsng_arr is not None, f'[{label}] zdsng not found in RHS arrays'
+        assert not any(isinstance(d, sym.RangeIndex) for d in zdsng_arr.dimensions), \
+            f'[{label}] zdsng still has RangeIndex dim after resolution: {zdsng_arr.dimensions}'
+
+        # The zdsng index should be the loop variable offset by -1 (not a plain range)
+        zdsng_dim1 = zdsng_arr.dimensions[1]
+        dim1_str = str(zdsng_dim1).replace(' ', '')
+        assert 'RangeIndex' not in type(zdsng_dim1).__name__, \
+            f'[{label}] zdsng second dim is still a RangeIndex: {zdsng_dim1}'
+        assert any(s in dim1_str for s in ['-1+', '+-1', 'i_', '-1']), \
+            f'[{label}] expected offset index for zdsng, got: {zdsng_dim1}'
+
+        # No corrupt range expressions anywhere in the body
+        all_vars = FindVariables(unique=False).visit(inner_loop)
+        assert not any(
+            isinstance(v, sym.Array) and any(isinstance(d, sym.RangeIndex) for d in v.dimensions)
+            for v in all_vars
+        ), f'[{label}] Found arrays with remaining RangeIndex dims inside inner loop:\n{rhs_str}'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI cannot parse unresolved external function beta2alpha')]
+))
+def test_resolve_vector_notation_shifted_range_multi_arg(frontend):
+    """
+    Regression test for the ``overlap_alpha = beta2alpha(...)`` pattern where
+    a function is called with multiple shifted array arguments:
+
+    .. code-block:: fortran
+
+       overlap_alpha(jcol, 1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+            frac(jcol, 1:nlev-1), frac(jcol, 2:nlev))
+
+    ``frac(jcol, 2:nlev)`` has its second dim shifted by +1 relative to
+    ``1:nlev-1``.  Both the two-step pipeline and ``resolve_vector_notation``
+    alone must produce ``frac(jcol, 1 + i_...)`` (not ``1 + (1:nlev-1)``).
+    """
+    fcode = """
+subroutine test_shifted_multi(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
+  implicit none
+  integer, intent(in) :: kstart, kend, nlev, jcol
+  real, intent(inout) :: overlap_alpha(kend, nlev-1)
+  real, intent(in)    :: overlap_param(kend, nlev)
+  real, intent(in)    :: frac(kend, nlev)
+  do jcol = kstart, kend
+    overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+         frac(jcol,1:nlev-1), frac(jcol,2:nlev))
+  end do
+end subroutine test_shifted_multi
+    """.strip()
+
+    # --- Approach 1: resolve_vector_dimension + resolve_vector_notation ---
+    routine1 = Subroutine.from_source(fcode, frontend=frontend)
+    dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
+    resolve_vector_dimension(routine1, dimension=dim, derive_qualified_ranges=True)
+    resolve_vector_notation(routine1)
+
+    # --- Approach 2: resolve_vector_notation only ---
+    routine2 = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine2)
+
+    for label, routine in [('pipeline', routine1), ('notation-only', routine2)]:
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        assert len(loops) == 2, f'[{label}] Expected 2 loops, got {len(loops)}'
+
+        inner_loop = loops[1]
+        assigns = FindNodes(ir.Assignment).visit(inner_loop.body)
+        assert len(assigns) == 1
+
+        assign = assigns[0]
+        all_vars = FindVariables(unique=False).visit(assign.rhs)
+
+        # No array in the RHS should still carry a RangeIndex dimension
+        rhs_range_arrays = [
+            v for v in all_vars
+            if isinstance(v, sym.Array)
+            and any(isinstance(d, sym.RangeIndex) for d in v.dimensions)
+        ]
+        assert not rhs_range_arrays, \
+            f'[{label}] RHS arrays still have RangeIndex dims: {rhs_range_arrays}'
+
+        # frac(jcol, 2:nlev) should have become frac(jcol, 1 + ivar)
+        frac_arrs = [v for v in all_vars if isinstance(v, sym.Array) and 'frac' in v.name.lower()]
+        assert len(frac_arrs) == 2, \
+            f'[{label}] Expected 2 frac array references, got {frac_arrs}'
+
+        frac_dims = [str(a.dimensions[1]).replace(' ', '') for a in frac_arrs]
+        # One frac should be accessed with the plain loop index, the other with +1 offset
+        assert any('1+' in d or '+1' in d for d in frac_dims), \
+            f'[{label}] Expected one frac dim to have +1 offset, got: {frac_dims}'

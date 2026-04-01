@@ -649,6 +649,21 @@ class ResolveVectorNotationTransformer(Transformer):
             scope=self.scope, basename=f'i_{stmt.lhs.basename}'
         )
 
+        # Filter out dimensions that were not actually resolved to a scalar loop
+        # variable (i.e. new_lhs_dim is still a RangeIndex).  This can happen
+        # when map_unknown_ranges=False and the LHS range is not in loop_map.
+        # Keeping such dims would corrupt RHS expressions by feeding a RangeIndex
+        # into _compute_shifted_index, producing e.g. ``-1 + (1:klevsn)``.
+        actually_resolved = [
+            (orig_i, lhs_rng, new_dim)
+            for orig_i, lhs_rng, new_dim
+            in zip(resolved_dim_indices, resolved_lhs_ranges, new_lhs_dims)
+            if not isinstance(new_dim, sym.RangeIndex)
+        ]
+        if not actually_resolved:
+            return stmt
+        resolved_dim_indices, resolved_lhs_ranges, new_lhs_dims = zip(*actually_resolved)
+
         # --- Step 6: Compute RHS index expressions (with offset) ---
         resolved_rhs_ranges_per_array = [
             [array_dims[rhs_pos[i]] for i in resolved_dim_indices]
