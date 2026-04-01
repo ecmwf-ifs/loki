@@ -151,7 +151,7 @@ class SCCBaseTransformation(Transformation):
             # Check that horizontal loop bounds are present in the routine;
             # raise TransformationError early rather than silently skipping.
             try:
-                get_loop_bounds(routine, dimension=self.horizontal)
+                get_loop_bounds(routine, dimension=self.horizontal, extended_candidates=False)
             except RuntimeError as e:
                 raise TransformationError(
                     message=str(e), transformation=type(self), source=routine

@@ -420,7 +420,7 @@ end module test_get_loop_bounds_mod
     assert end.type.intent == 'in'
 
     with pytest.raises(RuntimeError):
-        _, _ = get_loop_bounds(routine, y)  # pylint: disable=unbalanced-tuple-unpacking
+        _, _ = get_loop_bounds(routine, y, extended_candidates=False)  # pylint: disable=unbalanced-tuple-unpacking
 
     # Test type-bound symbol resolution
     start, end = get_loop_bounds(routine, z)  # pylint: disable=unbalanced-tuple-unpacking
@@ -437,6 +437,28 @@ end module test_get_loop_bounds_mod
     assert isinstance(end, sym.Scalar) and end == 'n'
     assert end.type.dtype == BasicType.INTEGER
     assert end.type.intent == 'in'
+
+    # Test extended_candidates=True (default): size variable 'n' found via dimension.sizes
+    # even though the declared upper bound 'end_missing' is not in the routine
+    b = Dimension(name='b', size='n', index='i', bounds=('start', 'end_missing'))
+    start, end = get_loop_bounds(routine, b)  # pylint: disable=unbalanced-tuple-unpacking
+    assert isinstance(start, sym.Scalar) and start == 'start'
+    assert isinstance(end, sym.Scalar) and end == 'n'
+
+    # Test extended_candidates=False: 'end_missing' not found -> RuntimeError
+    with pytest.raises(RuntimeError):
+        _, _ = get_loop_bounds(routine, b, extended_candidates=False)  # pylint: disable=unbalanced-tuple-unpacking
+
+    # Test extended_candidates=True (default): literal '1' found as lower bound
+    # even though the declared lower bound 'start_missing' is not in the routine
+    c = Dimension(name='c', size='n', index='k', bounds=('start_missing', 'n'))
+    start, end = get_loop_bounds(routine, c)  # pylint: disable=unbalanced-tuple-unpacking
+    assert isinstance(start, sym.IntLiteral) and start == 1
+    assert isinstance(end, sym.Scalar) and end == 'n'
+
+    # Test extended_candidates=False: 'start_missing' not found -> RuntimeError
+    with pytest.raises(RuntimeError):
+        _, _ = get_loop_bounds(routine, c, extended_candidates=False)  # pylint: disable=unbalanced-tuple-unpacking
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
