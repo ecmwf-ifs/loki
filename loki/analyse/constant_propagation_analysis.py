@@ -20,7 +20,7 @@ from loki.expression import (
 )
 from loki.expression.symbolic import get_pyrange, is_constant
 from loki.expression.symbols import _Literal
-from loki.ir import FindNodes, Assignment
+from loki.ir import FindNodes, Assignment, FindVariables, Loop
 from loki.tools import as_tuple
 
 __all__ = ['ConstantPropagationAnalysis']
@@ -132,8 +132,37 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             body_kwargs['constants_map'].pop((o.variable.basename, ()), None)
             new_body = self.visit(o.body, **body_kwargs)
 
-            for assign in FindNodes(Assignment).visit(o.body):
-                self.parent.invalidate_constants_map(assign.lhs, constants_map)
+            lhs_vars = {o.variable}
+            lhs_vars.update(loop.variable for loop in FindNodes(Loop).visit(o.body))
+
+            assignments = FindNodes(Assignment).visit(new_body)
+            for assign in assignments:
+                lhs_vars.add(assign.lhs)
+
+            bounds_are_const = (
+                is_constant(new_bounds.start)
+                and is_constant(new_bounds.stop)
+                and (is_constant(new_bounds.step) or new_bounds.step is None)
+            )
+            bounds_has_steps = bounds_are_const and len(
+                get_pyrange(LoopRange((new_bounds.start, new_bounds.stop, new_bounds.step)))
+            ) > 0
+
+            if bounds_are_const:
+                if bounds_has_steps:
+                    loop_constants_map = constants_map
+                else:
+                    loop_constants_map = deepcopy(constants_map)
+
+                for assign in assignments:
+                    if not set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
+                        assign_kwargs = dict(kwargs)
+                        assign_kwargs['constants_map'] = loop_constants_map
+                        self.visit_Assignment(assign, **assign_kwargs)
+            else:
+                for assign in assignments:
+                    self.parent.invalidate_constants_map(assign.lhs, constants_map)
+
             self.parent.invalidate_constants_map(o.variable, constants_map)
 
             o._update(bounds=new_bounds, body=new_body, _constants_map=incoming_constants_map)
