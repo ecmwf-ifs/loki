@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any
 
-from loki import Transformer
+from loki.ir import Transformer
 
 __all__ = ['AbstractDataflowAnalysis', 'dfa_attached']
 
