@@ -62,6 +62,46 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             o._update(lhs=new_lhs, rhs=new_rhs, _constants_map=incoming_constants_map)
             return o
 
+        def visit_Conditional(self, o, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            mapper = self.parent.ConstPropMapper(self.parent.fold_floats)
+            mapper_kwargs = dict(kwargs)
+            mapper_kwargs['constants_map'] = constants_map
+            incoming_constants_map = deepcopy(constants_map)
+            body_kwargs = dict(kwargs)
+            body_kwargs['constants_map'] = deepcopy(constants_map)
+            else_kwargs = dict(kwargs)
+            else_kwargs['constants_map'] = deepcopy(constants_map)
+
+            new_condition = mapper(o.condition, **mapper_kwargs)
+
+            new_body = self.visit(o.body, **body_kwargs)
+            new_else_body = self.visit(o.else_body, **else_kwargs)
+            body_constants_map = body_kwargs['constants_map']
+            else_constants_map = else_kwargs['constants_map']
+
+            merged_constants_map = deepcopy(incoming_constants_map)
+            all_keys = set(body_constants_map) | set(else_constants_map)
+            for key in all_keys:
+                if (
+                        key in body_constants_map and key in else_constants_map
+                        and body_constants_map[key] == else_constants_map[key]
+                ):
+                    merged_constants_map[key] = body_constants_map[key]
+                else:
+                    merged_constants_map.pop(key, None)
+
+            constants_map.clear()
+            constants_map.update(merged_constants_map)
+
+            o._update(
+                condition=new_condition,
+                body=new_body,
+                else_body=new_else_body,
+                _constants_map=incoming_constants_map,
+            )
+            return o
+
     class Detacher(Transformer):
         """Remove transient constant-propagation metadata from IR nodes."""
 
