@@ -83,40 +83,41 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             return mapped_product
 
         def map_quotient(self, expr, *args, **kwargs):
-            numerator = self.rec(expr.numerator, *args, **kwargs)
-            denominator = self.rec(expr.denominator, *args, **kwargs)
-            literals, non_literals = ConstantPropagationAnalysis._separate_literals((numerator, denominator))
-            if not non_literals:
-                if any(isinstance(v, FloatLiteral) for v in literals):
-                    if self.fold_floats:
-                        return FloatLiteral(str(operator.truediv(float(numerator.value), float(denominator.value))))
-                    return expr
-                return IntLiteral(operator.floordiv(numerator.value, denominator.value))
-            return expr.__class__(numerator=numerator, denominator=denominator)
+            return self.binary_num_op_helper(
+                expr, operator.floordiv, operator.truediv,
+                left_attr='numerator', right_attr='denominator', *args, **kwargs
+            )
 
         def map_power(self, expr, *args, **kwargs):
-            base = self.rec(expr.base, *args, **kwargs)
-            exponent = self.rec(expr.exponent, *args, **kwargs)
-            literals, non_literals = ConstantPropagationAnalysis._separate_literals((base, exponent))
-            if not non_literals:
-                if any(isinstance(v, FloatLiteral) for v in literals):
-                    if self.fold_floats:
-                        return FloatLiteral(str(operator.pow(float(base.value), float(exponent.value))))
-                    return expr
-                return IntLiteral(operator.pow(base.value, exponent.value))
-            return expr.__class__(base=base, exponent=exponent)
+            return self.binary_num_op_helper(
+                expr, operator.pow, operator.pow,
+                left_attr='base', right_attr='exponent', *args, **kwargs
+            )
 
-        def binary_num_op_helper(self, expr, int_op, float_op, *args, **kwargs):
-            children = self.rec(expr.children, *args, **kwargs)
-            children = self.rec(children, *args, **kwargs)
+        def binary_num_op_helper(self, expr, int_op, float_op, *args, left_attr=None, right_attr=None, **kwargs):
+            left = right = None
+            lr_fields = not (left_attr is None and right_attr is None)
+            if lr_fields:
+                left = self.rec(getattr(expr, left_attr), *args, **kwargs)
+                right = self.rec(getattr(expr, right_attr), *args, **kwargs)
+                children = (left, right)
+            else:
+                children = self.rec(expr.children, *args, **kwargs)
+
             literals, non_literals = ConstantPropagationAnalysis._separate_literals(children)
             if not non_literals:
                 if any(isinstance(v, FloatLiteral) for v in literals):
                     if self.fold_floats:
+                        if lr_fields:
+                            return FloatLiteral(str(float_op(float(left.value), float(right.value))))
                         return FloatLiteral(str(float_op([float(c.value) for c in children])))
                     return expr
+                if lr_fields:
+                    return IntLiteral(int_op(left.value, right.value))
                 return IntLiteral(int_op([c.value for c in children]))
 
+            if lr_fields:
+                return expr.__class__(left, right)
             return expr.__class__(children)
 
         def map_logical_and(self, expr, *args, **kwargs):

@@ -44,6 +44,14 @@ def test_constant_propagation_mapper_folds_expressions():
     assert mapper(sym.Sum((FloatLiteral('1.5'), FloatLiteral('2.5')))) == FloatLiteral('4.0')
 
 
+def test_constant_propagation_mapper_short_circuits_boolean_ops():
+    mapper = ConstantPropagationAnalysis.ConstPropMapper()
+    dyn = sym.Variable(name='dyn')
+
+    assert mapper(sym.LogicalOr((LogicLiteral(True), dyn))) == LogicLiteral(True)
+    assert mapper(sym.LogicalAnd((LogicLiteral(False), dyn))) == LogicLiteral(False)
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_constant_propagation_analysis_attaches_maps(frontend):
     fcode = """
