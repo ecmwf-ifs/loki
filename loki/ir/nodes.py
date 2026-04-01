@@ -531,7 +531,10 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
                     _type = _type.clone(shape=shape)
             else:
                 # TODO: Handle data type and shape of complex expressions
-                shape = ExpressionDimensionsMapper()(expr)
+                try:
+                    shape = ExpressionDimensionsMapper()(expr)
+                except ValueError:
+                    shape = None
                 if shape == (sym.IntLiteral(1),):
                     # For a scalar expression, we remove the shape
                     shape = None

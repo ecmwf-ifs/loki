@@ -21,6 +21,7 @@ from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.cli.common import cli, frontend_options, scheduler_options
 
 from loki.transformations.build_system import FileWriteTransformation
+from loki.transformations.sanitise import AssociatesTransformation
 
 
 @cli.command()
@@ -36,11 +37,13 @@ from loki.transformations.build_system import FileWriteTransformation
               help='Generate and display the subroutine callgraph.')
 @click.option('--root', type=click.Path(), default=None,
               help='Root path to which all paths are relative to.')
+@click.option('--ass-wipe', is_flag=True, default=False,
+              help='Remove all ASSOCIATE blocks and resolve their mappings.')
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 def convert(
-        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level
+        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, ass_wipe, log_level
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -54,6 +57,20 @@ def convert(
     """
 
     loki_config['log-level'] = log_level
+
+    # Handle simple --ass-wipe mode for ASSOCIATE removal
+    if ass_wipe and not config:
+        info('[Loki] Removing ASSOCIATE blocks from source files')
+        for source_file in scheduler_opts.source:
+            sfile = Sourcefile.from_file(filename=source_file, **frontend_opts.asdict)
+            transformation = AssociatesTransformation(resolve_associates=True)
+            for routine in sfile.all_subroutines:
+                transformation.transform_subroutine(routine)
+            # Write back to original file
+            sfile.write(path=source_file)
+            info(f'  [DONE] {source_file}')
+        info('[Loki] ASS-WIPE request completed')
+        return
 
     if plan_file is not None:
         processing_strategy = ProcessingStrategy.PLAN

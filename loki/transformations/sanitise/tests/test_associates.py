@@ -61,6 +61,97 @@ end subroutine transform_associates_simple
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
+def test_transform_associates_print_stmt(frontend):
+    """Test association resolver for PRINT statements represented as Intrinsic text."""
+    fcode = """
+subroutine transform_associates_print_stmt(a, b)
+  use iso_fortran_env, only: real64
+  implicit none
+  real(kind=real64), intent(in) :: a, b
+
+  associate (x => a + b)
+    print *, x
+    print *, 'x =', x
+  end associate
+end subroutine transform_associates_print_stmt
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    do_resolve_associates(routine)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 2
+    assert intrinsics[0].text.lower() == 'print *, a + b'
+    assert intrinsics[1].text.lower() == "print *, 'x =', a + b"
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_non_print_intrinsics(frontend):
+    """Test association resolver for non-PRINT intrinsic statements (READ/WRITE)."""
+    fcode = """
+subroutine transform_associates_io_stmt(a, b, c)
+  use iso_fortran_env, only: real64
+  implicit none
+  real(kind=real64), intent(in) :: a
+  real(kind=real64), intent(inout) :: b
+  real(kind=real64), intent(out) :: c
+
+  associate (x => a + b, y => b)
+    write(*,*) x, y
+    read(*,*) y
+    c = x
+  end associate
+end subroutine transform_associates_io_stmt
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    do_resolve_associates(routine)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 2
+    assert intrinsics[0].text.lower() == 'write(*, *) a + b, b'
+    assert intrinsics[1].text.lower() == 'read(*, *) b'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
+def test_transform_associates_triply_nested_intrinsics(frontend):
+    """Test resolution of intrinsic statements across triple-nested ASSOCIATE blocks."""
+    fcode = """
+subroutine transform_associates_triply_nested(a, b)
+  use iso_fortran_env, only: real64
+  implicit none
+  real(kind=real64), intent(inout) :: a, b
+
+  associate (x => a)
+    associate (y => x + b)
+      associate (z => y * 2.0_real64)
+        print *, z
+        write(*,*) z, y, x
+      end associate
+    end associate
+  end associate
+end subroutine transform_associates_triply_nested
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    do_resolve_associates(routine)
+
+    assert len(FindNodes(ir.Associate).visit(routine.body)) == 0
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    assert len(intrinsics) == 2
+    assert intrinsics[0].text.lower() == 'print *, (a + b)*2.0_real64'
+    assert intrinsics[1].text.lower() == 'write(*, *) (a + b)*2.0_real64, a + b, a'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
+))
 def test_transform_associates_nested(frontend):
     """
     Test association resolver with deeply nested associates.

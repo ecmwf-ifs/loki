@@ -14,6 +14,7 @@ from loki.expression import symbols as sym, LokiStringifyMapper
 from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
+
 __all__ = ['pygen', 'PyCodegen', 'PyCodeMapper']
 
 
@@ -299,6 +300,15 @@ class PyCodegen(Stringifier):
         Format the section's body.
         """
         return self.visit(o.body, **kwargs)
+
+    def visit_Associate(self, o, **kwargs):
+        """
+        Resolve ASSOCIATE mappings and emit only the resolved body.
+        """
+        from loki.transformations.sanitise.associates import ResolveAssociatesTransformer
+
+        body = ResolveAssociatesTransformer().visit(o)
+        return self.visit(body, **kwargs)
 
     def visit_CallStatement(self, o, **kwargs):
         """
