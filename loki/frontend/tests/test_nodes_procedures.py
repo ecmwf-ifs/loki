@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from loki import Sourcefile, Subroutine, fgen
-from loki.jit_build import jit_compile_lib, clean_test
+from loki.jit_build import jit_compile, jit_compile_lib, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
@@ -210,3 +210,112 @@ end subroutine valid_fortran
         _ = routine.interface
 
     assert 'Declarations must have intents' in str(error.value)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_routine_prefix(frontend):
+    """ Test matching of prefix attributes for subroutines """
+    fcode = """
+pure elemental subroutine my_routine(x, y)
+  implicit none
+  integer(kind=8), intent(inout) :: x, y
+
+  x = x + y
+end subroutine my_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assert routine.name == 'my_routine'
+    assert len(routine.prefix) == 2
+    assert routine.prefix == ('PURE', 'ELEMENTAL')
+
+    assert isinstance(routine.body.body[-1], ir.Assignment)
+    assert routine.body.body[-1].lhs == 'x'
+    assert routine.body.body[-1].rhs == 'x + y'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI frontend interface does not provide interfaces')]
+))
+def test_routine_bind(frontend, tmp_path):
+    """ Test matching of 'bind" suffix for subroutines in interfaces """
+    fcode = """
+module my_module
+  implicit none
+
+  interface
+    subroutine my_routine(x, y) bind(C, name='my_routine_c')
+      use, intrinsic :: iso_c_binding
+      integer(kind=c_int), intent(inout) :: x, y
+    end subroutine my_routine
+  end interface
+
+contains
+
+  subroutine my_routine(x, y)
+    integer(kind=4), intent(inout) :: x, y
+
+    x = x + y
+  end subroutine my_routine
+end module my_module
+"""
+    module = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])['my_module']
+
+    routine = module['my_routine']
+    intf_routine = module.interface_map['my_routine'].body[0]
+    assert isinstance(intf_routine.bind, sym.StringLiteral)
+    assert intf_routine.bind == 'my_routine_c'
+    assert "BIND(c, name='my_routine_c')" in fgen(intf_routine)
+
+    assert intf_routine == routine
+
+    assert isinstance(routine.body.body[-1], ir.Assignment)
+    assert routine.body.body[-1].lhs == 'x'
+    assert routine.body.body[-1].rhs == 'x + y'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_subroutine_stmt_func(tmp_path, frontend):
+    """
+    Test the correct identification of statement functions
+    """
+    fcode = """
+subroutine subroutine_stmt_func(a, b)
+    implicit none
+    integer, intent(in) :: a
+    integer, intent(out) :: b
+    integer :: array(a)
+    integer :: i, j, plus, minus
+    plus(i, j) = i + j
+    minus(i, j) = i - j
+    integer :: mult
+    integer :: tmp
+    mult(i, j) = i * j
+
+    array(a) = a
+    tmp = plus(a, 5)
+    tmp = minus(tmp, 1)
+    b = mult(2, tmp)
+end subroutine subroutine_stmt_func
+    """
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine.name += f'_{frontend!s}'
+
+    for assignment in FindNodes(ir.Assignment).visit(routine.body):
+        assert assignment.source is not None
+
+    if frontend != OMNI:
+        stmt_func_decls = {decl.variable: decl for decl in FindNodes(ir.StatementFunction).visit(routine.spec)}
+        assert len(stmt_func_decls) == 3
+
+        for name in ('plus', 'minus', 'mult'):
+            var = routine.variable_map[name]
+            assert isinstance(var, sym.ProcedureSymbol)
+            assert isinstance(var.type.dtype, ProcedureType)
+            assert var.type.dtype.procedure is stmt_func_decls[var]
+            assert stmt_func_decls[var].source is not None
+
+    filepath = tmp_path/f'{routine.name}.f90'
+    function = jit_compile(routine, filepath=filepath, objname=routine.name)
+    assert function(3) == 14
+    clean_test(filepath)

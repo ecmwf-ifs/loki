@@ -11,7 +11,7 @@ Verify correct frontend behaviour for statement-like IR nodes.
 
 import pytest
 
-from loki import Module, Subroutine
+from loki import Module, Subroutine, Sourcefile, fgen
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
@@ -210,3 +210,123 @@ END SUBROUTINE test_routine
     # NOTE: OMNI always uses single quotes ('') to represent string data in PRINT statements
     #       while fparser will mimic the quotes used in the parsed source code
     assert print_stmts[1].text.lower() == "print *, 'test_text'"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_call_no_arg(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_no_arg()
+  implicit none
+
+  call abort
+end subroutine routine_call_no_arg
+""")
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].arguments == ()
+    assert calls[0].kwarguments == ()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_call_kwargs(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_kwargs()
+  implicit none
+  integer :: kprocs
+
+  call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
+end subroutine routine_call_kwargs
+""")
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'mpl_init'
+
+    assert calls[0].arguments == ()
+    assert len(calls[0].kwarguments) == 2
+    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in calls[0].kwarguments)
+
+    assert calls[0].kwarguments[0][0] == 'kprocs'
+    assert isinstance(calls[0].kwarguments[0][1], sym.Scalar)
+    assert calls[0].kwarguments[0][1].name == 'kprocs'
+
+    assert calls[0].kwarguments[1] == ('cdstring', sym.StringLiteral('routine_call_kwargs'))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_call_args_kwargs(frontend):
+    routine = Subroutine.from_source(frontend=frontend, source="""
+subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
+  implicit none
+  integer, intent(in) :: pbuf(:), ktag, kdest
+
+  call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
+end subroutine routine_call_args_kwargs
+""")
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert len(calls) == 1
+    assert calls[0].name == 'mpl_send'
+    assert len(calls[0].arguments) == 3
+    assert all(arg.name == ref.name for arg, ref in zip(calls[0].arguments, routine.arguments))
+    assert calls[0].kwarguments == (('cdstring', sym.StringLiteral('routine_call_args_kwargs')),)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_convert_endian(tmp_path, frontend):
+    pre = """
+SUBROUTINE ROUTINE_CONVERT_ENDIAN()
+  INTEGER :: IUNIT
+  CHARACTER(LEN=100) :: CL_CFILE
+"""
+    body = """
+IUNIT = 61
+OPEN(IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", CONVERT='BIG_ENDIAN')
+IUNIT = 62
+OPEN(IUNIT, FILE=TRIM(CL_CFILE), CONVERT="LITTLE_ENDIAN", &
+  & FORM="UNFORMATTED")
+"""
+    post = """
+END SUBROUTINE ROUTINE_CONVERT_ENDIAN
+"""
+    fcode = pre + body + post
+
+    filepath = tmp_path/(f'routine_convert_endian_{frontend}.f90')
+    Sourcefile.to_file(fcode, filepath)
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
+
+    if frontend == OMNI:
+        body = body.replace('OPEN(IUNIT', 'OPEN(UNIT=IUNIT')
+        body = body.replace('"', "'")
+        body = body.replace('&\n  & ', '')
+    assert fgen(routine.body).upper().strip() == body.strip()
+    filepath.unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_open_newunit(tmp_path, frontend):
+    pre = """
+SUBROUTINE ROUTINE_OPEN_NEWUNIT()
+  INTEGER :: IUNIT
+  CHARACTER(LEN=100) :: CL_CFILE
+"""
+    body = """
+OPEN(NEWUNIT=IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED")
+OPEN(FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", NEWUNIT=IUNIT)
+OPEN(FILE=TRIM(CL_CFILE), NEWUNIT=IUNIT, &
+  & FORM="UNFORMATTED")
+OPEN(FILE=TRIM(CL_CFILE), NEWUNIT=IUNIT&
+  & , FORM="UNFORMATTED")
+"""
+    post = """
+END SUBROUTINE ROUTINE_OPEN_NEWUNIT
+"""
+    fcode = pre + body + post
+
+    filepath = tmp_path/(f'routine_open_newunit_{frontend}.f90')
+    Sourcefile.to_file(fcode, filepath)
+    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
+
+    if frontend == OMNI:
+        body = body.replace('"', "'")
+        body = body.replace('&\n  & ', '')
+    assert fgen(routine.body).upper().strip() == body.strip()
+    filepath.unlink()
