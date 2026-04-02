@@ -14,7 +14,7 @@ import pytest
 from loki import Module, Subroutine, Sourcefile, fgen
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import nodes as ir, FindNodes
 
 
@@ -330,3 +330,44 @@ END SUBROUTINE ROUTINE_OPEN_NEWUNIT
         body = body.replace('&\n  & ', '')
     assert fgen(routine.body).upper().strip() == body.strip()
     filepath.unlink()
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_nullify_statement(frontend):
+    """
+    Test `NULLIFY` statement handling.
+    """
+    fcode = """
+subroutine nullify_routine()
+  implicit none
+  real, pointer :: p(:)
+  nullify(p)
+end subroutine nullify_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    nullify_nodes = FindNodes(ir.Nullify).visit(routine.body)
+    assert len(nullify_nodes) == 1
+    assert nullify_nodes[0].variables == ('p',)
+
+
+@pytest.mark.parametrize('frontend', [FP])
+def test_inquire_statement(frontend):
+    """
+    Test `INQUIRE` statement round-trip.
+    """
+    fcode = """
+subroutine inquire_routine(unit, opened)
+  implicit none
+  integer, intent(in) :: unit
+  logical, intent(out) :: opened
+  inquire(unit=unit, opened=opened)
+end subroutine inquire_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    intrinsics = [intr for intr in FindNodes(ir.Intrinsic).visit(routine.body) if 'inquire' in intr.text.lower()]
+    assert len(intrinsics) == 1
+    assert 'inquire' in intrinsics[0].text.lower()
+    assert 'unit' in intrinsics[0].text.lower()
+    assert 'opened' in intrinsics[0].text.lower()
