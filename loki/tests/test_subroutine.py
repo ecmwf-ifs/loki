@@ -9,7 +9,7 @@
 from pathlib import Path
 import pytest
 
-from loki import Sourcefile, Module, Subroutine, Function, fgen, fexprgen
+from loki import Sourcefile, Module, Subroutine, fgen, fexprgen
 from loki.jit_build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
@@ -17,9 +17,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
     Transformer
 )
-from loki.types import (
-    BasicType, DerivedType, ProcedureType, SymbolAttributes
-)
+from loki.types import BasicType, DerivedType, SymbolAttributes
 
 
 @pytest.fixture(scope='module', name='here')
@@ -30,248 +28,6 @@ def fixture_here():
 @pytest.fixture(scope='module', name='header_path')
 def fixture_header_path(here):
     return here/'sources/header.f90'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_simple(frontend):
-    """
-    A simple standard looking routine to test argument declarations.
-    """
-    fcode = """
-subroutine routine_simple (x, y, scalar, vector, matrix)
-  ! This is the docstring ...
-
-  ! It spans multiple intersected lines ...
-  ! ... and is followed by a ...
-
-  !$loki routine fun
-
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  integer, intent(in) :: x, y
-  real(kind=jprb), intent(in) :: scalar
-  real(kind=jprb), intent(inout) :: vector(x), matrix(x, y)
-  integer :: i
-
-  do i=1, x
-     vector(i) = vector(i) + scalar
-     matrix(i, :) = i * vector(i)
-  end do
-end subroutine routine_simple
-"""
-
-    # Test the internals of the subroutine
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-
-    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
-    assert routine.variables == ('jprb', 'x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)', 'i')
-
-    # Check the docstring
-    assert len(routine.docstring) == 1
-    assert isinstance(routine.docstring[0], ir.CommentBlock)
-    if frontend == OMNI:
-        assert len(routine.docstring[0].comments) == 3
-        assert routine.docstring[0].comments[0].text == '! This is the docstring ...'
-        assert routine.docstring[0].comments[1].text == '! It spans multiple intersected lines ...'
-        assert routine.docstring[0].comments[2].text == '! ... and is followed by a ...'
-    else:
-        assert len(routine.docstring[0].comments) == 5
-        assert routine.docstring[0].comments[0].text == '! This is the docstring ...'
-        assert routine.docstring[0].comments[2].text == '! It spans multiple intersected lines ...'
-        assert routine.docstring[0].comments[3].text == '! ... and is followed by a ...'
-    assert routine.definitions == ()
-
-    # Check the spec
-    assert isinstance(routine.body, ir.Section)
-    if frontend == OMNI:
-        assert len(routine.spec) == 9
-        assert isinstance(routine.spec[0], ir.Intrinsic)
-        assert isinstance(routine.spec[1], ir.Pragma)
-        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec[2:])
-        assert routine.spec[2].symbols == ('jprb',)
-        assert routine.spec[3].symbols == ('x',)
-        assert routine.spec[4].symbols == ('y',)
-        assert routine.spec[5].symbols == ('scalar',)
-        assert routine.spec[6].symbols == ('vector(x)',)
-        assert routine.spec[7].symbols == ('matrix(x, y)',)
-        assert routine.spec[8].symbols == ('i',)
-    else:
-        assert len(routine.spec) == 7
-        assert isinstance(routine.spec[0], ir.Pragma)
-        assert isinstance(routine.spec[1], ir.Comment)
-        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec[2:])
-        assert routine.spec[2].symbols == ('jprb',)
-        assert routine.spec[3].symbols == ('x', 'y')
-        assert routine.spec[4].symbols == ('scalar',)
-        assert routine.spec[5].symbols == ('vector(x)', 'matrix(x, y)')
-        assert routine.spec[6].symbols == ('i',)
-
-    # Check the routine body
-    assert isinstance(routine.spec, ir.Section)
-    loops = FindNodes(ir.Loop).visit(routine.body)
-    assert len(loops) == 1 and loops[0].variable == 'i'
-    assigns = FindNodes(ir.Assignment).visit(routine.body)
-    assert len(assigns) == 2
-    assert assigns[0] in loops[0].body and assigns[1] in loops[0].body
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_prefix(frontend):
-    """ Test matching of prefix attributes for subroutines """
-    fcode = """
-pure elemental subroutine my_routine(x, y)
-  implicit none
-  integer(kind=8), intent(inout) :: x, y
-
-  x = x + y
-end subroutine my_routine
-"""
-    # Note that Fparser fails here if the legal 'recursive' prefix is used!
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-
-    assert routine.name == 'my_routine'
-    assert len(routine.prefix) == 2
-    assert routine.prefix == ('PURE', 'ELEMENTAL')
-
-    # Check that routine was parsed completely
-    assert isinstance(routine.body[-1], ir.Assignment)
-    assert routine.body[-1].lhs == 'x'
-    assert routine.body[-1].rhs == 'x + y'
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI frontend interface does not provide interfaces')]
-))
-def test_routine_bind(frontend, tmp_path):
-    """ Test matching of 'bind" suffix for subroutines in interfaces """
-    fcode = """
-module my_module
-  implicit none
-
-  interface
-    subroutine my_routine(x, y) bind(C, name='my_routine_c')
-      use, intrinsic :: iso_c_binding
-      integer(kind=c_int), intent(inout) :: x, y
-    end subroutine my_routine
-  end interface
-
-contains
-
-  subroutine my_routine(x, y)
-    integer(kind=4), intent(inout) :: x, y
-
-    x = x + y
-  end subroutine my_routine
-end module my_module
-"""
-    # Note that Fparser fails here if the legal 'recursive' prefix is used!
-    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-
-    routine = module['my_routine']
-
-    intf_routine = module.interface_map['my_routine'].body[0]
-    # The bind attribute is named, check the name
-    assert isinstance(intf_routine.bind, sym.StringLiteral)
-    assert intf_routine.bind == 'my_routine_c'
-    assert "BIND(c, name='my_routine_c')" in fgen(intf_routine)
-    # TODO: bind(C) is not honoured atm
-
-    # TODO: Interface definition and module routine alias, is that intended?
-    assert intf_routine == routine
-
-    # Check that module routine was parsed completely
-    assert isinstance(routine.body[-1], ir.Assignment)
-    assert routine.body[-1].lhs == 'x'
-    assert routine.body[-1].rhs == 'x + y'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_arguments(frontend):
-    """
-    A set of test to test internalisation and handling of arguments.
-    """
-
-    fcode = """
-subroutine routine_arguments &
- ! Test multiline dummy arguments with comments
- & (x, y, scalar, &
- ! Of course, not one...
- ! but two comment lines
- & vector, matrix)
-  implicit none
-  integer, parameter :: jprb = selected_real_kind(13,300)
-  ! The order below is intentioanlly inverted
-  real(kind=jprb), intent(inout) :: matrix(x, y)
-  real(kind=jprb), intent(in)    :: scalar
-  real(kind=jprb), dimension(x)  :: local_vector
-  real(kind=jprb), dimension(x), intent(out) :: vector
-  integer, intent(in) :: x, y
-
-  integer :: i, j
-  real(kind=jprb) :: local_matrix(x, y)
-
-  do i=1, x
-     local_vector(i) = i * 10.
-     do j=1, y
-        local_matrix(i, j) = local_vector(i) + j * scalar
-     end do
-  end do
-
-  vector(:) = local_vector(:)
-  matrix(:, :) = local_matrix(:, :)
-
-end subroutine routine_arguments
-"""
-
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-
-    # The line-creaking comments are attributed to the docstring.
-    # This behaviour is not ideal, but it is the current status quo!
-    if frontend == OMNI:
-        assert not routine.docstring
-    else:
-        assert len(routine.docstring) == 1
-        assert len(routine.docstring[0].comments) == 3
-        assert routine.docstring[0].comments[0].text == '! Test multiline dummy arguments with comments'
-        assert routine.docstring[0].comments[1].text == '! Of course, not one...'
-        assert routine.docstring[0].comments[2].text == '! but two comment lines'
-
-    # Argument order is determined by the dummies in the signature
-    assert routine.arguments == ('x', 'y', 'scalar', 'vector(x)', 'matrix(x, y)')
-    assert all(isinstance(a, sym.Scalar) for a in routine.arguments[0:3])
-    assert all(a.type.intent == 'in' for a in routine.arguments[0:3])
-    assert all(isinstance(a, sym.Array) for a in routine.arguments[3:])
-    assert all(a.type.dtype == BasicType.INTEGER for a in routine.arguments[0:2])
-    assert all(a.type.dtype == BasicType.REAL for a in routine.arguments[2:5])
-    if frontend == OMNI:
-        assert all(isinstance(a.type.kind, sym.InlineCall) for a in routine.arguments[2:5])
-    else:
-        assert all(a.type.kind == 'jprb' for a in routine.arguments[2:5])
-    assert routine.arguments[3].shape == ('x',)
-    assert routine.arguments[4].shape == ('x', 'y')
-    assert routine.arguments[3].type.intent == 'out'
-    assert routine.arguments[4].type.intent == 'inout'
-
-    # Local variable order is determined by the order of the declarations
-    assert routine.variables == (
-        'jprb', 'matrix(x, y)', 'scalar', 'local_vector(x)',
-        'vector(x)', 'x', 'y', 'i', 'j', 'local_matrix(x, y)'
-    )
-    assert routine.variables[0].type.parameter
-    assert isinstance(routine.variables[0].type.initial, sym.InlineCall)
-    assert routine.variables[0].type.initial.function == 'selected_real_kind'
-    assert routine.variables[1].type.dtype == BasicType.REAL
-    assert routine.variables[1].shape == ('x', 'y')
-    assert routine.variables[2].type.dtype == BasicType.REAL
-    assert routine.variables[3].type.dtype == BasicType.REAL
-    assert routine.variables[3].shape == ('x',)
-    assert routine.variables[4].type.dtype == BasicType.REAL
-    assert routine.variables[4].shape == ('x',)
-    assert routine.variables[5].type.dtype == BasicType.INTEGER
-    assert routine.variables[6].type.dtype == BasicType.INTEGER
-    assert routine.variables[7].type.dtype == BasicType.INTEGER
-    assert routine.variables[8].type.dtype == BasicType.INTEGER
-    assert routine.variables[9].type.dtype == BasicType.REAL
-    assert routine.variables[9].shape == ('x', 'y')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -792,143 +548,206 @@ end subroutine routine_call_caller
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_call_no_arg(frontend):
-    routine = Subroutine.from_source(frontend=frontend, source="""
-subroutine routine_call_no_arg()
+def test_member_procedures(tmp_path, frontend):
+    """
+    Test member subroutine and function
+    """
+    fcode = """
+subroutine routine_member_procedures(in1, in2, out1, out2)
+  ! Test member subroutine and function
   implicit none
+  integer, intent(in) :: in1, in2
+  integer, intent(out) :: out1, out2
+  integer :: localvar
 
-  call abort
-end subroutine routine_call_no_arg
-""")
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    assert len(calls) == 1
-    assert calls[0].arguments == ()
-    assert calls[0].kwarguments == ()
+  localvar = in2
+
+  call member_procedure(in1, out1)
+  out2 = member_function(out1)
+contains
+  subroutine member_procedure(in1, out1)
+    ! This member procedure shadows some variables and uses
+    ! a variable from the parent scope
+    implicit none
+    integer, intent(in) :: in1
+    integer, intent(out) :: out1
+
+    out1 = 5 * in1 + localvar + member_function(1)
+  end subroutine member_procedure
+
+  ! Below is disabled because f90wrap (wrongly) exhibits that
+  ! symbol to the public, which causes double defined symbols
+  ! upon compilation.
+
+  function member_function(in2)
+    ! This function is just included to test that functions
+    ! are also possible
+    implicit none
+    integer, intent(in) :: in2
+    integer :: member_function
+
+    member_function = 3 * in2 + 2
+  end function member_function
+end subroutine routine_member_procedures
+"""
+    # Check that member procedures are parsed correctly
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assert len(routine.members) == 2
+
+    assert routine.members[0].name == 'member_procedure'
+    assert routine.members[0].symbol_attrs.lookup('localvar', recursive=False) is None
+    assert routine.members[0].symbol_attrs.lookup('localvar') is not None
+    assert routine.members[0].get_symbol_scope('localvar') is routine
+    assert routine.members[0].symbol_attrs.lookup('in1') is not None
+    assert routine.symbol_attrs.lookup('in1') is not None
+    assert routine.members[0].get_symbol_scope('in1') is routine.members[0]
+
+    # Check that inline function is correctly identified
+    inline_calls = list(FindInlineCalls().visit(routine.members[0].body))
+    assert len(inline_calls) == 1
+    assert inline_calls[0].function.name == 'member_function'
+    assert inline_calls[0].function.type.dtype.procedure == routine.members[1]
+
+    assert routine.members[1].name == 'member_function'
+    assert routine.members[1].symbol_attrs.lookup('in2') is not None
+    assert routine.members[1].get_symbol_scope('in2') is routine.members[1]
+    assert routine.symbol_attrs.lookup('in2') is not None
+    assert routine.get_symbol_scope('in2') is routine
+
+    # Generate code, compile and load
+    filepath = tmp_path/(f'routine_member_procedures_{frontend}.f90')
+    function = jit_compile(routine, filepath=filepath, objname='routine_member_procedures')
+
+    # Test results of the generated and compiled code
+    out1, out2 = function(1, 2)
+    assert out1 == 12
+    assert out2 == 38
+    clean_test(filepath)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_call_kwargs(frontend):
-    routine = Subroutine.from_source(frontend=frontend, source="""
-subroutine routine_call_kwargs()
+def test_member_routine_clone(frontend):
+    """
+    Test that member subroutine scopes get cloned correctly.
+    """
+    fcode = """
+subroutine member_routine_clone(in1, in2, out1, out2)
+  ! Test member subroutine and function
   implicit none
-  integer :: kprocs
+  integer, intent(in) :: in1, in2
+  integer, intent(out) :: out1, out2
+  integer :: localvar
 
-  call mpl_init(kprocs=kprocs, cdstring='routine_call_kwargs')
-end subroutine routine_call_kwargs
-""")
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    assert len(calls) == 1
-    assert calls[0].name == 'mpl_init'
+  localvar = in2
 
-    assert calls[0].arguments == ()
-    assert len(calls[0].kwarguments) == 2
-    assert all(isinstance(arg, tuple) and len(arg) == 2 for arg in calls[0].kwarguments)
+  call member_procedure(in1, out1)
+  out2 = 3 * out1 + 2
 
-    assert calls[0].kwarguments[0][0] == 'kprocs'
-    assert (isinstance(calls[0].kwarguments[0][1], sym.Scalar) and
-            calls[0].kwarguments[0][1].name == 'kprocs')
+contains
+  subroutine member_procedure(in1, out1)
+    ! This member procedure shadows some variables and uses
+    ! a variable from the parent scope
+    implicit none
+    integer, intent(in) :: in1
+    integer, intent(out) :: out1
 
-    assert calls[0].kwarguments[1] == ('cdstring', sym.StringLiteral('routine_call_kwargs'))
+    out1 = 5 * in1 + localvar
+  end subroutine member_procedure
+end subroutine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    new_routine = routine.clone()
+
+    # Ensure we have cloned routine and member
+    assert routine is not new_routine
+    assert routine.members[0] is not new_routine.members[0]
+    assert fgen(routine) == fgen(new_routine)
+    assert fgen(routine.members[0]) == fgen(new_routine.members[0])
+
+    # Check that the scopes are linked correctly
+    assert routine.members[0].parent is routine
+    assert new_routine.members[0].parent is new_routine
+
+    # Check that variables are in the right scope everywhere
+    assert all(v.scope is routine for v in FindVariables().visit(routine.ir))
+    assert all(v.scope in (routine, routine.members[0]) for v in FindVariables().visit(routine.members[0].ir))
+    assert all(v.scope is new_routine for v in FindVariables().visit(new_routine.ir))
+    assert all(
+        v.scope in (new_routine, new_routine.members[0])
+        for v in FindVariables().visit(new_routine.members[0].ir)
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_call_args_kwargs(frontend):
-    routine = Subroutine.from_source(frontend=frontend, source="""
-subroutine routine_call_args_kwargs(pbuf, ktag, kdest)
+def test_member_routine_clone_inplace(frontend):
+    """
+    Test that member subroutine scopes get cloned correctly.
+    """
+    fcode = """
+subroutine member_routine_clone(in1, in2, out1, out2)
+  ! Test member subroutine and function
   implicit none
-  integer, intent(in) :: pbuf(:), ktag, kdest
+  integer, intent(in) :: in1, in2
+  integer, intent(out) :: out1, out2
+  integer :: localvar
 
-  call mpl_send(pbuf, ktag, kdest, cdstring='routine_call_args_kwargs')
-end subroutine routine_call_args_kwargs
-""")
-    calls = FindNodes(ir.CallStatement).visit(routine.body)
-    assert len(calls) == 1
-    assert calls[0].name == 'mpl_send'
-    assert len(calls[0].arguments) == 3
-    assert all(a.name == b.name for a, b in zip(calls[0].arguments, routine.arguments))
-    assert calls[0].kwarguments == (('cdstring', sym.StringLiteral('routine_call_args_kwargs')),)
+  localvar = in2
 
+  call member_procedure(in1, out1)
+  out2 = 3 * out1 + 2
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_convert_endian(tmp_path, frontend):
-    pre = """
-SUBROUTINE ROUTINE_CONVERT_ENDIAN()
-  INTEGER :: IUNIT
-  CHARACTER(LEN=100) :: CL_CFILE
+contains
+  subroutine member_procedure(in1, out1)
+    ! This member procedure shadows some variables and uses
+    ! a variable from the parent scope
+    implicit none
+    integer, intent(in) :: in1
+    integer, intent(out) :: out1
+
+    out1 = 5 * in1 + localvar
+  end subroutine member_procedure
+
+  subroutine other_member(inout1)
+    ! Another member that uses a parent symbol
+    implicit none
+    integer, intent(inout) :: inout1
+
+    inout1 = 2 * inout1 + localvar
+  end subroutine other_member
+end subroutine
 """
-    body = """
-IUNIT = 61
-OPEN(IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", CONVERT='BIG_ENDIAN')
-IUNIT = 62
-OPEN(IUNIT, FILE=TRIM(CL_CFILE), CONVERT="LITTLE_ENDIAN", &
-  & FORM="UNFORMATTED")
-"""
-    post = """
-END SUBROUTINE ROUTINE_CONVERT_ENDIAN
-"""
-    fcode = pre + body + post
+    routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    filepath = tmp_path/(f'routine_convert_endian_{frontend}.f90')
-    Sourcefile.to_file(fcode, filepath)
-    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_convert_endian']
+    # Make sure the initial state is as expected
+    member = routine['member_procedure']
+    assert member.parent is routine
+    assert member.symbol_attrs.parent is routine.symbol_attrs
+    other_member = routine['other_member']
+    assert other_member.parent is routine
+    assert other_member.symbol_attrs.parent is routine.symbol_attrs
 
-    if frontend == OMNI:
-        # F... OMNI
-        body = body.replace('OPEN(IUNIT', 'OPEN(UNIT=IUNIT')
-        body = body.replace('"', "'")
-        body = body.replace('&\n  & ', '')
-    # TODO: This is hacky as the fgen backend is still pretty much WIP
-    assert fgen(routine.body).upper().strip() == body.strip()
-    filepath.unlink()
+    # Put the inherited symbol in the local scope, first with a clean clone...
+    member.variables += (routine.variable_map['localvar'].clone(scope=member),)
+    member = member.clone(parent=None)
+    # ...and then with a clone that preserves the symbol table
+    other_member.variables += (routine.variable_map['localvar'].clone(scope=other_member),)
+    other_member = other_member.clone(parent=None, symbol_attrs=other_member.symbol_attrs)
+    # Ultimately, remove the member routines
+    routine = routine.clone(contains=None)
 
+    # Check that variables are in the right scope everywhere
+    assert all(v.scope is routine for v in FindVariables().visit(routine.ir))
+    assert all(v.scope is member for v in FindVariables().visit(member.ir))
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_open_newunit(tmp_path, frontend):
-    pre = """
-SUBROUTINE ROUTINE_OPEN_NEWUNIT()
-  INTEGER :: IUNIT
-  CHARACTER(LEN=100) :: CL_CFILE
-"""
-    body = """
-OPEN(NEWUNIT=IUNIT, FILE=TRIM(CL_CFILE), FORM="UNFORMATTED")
-OPEN(FILE=TRIM(CL_CFILE), FORM="UNFORMATTED", NEWUNIT=IUNIT)
-OPEN(FILE=TRIM(CL_CFILE), NEWUNIT=IUNIT, &
-  & FORM="UNFORMATTED")
-OPEN(FILE=TRIM(CL_CFILE), NEWUNIT=IUNIT&
-  & , FORM="UNFORMATTED")
-"""
-    post = """
-END SUBROUTINE ROUTINE_OPEN_NEWUNIT
-"""
-    fcode = pre + body + post
-
-    filepath = tmp_path/(f'routine_open_newunit_{frontend}.f90')
-    Sourcefile.to_file(fcode, filepath)
-    routine = Sourcefile.from_file(filepath, frontend=frontend, preprocess=True)['routine_open_newunit']
-
-    if frontend == OMNI:
-        # F... OMNI
-        body = body.replace('"', "'")
-        body = body.replace('&\n  & ', '')
-    # TODO: This is hacky as the fgen backend is still pretty much WIP
-    assert fgen(routine.body).upper().strip() == body.strip()
-    filepath.unlink()
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_empty_spec(frontend):
-    routine = Subroutine.from_source(frontend=frontend, source="""
-subroutine routine_empty_spec
-write(*,*) 'Hello world!'
-end subroutine routine_empty_spec
-""")
-    if frontend == OMNI:
-        # OMNI inserts IMPLICIT NONE into spec
-        assert len(routine.spec) == 1
-    else:
-        assert not routine.spec
-    assert len(routine.body) == 1
-
+    # Check that we aren't looking somewhere above anymore
+    assert member.parent is None
+    assert member.symbol_attrs.parent is None
+    assert member.parent is None
+    assert member.symbol_attrs._parent is None
+    assert other_member.parent is None
+    assert other_member.symbol_attrs.parent is None
+    assert other_member.parent is None
+    assert other_member.symbol_attrs.parent is None
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1169,56 +988,6 @@ end subroutine test_subroutine_rescope_clone
             "'NoneType' object has no attribute 'use_name'"
         )
 
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_subroutine_stmt_func(tmp_path, frontend):
-    """
-    Test the correct identification of statement functions
-    """
-    fcode = """
-subroutine subroutine_stmt_func(a, b)
-    implicit none
-    integer, intent(in) :: a
-    integer, intent(out) :: b
-    integer :: array(a)
-    integer :: i, j, plus, minus
-    plus(i, j) = i + j
-    minus(i, j) = i - j
-    integer :: mult
-    integer :: tmp
-    mult(i, j) = i * j
-
-    array(a) = a
-    tmp = plus(a, 5)
-    tmp = minus(tmp, 1)
-    b = mult(2, tmp)
-end subroutine subroutine_stmt_func
-    """
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    routine.name += f'_{frontend!s}'
-
-    # Make sure the statement function injection doesn't invalidate source
-    for assignment in FindNodes(ir.Assignment).visit(routine.body):
-        assert assignment.source is not None
-
-    # OMNI inlines statement functions, so we can only check correct representation
-    # for fparser
-    if frontend != OMNI:
-        stmt_func_decls = {d.variable: d for d in FindNodes(ir.StatementFunction).visit(routine.spec)}
-        assert len(stmt_func_decls) == 3
-
-        for name in ('plus', 'minus', 'mult'):
-            var = routine.variable_map[name]
-            assert isinstance(var, sym.ProcedureSymbol)
-            assert isinstance(var.type.dtype, ProcedureType)
-            assert var.type.dtype.procedure is stmt_func_decls[var]
-            assert stmt_func_decls[var].source is not None
-
-    # Make sure this produces the correct result
-    filepath = tmp_path/f'{routine.name}.f90'
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    assert function(3) == 14
-    clean_test(filepath)
 
 
 
@@ -1765,43 +1534,3 @@ end subroutine
     assert tt_invalid_val == 'tt%invalid%val'
     assert tt_invalid_val.type.dtype == BasicType.DEFERRED
     assert tt_invalid_val.parent.type.dtype == BasicType.DEFERRED
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('dim_decl', [':: add_to_a(n)', ', DIMENSION(n) :: add_to_a'])
-def test_function_array_return_type(frontend, dim_decl):
-    """
-    Verify array return types are correctly represented with all frontends
-    """
-    fcode = f"""
-subroutine member_functions
-    implicit none
-    integer :: i
-    real(kind=8) :: a(3)
-    contains
-    function add_to_a(b, n)
-      integer, intent(in) :: n
-      real(kind=8), intent(in) :: b(n)
-      real(kind=8) {dim_decl}
-
-      do i = 1, n
-        add_to_a(i) = a(i) + b(i)
-      end do
-    end function
-end subroutine member_functions
-    """.strip()
-    routine = Function.from_source(fcode, frontend=frontend)
-    add_to_a = routine['add_to_a']
-    return_type = add_to_a.procedure_type.return_type
-    assert return_type.dtype == BasicType.REAL
-    assert return_type.shape == ('n',)
-    ret_var = add_to_a.variable_map['add_to_a']
-    assert ret_var.type.dtype == BasicType.REAL
-    assert ret_var.type.shape == ('n',)
-    assert ret_var.dimensions == ('n',)
-
-    if frontend == OMNI:
-        # OMNI frontend puts the shape declaration always on the variable
-        assert ':: add_to_a(n)' in routine.to_fortran()
-    else:
-        assert dim_decl in routine.to_fortran()
