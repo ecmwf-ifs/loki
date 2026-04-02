@@ -11,7 +11,7 @@ Verify correct frontend behaviour for control-flow IR nodes.
 
 import pytest
 
-from loki import Module
+from loki import Module, Subroutine
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
@@ -79,3 +79,122 @@ end module select_type_mod
     assert len(comments) == 2
     assert 'Some comment' in comments[0].text
     assert 'inline comment' in comments[1].text
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_select_case(frontend):
+    """
+    Test `SELECT CASE` parsing into multi-conditional IR.
+    """
+    fcode = """
+subroutine select_case_routine(kind, out)
+  implicit none
+  integer, intent(in) :: kind
+  integer, intent(out) :: out
+
+  select case (kind)
+  case (1)
+    out = 10
+  case (2:4)
+    out = 20
+  case default
+    out = 30
+  end select
+end subroutine select_case_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    multi_conds = FindNodes(ir.MultiConditional).visit(routine.body)
+    assert len(multi_conds) == 1
+    assert multi_conds[0].expr == 'kind'
+    assert len(multi_conds[0].values) == 2
+    assert len(multi_conds[0].bodies) == 2
+    assert len(multi_conds[0].else_body) == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_do_while_loop(frontend):
+    """
+    Test `DO WHILE` parsing.
+    """
+    fcode = """
+subroutine do_while_routine(n, out)
+  implicit none
+  integer, intent(in) :: n
+  integer, intent(out) :: out
+  integer :: i
+
+  out = 0
+  i = 1
+  do while (i <= n)
+    out = out + i
+    i = i + 1
+  end do
+end subroutine do_while_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    whiles = FindNodes(ir.WhileLoop).visit(routine.body)
+    assert len(whiles) == 1
+    assert whiles[0].condition == 'i <= n'
+    assigns = FindNodes(ir.Assignment).visit(whiles[0].body)
+    assert len(assigns) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_cycle_exit(frontend):
+    """
+    Test `CYCLE` and `EXIT` in loop bodies.
+    """
+    fcode = """
+subroutine cycle_exit_routine(n, out)
+  implicit none
+  integer, intent(in) :: n
+  integer, intent(out) :: out
+  integer :: i
+
+  out = 0
+  do i=1, n
+    if (i == 2) cycle
+    if (i == 5) exit
+    out = out + i
+  end do
+end subroutine cycle_exit_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+    intrinsics = [
+        intr for intr in FindNodes(ir.Intrinsic).visit(loops[0].body)
+        if intr.text.lower() in ('cycle', 'exit')
+    ]
+    assert len(intrinsics) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_where_construct(frontend):
+    """
+    Test `WHERE` handling for frontends that lower it to intrinsic/raw bodies.
+    """
+    fcode = """
+subroutine where_routine(mask, a, b)
+  implicit none
+  logical, intent(in) :: mask(:)
+  real, intent(inout) :: a(:), b(:)
+
+  where (mask)
+    a = b
+  elsewhere
+    a = 0.
+  end where
+end subroutine where_routine
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    masked = FindNodes(ir.MaskedStatement).visit(routine.body)
+    assert len(masked) == 1
+    assert len(masked[0].conditions) == 1
+    assert masked[0].conditions[0] == 'mask'
+    assert len(masked[0].bodies) == 1
+    assert len(masked[0].default) == 1
