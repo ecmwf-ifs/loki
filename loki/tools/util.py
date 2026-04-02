@@ -47,14 +47,8 @@ def _is_atomic_iterable_ir_node(obj):
     """
     Return ``True`` for iterable IR nodes that should stay atomic in helpers.
     """
-    nodes_module = sys.modules.get('loki.ir.nodes')
-    section_type = getattr(nodes_module, 'Section', None)
-    associate_type = getattr(nodes_module, 'Associate', None)
-    obj_type = obj.__class__
-    return (
-        (section_type is not None and obj_type is section_type)
-        or (associate_type is not None and obj_type is associate_type)
-    )
+    from loki.ir import nodes as ir  # pylint: disable=import-outside-toplevel, cyclic-import
+    return isinstance(obj, (ir.Section, ir.Associate))
 
 
 def as_tuple(item, type=None, length=None):
