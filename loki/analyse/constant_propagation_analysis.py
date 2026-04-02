@@ -12,7 +12,6 @@ import operator
 from copy import deepcopy
 from typing import Any
 
-from loki import Transformer
 from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
 from loki.expression import (
     Array, DeferredTypeSymbol, FloatLiteral, IntLiteral, LogicLiteral,
@@ -20,7 +19,7 @@ from loki.expression import (
 )
 from loki.expression.symbolic import get_pyrange, is_constant
 from loki.expression.symbols import _Literal
-from loki.ir import FindNodes, Assignment, FindVariables, Loop
+from loki.ir import FindNodes, Assignment, FindVariables, Loop, Transformer
 from loki.tools import as_tuple
 
 __all__ = ['ConstantPropagationAnalysis']

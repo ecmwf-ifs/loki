@@ -7,8 +7,9 @@
 
 from copy import deepcopy
 
-from loki import Subroutine, Transformer
 from loki.analyse.constant_propagation_analysis import ConstantPropagationAnalysis
+from loki.ir import Transformer
+from loki.subroutine import Subroutine
 
 __all__ = ['ConstantPropagationTransformer']
 
@@ -21,7 +22,7 @@ class ConstantPropagationTransformer(Transformer):
         self.unroll_loops = unroll_loops
         super().__init__()
 
-    def visit(self, expr, *args, **kwargs):
+    def visit(self, o, *args, **kwargs):
         constants_map = deepcopy(kwargs.pop('constants_map', {}))
         const_prop = ConstantPropagationAnalysis(
             fold_floats=self.fold_floats,
@@ -29,19 +30,19 @@ class ConstantPropagationTransformer(Transformer):
             apply_transform=True,
         )
 
-        if isinstance(expr, Subroutine):
-            declarations_map = const_prop.generate_declarations_map(expr)
+        if isinstance(o, Subroutine):
+            declarations_map = const_prop.generate_declarations_map(o)
             declarations_map.update(constants_map)
             attacher = const_prop.get_attacher()
             detacher = const_prop.get_detacher()
-            if expr.spec:
-                expr.spec = attacher.visit(expr.spec, *args, constants_map=declarations_map, **kwargs)
-                detacher.visit(expr.spec)
-            if expr.body:
-                expr.body = attacher.visit(expr.body, *args, constants_map=declarations_map, **kwargs)
-                detacher.visit(expr.body)
-            return expr
+            if o.spec:
+                o.spec = attacher.visit(o.spec, *args, constants_map=declarations_map, **kwargs)
+                detacher.visit(o.spec)
+            if o.body:
+                o.body = attacher.visit(o.body, *args, constants_map=declarations_map, **kwargs)
+                detacher.visit(o.body)
+            return o
 
-        target = const_prop.get_attacher().visit(expr, *args, constants_map=constants_map, **kwargs)
+        target = const_prop.get_attacher().visit(o, *args, constants_map=constants_map, **kwargs)
         target = const_prop.get_detacher().visit(target)
         return target
