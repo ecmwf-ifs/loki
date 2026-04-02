@@ -18,7 +18,7 @@ from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_frontend_pragma_vs_comment(frontend, tmp_path):
+def test_pragma_vs_comment(frontend, tmp_path):
     """
     Make sure pragmas and comments are identified correctly
     """
@@ -185,7 +185,7 @@ end subroutine test_inline_comments
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
-def test_frontend_routine_variables_dimension_pragmas(frontend):
+def test_routine_variables_dimension_pragmas(frontend):
     """
     Test that `!$loki dimension` pragmas can be used to override the
     conceptual `.shape` of local and argument variables.
@@ -247,7 +247,7 @@ end subroutine routine_variables_dimensions
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
-def test_frontend_module_variables_dimension_pragmas(frontend, tmp_path):
+def test_module_variables_dimension_pragmas(frontend, tmp_path):
     """
     Test that `!$loki dimension` pragmas can be used to override the
     conceptual `.shape` of module variables.
