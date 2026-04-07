@@ -105,16 +105,22 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
     """
-    Test that per-routine config key ``resolve_vector_notation = False`` prevents
-    vector notation from being resolved in the kernel.
+    Test that per-routine config key ``resolve_vector_notation = False`` still
+    resolves the horizontal dimension but leaves other vector notation intact.
+
+    The horizontal dimension (``start:end``) is always resolved by
+    ``resolve_vector_dimension`` regardless of the flag, so that downstream
+    SCC transformations find scalar loop indices.  Only ``resolve_vector_notation``
+    (which handles remaining bare ``:`` ranges) is gated behind the flag.
     """
 
     fcode_kernel = """
-  SUBROUTINE compute_column(start, end, nlon, nz, q, t)
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t, z)
     INTEGER, INTENT(IN) :: start, end  ! Iteration indices
     INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
     REAL, INTENT(INOUT) :: t(nlon,nz)
     REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, INTENT(INOUT) :: z(nz)       ! 1-D non-horizontal array
     INTEGER :: jk
     REAL :: c
 
@@ -123,10 +129,15 @@ def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
       t(start:end, jk) = c * jk
       q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
     END DO
+
+    ! Non-horizontal vector notation -- only resolved by resolve_vector_notation
+    z(:) = 0.0
   END SUBROUTINE compute_column
 """
 
-    # --- Case 1: resolve_vector_notation = False => vector notation NOT resolved ---
+    # --- Case 1: resolve_vector_notation = False ---
+    # Horizontal dimension (start:end) IS resolved by resolve_vector_dimension.
+    # Non-horizontal vector notation (z(:)) is NOT resolved.
     kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
     kernel = kernel_source.subroutines[0]
     kernel_item = ProcedureItem(
@@ -137,16 +148,34 @@ def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
     scc_transform = SCCBaseTransformation(horizontal=horizontal)
     scc_transform.apply(kernel, role='kernel', item=kernel_item)
 
-    # Vector notation should NOT have been resolved: no horizontal loop added
+    # Horizontal loop variable must have been declared
+    assert 'jl' in kernel.variables
+
+    # Horizontal ranges resolved: 1 jk loop + 2 jl loops (one per assignment)
     kernel_loops = FindNodes(Loop).visit(kernel.body)
-    assert len(kernel_loops) == 1
-    assert kernel_loops[0].variable == 'jk'
+    jl_loops = [l for l in kernel_loops if str(l.variable) == 'jl']
+    assert len(jl_loops) == 2
+    assert all(str(l.bounds) == 'start:end' for l in jl_loops)
 
-    # Assignments still use range notation
+    # Assignments use scalar jl index, not range notation
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert 'start:end' in fgen(assigns[1]).lower()
+    t_assign = next(a for a in assigns if 't(' in fgen(a).lower())
+    q_assign = next(a for a in assigns if 'q(' in fgen(a).lower() and 'jk)' in fgen(a).lower())
+    assert 'start:end' not in fgen(t_assign).lower()
+    assert 'jl' in fgen(t_assign).lower()
+    assert 'start:end' not in fgen(q_assign).lower()
+    assert 'jl' in fgen(q_assign).lower()
 
-    # --- Case 2: resolve_vector_notation = True (default) => vector notation IS resolved ---
+    # Non-horizontal vector notation z(:) must NOT have been resolved into a loop
+    z_loops = [l for l in kernel_loops if 'i_z' in str(l.variable).lower()]
+    assert not z_loops, f"z(:) should not be resolved, got loops: {z_loops}"
+    z_assigns = [a for a in assigns if str(a.lhs).lower().startswith('z(')]
+    assert len(z_assigns) == 1
+    assert ':' in fgen(z_assigns[0]).lower(), \
+        f"z(:) assignment should retain range notation, got: {fgen(z_assigns[0])}"
+
+    # --- Case 2: resolve_vector_notation = True (default) ---
+    # Both horizontal and non-horizontal vector notation are fully resolved.
     kernel_source2 = Sourcefile.from_source(fcode_kernel, frontend=frontend)
     kernel2 = kernel_source2.subroutines[0]
     kernel_item2 = ProcedureItem(
@@ -157,10 +186,22 @@ def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
     scc_transform2 = SCCBaseTransformation(horizontal=horizontal)
     scc_transform2.apply(kernel2, role='kernel', item=kernel_item2)
 
-    # Vector notation should have been resolved: horizontal loops added
+    # Horizontal loop variable declared
+    assert 'jl' in kernel2.variables
+
+    # All vector notation resolved: 1 jk + 2 jl + 1 synthesized loop for z(:)
     kernel_loops2 = FindNodes(Loop).visit(kernel2.body)
-    assert len(kernel_loops2) == 3
-    assert any(str(loop.variable) == 'jl' for loop in kernel_loops2)
+    assert any(str(l.variable) == 'jl' for l in kernel_loops2)
+    z_loops2 = [l for l in kernel_loops2 if 'i_z' in str(l.variable).lower()]
+    assert len(z_loops2) == 1, \
+        f"z(:) should be resolved into exactly 1 loop, got: {z_loops2}"
+
+    # z(:) assignment no longer present as range notation
+    assigns2 = FindNodes(Assignment).visit(kernel2.body)
+    z_assigns2 = [a for a in assigns2 if str(a.lhs).lower().startswith('z(')]
+    assert len(z_assigns2) == 1
+    assert ':' not in fgen(z_assigns2[0]).lower(), \
+        f"z(:) should be resolved, got: {fgen(z_assigns2[0])}"
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
