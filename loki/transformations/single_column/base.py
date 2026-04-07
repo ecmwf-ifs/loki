@@ -125,11 +125,13 @@ class SCCBaseTransformation(Transformation):
             Whether to rename index aliases to ``dimension.index``.
             Default is ``False``.
         do_resolve_vector_notation : bool, optional
-            Whether to resolve vector notation into explicit loops.
-            Set to ``False`` to skip this step for routines where
-            generated loop bounds may not be available on device or
-            where the transformation is otherwise undesirable.
-            Default is ``True``.
+            Whether to resolve remaining vector notation (beyond the
+            horizontal dimension) into explicit loops via
+            :any:`resolve_vector_notation`.  The horizontal dimension
+            is always resolved by :any:`resolve_vector_dimension`
+            regardless of this flag, so that downstream SCC
+            transformations find scalar loop indices instead of range
+            notation.  Default is ``True``.
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
@@ -147,20 +149,24 @@ class SCCBaseTransformation(Transformation):
         # with the sections we need to do for detecting subroutine calls
         do_resolve_associates(routine)
 
-        if do_resolve_vector_notation:
-            # Check that horizontal loop bounds are present in the routine;
-            # raise TransformationError early rather than silently skipping.
-            try:
-                get_loop_bounds(routine, dimension=self.horizontal, extended_candidates=False)
-            except RuntimeError as e:
-                raise TransformationError(
-                    message=str(e), transformation=type(self), source=routine
-                ) from e
+        # Check that horizontal loop bounds are present in the routine;
+        # raise TransformationError early rather than silently skipping.
+        try:
+            get_loop_bounds(routine, dimension=self.horizontal, extended_candidates=False)
+        except RuntimeError as e:
+            raise TransformationError(
+                message=str(e), transformation=type(self), source=routine
+            ) from e
 
-            # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-            resolve_vector_dimension(
-                routine, dimension=self.horizontal, derive_qualified_ranges=True
-            )
+        # Resolve the horizontal vector dimension, eg. VARIABLE(KIDIA:KFDIA).
+        # Always performed so that downstream SCC transformations find scalar
+        # loop indices instead of range notation, even when full vector notation
+        # resolution is disabled.
+        resolve_vector_dimension(
+            routine, dimension=self.horizontal, derive_qualified_ranges=True
+        )
+
+        if do_resolve_vector_notation:
             resolve_vector_notation(routine)
 
     def process_driver(self, routine, do_resolve_vector_notation=True):
