@@ -10,13 +10,14 @@
 from itertools import count
 
 from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.expression.mappers import ExpressionRetriever
 from loki.expression.symbolic import simplify
 from loki.frontend import HAVE_FP
 from loki.logging import warning
 from loki.ir import (
     nodes as ir, FindNodes, FindExpressions, Transformer,
     FindVariables, SubstituteExpressions, FindInlineCalls,
-    FindLiteralLists
+    FindLiteralLists, ExpressionFinder
 )
 from loki.tools import as_tuple, dict_override, OrderedSet
 from loki.types import SymbolAttributes, BasicType
@@ -32,6 +33,43 @@ __all__ = [
     'resolve_vector_notation', 'resolve_vector_dimension',
     'ResolveVectorNotationTransformer'
 ]
+
+
+class _OutermostVarRetriever(ExpressionRetriever):  # pylint: disable=abstract-method
+    """
+    Like :class:`ExpressionRetriever` but does not recurse into
+    parent chains of derived-type member symbols.
+
+    Standard :any:`FindVariables` traverses ``VariableSymbol.parent``
+    links, so visiting ``ydg%yrdimv%nflevg`` yields three ``Scalar``
+    nodes: ``ydg``, ``ydg%yrdimv``, and ``ydg%yrdimv%nflevg``.
+    This retriever skips the parent recursion and therefore returns
+    only the outermost (longest-chain) symbol for each derived-type
+    access expression.
+    """
+
+    def map_variable_symbol(self, expr, *args, **kwargs):
+        if not self.visit(expr):
+            return
+        # Do NOT recurse into expr.parent — stop at the outermost symbol.
+        self.post_visit(expr, *args, **kwargs)
+
+    map_deferred_type_symbol = map_variable_symbol
+
+
+class _FindOutermostVariables(ExpressionFinder):
+    """
+    Like :any:`FindVariables` but returns only the outermost
+    (longest-chain) variable for each derived-type member access.
+
+    For an expression containing ``ydg%yrdimv%nflevg``, standard
+    :any:`FindVariables` returns ``{ydg, ydg%yrdimv,
+    ydg%yrdimv%nflevg}``; this class returns only
+    ``{ydg%yrdimv%nflevg}``.
+    """
+    retriever = _OutermostVarRetriever(
+        lambda e: isinstance(e, (sym.Scalar, sym.Array, sym.DeferredTypeSymbol))
+    )
 
 
 def remove_explicit_array_dimensions(routine, calls_only=False):
@@ -403,9 +441,12 @@ class ResolveVectorNotationTransformer(Transformer):
             for assign in FindNodes(ir.Assignment).visit(scope.body):
                 rhs = assign.rhs
                 lhs = assign.lhs
-                # Only record simple scalar = derived-type-member assignments
+                # Only record simple scalar = derived-type-member assignments.
+                # rhs may be Scalar or DeferredTypeSymbol depending on whether
+                # the derived type definition is available during parsing.
                 if (isinstance(lhs, sym.Scalar) and lhs.parent is None
-                        and isinstance(rhs, sym.Scalar) and rhs.parent is not None):
+                        and isinstance(rhs, (sym.Scalar, sym.DeferredTypeSymbol))
+                        and rhs.parent is not None):
                     self._scalar_assignment_map[str(rhs).lower().replace(' ', '')] = lhs
 
     @staticmethod
@@ -544,15 +585,17 @@ class ResolveVectorNotationTransformer(Transformer):
                 new_index_range_map[ivar] = irange
                 continue
 
-            # Find all derived-type member variables in the range bounds.
-            # Only consider leaf integer scalars (e.g. ydgeometry%yrdimv%nflevg),
-            # not intermediate struct members (e.g. ydgeometry%yrdimv whose type
-            # is a derived type), which would cause incorrect struct-to-integer
-            # assignments to be generated.
+            # Find derived-type member variables in the range bounds.
+            # _FindOutermostVariables returns only the outermost (longest-chain)
+            # symbol for each derived-type access, so e.g. ydg%yrdimv%nflevg
+            # is returned but not the intermediate ydg%yrdimv or the root ydg.
+            # This avoids generating incorrect struct-to-scalar assignments.
+            # Both Scalar and DeferredTypeSymbol are included: the latter appears
+            # when the derived-type definition is not available during parsing.
             derived_members = [
-                v for v in FindVariables().visit(irange)
-                if isinstance(v, sym.Scalar) and v.parent is not None
-                and v.type and v.type.dtype == BasicType.INTEGER
+                v for v in _FindOutermostVariables().visit(irange)
+                if isinstance(v, (sym.Scalar, sym.DeferredTypeSymbol))
+                and v.parent is not None
             ]
 
             if not derived_members:
