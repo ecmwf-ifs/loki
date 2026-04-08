@@ -179,6 +179,11 @@ def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True,
     )
     routine.body = transformer.visit(routine.body)
 
+    # Prepend any scalar extraction assignments (from substitute_derived_type_bounds)
+    # to the top of the routine body so they appear before any acc regions.
+    if transformer.pre_body_stmts:
+        routine.body.prepend(tuple(transformer.pre_body_stmts))
+
     # Add declarations for all newly create loop index variables
     routine.variables += tuple(OrderedSet(transformer.index_vars))
 
@@ -278,6 +283,11 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
         substitute_derived_type_bounds=substitute_derived_type_bounds,
     )
     routine.body = transformer.visit(routine.body)
+
+    # Prepend any scalar extraction assignments (from substitute_derived_type_bounds)
+    # to the top of the routine body so they appear before any acc regions.
+    if transformer.pre_body_stmts:
+        routine.body.prepend(tuple(transformer.pre_body_stmts))
 
     # Add declarations for all newly create loop index variables
     routine.variables += tuple(OrderedSet(transformer.index_vars))
@@ -424,6 +434,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.scope = scope
         self.loop_map = {} if loop_map is None else loop_map
         self.index_vars = OrderedSet()
+        self.pre_body_stmts = []
 
         self.map_unknown_ranges = map_unknown_ranges
         self.derive_qualified_ranges = derive_qualified_ranges
@@ -531,6 +542,17 @@ class ResolveVectorNotationTransformer(Transformer):
                 # See if index variable is known for this loop range
                 if dim in loop_map:
                     ivar = loop_map[dim]
+                    # Guard against arrays with duplicate range dimensions
+                    # (e.g. arr(KLEVSN, KLEVSN)) where both positions map to
+                    # the same loop variable.  If ivar is already in use for a
+                    # different position, create a fresh synthesized variable so
+                    # that each dimension gets its own distinct loop index.
+                    if ivar in index_range_map:
+                        if not map_unknown_ranges:
+                            continue
+                        vtype = SymbolAttributes(BasicType.INTEGER)
+                        ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
+                        synthesized_ivars.add(ivar)
                 else:
                     # Skip if we're not supposed to create new indices
                     if not map_unknown_ranges or dim == sym.RangeIndex((None, None)):
@@ -789,11 +811,15 @@ class ResolveVectorNotationTransformer(Transformer):
         # (e.g., KLEVS) so that generated loops are device-safe.
         # Only performed when substitute_derived_type_bounds_flag is True
         # (i.e. for driver routines); kernels leave derived-type bounds as-is.
-        pre_stmts = ()
+        # New scalar extraction assignments are accumulated in pre_body_stmts
+        # and prepended to the routine body (not inline before the loop) so
+        # they land before any OpenACC data regions.
         if self.substitute_derived_type_bounds_flag:
-            index_range_map, pre_stmts, new_vars = self._substitute_derived_type_bounds(
+            index_range_map, new_pre_stmts, new_vars = self._substitute_derived_type_bounds(
                 index_range_map, synthesized_ivars
             )
+            if new_pre_stmts:
+                self.pre_body_stmts.extend(new_pre_stmts)
             if new_vars:
                 self.index_vars.update(new_vars)
 
@@ -809,7 +835,7 @@ class ResolveVectorNotationTransformer(Transformer):
                 loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                 body = loop
 
-            return (ir.Comment('! loki resolved vector notation'),) + pre_stmts + (loop,)
+            return (ir.Comment('! loki resolved vector notation'),) + (loop,)
 
         # No vector dimensions encountered, return unchanged
         return stmt
