@@ -1068,6 +1068,22 @@ end subroutine test_dt_new_scalar
     assert 'klevs' in upper_bounds, \
         f"Expected loop bound 'klevs', got: {upper_bounds}"
 
+    # Scalar extraction assignments must appear in the routine body BEFORE any loop
+    body_nodes = list(routine.body.body)
+    first_loop_idx = next(
+        (i for i, n in enumerate(body_nodes) if isinstance(n, ir.Loop)), None
+    )
+    assert first_loop_idx is not None, "Expected at least one loop in routine body"
+    for assign in new_scalar_assigns:
+        assign_idx = next(
+            (i for i, n in enumerate(body_nodes) if n is assign), None
+        )
+        assert assign_idx is not None, f"Could not locate assignment {assign} in body"
+        assert assign_idx < first_loop_idx, (
+            f"Scalar extraction assignment {assign} (index {assign_idx}) must appear "
+            f"before the first loop (index {first_loop_idx})"
+        )
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_notation_derived_type_explicit_range_not_substituted(frontend):
@@ -1523,3 +1539,62 @@ end subroutine test_shifted_multi
         # One frac should be accessed with the plain loop index, the other with +1 offset
         assert any('1+' in d or '+1' in d for d in frac_dims), \
             f'[{label}] Expected one frac dim to have +1 offset, got: {frac_dims}'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_duplicate_dimensions(frontend):
+    """
+    Regression test: when an array has two range dimensions that map to the
+    same loop variable (because both dimensions have equal extent), each
+    position must receive its own distinct loop index variable.
+
+    Example:  ``ZREMAP(KLON, KLEVSN, KLEVSN)`` with ``DO JK=1,KLEVSN``
+    already in scope.  The assignment ``ZREMAP(JL,:,:)=0.0`` must produce
+    two nested inner loops -- one for each ``:`` -- with **different** loop
+    variables.  Before the fix both positions would silently reuse ``JK``
+    and produce ``ZREMAP(JL,JK,JK)`` with only one inner loop.
+    """
+    fcode = """
+subroutine test_dup_dims(klon, klevsn, zremap)
+  implicit none
+  integer, intent(in) :: klon, klevsn
+  real, intent(inout) :: zremap(klon, klevsn, klevsn)
+  integer :: jl, jk
+
+  do jl = 1, klon
+    ! Sibling loop that introduces JK -> 1:KLEVSN in loop_map
+    do jk = 1, klevsn
+      zremap(jl, jk, 1) = 0.0
+    enddo
+    ! Two bare ':' dimensions -- both map to range 1:KLEVSN, but each
+    ! must get its own loop variable (not both reuse JK).
+    zremap(jl, :, :) = 0.0
+  enddo
+
+end subroutine test_dup_dims
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Find the resolved zremap assignment (no more RangeIndex dimensions)
+    resolved_assigns = [
+        a for a in assigns
+        if isinstance(a.lhs, sym.Array)
+        and 'zremap' in a.lhs.name.lower()
+        and not any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)
+        and len(a.lhs.dimensions) == 3
+        and str(a.lhs.dimensions[2]).lower() != '1'  # not the original zremap(jl,jk,1)
+    ]
+    assert len(resolved_assigns) == 1, \
+        f"Expected exactly 1 resolved zremap assignment, got {len(resolved_assigns)}: {resolved_assigns}"
+
+    assign = resolved_assigns[0]
+    dims = assign.lhs.dimensions
+    # The two inner dimensions (dims[1] and dims[2]) must be distinct scalar variables
+    assert str(dims[1]).lower() != str(dims[2]).lower(), (
+        f"Both inner dimensions of zremap are identical ({dims[1]!s}), "
+        f"indicating only one loop variable was used for two distinct dimensions; "
+        f"expected two distinct loop variables"
+    )
