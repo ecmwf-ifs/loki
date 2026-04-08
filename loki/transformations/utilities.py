@@ -579,7 +579,7 @@ def get_integer_variable(routine, name):
     return v_index
 
 
-def get_loop_bounds(routine, dimension):
+def get_loop_bounds(routine, dimension, extended_candidates=True):
     """
     Check loop bounds for a particular :any:`Dimension` in a
     :any:`Subroutine`.
@@ -591,12 +591,23 @@ def get_loop_bounds(routine, dimension):
     dimension : :any:`Dimension`
         :any:`Dimension` object describing the variable conventions
         used to define the data dimension and iteration space.
+    extended_candidates : bool, optional
+        When ``True`` (default), extend the pool of lower-bound candidates
+        with the numeric literal ``'1'`` and the pool of upper-bound
+        candidates with ``dimension.sizes``.  This mirrors the behaviour of
+        :any:`resolve_vector_dimension`, so that the check succeeds in
+        exactly the same cases where vector notation can be resolved.
+        Set to ``False`` to restrict the search strictly to
+        ``dimension.lower`` / ``dimension.upper``.
     """
+
+    lower_candidates = as_tuple(dimension.lower) + (('1',) if extended_candidates else ())
+    upper_candidates = as_tuple(dimension.upper) + (as_tuple(dimension.sizes) if extended_candidates else ())
 
     bounds = ()
     variable_map = routine.variable_map
-    for name, _bounds in zip(['start', 'end'], [dimension.lower, dimension.upper]):
-        for bound in as_tuple(_bounds):
+    for name, _bounds in zip(['start', 'end'], [lower_candidates, upper_candidates]):
+        for bound in _bounds:
             # Recognise numeric strings, eg. "1" in ``1:n``
             if isinstance(bound, str) and bound.isnumeric():
                 bounds += (sym.Literal(int(bound)),)

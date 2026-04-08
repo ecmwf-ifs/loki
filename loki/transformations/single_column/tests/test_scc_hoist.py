@@ -288,7 +288,8 @@ END MODULE kernel_mod
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': True
+            'strict': True,
+            'resolve_vector_notation': False,
         },
         'routines': {
             'driver': {'role': 'driver'}

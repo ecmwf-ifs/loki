@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 import pytest
 import numpy as np
 
@@ -402,6 +404,136 @@ end subroutine kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension_extended(frontend):
+    """
+    Test vector resolution for multi-dimensional arrays with mixed
+    explicit/implicit ranges and IFS-like patterns including derived
+    types, pointers, literal lists, and shifted ranges.
+
+    Combines coverage from the original test_resolve_vector_dimension_2
+    and test_resolve_vector_dimension_3.
+    """
+
+    fcode = """
+subroutine test_extended(klon, klev, ngpblks, nproma)
+  implicit none
+  integer, intent(in) :: klon, klev, ngpblks, nproma
+  real :: var(klon, 4, 3, klev, 5, ngpblks)
+  real :: local_var1(nproma, klev, ngpblks)
+  real :: local_var2(nproma, klev, ngpblks)
+  real :: local_var3(nproma, klev, ngpblks)
+  real :: local_var4(nproma, klev, ngpblks)
+  real :: ptr_src(nproma, klev, ngpblks)
+  real :: shifted_src(nproma, 0:klev, ngpblks)
+  integer :: jl, ibl
+  integer :: start, end
+
+  ! Part A: Multi-dimensional arrays with mixed explicit/implicit ranges
+  do ibl=1, ngpblks
+    start = 1
+    end = klon
+
+    ! A1: 4 implicit range dims inside an explicit jl loop
+    do jl=start,end
+      var(jl, :, :, :, :, ibl) = 0
+    enddo
+
+    ! A2: 5 implicit range dims (first dim should resolve by resolve_vector_notation)
+    var(:, :, :, :, :, ibl) = 0
+  enddo
+
+  ! Part B: IFS-like patterns inside a block loop
+  do ibl=1, ngpblks
+    start = 1
+    end = nproma
+
+    ! B1: 2D array zeroing (both dims implicit)
+    local_var1(:, :, ibl) = 0
+
+    ! B2: Literal list assignment -- should NOT be resolved
+    local_var1(1:2, 1, ibl) = (/ 2.739, 4.043 /)
+
+    ! B3: Multi-term RHS with matching ranges
+    local_var2(:, :, ibl) = ptr_src(:, :, ibl) + local_var3(:, :, ibl)
+
+    ! B4: RHS with shifted range (0:klev-1 on RHS vs 1:klev on LHS)
+    local_var4(:, 1:klev, ibl) = shifted_src(:, 0:klev-1, ibl)
+  enddo
+end subroutine test_extended
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(
+        name='horizontal', index='jl',
+        lower=['start'], upper=['end'], size=['klon', 'nproma']
+    )
+    resolve_vector_dimension(routine, dimension=horizontal, derive_qualified_ranges=True)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # -- Part A assertions --
+    # A1: var(jl,:,:,:,:,ibl) = 0 should resolve 4 implicit dims into 4 loops
+    a1_loops = [l for l in loops if l.variable.name.startswith('i_var_')]
+    assert len(a1_loops) >= 4, f"Expected at least 4 new loops for var, got {len(a1_loops)}"
+
+    # A2: var(:,:,:,:,:,ibl) = 0 should first resolve horizontal dim to jl,
+    # then resolve remaining 4 implicit dims
+    # Check that jl loop was created for the horizontal dimension
+    jl_loops = [l for l in loops if l.variable.name == 'jl']
+    assert len(jl_loops) >= 1, "Expected at least one jl loop"
+
+    # -- Part B assertions --
+    # B1: local_var1(:,:,ibl) = 0 — resolve_vector_dimension resolves the
+    # horizontal dim (1:nproma) as jl; resolve_vector_notation then resolves
+    # the remaining vertical dim (1:klev) as i_local_var1_0.
+    b1_loops = [l for l in loops if l.variable.name.startswith('i_local_var1_')]
+    assert len(b1_loops) >= 1, f"Expected at least 1 loop for local_var1 vertical dim, got {len(b1_loops)}"
+    # The horizontal dim should be resolved via a jl loop
+    b1_jl_loops = [l for l in jl_loops
+                   if any('local_var1' in str(a.lhs)
+                          for a in FindNodes(ir.Assignment).visit(l.body))]
+    assert len(b1_jl_loops) >= 1, "Expected jl loop containing local_var1 assignment"
+
+    # B2: Literal list assignment should be unchanged (no loop wrapping)
+    generated_loop_bodies = []
+    for l in loops:
+        if l.variable.name.startswith('i_'):
+            generated_loop_bodies.extend(FindNodes(ir.Assignment).visit(l.body))
+    b2_assigns = [a for a in assigns
+                  if hasattr(a.rhs, 'elements') or 'LiteralList' in type(a.rhs).__name__]
+    for b2a in b2_assigns:
+        assert b2a not in generated_loop_bodies, \
+            "Literal list assignment should not be inside a generated loop"
+
+    # B3: Multi-term RHS arrays should all have loop indices, no RangeIndex left
+    b3_assigns = [a for a in assigns
+                  if str(a.lhs).startswith('local_var2(') and 'ptr_src' in str(a.rhs)]
+    assert len(b3_assigns) >= 1, "Expected B3 assignment"
+    for b3a in b3_assigns:
+        rhs_arrays = [v for v in FindVariables(unique=False).visit(b3a.rhs)
+                      if isinstance(v, sym.Array)]
+        for arr in rhs_arrays:
+            for dim in arr.dimensions:
+                assert not isinstance(dim, sym.RangeIndex), \
+                    f"RHS array {arr.name} still has RangeIndex: {dim}"
+
+    # B4: Shifted range should produce offset index expression on RHS
+    b4_assigns = [a for a in assigns
+                  if str(a.lhs).startswith('local_var4(') and 'shifted_src' in str(a.rhs)]
+    assert len(b4_assigns) >= 1, "Expected B4 assignment"
+    for b4a in b4_assigns:
+        rhs_arrays = [v for v in FindVariables(unique=False).visit(b4a.rhs)
+                      if isinstance(v, sym.Array) and v.name.lower() == 'shifted_src']
+        for arr in rhs_arrays:
+            # shifted_src should NOT have a plain loop index matching LHS;
+            # it should have an offset expression (loop_var - lower + rhs_lower)
+            for dim in arr.dimensions:
+                assert not isinstance(dim, sym.RangeIndex), \
+                    f"shifted_src still has RangeIndex: {dim}"
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_masked_statements(frontend):
     """
     Test resolving of masked statements in kernel.
@@ -507,3 +639,962 @@ end subroutine test_masked_inferred
     assert assigns[0] in loops[0].body
     assert assigns[1] in loops[1].body
     assert conds[0] in loops[2].body
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_ifs_patterns(frontend):
+    """
+    Test vector notation resolution on patterns found in real IFS code,
+    including scalar broadcasts, element-wise operations, 1D-to-2D
+    broadcasts, partial ranges, fixed third indices, shifted ranges,
+    zero-based ranges, and nested full-colon resolution.
+    """
+
+    fcode = """
+subroutine test_ifs_patterns(kidia, kfdia, klon, klev, klevsn)
+  implicit none
+  integer, intent(in) :: kidia, kfdia, klon, klev, klevsn
+  real :: work(klon), play(klon, klev)
+  real :: pssn(klon, klevsn), ptsn(klon, klevsn), pwsn(klon, klevsn)
+  real :: pdhtss(klon, klevsn, 15)
+  real :: zdsng(klon, 0:klevsn), zremap(klon, klevsn, klevsn)
+  real :: ztmpl(klon, klevsn), zsrc(klon, 0:klevsn)
+  real :: global_min(klevsn), zmin(klon, klevsn)
+  integer :: jl
+
+  ! Pattern 1: Simple scalar broadcast with KIDIA:KFDIA
+  work(kidia:kfdia) = 1.0
+
+  ! Pattern 2: 2D element-wise operation inside JL loop
+  do jl=kidia,kfdia
+    pssn(jl, 1:klevsn) = ptsn(jl, 1:klevsn) / pwsn(jl, 1:klevsn)
+  enddo
+
+  ! Pattern 3: 1D-to-2D broadcast inside JL loop
+  do jl=kidia,kfdia
+    zmin(jl, 1:klevsn) = global_min(1:klevsn)
+  enddo
+
+  ! Pattern 4: Partial range (non-1 start)
+  do jl=kidia,kfdia
+    pssn(jl, 2:klevsn) = 0.0
+  enddo
+
+  ! Pattern 5: Multi-dim with fixed third index
+  do jl=kidia,kfdia
+    pdhtss(jl, 1:klevsn, 1) = 0.0
+    pdhtss(jl, 1:klevsn, 2) = 273.15
+  enddo
+
+  ! Pattern 6: Shifted/offset range on RHS
+  do jl=kidia,kfdia
+    ztmpl(jl, 1:klevsn) = zsrc(jl, 0:klevsn-1)
+  enddo
+
+  ! Pattern 7: Zero-based range
+  do jl=kidia,kfdia
+    zdsng(jl, 0:klevsn) = 0.0
+  enddo
+
+  ! Pattern 8: Nested 2D full-colon
+  do jl=kidia,kfdia
+    zremap(jl, :, :) = 0.0
+  enddo
+
+end subroutine test_ifs_patterns
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    horizontal = Dimension(
+        name='horizontal', index='jl', lower='kidia', upper='kfdia'
+    )
+    resolve_vector_dimension(routine, dimension=horizontal)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+
+    # --- Pattern 1: work(kidia:kfdia) = 1.0 -> DO jl=kidia,kfdia; work(jl)=1.0 ---
+    p1_loops = [l for l in loops
+                if l.variable.name == 'jl' and str(l.bounds) == 'kidia:kfdia']
+    assert len(p1_loops) >= 1, "Pattern 1: expected jl loop with kidia:kfdia bounds"
+    p1_assigns = FindNodes(ir.Assignment).visit(p1_loops[0].body)
+    assert len(p1_assigns) >= 1
+    assert str(p1_assigns[0].lhs) == 'work(jl)'
+
+    # --- Pattern 2: element-wise pssn(jl,1:klevsn) = ptsn/pwsn ---
+    # Should create inner loop for dimension 2
+    p2_loops = [l for l in loops if l.variable.name.startswith('i_pssn_')]
+    assert len(p2_loops) >= 1, "Pattern 2: expected generated loop for pssn"
+    p2_assigns = FindNodes(ir.Assignment).visit(p2_loops[0].body)
+    assert len(p2_assigns) >= 1
+    # LHS and all RHS arrays should use same loop index, no RangeIndex left
+    for a in p2_assigns:
+        for v in FindVariables(unique=False).visit(a):
+            if isinstance(v, sym.Array) and v.name.lower() in ('pssn', 'ptsn', 'pwsn'):
+                for dim in v.dimensions:
+                    assert not isinstance(dim, sym.RangeIndex), \
+                        f"Pattern 2: {v.name} still has RangeIndex {dim}"
+
+    # --- Pattern 3: 1D-to-2D broadcast: zmin(jl,1:klevsn) = global_min(1:klevsn) ---
+    p3_loops = [l for l in loops if l.variable.name.startswith('i_zmin_')]
+    assert len(p3_loops) >= 1, "Pattern 3: expected generated loop for zmin"
+    p3_assigns = FindNodes(ir.Assignment).visit(p3_loops[0].body)
+    assert len(p3_assigns) >= 1
+    # global_min should use the same loop index
+    for a in p3_assigns:
+        rhs_arrays = [v for v in FindVariables(unique=False).visit(a.rhs)
+                      if isinstance(v, sym.Array) and v.name.lower() == 'global_min']
+        for arr in rhs_arrays:
+            for dim in arr.dimensions:
+                assert not isinstance(dim, sym.RangeIndex), \
+                    f"Pattern 3: global_min still has RangeIndex {dim}"
+
+    # --- Pattern 4: Partial range pssn(jl, 2:klevsn) = 0.0 ---
+    # Should create loop starting at 2
+    p4_loop_names = [l for l in loops if l.variable.name.startswith('i_pssn_')]
+    p4_loops_from2 = [l for l in p4_loop_names if '2' in str(l.bounds)]
+    assert len(p4_loops_from2) >= 1, "Pattern 4: expected loop with lower bound of 2"
+
+    # --- Pattern 5: pdhtss(jl, 1:klevsn, 1) = 0.0 and pdhtss(jl, 1:klevsn, 2) = 273.15 ---
+    # Third index should stay as literal, only dim 2 gets a loop
+    p5_loops = [l for l in loops if l.variable.name.startswith('i_pdhtss_')]
+    assert len(p5_loops) >= 2, "Pattern 5: expected at least 2 loops for pdhtss"
+    for p5l in p5_loops:
+        p5_assigns = FindNodes(ir.Assignment).visit(p5l.body)
+        for a in p5_assigns:
+            # Third dimension should be a literal (1 or 2), not a loop index
+            if isinstance(a.lhs, sym.Array) and a.lhs.name.lower() == 'pdhtss':
+                assert len(a.lhs.dimensions) == 3
+                third_dim = a.lhs.dimensions[2]
+                assert not isinstance(third_dim, sym.RangeIndex), \
+                    f"Pattern 5: third dim should not be RangeIndex, got {third_dim}"
+
+    # --- Pattern 6: Shifted range ztmpl(jl,1:klevsn) = zsrc(jl,0:klevsn-1) ---
+    p6_loops = [l for l in loops if l.variable.name.startswith('i_ztmpl_')]
+    assert len(p6_loops) >= 1, "Pattern 6: expected generated loop for ztmpl"
+    p6_assigns = FindNodes(ir.Assignment).visit(p6_loops[0].body)
+    assert len(p6_assigns) >= 1
+    # zsrc should have an offset expression, not a plain loop variable
+    for a in p6_assigns:
+        rhs_arrays = [v for v in FindVariables(unique=False).visit(a.rhs)
+                      if isinstance(v, sym.Array) and v.name.lower() == 'zsrc']
+        for arr in rhs_arrays:
+            for dim in arr.dimensions:
+                assert not isinstance(dim, sym.RangeIndex), \
+                    f"Pattern 6: zsrc still has RangeIndex {dim}"
+
+    # --- Pattern 7: Zero-based range zdsng(jl, 0:klevsn) = 0.0 ---
+    p7_loops = [l for l in loops if l.variable.name.startswith('i_zdsng_')]
+    assert len(p7_loops) >= 1, "Pattern 7: expected generated loop for zdsng"
+    # Loop should start at 0
+    assert '0' in str(p7_loops[0].bounds), \
+        f"Pattern 7: expected 0 in loop bounds, got {p7_loops[0].bounds}"
+
+    # --- Pattern 8: Nested 2D full-colon zremap(jl, :, :) = 0.0 ---
+    p8_loops = [l for l in loops if l.variable.name.startswith('i_zremap_')]
+    assert len(p8_loops) >= 2, \
+        f"Pattern 8: expected 2 nested loops for zremap, got {len(p8_loops)}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_early_exits(frontend):
+    """
+    Test that certain patterns are correctly skipped by the resolver:
+    literal list assignments, SUM intrinsic, and scalar assignments.
+    """
+
+    fcode = """
+subroutine test_early_exits(n, arr, arr2, scalar)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: arr(n), arr2(n)
+  real, intent(inout) :: scalar
+  real :: total
+
+  ! Skip: literal list assignment
+  arr(1:3) = (/ 1.0, 2.0, 3.0 /)
+
+  ! Skip: SUM intrinsic in RHS
+  total = sum(arr(1:n))
+
+  ! Skip: non-array LHS (scalar assignment)
+  scalar = arr(1) + arr(2)
+
+  ! Should resolve: normal vector notation
+  arr(1:n) = arr2(1:n) + 1.0
+
+end subroutine test_early_exits
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Literal list assignment should remain unchanged
+    literal_assigns = [a for a in assigns
+                       if hasattr(a.rhs, 'elements') or 'LiteralList' in type(a.rhs).__name__]
+    assert len(literal_assigns) >= 1, "Literal list assignment should still exist"
+    # It should NOT be inside any generated loop
+    for la in literal_assigns:
+        for l in loops:
+            assert la not in FindNodes(ir.Assignment).visit(l.body), \
+                "Literal list assignment should not be inside a generated loop"
+
+    # SUM assignment should remain unchanged (total = sum(...))
+    sum_assigns = [a for a in assigns if str(a.lhs) == 'total']
+    assert len(sum_assigns) == 1, "SUM assignment should still exist"
+    for l in loops:
+        assert sum_assigns[0] not in FindNodes(ir.Assignment).visit(l.body), \
+            "SUM assignment should not be inside a generated loop"
+
+    # Scalar assignment should remain unchanged
+    scalar_assigns = [a for a in assigns if str(a.lhs) == 'scalar']
+    assert len(scalar_assigns) == 1, "Scalar assignment should still exist"
+    for l in loops:
+        assert scalar_assigns[0] not in FindNodes(ir.Assignment).visit(l.body), \
+            "Scalar assignment should not be inside a generated loop"
+
+    # Normal vector notation should be resolved
+    resolved_loops = [l for l in loops if l.variable.name.startswith('i_arr_')]
+    assert len(resolved_loops) >= 1, "Normal vector notation should be resolved to a loop"
+    resolved_assigns = FindNodes(ir.Assignment).visit(resolved_loops[0].body)
+    assert len(resolved_assigns) >= 1
+    # LHS should have loop index, not RangeIndex
+    assert not any(isinstance(d, sym.RangeIndex) for d in resolved_assigns[0].lhs.dimensions), \
+        "Resolved assignment LHS should not have RangeIndex"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_broadcast_and_nesting(frontend):
+    """
+    Test 1D-to-2D broadcasts and nested full-colon resolution,
+    including generating multiple nested loops from multi-dim colons.
+    """
+
+    fcode = """
+subroutine test_broadcast_nesting(n, m, l)
+  implicit none
+  integer, intent(in) :: n, m, l
+  real :: arr1d(n), arr2d(m, n), arr3d(m, n, l)
+  integer :: jl
+
+  ! 1D array assigned to 2D slice
+  do jl=1,m
+    arr2d(jl, 1:n) = arr1d(1:n)
+  enddo
+
+  ! Nested full-colon generating nested loops
+  do jl=1,m
+    arr3d(jl, :, :) = 0.0
+  enddo
+
+  ! 2D full-colon outside any explicit loop (both dims get loops)
+  arr2d(:, :) = 0.0
+
+end subroutine test_broadcast_nesting
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+
+    # --- Case 1: arr2d(jl, 1:n) = arr1d(1:n) ---
+    # Should create inner loop for dim 2, RHS and LHS use same index
+    c1_loops = [l for l in loops if l.variable.name.startswith('i_arr2d_')]
+    assert len(c1_loops) >= 1, "Case 1: expected generated loop for arr2d"
+    c1_assigns = FindNodes(ir.Assignment).visit(c1_loops[0].body)
+    assert len(c1_assigns) >= 1
+    # Both arr2d and arr1d should use the same loop index
+    for a in c1_assigns:
+        for v in FindVariables(unique=False).visit(a):
+            if isinstance(v, sym.Array) and v.name.lower() in ('arr2d', 'arr1d'):
+                for dim in v.dimensions:
+                    assert not isinstance(dim, sym.RangeIndex), \
+                        f"Case 1: {v.name} still has RangeIndex {dim}"
+
+    # --- Case 2: arr3d(jl, :, :) = 0.0 ---
+    # Should create two nested inner loops (one per ':' dimension)
+    c2_loops = [l for l in loops if l.variable.name.startswith('i_arr3d_')]
+    assert len(c2_loops) >= 2, \
+        f"Case 2: expected 2 nested loops for arr3d, got {len(c2_loops)}"
+
+    # --- Case 3: arr2d(:, :) = 0.0 outside any explicit loop ---
+    # Should create two nested loops (one per dimension)
+    # These should be the i_arr2d_ loops that are NOT inside a jl loop
+    all_arr2d_loops = [l for l in loops if l.variable.name.startswith('i_arr2d_')]
+    assert len(all_arr2d_loops) >= 2, \
+        f"Case 3: expected at least 2 total arr2d loops, got {len(all_arr2d_loops)}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_existing_scalar(frontend):
+    """
+    When shape-derived loop bounds reference derived-type members and a scalar
+    assignment for those members already exists in the routine (e.g.
+    ``KLEVS = KDIM%KLEVS``), the generated loops must use the plain scalar
+    rather than the derived-type expression.
+
+    This is the typical IFS pattern: scalar extractions are performed once
+    outside the block loop, so the generated inner loops can reference
+    device-safe plain scalars.
+    """
+    fcode = """
+subroutine test_dt_existing_scalar(kdim, nb)
+  implicit none
+  type :: dims_t
+    integer :: klon
+    integer :: klevs
+  end type dims_t
+  type(dims_t), intent(in) :: kdim
+  integer, intent(in) :: nb
+  real :: arr(kdim%klon, kdim%klevs, nb)
+  integer :: klon, klevs, ibl
+
+  klon  = kdim%klon
+  klevs = kdim%klevs
+
+  do ibl = 1, nb
+    arr(:, :, ibl) = 0.0
+  enddo
+end subroutine test_dt_existing_scalar
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Two inner loops should be generated (one per ':' dimension)
+    inner_loops = [l for l in loops if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops) == 2, \
+        f"Expected 2 inner loops, got {len(inner_loops)}: {[l.variable.name for l in inner_loops]}"
+
+    # Collect the upper bounds of all generated loops
+    upper_bounds = {str(l.bounds.stop).lower() for l in inner_loops}
+
+    # The bounds must use the plain scalars klon and klevs, NOT the
+    # derived-type members kdim%klon and kdim%klevs
+    assert 'klon' in upper_bounds, \
+        f"Expected loop bound 'klon', got: {upper_bounds}"
+    assert 'klevs' in upper_bounds, \
+        f"Expected loop bound 'klevs', got: {upper_bounds}"
+    assert 'kdim%klon' not in upper_bounds, \
+        "Loop bound must not reference derived-type member kdim%klon"
+    assert 'kdim%klevs' not in upper_bounds, \
+        "Loop bound must not reference derived-type member kdim%klevs"
+
+    # No new scalar assignment statements should have been prepended
+    # (the existing klon=... and klevs=... are sufficient)
+    new_scalar_assigns = [
+        a for a in assigns
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+        and a.lhs.name.lower() not in ('klon', 'klevs')
+    ]
+    assert not new_scalar_assigns, \
+        f"No extra scalar assignments should be created, got: {new_scalar_assigns}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_new_scalar(frontend):
+    """
+    When shape-derived loop bounds reference derived-type members and NO
+    scalar assignment exists for those members, new scalars and corresponding
+    assignments must be created and inserted before the generated loop.
+
+    The new scalar takes the name of the derived-type member's basename
+    (e.g., ``KLEVS`` for ``KDIM%KLEVS``).
+    """
+    fcode = """
+subroutine test_dt_new_scalar(kdim, nb)
+  implicit none
+  type :: dims_t
+    integer :: klon
+    integer :: klevs
+  end type dims_t
+  type(dims_t), intent(in) :: kdim
+  integer, intent(in) :: nb
+  real :: arr(kdim%klon, kdim%klevs, nb)
+  integer :: ibl
+
+  ! No scalar extractions here — the transformer must create them.
+  do ibl = 1, nb
+    arr(:, :, ibl) = 0.0
+  enddo
+end subroutine test_dt_new_scalar
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Two inner loops should be generated
+    inner_loops = [l for l in loops if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops) == 2, \
+        f"Expected 2 inner loops, got {len(inner_loops)}"
+
+    # Bounds must use plain scalars, not derived-type members
+    upper_bounds = {str(l.bounds.stop).lower() for l in inner_loops}
+    assert 'kdim%klon' not in upper_bounds, \
+        "Loop bound must not reference derived-type member kdim%klon"
+    assert 'kdim%klevs' not in upper_bounds, \
+        "Loop bound must not reference derived-type member kdim%klevs"
+
+    # New scalar assignment statements should have been created and inserted
+    # (of the form  SCALAR = KDIM%MEMBER  immediately before the loop nest)
+    new_scalar_assigns = [
+        a for a in assigns
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+    ]
+    assert len(new_scalar_assigns) == 2, \
+        f"Expected 2 new scalar assignments, got {len(new_scalar_assigns)}: {new_scalar_assigns}"
+
+    # Each new scalar name must equal the member basename
+    new_scalar_names = {str(a.lhs).lower() for a in new_scalar_assigns}
+    assert 'klon' in new_scalar_names, \
+        f"Expected new scalar 'klon', got: {new_scalar_names}"
+    assert 'klevs' in new_scalar_names, \
+        f"Expected new scalar 'klevs', got: {new_scalar_names}"
+
+    # The new scalars must be declared in the routine
+    declared = {v.name.lower() for v in routine.variables}
+    assert 'klon' in declared, "New scalar 'klon' must be declared"
+    assert 'klevs' in declared, "New scalar 'klevs' must be declared"
+
+    # Bounds must equal the new scalar names
+    assert 'klon' in upper_bounds, \
+        f"Expected loop bound 'klon', got: {upper_bounds}"
+    assert 'klevs' in upper_bounds, \
+        f"Expected loop bound 'klevs', got: {upper_bounds}"
+
+    # Scalar extraction assignments must appear in the routine body BEFORE any loop
+    body_nodes = list(routine.body.body)
+    first_loop_idx = next(
+        (i for i, n in enumerate(body_nodes) if isinstance(n, ir.Loop)), None
+    )
+    assert first_loop_idx is not None, "Expected at least one loop in routine body"
+    for assign in new_scalar_assigns:
+        assign_idx = next(
+            (i for i, n in enumerate(body_nodes) if n is assign), None
+        )
+        assert assign_idx is not None, f"Could not locate assignment {assign} in body"
+        assert assign_idx < first_loop_idx, (
+            f"Scalar extraction assignment {assign} (index {assign_idx}) must appear "
+            f"before the first loop (index {first_loop_idx})"
+        )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_explicit_range_not_substituted(frontend):
+    """
+    Explicit source-code ranges that come from loop_map (resolved by
+    ``resolve_vector_dimension``) must NOT have their bounds substituted,
+    even if those bounds happen to be plain scalars that were themselves
+    extracted from a derived type.
+
+    Here a horizontal ``DO jl=kidia,kfdia`` loop already exists, and the
+    assignment ``arr(kidia:kfdia) = 1.0`` matches that loop range.
+    The resulting ``DO jl=kidia,kfdia`` loop should use the original
+    ``kidia``/``kfdia`` scalars unchanged, without any extra substitution.
+    """
+    fcode = """
+subroutine test_dt_no_subst_explicit(dims, arr, n)
+  implicit none
+  type :: dims_t
+    integer :: kidia
+    integer :: kfdia
+  end type dims_t
+  type(dims_t), intent(in) :: dims
+  real, intent(inout) :: arr(n)
+  integer, intent(in) :: n
+  integer :: kidia, kfdia
+
+  kidia = dims%kidia
+  kfdia = dims%kfdia
+
+  arr(kidia:kfdia) = 1.0
+end subroutine test_dt_no_subst_explicit
+    """.strip()
+    horizontal = Dimension(name='horizontal', index='jl', lower='kidia', upper='kfdia')
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    # resolve_vector_dimension handles arr(kidia:kfdia) via loop_map -> jl
+    resolve_vector_dimension(routine, dimension=horizontal, derive_qualified_ranges=True)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Exactly one loop should exist: DO jl = kidia, kfdia
+    assert len(loops) == 1, f"Expected exactly 1 loop, got {len(loops)}"
+    loop = loops[0]
+    assert loop.variable.name.lower() == 'jl', \
+        f"Expected loop variable 'jl', got '{loop.variable.name}'"
+    assert str(loop.bounds.start).lower() == 'kidia', \
+        f"Expected lower bound 'kidia', got '{loop.bounds.start}'"
+    assert str(loop.bounds.stop).lower() == 'kfdia', \
+        f"Expected upper bound 'kfdia', got '{loop.bounds.stop}'"
+
+    # The bounds must remain as plain scalars (not derived-type members)
+    for bound in (loop.bounds.start, loop.bounds.stop):
+        bound_vars = FindVariables().visit(bound)
+        for v in bound_vars:
+            assert v.parent is None, \
+                f"Loop bound '{bound}' must not reference a derived-type member, got '{v}'"
+
+    # No extra scalar assignment statements should have been added
+    # (only the original kidia=dims%kidia and kfdia=dims%kfdia should exist)
+    scalar_assigns = [
+        a for a in assigns
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+    ]
+    assert len(scalar_assigns) == 2, \
+        f"Expected exactly 2 scalar assignments (kidia/kfdia extractions), got {len(scalar_assigns)}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_name_collision(frontend):
+    """
+    When the basename of a derived-type member collides with an existing,
+    *different* variable in scope, the substitution must be skipped and the
+    loop bound should retain the derived-type member expression.
+
+    Here ``klevs`` is declared as ``REAL`` in the routine scope, which is a
+    different variable from the INTEGER member ``kdim%klevs``.  The transformer
+    must not substitute ``kdim%klevs`` with the ``REAL :: klevs`` variable.
+    """
+    fcode = """
+subroutine test_dt_collision(kdim, nb)
+  implicit none
+  type :: dims_t
+    integer :: klevs
+  end type dims_t
+  type(dims_t), intent(in) :: kdim
+  integer, intent(in) :: nb
+  real :: klevs                        ! REAL -- different from INTEGER kdim%klevs
+  real :: arr(kdim%klevs, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    arr(:, ibl) = 0.0
+  enddo
+end subroutine test_dt_collision
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine, substitute_derived_type_bounds=True)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+
+    # An inner loop should still be generated for the ':' dimension
+    inner_loops = [l for l in loops if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops) == 1, \
+        f"Expected 1 inner loop, got {len(inner_loops)}"
+
+    # The loop bound must NOT use the REAL klevs variable (name collision);
+    # it must retain the derived-type member kdim%klevs.
+    upper_bound = str(inner_loops[0].bounds.stop).lower().replace(' ', '')
+    assert 'kdim%klevs' in upper_bound, \
+        f"Expected loop bound to retain 'kdim%klevs' due to collision, got: {upper_bound}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_derived_type_nested(frontend):
+    """
+    Regression test for nested derived-type bounds in
+    ``_substitute_derived_type_bounds``.
+
+    The array ``arr`` has shape ``(ydg%yrdimv%nflevg, ydm%ndhcvsun)`` where
+    ``ydg%yrdimv%nflevg`` is a two-level chain (``ydg`` -> ``yrdimv`` ->
+    ``nflevg``) and ``ydm%ndhcvsun`` is a single-level chain.
+
+    **Kernel path** (``substitute_derived_type_bounds=False``, the default):
+    no scalar-extraction assignments must be introduced; the generated loop
+    bounds must reference the derived-type members directly.
+
+    **Driver path** (``substitute_derived_type_bounds=True``):
+    only the *leaf* integer members must be extracted (``nflevg`` and
+    ``ndhcvsun``); the intermediate struct ``yrdimv`` must NOT appear as a
+    new variable; correct assignments of the form
+    ``nflevg = ydg%yrdimv%nflevg`` and ``ndhcvsun = ydm%ndhcvsun`` must be
+    present; loop bounds must use the plain scalar names.
+    """
+    fcode = """
+subroutine test_dt_nested(ydg, ydm, nb)
+  implicit none
+  type :: dimv_t
+    integer :: nflevg
+  end type dimv_t
+  type :: geo_t
+    type(dimv_t) :: yrdimv
+  end type geo_t
+  type :: met_t
+    integer :: ndhcvsun
+  end type met_t
+  type(geo_t),  intent(in) :: ydg
+  type(met_t),  intent(in) :: ydm
+  integer,      intent(in) :: nb
+  real :: arr(ydg%yrdimv%nflevg, ydm%ndhcvsun, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    arr(:, :, ibl) = 0.0
+  enddo
+end subroutine test_dt_nested
+    """.strip()
+
+    # --- Kernel path: no scalar substitution ---
+    routine_k = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine_k)  # substitute_derived_type_bounds=False by default
+
+    loops_k = FindNodes(ir.Loop).visit(routine_k.body)
+    assigns_k = FindNodes(ir.Assignment).visit(routine_k.body)
+
+    # Two inner loops must be generated
+    inner_loops_k = [l for l in loops_k if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops_k) == 2, \
+        f"[kernel] Expected 2 inner loops, got {len(inner_loops_k)}"
+
+    # No new scalar-extraction assignments (only the original arr(:,:,ibl)=0.0 -> arr(...)=0.0)
+    scalar_ext_k = [
+        a for a in assigns_k
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+    ]
+    assert not scalar_ext_k, \
+        f"[kernel] No scalar-extraction assignments expected, got: {scalar_ext_k}"
+
+    # Loop bounds must reference derived-type members directly
+    upper_bounds_k = {str(l.bounds.stop).lower().replace(' ', '') for l in inner_loops_k}
+    assert any('ydg%yrdimv%nflevg' in b for b in upper_bounds_k), \
+        f"[kernel] Expected loop bound to reference 'ydg%yrdimv%nflevg', got: {upper_bounds_k}"
+    assert any('ydm%ndhcvsun' in b for b in upper_bounds_k), \
+        f"[kernel] Expected loop bound to reference 'ydm%ndhcvsun', got: {upper_bounds_k}"
+
+    # --- Driver path: scalar substitution enabled ---
+    routine_d = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine_d, substitute_derived_type_bounds=True)
+
+    loops_d = FindNodes(ir.Loop).visit(routine_d.body)
+    assigns_d = FindNodes(ir.Assignment).visit(routine_d.body)
+
+    # Two inner loops must be generated
+    inner_loops_d = [l for l in loops_d if l.variable.name.startswith('i_arr')]
+    assert len(inner_loops_d) == 2, \
+        f"[driver] Expected 2 inner loops, got {len(inner_loops_d)}"
+
+    # Exactly two scalar-extraction assignments (nflevg and ndhcvsun)
+    scalar_ext_d = [
+        a for a in assigns_d
+        if isinstance(a.rhs, sym.Scalar) and a.rhs.parent is not None
+    ]
+    assert len(scalar_ext_d) == 2, \
+        f"[driver] Expected 2 scalar-extraction assignments, got: {scalar_ext_d}"
+
+    scalar_lhs_names = {str(a.lhs).lower() for a in scalar_ext_d}
+    assert 'nflevg' in scalar_lhs_names, \
+        f"[driver] Expected scalar 'nflevg', got: {scalar_lhs_names}"
+    assert 'ndhcvsun' in scalar_lhs_names, \
+        f"[driver] Expected scalar 'ndhcvsun', got: {scalar_lhs_names}"
+
+    # Intermediate struct yrdimv must NOT appear as a new variable or LHS
+    declared_d = {v.name.lower() for v in routine_d.variables}
+    assert 'yrdimv' not in declared_d, \
+        "[driver] Intermediate struct 'yrdimv' must not be declared as a new variable"
+
+    # Loop bounds must use plain scalar names
+    upper_bounds_d = {str(l.bounds.stop).lower().replace(' ', '') for l in inner_loops_d}
+    assert any('nflevg' in b for b in upper_bounds_d), \
+        f"[driver] Expected loop bound 'nflevg', got: {upper_bounds_d}"
+    assert any('ndhcvsun' in b for b in upper_bounds_d), \
+        f"[driver] Expected loop bound 'ndhcvsun', got: {upper_bounds_d}"
+    assert not any('ydg%' in b or 'ydm%' in b for b in upper_bounds_d), \
+        f"[driver] Loop bounds must not reference derived-type members, got: {upper_bounds_d}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_no_implicit_rhs(frontend):
+    """
+    When ``resolve_implicit_rhs_ranges=False`` is passed to
+    ``resolve_vector_dimension``, assignments whose RHS arrays use bare ``:``
+    ranges (without explicit bounds) must NOT be resolved.
+
+    Only assignments where all RHS ranges are explicit should be resolved.
+    """
+    fcode = """
+subroutine test_no_implicit_rhs(start, end, n, a, b, c)
+  implicit none
+  integer, intent(in) :: start, end, n
+  real, intent(inout) :: a(n), b(n), c(n)
+
+  ! RHS uses bare ':' -- should NOT be resolved with resolve_implicit_rhs_ranges=False
+  a(start:end) = b(:)
+
+  ! Both sides use explicit range -- SHOULD be resolved
+  a(start:end) = c(start:end)
+
+end subroutine test_no_implicit_rhs
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    dim = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+    resolve_vector_dimension(routine, dimension=dim, resolve_implicit_rhs_ranges=False)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Exactly one loop should be generated (for the explicit-range assignment only)
+    assert len(loops) == 1, \
+        f"Expected exactly 1 loop (for explicit-range assignment), got {len(loops)}"
+
+    # The unresolved assignment (bare RHS ':') should remain as a vector assignment
+    unresolved = [a for a in assigns if isinstance(a.lhs, sym.Array)
+                  and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
+    assert len(unresolved) >= 1, \
+        "Assignment with bare RHS ':' should remain unresolved (LHS still has RangeIndex)"
+
+    # The resolved loop should contain the explicit-range assignment (c)
+    loop_assigns = FindNodes(ir.Assignment).visit(loops[0].body)
+    assert len(loop_assigns) == 1
+    assert 'c(' in str(loop_assigns[0].rhs), \
+        f"Expected resolved c(...) in loop body, got: {loop_assigns[0].rhs}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_dimension_empty_bounds_warning(frontend, caplog):
+    """
+    When ``resolve_vector_dimension`` is called with a dimension whose
+    lower/upper bounds are not present in the routine's scope, it should
+    emit a warning and leave the routine unchanged.
+    """
+    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
+
+    fcode = """
+subroutine test_empty_bounds(n, a)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: a(n)
+
+  a(1:n) = 0.0
+
+end subroutine test_empty_bounds
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Use a dimension whose bounds ('xstart', 'xend') don't exist in the routine
+    dim = Dimension(name='horizontal', index='jl', lower='xstart', upper='xend')
+
+    caplog.set_level(WARNING)
+    resolve_vector_dimension(routine, dimension=dim)
+
+    # The routine body should be unchanged -- the range is still present
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 1
+    assert any(isinstance(d, sym.RangeIndex) for d in assigns[0].lhs.dimensions), \
+        "Assignment should remain unresolved when no valid bounds are found"
+
+    # A warning should have been emitted
+    assert any('No valid loop bounds' in r.message for r in caplog.records), \
+        f"Expected a 'No valid loop bounds' warning, got: {[r.message for r in caplog.records]}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_shifted_range_in_intrinsic(frontend):
+    """
+    Regression test: when a vertical range on the RHS is shifted relative to
+    the LHS range (e.g. ``zdsng(jl, 0:klevsn-1)`` vs LHS ``1:klevsn``), both
+    ``resolve_vector_notation`` alone and the two-step pipeline
+    ``resolve_vector_dimension`` + ``resolve_vector_notation`` must produce the
+    same, correct result.
+
+    Before the fix, the two-step pipeline would leave a corrupt ``RangeIndex``
+    embedded in arithmetic (e.g. ``-1 + (1:klevsn)``) instead of substituting
+    the loop index variable.
+    """
+    fcode = """
+subroutine test_shifted_intrinsic(jl, kidia, kfdia, klevsn, jk, ztmpl1, zdsnnewg, zdsng)
+  implicit none
+  integer, intent(in) :: kidia, kfdia, klevsn, jl, jk
+  real, intent(inout) :: ztmpl1(kfdia, klevsn)
+  real, intent(in)    :: zdsnnewg(kfdia, klevsn)
+  real, intent(in)    :: zdsng(kfdia, 0:klevsn)
+  do jl = kidia, kfdia
+    ztmpl1(jl, 1:klevsn) = MAX(zdsnnewg(jl, jk-1), zdsng(jl, 0:klevsn-1))
+  end do
+end subroutine test_shifted_intrinsic
+    """.strip()
+
+    # --- Approach 1: resolve_vector_dimension + resolve_vector_notation ---
+    routine1 = Subroutine.from_source(fcode, frontend=frontend)
+    dim = Dimension(name='horizontal', index='jl', lower='kidia', upper='kfdia')
+    resolve_vector_dimension(routine1, dimension=dim, derive_qualified_ranges=True)
+    resolve_vector_notation(routine1)
+
+    # --- Approach 2: resolve_vector_notation only ---
+    routine2 = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine2)
+
+    for label, routine in [('pipeline', routine1), ('notation-only', routine2)]:
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        # Outer jl-loop + inner vertical loop
+        assert len(loops) == 2, f'[{label}] Expected 2 loops, got {len(loops)}'
+
+        inner_loop = loops[1]
+        assigns = FindNodes(ir.Assignment).visit(inner_loop.body)
+        assert len(assigns) == 1, f'[{label}] Expected 1 assignment in inner loop'
+
+        assign = assigns[0]
+        rhs_str = str(assign.rhs)
+
+        # The zdsng dimension must NOT contain a RangeIndex (e.g. '1:klevsn')
+        rhs_arrays = [
+            v for v in FindVariables(unique=False).visit(assign.rhs)
+            if isinstance(v, sym.Array)
+        ]
+        zdsng_arr = next((a for a in rhs_arrays if 'zdsng' in a.name.lower()), None)
+        assert zdsng_arr is not None, f'[{label}] zdsng not found in RHS arrays'
+        assert not any(isinstance(d, sym.RangeIndex) for d in zdsng_arr.dimensions), \
+            f'[{label}] zdsng still has RangeIndex dim after resolution: {zdsng_arr.dimensions}'
+
+        # The zdsng index should be the loop variable offset by -1 (not a plain range)
+        zdsng_dim1 = zdsng_arr.dimensions[1]
+        dim1_str = str(zdsng_dim1).replace(' ', '')
+        assert 'RangeIndex' not in type(zdsng_dim1).__name__, \
+            f'[{label}] zdsng second dim is still a RangeIndex: {zdsng_dim1}'
+        assert any(s in dim1_str for s in ['-1+', '+-1', 'i_', '-1']), \
+            f'[{label}] expected offset index for zdsng, got: {zdsng_dim1}'
+
+        # No corrupt range expressions anywhere in the body
+        all_vars = FindVariables(unique=False).visit(inner_loop)
+        assert not any(
+            isinstance(v, sym.Array) and any(isinstance(d, sym.RangeIndex) for d in v.dimensions)
+            for v in all_vars
+        ), f'[{label}] Found arrays with remaining RangeIndex dims inside inner loop:\n{rhs_str}'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI cannot parse unresolved external function beta2alpha')]
+))
+def test_resolve_vector_notation_shifted_range_multi_arg(frontend):
+    """
+    Regression test for the ``overlap_alpha = beta2alpha(...)`` pattern where
+    a function is called with multiple shifted array arguments:
+
+    .. code-block:: fortran
+
+       overlap_alpha(jcol, 1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+            frac(jcol, 1:nlev-1), frac(jcol, 2:nlev))
+
+    ``frac(jcol, 2:nlev)`` has its second dim shifted by +1 relative to
+    ``1:nlev-1``.  Both the two-step pipeline and ``resolve_vector_notation``
+    alone must produce ``frac(jcol, 1 + i_...)`` (not ``1 + (1:nlev-1)``).
+    """
+    fcode = """
+subroutine test_shifted_multi(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
+  implicit none
+  integer, intent(in) :: kstart, kend, nlev, jcol
+  real, intent(inout) :: overlap_alpha(kend, nlev-1)
+  real, intent(in)    :: overlap_param(kend, nlev)
+  real, intent(in)    :: frac(kend, nlev)
+  do jcol = kstart, kend
+    overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+         frac(jcol,1:nlev-1), frac(jcol,2:nlev))
+  end do
+end subroutine test_shifted_multi
+    """.strip()
+
+    # --- Approach 1: resolve_vector_dimension + resolve_vector_notation ---
+    routine1 = Subroutine.from_source(fcode, frontend=frontend)
+    dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
+    resolve_vector_dimension(routine1, dimension=dim, derive_qualified_ranges=True)
+    resolve_vector_notation(routine1)
+
+    # --- Approach 2: resolve_vector_notation only ---
+    routine2 = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine2)
+
+    for label, routine in [('pipeline', routine1), ('notation-only', routine2)]:
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        assert len(loops) == 2, f'[{label}] Expected 2 loops, got {len(loops)}'
+
+        inner_loop = loops[1]
+        assigns = FindNodes(ir.Assignment).visit(inner_loop.body)
+        assert len(assigns) == 1
+
+        assign = assigns[0]
+        all_vars = FindVariables(unique=False).visit(assign.rhs)
+
+        # No array in the RHS should still carry a RangeIndex dimension
+        rhs_range_arrays = [
+            v for v in all_vars
+            if isinstance(v, sym.Array)
+            and any(isinstance(d, sym.RangeIndex) for d in v.dimensions)
+        ]
+        assert not rhs_range_arrays, \
+            f'[{label}] RHS arrays still have RangeIndex dims: {rhs_range_arrays}'
+
+        # frac(jcol, 2:nlev) should have become frac(jcol, 1 + ivar)
+        frac_arrs = [v for v in all_vars if isinstance(v, sym.Array) and 'frac' in v.name.lower()]
+        assert len(frac_arrs) == 2, \
+            f'[{label}] Expected 2 frac array references, got {frac_arrs}'
+
+        frac_dims = [str(a.dimensions[1]).replace(' ', '') for a in frac_arrs]
+        # One frac should be accessed with the plain loop index, the other with +1 offset
+        assert any('1+' in d or '+1' in d for d in frac_dims), \
+            f'[{label}] Expected one frac dim to have +1 offset, got: {frac_dims}'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_duplicate_dimensions(frontend):
+    """
+    Regression test: when an array has two range dimensions that map to the
+    same loop variable (because both dimensions have equal extent), each
+    position must receive its own distinct loop index variable.
+
+    Example:  ``ZREMAP(KLON, KLEVSN, KLEVSN)`` with ``DO JK=1,KLEVSN``
+    already in scope.  The assignment ``ZREMAP(JL,:,:)=0.0`` must produce
+    two nested inner loops -- one for each ``:`` -- with **different** loop
+    variables.  Before the fix both positions would silently reuse ``JK``
+    and produce ``ZREMAP(JL,JK,JK)`` with only one inner loop.
+    """
+    fcode = """
+subroutine test_dup_dims(klon, klevsn, zremap)
+  implicit none
+  integer, intent(in) :: klon, klevsn
+  real, intent(inout) :: zremap(klon, klevsn, klevsn)
+  integer :: jl, jk
+
+  do jl = 1, klon
+    ! Sibling loop that introduces JK -> 1:KLEVSN in loop_map
+    do jk = 1, klevsn
+      zremap(jl, jk, 1) = 0.0
+    enddo
+    ! Two bare ':' dimensions -- both map to range 1:KLEVSN, but each
+    ! must get its own loop variable (not both reuse JK).
+    zremap(jl, :, :) = 0.0
+  enddo
+
+end subroutine test_dup_dims
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Find the resolved zremap assignment (no more RangeIndex dimensions)
+    resolved_assigns = [
+        a for a in assigns
+        if isinstance(a.lhs, sym.Array)
+        and 'zremap' in a.lhs.name.lower()
+        and not any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)
+        and len(a.lhs.dimensions) == 3
+        and str(a.lhs.dimensions[2]).lower() != '1'  # not the original zremap(jl,jk,1)
+    ]
+    assert len(resolved_assigns) == 1, \
+        f"Expected exactly 1 resolved zremap assignment, got {len(resolved_assigns)}: {resolved_assigns}"
+
+    assign = resolved_assigns[0]
+    dims = assign.lhs.dimensions
+    # The two inner dimensions (dims[1] and dims[2]) must be distinct scalar variables
+    assert str(dims[1]).lower() != str(dims[2]).lower(), (
+        f"Both inner dimensions of zremap are identical ({dims[1]!s}), "
+        f"indicating only one loop variable was used for two distinct dimensions; "
+        f"expected two distinct loop variables"
+    )
