@@ -12,7 +12,8 @@ from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends, OMNI, SourceStatus
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
-    SubstituteExpressions, SubstituteStringExpressions,
+    SubstituteExpressions, SubstituteExpressionsSkipLHS,
+    SubstituteStringExpressions,
     FindLiterals, FindRealLiterals
 )
 
@@ -376,3 +377,200 @@ end subroutine test_routine
         assert decls[1].source.status == SourceStatus.INVALID_NODE
         assert decls[2].source.status == SourceStatus.INVALID_NODE
         assert decls[3].source.status == SourceStatus.VALID
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_expressions_skip_lhs(frontend):
+    """
+    Test that :any:`SubstituteExpressionsSkipLHS` applies substitutions
+    only to the RHS of assignments, leaving the LHS unchanged, while
+    still substituting in non-assignment nodes such as loop bounds and
+    call arguments.
+    """
+
+    fcode = """
+subroutine test_routine(n, a, b)
+  implicit none
+  integer, intent(in) :: n
+  real(kind=8), intent(inout) :: a, b(n)
+  real(kind=8) :: c(n)
+  integer :: i
+
+  do i=1, n
+    a = a + b(i)
+    c(i) = b(i) + a
+  end do
+
+  call another_routine(n, a, c(:))
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    a = routine.variable_map['a']
+    n = routine.variable_map['n']
+    new_a = parse_expr('a + 1', scope=routine)
+    new_n = sym.Sum((n, sym.Product((-1, sym.Literal(1)))))
+    expr_map = {a: new_a, n: new_n}
+
+    # Apply substitution skipping LHS
+    routine.body = SubstituteExpressionsSkipLHS(expr_map).visit(routine.body)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # First assignment: a = a + b(i)
+    # LHS 'a' must remain 'a', not become 'a + 1'
+    assert assigns[0].lhs == 'a'
+    assert assigns[0].rhs == 'a + 1 + b(i)'
+
+    # Second assignment: c(i) = b(i) + a
+    # LHS 'c(i)' must remain 'c(i)', RHS 'a' becomes 'a + 1'
+    assert assigns[1].lhs == 'c(i)' and assigns[1].rhs == 'b(i) + a + 1'
+
+    # Loop bounds should still be substituted (n -> n-1)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert loops[0].bounds == '1:n - 1'
+
+    # Call arguments should still be substituted
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
+    assert calls[0].arguments == ('n - 1', 'a + 1', 'c(:)')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_expressions_skip_lhs_array(frontend):
+    """
+    Test that :any:`SubstituteExpressionsSkipLHS` leaves the entire
+    LHS of an assignment unchanged, including array subscripts.
+
+    This verifies that when ``x(i)`` appears in the expression map
+    (e.g. ``x(i) -> MAX(x(i), TINY(1.0))``), the LHS ``x(i)``
+    is not modified while the RHS is.
+    """
+
+    fcode = """
+subroutine test_routine(n, x, y)
+  implicit none
+  integer, intent(in) :: n
+  real(kind=8), intent(inout) :: x(n), y(n)
+  integer :: i
+
+  do i=1, n
+    x(i) = 1.0 / x(i) + y(i)
+  end do
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    x_i = assigns[0].lhs  # x(i) as it appears on the LHS
+
+    # Map x(i) to a wrapped expression (simulating safe-denominator logic)
+    wrapped = parse_expr('max(x(i), tiny(1.0))', scope=routine)
+    expr_map = {x_i: wrapped}
+
+    routine.body = SubstituteExpressionsSkipLHS(expr_map).visit(routine.body)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # LHS must remain x(i), NOT MAX(x(i), TINY(1.0))
+    assert str(assigns[0].lhs).lower() == 'x(i)'
+
+    # RHS should have the substitution applied
+    rhs_str = str(assigns[0].rhs).lower()
+    assert 'max' in rhs_str
+    assert 'tiny' in rhs_str
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_expressions_skip_lhs_noop(frontend):
+    """
+    Test that :any:`SubstituteExpressionsSkipLHS` preserves assignment
+    nodes when the expression map has no matching entries.
+    """
+
+    fcode = """
+subroutine test_routine(a, b)
+  implicit none
+  real(kind=8), intent(inout) :: a, b
+
+  a = a + b
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    assigns_before = FindNodes(ir.Assignment).visit(routine.body)
+    orig_lhs = str(assigns_before[0].lhs)
+    orig_rhs = str(assigns_before[0].rhs)
+
+    # Map with a variable that does not appear in the routine
+    expr_map = {sym.Variable(name='zzz_nonexistent'): sym.Literal(42)}
+    routine.body = SubstituteExpressionsSkipLHS(expr_map).visit(routine.body)
+
+    assigns_after = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns_after) == 1
+    # The assignment should be unchanged
+    assert str(assigns_after[0].lhs) == orig_lhs
+    assert str(assigns_after[0].rhs) == orig_rhs
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_substitute_expressions_skip_lhs_conditional_assignment(frontend):
+    """
+    Test that :any:`SubstituteExpressionsSkipLHS` applies substitutions
+    to the condition, RHS, and else_rhs of a :any:`ConditionalAssignment`,
+    but leaves the LHS unchanged.
+
+    ConditionalAssignment represents C-style ternary assignments
+    (``lhs = cond ? rhs : else_rhs``).  It is not a Fortran construct,
+    so we build one manually from IR nodes.
+    """
+    fcode = """
+subroutine test_routine(a, b, c)
+  implicit none
+  real(kind=8), intent(inout) :: a, b, c
+  a = b + c
+end subroutine test_routine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    a = routine.variable_map['a']
+    b = routine.variable_map['b']
+    c = routine.variable_map['c']
+
+    # Build a ConditionalAssignment: a = (b > 0) ? b + c : c
+    cond_assign = ir.ConditionalAssignment(
+        condition=sym.Comparison(operator='>', left=b, right=sym.Literal(0)),
+        lhs=a,
+        rhs=sym.Sum((b, c)),
+        else_rhs=c
+    )
+
+    # Replace original assignment with the conditional assignment
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    from loki.ir import Transformer  # pylint: disable=import-outside-toplevel
+    routine.body = Transformer({assigns[0]: cond_assign}).visit(routine.body)
+
+    # Create an expression map: b -> b + 1
+    new_b = parse_expr('b + 1', scope=routine)
+    expr_map = {b: new_b}
+
+    # Apply substitution skipping LHS
+    routine.body = SubstituteExpressionsSkipLHS(expr_map).visit(routine.body)
+
+    # Find the ConditionalAssignment in the transformed body
+    cond_assigns = FindNodes(ir.ConditionalAssignment).visit(routine.body)
+    assert len(cond_assigns) == 1
+    ca = cond_assigns[0]
+
+    # LHS must remain 'a', NOT be substituted
+    assert str(ca.lhs).lower() == 'a'
+
+    # Condition should have b substituted: (b+1 > 0)
+    cond_str = str(ca.condition).lower()
+    assert 'b + 1' in cond_str or 'b+1' in cond_str
+
+    # RHS should have b substituted: b+1 + c
+    rhs_str = str(ca.rhs).lower()
+    assert 'b + 1' in rhs_str or 'b+1' in rhs_str
+
+    # else_rhs should remain 'c' (b does not appear in else_rhs)
+    assert str(ca.else_rhs).lower() == 'c'
