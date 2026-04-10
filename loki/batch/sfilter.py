@@ -7,7 +7,7 @@
 
 import networkx as nx
 
-from loki.batch.item import Item, ExternalItem
+from loki.batch.item import Item, ExternalItem, TypeDefItem, InterfaceItem
 
 
 __all__ = ['SFilter']
@@ -38,9 +38,12 @@ class SFilter:
         Exclude :any:`Item` objects that have the ``is_ignored`` property
     include_external : bool, optional
         Do not skip :any:`ExternalItem` in the iterator
+    mode : str, optional
+        Only include items having corresponding mode.
     """
 
-    def __init__(self, sgraph, item_filter=None, reverse=False, exclude_ignored=False, include_external=False):
+    def __init__(self, sgraph, item_filter=None, reverse=False, exclude_ignored=False, include_external=False,
+            mode=None):
         self.sgraph = sgraph
         self.reverse = reverse
         if item_filter:
@@ -49,6 +52,7 @@ class SFilter:
             self.item_filter = Item
         self.exclude_ignored = exclude_ignored
         self.include_external = include_external
+        self.mode = mode
 
     def __iter__(self):
         if self.reverse:
@@ -68,5 +72,10 @@ class SFilter:
                 node_cls = type(node)
             if issubclass(node_cls, self.item_filter) and not (self.exclude_ignored and node.is_ignored):
                 # We found the next item matching the filter (and which is not ignored, if applicable)
-                break
+                if self.mode is None:
+                    break
+                if isinstance(node, (ExternalItem, TypeDefItem, InterfaceItem)):
+                    break
+                if node.mode == self.mode:
+                    break
         return node

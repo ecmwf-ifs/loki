@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import sys
 from enum import Enum, auto
 from os.path import commonpath
 from pathlib import Path
@@ -201,6 +202,38 @@ class Scheduler:
 
             # Attach interprocedural call-tree information
             self._enrich()
+
+    def propagate_and_separate_modes(self, proc_strategy=ProcessingStrategy.DEFAULT):
+        from loki.transformations.dependency import SeparateModesKernel # pylint: disable=import-outside-toplevel
+        self._propagate_modes()
+        self.process_transformation(SeparateModesKernel(), proc_strategy=proc_strategy)
+        self._propagate_modes_set()
+        modes = {item.mode for item in self.items}
+        return as_tuple(modes)
+
+
+    def _propagate_modes(self):
+        driver_items = [item for item in self.items if item.role == 'driver']
+        for item in driver_items:
+            module_file_items = self.sgraph.get_corresponding_module_and_file_item(item, self.item_factory)
+            for _item in module_file_items:
+                if _item is not None:
+                    _item.config['mode'] = item.mode
+            descendants = self.sgraph.descendants(item, self.item_factory,
+                    include_module_items=True, include_file_items=True)
+            for descendant in descendants:
+                if descendant is not None:
+                    descendant.config.setdefault('inherited_mode', set()).add(item.mode)
+
+    def _propagate_modes_set(self):
+        driver_items = [item for item in self.items if item.role == 'driver']
+        for item in driver_items:
+            descendants = self.sgraph.descendants(item, self.item_factory,
+                    include_module_items=True, include_file_items=True)
+            for descendant in descendants:
+                if descendant is not None:
+                    descendant.config['mode'] = item.mode
+                    descendant.config['inherited_mode'] = set()
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
@@ -429,7 +462,7 @@ class Scheduler:
 
         Parameters
         ----------
-        transformation : :any:`Transformation` or :any:`Pipeline`
+        transformation : :any:`Transformation` or :any:`Pipeline` or dict of :any:`Pipeline`s
             The transformation or transformation pipeline to apply
         proc_strategy : :any:`ProcessingStrategy`
             The processing strategy to use when applying the given
@@ -441,13 +474,24 @@ class Scheduler:
         elif isinstance(transformation, Pipeline):
             self.process_pipeline(pipeline=transformation, proc_strategy=proc_strategy)
 
+        elif isinstance(transformation, dict):
+            assert all(isinstance(trafo, Pipeline) for trafo in transformation.values())
+            modes = self.propagate_and_separate_modes(proc_strategy=proc_strategy)
+            # check if all required pipelines are available
+            for mode in modes:
+                if mode not in transformation:
+                    msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
+                    sys.exit(msg)
+            # apply those pipelines
+            for mode in modes:
+                self.process_pipeline(pipeline=self.config.pipelines[mode], proc_strategy=proc_strategy, mode=mode)
         else:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
             raise RuntimeError(f'Could not batch process {transformation}')
 
-    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT):
+    def process_pipeline(self, pipeline, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """
-        Process a given :any:`Pipeline` by applying its assocaited
+        Process a given :any:`Pipeline` by applying its associated
         transformations in turn.
 
         Parameters
@@ -457,11 +501,14 @@ class Scheduler:
         proc_strategy : :any:`ProcessingStrategy`
             The processing strategy to use when applying the given
             :data:`pipeline` to the scheduler's graph.
+        mode : str, optional
+            Transformation mode, selecting which code transformations/pipeline on which graph to apply.
+            Default: `None`, thus mode agnostic.
         """
         for transformation in pipeline.transformations:
-            self.process_transformation(transformation, proc_strategy=proc_strategy)
+            self.process_transformation(transformation, proc_strategy=proc_strategy, mode=mode)
 
-    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT):
+    def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """
         Process all :attr:`items` in the scheduler's graph
 
@@ -489,6 +536,9 @@ class Scheduler:
         proc_strategy : :any:`ProcessingStrategy`
             The processing strategy to use when applying the given
             :data:`transformation` to the scheduler's graph.
+        mode : str, optional
+            Transformation mode, selecting which code transformations on which graph to apply.
+            Default: `None`, thus mode agnostic.
         """
         def _get_definition_items(_item, sgraph_items):
             # For backward-compatibility with the DependencyTransform and LinterTransformation
@@ -527,7 +577,8 @@ class Scheduler:
                 sgraph_items = sgraph.items
                 traversal = SFilter(
                     graph, reverse=transformation.reverse_traversal,
-                    include_external=self.config.default.get('strict', True)
+                    include_external=self.config.default.get('strict', True),
+                    mode=mode
                 )
             else:
                 graph = self.sgraph
@@ -535,7 +586,8 @@ class Scheduler:
                 traversal = SFilter(
                     graph, item_filter=item_filter, reverse=transformation.reverse_traversal,
                     exclude_ignored=not transformation.process_ignored_items,
-                    include_external=self.config.default.get('strict', True)
+                    include_external=self.config.default.get('strict', True),
+                    mode=mode
                 )
 
             # Collect common transformation arguments

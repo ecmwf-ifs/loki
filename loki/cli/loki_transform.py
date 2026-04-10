@@ -39,8 +39,10 @@ from loki.transformations.build_system import FileWriteTransformation
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
+@click.option('--multimode', '-z', is_flag=True, help="Multi-mode processing.")
 def convert(
-        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level
+        frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level,
+        multimode
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -88,18 +90,23 @@ def convert(
         definitions=definitions, output_dir=scheduler_opts.build, **frontend_opts.asdict
     )
 
-    # If requested, apply a custom pipeline from the scheduler config
-    # Note that this new entry point will bypass all other default
-    # behaviour and exit immediately after.
-    if mode not in config.pipelines:
-        msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
-        msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
-        sys.exit(msg)
+    if multimode:
+        # multimode, therefore pass all available pipelines and let process handle the rest
+        info('[Loki-transform] Applying custom pipelines from config')
+        scheduler.process(config.pipelines, proc_strategy=processing_strategy)
+    else:
+        # If requested, apply a custom pipeline from the scheduler config
+        # Note that this new entry point will bypass all other default
+        # behaviour and exit immediately after.
+        if mode not in config.pipelines:
+            msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
+            msg += '[Loki] Please provide a config file with configured transformation or pipelines instead.\n'
+            sys.exit(msg)
 
-    info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
-    info(str(config.pipelines[mode]))
+        info(f'[Loki-transform] Applying custom pipeline {mode} from config:')
+        info(str(config.pipelines[mode]))
 
-    scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
+        scheduler.process(config.pipelines[mode], proc_strategy=processing_strategy)
 
     mode = mode.replace('-', '_')  # Sanitize mode string
 
@@ -132,6 +139,7 @@ def convert(
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
+@click.option('--multimode', '-z', is_flag=True, help="Multi-mode processing.")
 @click.pass_context
 def plan(ctx, *_args, **_kwargs):
     """

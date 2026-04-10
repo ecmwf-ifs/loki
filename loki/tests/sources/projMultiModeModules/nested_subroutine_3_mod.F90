@@ -1,0 +1,6 @@
+module nested_subroutine_3_mod
+implicit none
+contains
+subroutine nested_subroutine_3()
+end subroutine nested_subroutine_3
+end module nested_subroutine_3_mod
