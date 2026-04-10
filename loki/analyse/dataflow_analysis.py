@@ -10,6 +10,9 @@ Collection of dataflow analysis schema routines.
 """
 
 from contextlib import contextmanager
+from typing import Any
+
+from loki.analyse.abstract_dfa import AbstractDataflowAnalysis, dfa_attached
 from loki.expression import Array, ProcedureSymbol
 from loki.ir.expr_visitors import FindLiterals
 from loki.tools import as_tuple, flatten, OrderedSet
@@ -21,8 +24,13 @@ from loki.subroutine import Subroutine
 from loki.tools.util import CaseInsensitiveDict
 
 __all__ = [
-    'dataflow_analysis_attached', 'read_after_write_vars',
-    'loop_carried_dependencies'
+    'strip_nested_dimensions',
+    'DataflowAnalysis',
+    'DataflowAnalysisAttacher', 'DataflowAnalysisDetacher',
+    'attach_dataflow_analysis', 'detach_dataflow_analysis',
+    'dataflow_analysis_attached',
+    'FindReads', 'FindWrites',
+    'read_after_write_vars', 'loop_carried_dependencies'
 ]
 
 
@@ -341,6 +349,68 @@ class DataflowAnalysisDetacher(Transformer):
         return super().visit_Node(o, **kwargs)
 
 
+class DataflowAnalysis(AbstractDataflowAnalysis):
+    """Concrete DFA implementation using the current attacher and detacher logic."""
+
+    class _Attacher(DataflowAnalysisAttacher, AbstractDataflowAnalysis._Attacher):
+        def __init__(self, analysis, **kwargs):
+            super().__init__(include_literal_kinds=analysis.include_literal_kinds, **kwargs)
+            self.analysis = analysis
+
+        def visit_CallStatement(self, o, **kwargs):
+            call_effects = self.analysis.resolve_call_effects(o, attacher=self, **kwargs)
+            if call_effects is None:
+                return super().visit_CallStatement(o, **kwargs)
+
+            defines, uses = call_effects
+            return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
+
+    class _Detacher(DataflowAnalysisDetacher, AbstractDataflowAnalysis._Detacher):
+        pass
+
+    def __init__(self, include_literal_kinds=True):
+        self.include_literal_kinds = include_literal_kinds
+
+    def get_attacher(self) -> Any:
+        return self._Attacher(analysis=self)
+
+    def resolve_call_effects(self, call, *, attacher, **kwargs):  # pylint: disable=unused-argument
+        return None
+
+    def attach_dataflow_analysis(self, module_or_routine):
+        attacher = self.get_attacher()
+        live_symbols = OrderedSet()
+        if hasattr(module_or_routine, 'arguments'):
+            live_symbols = attacher._symbols_from_expr(
+                module_or_routine.arguments,
+                condition=lambda a: a.type.intent and a.type.intent.lower() in ('in', 'inout')
+            )
+
+        if hasattr(module_or_routine, 'spec'):
+            attacher.visit(module_or_routine.spec, live_symbols=live_symbols)
+            live_symbols |= module_or_routine.spec.defines_symbols
+
+        if hasattr(module_or_routine, 'body'):
+            if hasattr(module_or_routine, 'spec'):
+                attacher.visit(module_or_routine.body, live_symbols=live_symbols)
+            else:
+                attacher.visit(module_or_routine, live_symbols=live_symbols)
+        elif not hasattr(module_or_routine, 'spec'):
+            attacher.visit(module_or_routine, live_symbols=live_symbols)
+
+    def detach_dataflow_analysis(self, module_or_routine):
+        detacher = self.get_detacher()
+        if hasattr(module_or_routine, 'spec'):
+            detacher.visit(module_or_routine.spec)
+        if hasattr(module_or_routine, 'body'):
+            if hasattr(module_or_routine, 'spec'):
+                detacher.visit(module_or_routine.body)
+            else:
+                detacher.visit(module_or_routine)
+        elif not hasattr(module_or_routine, 'spec'):
+            detacher.visit(module_or_routine)
+
+
 def attach_dataflow_analysis(module_or_routine):
     """
     Determine and attach to each IR node dataflow analysis metadata.
@@ -356,19 +426,7 @@ def attach_dataflow_analysis(module_or_routine):
     The IR nodes are updated in-place and thus existing references to IR
     nodes remain valid.
     """
-    live_symbols = OrderedSet()
-    if hasattr(module_or_routine, 'arguments'):
-        live_symbols = DataflowAnalysisAttacher._symbols_from_expr(
-            module_or_routine.arguments,
-            condition=lambda a: a.type.intent and a.type.intent.lower() in ('in', 'inout')
-        )
-
-    if hasattr(module_or_routine, 'spec'):
-        DataflowAnalysisAttacher().visit(module_or_routine.spec, live_symbols=live_symbols)
-        live_symbols |= module_or_routine.spec.defines_symbols
-
-    if hasattr(module_or_routine, 'body'):
-        DataflowAnalysisAttacher().visit(module_or_routine.body, live_symbols=live_symbols)
+    DataflowAnalysis().attach_dataflow_analysis(module_or_routine)
 
 
 def detach_dataflow_analysis(module_or_routine):
@@ -377,10 +435,7 @@ def detach_dataflow_analysis(module_or_routine):
 
     Accessing the relevant attributes afterwards raises :py:class:`RuntimeError`.
     """
-    if hasattr(module_or_routine, 'spec'):
-        DataflowAnalysisDetacher().visit(module_or_routine.spec)
-    if hasattr(module_or_routine, 'body'):
-        DataflowAnalysisDetacher().visit(module_or_routine.body)
+    DataflowAnalysis().detach_dataflow_analysis(module_or_routine)
 
 
 @contextmanager
@@ -439,11 +494,8 @@ def dataflow_analysis_attached(module_or_routine):
     module_or_routine : :any:`Module` or :any:`Subroutine`
         The object for which the IR is to be annotated.
     """
-    attach_dataflow_analysis(module_or_routine)
-    try:
+    with dfa_attached(module_or_routine, DataflowAnalysis()):
         yield module_or_routine
-    finally:
-        detach_dataflow_analysis(module_or_routine)
 
 
 class FindReads(Visitor):
