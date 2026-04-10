@@ -221,7 +221,7 @@ class Scheduler:
             for path in self.paths for ext in self.source_suffixes
         ]
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
-
+        print(f"path_list: {path_list}")
         # Instantiate FileItem instances for all files in the search path
         for path in path_list:
             self.item_factory.get_or_create_file_item_from_path(path, self.config, frontend_args)
@@ -235,6 +235,7 @@ class Scheduler:
             for file_item in self.item_factory.item_cache.values()
             if isinstance(file_item, FileItem)
         ]
+        print(f"\nfile_items: {file_items}\n")
         for file_item in file_items:
             definition_items = {
                 item.name: item

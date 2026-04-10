@@ -45,7 +45,7 @@ def fixture_config():
             'mode': 'idem',
             'role': 'kernel',
             'expand': True,
-            'strict': False,
+            'strict': True,
         },
         'routines': {
             'driver': {
@@ -72,11 +72,99 @@ subroutine driver(NLON, NB, FIELD1)
     end do
 end subroutine driver
     """.strip()
-    fcode_kernel = """
+    fcode_nested_kernel = """
 module kernel_mod
     implicit none
 contains
     subroutine kernel(klon, field1)
+        use nested_kernel_mod, only: nested_kernel
+        implicit none
+        integer, intent(in) :: klon
+        integer, intent(inout) :: field1(klon)
+        integer :: tmp1(klon)
+        integer :: jl
+
+        ! call contained_kernel(klon, field1)
+        call nested_kernel(klon, field1)
+        do jl=1,klon
+            tmp1(jl) = 0
+            field1(jl) = tmp1(jl)
+        end do
+
+        contains 
+        
+        ! subroutine contained_kernel(klon, field1)
+        !   implicit none
+        !   integer, intent(in) :: klon
+        !   integer, intent(inout) :: field1(klon)
+        !   integer :: tmp1(klon)
+        !   integer :: jl
+
+        !   call nested_kernel(klon, field1)
+
+        !   do jl=1,klon
+        !       tmp1(jl) = 0
+        !       field1(jl) = tmp1(jl)
+        !   end do
+        ! end subroutine contained_kernel
+
+    end subroutine kernel
+
+    ! subroutine another_kernel(klon, field1)
+    !     implicit none
+    !     integer, intent(in) :: klon
+    !     integer, intent(inout) :: field1(klon)
+    !     integer :: tmp1(klon)
+    !     integer :: jl
+
+    !     call nested_kernel(klon, field1)
+
+    !     do jl=1,klon
+    !         tmp1(jl) = 0
+    !         field1(jl) = tmp1(jl)
+    !     end do
+    ! end subroutine another_kernel
+end module kernel_mod
+    """.strip()
+
+    fcode_kernel = """
+module nested_kernel_mod
+    implicit none
+contains
+    subroutine nested_kernel(klon, field1)
+        implicit none
+        integer, intent(in) :: klon
+        integer, intent(inout) :: field1(klon)
+        integer :: tmp1(klon)
+        integer :: jl, jk
+
+        call contained_kernel(klon, field1)
+        call another_nested_kernel(klon, field1)
+        jk = nested_function(klon)
+
+        do jl=1,klon
+            tmp1(jl) = 0
+            field1(jl) = tmp1(jl)
+        end do
+
+        contains 
+        
+        subroutine contained_kernel(klon, field1)
+          implicit none
+          integer, intent(in) :: klon
+          integer, intent(inout) :: field1(klon)
+          integer :: tmp1(klon)
+          integer :: jl
+
+          do jl=1,klon
+              tmp1(jl) = 0
+              field1(jl) = tmp1(jl)
+          end do
+        end subroutine contained_kernel
+
+    end subroutine nested_kernel
+
+    subroutine another_nested_kernel(klon, field1)
         implicit none
         integer, intent(in) :: klon
         integer, intent(inout) :: field1(klon)
@@ -87,12 +175,21 @@ contains
             tmp1(jl) = 0
             field1(jl) = tmp1(jl)
         end do
+    end subroutine another_nested_kernel
 
-    end subroutine kernel
-end module kernel_mod
+    function nested_function(klon)
+        implicit none
+        integer, intent(in) :: klon
+        integer :: nested_function
+
+        nested_function = klon
+    end function nested_function
+end module nested_kernel_mod
     """.strip()
+
     (tmp_path/'driver.F90').write_text(fcode_driver)
     (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    (tmp_path/'nested_kernel_mod.F90').write_text(fcode_nested_kernel)
 
 
 @pytest.fixture(name='fcode_no_module')
@@ -104,6 +201,7 @@ subroutine driver(NLON, NB, FIELD1)
     integer :: b
     integer, intent(inout) :: field1(nlon, nb)
     integer :: local_nlon
+    #include "kernel.intfb.h"
     local_nlon = nlon
     do b=1,nb
         call kernel(local_nlon, field1(:,b))
@@ -191,9 +289,12 @@ def test_dependency_duplicate_trafo(tmp_path, frontend, suffix, module_suffix, c
 
     pipeline = Pipeline(classes=(DuplicateKernel, FileWriteTransformation),
                         duplicate_kernels=('kernel',), duplicate_suffix=suffix,
-                        duplicate_module_suffix=module_suffix)
+                        duplicate_module_suffix=module_suffix,
+                        duplicate_subgraph=True)
 
     scheduler.process(pipeline)
+
+    # print(scheduler.item_factory.item_cache[f'kernel_mod{module_suffix}'].ir.to_fortran())
 
     module_suffix = module_suffix or suffix
 
@@ -203,8 +304,13 @@ def test_dependency_duplicate_trafo(tmp_path, frontend, suffix, module_suffix, c
     assert f'kernel_mod{module_suffix}' in scheduler.item_factory.item_cache
     item = scheduler.item_factory.item_cache[f'kernel_mod{module_suffix}']
     assert isinstance(item, ModuleItem)
+    from loki import fgen
+    print(f"{fgen(item.ir)}")
     assert item.ir.name == item.local_name
     assert f'kernel_mod{module_suffix}' not in scheduler
+
+    nested_item = scheduler.item_factory.item_cache[f'nested_kernel_mod{module_suffix}']
+    print(f"{fgen(nested_item.ir)}")
 
     assert f'kernel_mod{module_suffix}#kernel{suffix}' in scheduler.item_factory.item_cache
     assert f'kernel_mod{module_suffix}#kernel{suffix}' in scheduler
@@ -326,6 +432,8 @@ def test_dependency_duplicate_trafo_no_module(tmp_path, frontend, suffix, module
     driver = scheduler["#driver"].ir
     kernel = scheduler["#kernel"].ir
     new_kernel = scheduler[f"#kernel{suffix}"].ir
+
+    print(f"driver:\n{driver.to_fortran()}")
 
     calls_driver = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls_driver) == 2

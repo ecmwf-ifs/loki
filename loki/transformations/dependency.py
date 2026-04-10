@@ -6,8 +6,9 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation
-from loki.ir import nodes as ir, Transformer, FindNodes
+from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls
 from loki.tools.util import as_tuple, CaseInsensitiveDict
+from loki.transformations.parametrise import parametrise_routine
 
 __all__ = ['DuplicateKernel', 'RemoveKernel']
 
@@ -38,11 +39,12 @@ class DuplicateKernel(Transformation):
     reverse_traversal = True
 
     def __init__(self, duplicate_kernels=None, duplicate_suffix='duplicated',
-                 duplicate_module_suffix=None, duplicate_subgraph=False):
+                 duplicate_module_suffix=None, duplicate_subgraph=False, dic2p=None):
         self.suffix = duplicate_suffix
         self.module_suffix = duplicate_module_suffix or duplicate_suffix
         self.duplicate_kernels = tuple(kernel.lower() for kernel in as_tuple(duplicate_kernels))
         self.duplicate_subgraph = duplicate_subgraph
+        self.dic2p = dic2p
 
     def _get_new_item_name(self, item):
         """
@@ -66,10 +68,18 @@ class DuplicateKernel(Transformation):
         # Determine new item name
         scope_name = item.scope_name
         local_name = f'{item.local_name}{self.suffix}'
+        if '#' in local_name:
+            # local_name = f'{scope_name}{self.module_suffix}#{local_name.split("#", maxsplit=1)[1]}'
+            local_name = f'{local_name.split("#", maxsplit=1)[0]}{self.suffix}#{local_name.split("#", maxsplit=1)[1]}'
         if scope_name:
             scope_name = f'{scope_name}{self.module_suffix}'
         # Try to get existing item from cache
         new_item_name = f'{scope_name or ""}#{local_name}'
+        # get_new_item_name for item loki.batch.ProcedureItem<surfexcdriver_ctl_mod#surfexcdriver_ctl#compute_ddh> -> surfexcdriver_ctl_mod_orig | surfexcdriver_ctl#compute_ddh_orig | surfexcdriver_ctl_mod_orig#surfexcdriver_ctl#compute_ddh_orig
+        # get_new_item_name for item loki.batch.ProcedureItem<surfexcdriver_ctl_mod#surfexcdriver_ctl#compute_ddh> -> surfexcdriver_ctl_mod_orig | surfexcdriver_ctl_mod#compute_ddh_orig | surfexcdriver_ctl_mod_orig#surfexcdriver_ctl_mod#compute_ddh_orig
+        # get_new_item_name for item loki.batch.ProcedureItem<surfexcdriver_ctl_mod#surfexcdriver_ctl#compute_ddh> -> surfexcdriver_ctl_mod_orig | surfexcdriver_ctl_mod_orig#compute_ddh_orig | surfexcdriver_ctl_mod_orig#surfexcdriver_ctl_mod_orig#compute_ddh_orig
+        # get_new_item_name for item loki.batch.ProcedureItem<surfexcdriver_ctl_mod#surfexcdriver_ctl#compute_ddh> -> surfexcdriver_ctl_mod_orig | surfexcdriver_ctl_orig#compute_ddh_orig | surfexcdriver_ctl_mod_orig#surfexcdriver_ctl_orig#compute_ddh_orig
+        print(f"get_new_item_name for item {item} -> {scope_name} | {local_name} | {new_item_name}")
         return scope_name, local_name, new_item_name
 
     def _get_or_create_or_rename_item(self, item, item_factory, config):
@@ -108,6 +118,9 @@ class DuplicateKernel(Transformation):
         # Create new item
         if new_item is None:
             new_item = item_factory.get_or_create_item_from_item(new_item_name, item, config=config)
+        for _ in as_tuple(new_item):
+            _.config['lib'] = item.config.get('lib')
+            print(f"setting lib {item.config.get('lib')} for {_}")
         return new_item
 
     def _modify_sgraph(self, sgraph, item, new_items):
@@ -141,35 +154,67 @@ class DuplicateKernel(Transformation):
             Dictionary used to get information about how
             to rename calls and imports.
         """
+        if self.dic2p is not None and not new_item.trafo_data.get('parametrised', False):
+            parametrise_routine(new_item.ir, self.dic2p)
+            new_item.trafo_data['parametrised'] = True
         call_map = {}
         for call in FindNodes(ir.CallStatement).visit(new_item.ir.body):
             call_name = str(call.name).lower()
             new_call_name = f'{call_name}{self.suffix}'.lower()
+            print(f" new_call_name: {new_call_name} vs. new_dependencies: {new_dependencies}")
             if new_call_name in new_dependencies:
                 call_new_item = new_dependencies[new_call_name]
                 proc_symbol = call_new_item.ir.procedure_symbol.rescope(scope=new_item.ir)
                 call_map[call] = call.clone(name=proc_symbol)
+        for call in FindInlineCalls(unique=False).visit(new_item.ir.body):
+            # if call.function in members:
+            #     continue
+            inl_call_name = str(call.function.name).lower()
+            new_inl_call_name = f'{inl_call_name}{self.suffix}'.lower()
+            print(f" new_inl_call_name: {new_inl_call_name} vs. new_dependencies: {new_dependencies}")
+            if new_inl_call_name in new_dependencies:
+                call_new_item = new_dependencies[new_inl_call_name]
+                proc_symbol = call_new_item.ir.procedure_symbol.rescope(scope=new_item.ir)
+                # call._update(function=proc_symbol)
+                call.function = proc_symbol
+                # new_type = call.function.type.clone(dtype=ProcedureType(name=new_name))
+                # call.function = call.function.clone(name=new_name, type=new_type)
         # TODO: imports at module level ...
         imp_map = {}
-        for imp in FindNodes(ir.Import).visit(new_item.ir.spec):
-            # potentially new symbols
-            symbol_map = {symbol: symbol.clone(name=f'{symbol.name}{self.suffix}') for symbol in imp.symbols}
-            new_symbols = ()
-            orig_symbols = ()
-            # distinguish imported symbols that should remain and those which should be altered
-            for orig_symbol, new_symbol in symbol_map.items():
-                if new_symbol in new_dependencies:
-                    new_symbols += (new_symbol,)
-                else:
-                    orig_symbols += (orig_symbol,)
-            new_imports = ()
-            if new_symbols:
-                new_imports += (imp.clone(module=f'{imp.module.lower()}{self.module_suffix}',
-                                         symbols=as_tuple(new_symbols)),)
-            if orig_symbols:
-                new_imports += (imp.clone(symbols=as_tuple(orig_symbols)),)
-            if new_imports:
-                imp_map[imp] = new_imports
+        for imp in FindNodes(ir.Import).visit(new_item.ir.ir): # spec):
+            print(f"rename import {imp}")
+            if imp.c_import:
+                print(f"  c_import yes")
+                target_symbol, *suffixes = imp.module.lower().split('.', maxsplit=1)
+                # if new_dependencies and target_symbol.lower() in new_dependencies and not 'func.h' in suffixes:
+                print(f"  target_symbol: {target_symbol} | new_dependencies: {new_dependencies}")
+                # if new_dependencies and target_symbol.lower() in self.duplicate_kernels and not 'func.h' in suffixes:
+                if new_dependencies and f'{target_symbol.lower()}{self.module_suffix}' in new_dependencies and not 'func.h' in suffixes:
+                    # Modify the the basename of the C-style header import
+                    s = '.'.join(imp.module.split('.')[1:])
+                    # im._update(module=f'{new_dependencies[target_symbol].local_name}.{s}')
+                    print(f"  {imp.module} -> {imp.module.lower()}{self.module_suffix}.{s}'")
+                    # imp._update(module=f'{imp.module.lower()}{self.module_suffix}.{s}')
+                    imp_map[imp] = (imp, imp.clone(module=f'{target_symbol.lower()}{self.module_suffix}.{s}'))
+            else:
+                # potentially new symbols
+                symbol_map = {symbol: symbol.clone(name=f'{symbol.name}{self.suffix}') for symbol in imp.symbols}
+                new_symbols = ()
+                orig_symbols = ()
+                # distinguish imported symbols that should remain and those which should be altered
+                for orig_symbol, new_symbol in symbol_map.items():
+                    if new_symbol in new_dependencies:
+                        new_symbols += (new_symbol,)
+                    else:
+                        orig_symbols += (orig_symbol,)
+                new_imports = ()
+                if new_symbols:
+                    new_imports += (imp.clone(module=f'{imp.module.lower()}{self.module_suffix}',
+                                             symbols=as_tuple(new_symbols)),)
+                if orig_symbols:
+                    new_imports += (imp.clone(symbols=as_tuple(orig_symbols)),)
+                if new_imports:
+                    imp_map[imp] = new_imports
         if call_map:
             new_item.ir.body = Transformer(call_map).visit(new_item.ir.body)
         if imp_map:
@@ -209,11 +254,13 @@ class DuplicateKernel(Transformation):
         ignore = as_tuple(ignore)
         new_items = ()
         for child in successors:
-            if child.local_name in self.duplicate_kernels or force_duplicate:
+            print(f"child: {child.local_name.lower()} vs. {self.duplicate_kernels}")
+            if child.local_name.lower() in self.duplicate_kernels or force_duplicate:
                 if child.local_name in ignore:
                     continue
                 # get/create/rename item
                 new_item = self._get_or_create_or_rename_item(child, item_factory, config)
+                print(f"newly created item {as_tuple(new_item)[0]} with lib {as_tuple(new_item)[0].config['lib']}")
                 new_items += as_tuple(new_item)
                 # duplicate subgraph?
                 if self.duplicate_subgraph:
@@ -236,9 +283,12 @@ class DuplicateKernel(Transformation):
                         new_item.plan_data.setdefault('removed_dependencies', ())
                         new_item.plan_data['additional_dependencies'] += as_tuple(new_dependencies)
                         new_item.plan_data['removed_dependencies'] += as_tuple(child_successors)
+                        print(f"new_item: {new_item} | dependencies: {new_dependencies}")
                         sub_sgraph._add_children(new_item, item_factory, config, dependencies=new_dependencies)
                         # rename calls and imports
+                        print(f"rename_calls: {rename_calls}")
                         if rename_calls:
+                            print(f"rename calls and imports - new_item: {new_item}")
                             self._rename_calls(new_item, new_dependencies_dic)
         return tuple(new_items)
 
@@ -256,11 +306,16 @@ class DuplicateKernel(Transformation):
             sub_sgraph=sub_sgraph,
             rename_calls=True, ignore=ignore
         )
+        item.plan_data.setdefault('additional_dependencies', ())
+        item.plan_data['additional_dependencies'] += new_dependencies
+
+        tmp_dependencies = new_dependencies
         new_dependencies = CaseInsensitiveDict((new_item.local_name, new_item) for new_item in new_dependencies)
 
         # Duplicate calls to kernels
         call_map = {}
         new_imports = []
+        imp_map = {}
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             call_name = str(call.name).lower()
             if call_name in self.duplicate_kernels:
@@ -273,11 +328,27 @@ class DuplicateKernel(Transformation):
                 # Register the module import
                 if new_item.scope_name:
                     new_imports += [ir.Import(module=new_item.scope_name, symbols=(proc_symbol,))]
+                else:
+                    print(f"imports: {FindNodes(ir.Import).visit(item.ir.ir)}")
+                    for imp in FindNodes(ir.Import).visit(item.ir.ir):
+                        print(f"  c_import yes")
+                        target_symbol, *suffixes = imp.module.lower().split('.', maxsplit=1)
+                        print(f"  target_symbol: {target_symbol} vs {new_dependencies} | {self.duplicate_kernels}")
+                        if new_dependencies and target_symbol.lower() in self.duplicate_kernels and not 'func.h' in suffixes:
+                            # Modify the the basename of the C-style header import
+                            s = '.'.join(imp.module.split('.')[1:])
+                            # im._update(module=f'{new_dependencies[target_symbol].local_name}.{s}')
+                            print(f"  {imp.module} -> {imp.module.lower()}{self.module_suffix}.{s}'")
+                            # imp._update(module=f'{imp.module.lower()}{self.module_suffix}.{s}')
+                            # imp._update(module=f'{target_symbol.lower()}{self.module_suffix}.{s}')
+                            imp_map[imp] = (imp, imp.clone(module=f'{target_symbol.lower()}{self.module_suffix}.{s}'))
 
         if call_map:
             routine.body = Transformer(call_map).visit(routine.body)
             if new_imports:
                 routine.spec.prepend(as_tuple(new_imports))
+            if imp_map:
+                routine.spec = Transformer(imp_map).visit(routine.spec)
 
     def plan_subroutine(self, routine, **kwargs):
         item = kwargs.get('item')

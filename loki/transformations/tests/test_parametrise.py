@@ -18,7 +18,10 @@ from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 
-from loki.transformations.parametrise import ParametriseTransformation, declare_fixed_value_scalars_as_constants
+from loki.transformations.parametrise import (
+    ParametriseTransformation, declare_fixed_value_scalars_as_constants,
+    parametrise_routine
+)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -474,6 +477,30 @@ def test_parametrise_non_driver_entry_points(tmp_path, testdir, frontend, config
 
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
 
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_parametrise_extended(frontend):
+    fcode = """
+subroutine transform_parametrise_extended(klon, klev, dims)
+  implicit none
+  integer, intent(in) :: klon
+  integer, intent(in) :: klev
+  type(dims_type), intent(in) :: dims
+
+  integer :: tmp1, tmp2, tmp3
+  integer :: arr1(klon, klev)
+
+  tmp1 = klon + klev + dims%klev + dims%klon
+
+  call some_routine(KLON, klev, dims, dims%klon, dims%klev)
+
+end subroutine transform_parametrise_extended
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    dic2p = {'KLON': 16, 'dims%klon': 16, 'klev': 137, 'dims%klev': 137}
+    parametrise_routine(routine, dic2p)
+    print()
+    print(routine.to_fortran())
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_declare_constant_scalars(frontend):

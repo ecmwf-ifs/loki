@@ -67,6 +67,8 @@ class ArgumentArrayShapeAnalysis(Transformation):
             # Create a variable map with new shape information from source
             vmap = {}
             for arg, val in call.arg_iter():
+                if not (hasattr(arg, 'shape') and hasattr(val, 'shape')) or arg.shape is None or val.shape is None:
+                    continue
                 if isinstance(arg, Array) and len(arg.shape) > 0:
                     # Only create new shapes for deferred dimension args
                     if all(d == ':' for d in arg.shape):
@@ -180,8 +182,12 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
             new_args = tuple(d for d in dim_vars if d not in callee.arguments)
             new_args = tuple(d for d in new_args if d.type.dtype == BasicType.INTEGER)
             new_args = tuple(d for d in new_args if d not in imported_symbols)
+            new_arg_parameters = tuple(d for d in new_args if d.type.parameter)
+            new_args = tuple(d for d in new_args if d not in new_arg_parameters)
             new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
             callee.arguments += new_args
+            if new_arg_parameters:
+                callee.variables += new_arg_parameters
 
             # Map all local dimension args to unknown callee dimension args
             if len(callee.arguments) > len(list(call.arg_iter())):

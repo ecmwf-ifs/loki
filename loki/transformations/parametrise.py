@@ -83,15 +83,276 @@ using the transformation
 """
 
 from loki.batch import Transformation
-from loki.expression import symbols as sym
-from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls
+from loki.expression import symbols as sym, LokiIdentityMapper
+from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls, SubstituteExpressions, SubstituteStringExpressions
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 
 from loki.transformations.utilities import single_variable_declaration
 from loki.transformations.inline import inline_constant_parameters
+from loki.types import SymbolAttributes, BasicType, DerivedType
+
+__all__ = ['ParametriseTransformation', 'declare_fixed_value_scalars_as_constants', 'parametrise_routine']
 
 
-__all__ = ['ParametriseTransformation', 'declare_fixed_value_scalars_as_constants']
+# class DerivedTypeMapper(SubstituteExpressionsMapper):
+# 
+#     def map_derived_type_symbol(self, expr, *args, **kwargs):
+#         print(f"map_derived_type_symbol called for expr: {expr}")
+#         self.map_variable_symbol(expr, *args, **kwargs)
+# 
+# class SubstituteDerivedTypeExpressions(SubstituteExpressions):
+# 
+#     # expr_mapper = DerivedTypeMapper() # LokiIdentityMapper()
+#     def __init__(self, expr_map, invalidate_source=True, **kwargs):
+#         super().__init__(invalidate_source=invalidate_source, expr_map=expr_map, **kwargs)
+# 
+#         # Override the static default with a substitution mapper from ``expr_map``
+#         self.expr_mapper = DerivedTypeMapper(expr_map) # SubstituteExpressionsMapper(expr_map)
+# 
+#     def __call__(self, expr, *args, **kwargs):
+#         print(f"__call__: {expr}")
+#         if expr is None:
+#             return None
+#         kwargs.setdefault('recurse_to_declaration_attributes', False)
+#         return super().__call__(expr, *args, **kwargs)
+
+
+class SubstituteDimsStringExpressions(SubstituteStringExpressions):
+
+    def visit_VariableDeclaration(self, o, **kwargs):
+        """
+        For :any:`VariableDeclaration`  or :any:`ProcedureDeclaration`
+        we set ``recurse_to_declaration_attributes=True`` to make sure
+        properties in the symbol table are updated during dispatch to
+        the expression mapper.
+
+        If source invalidation is being requested, we also check the
+        associated type (on first symbol) to track changes there.
+        """
+        kwargs['recurse_to_declaration_attributes'] = False
+
+        # # Store a copy of the old type, as it will be in-place updated
+        # old_type = o.symbols[0].type.clone() if self.invalidate_source else None
+        # new = super().visit_Node(o, **kwargs)
+
+        # # Check the type if we're tracking source invalidation
+        # if self.invalidate_source and o.source:
+        #     if old_type != o.symbols[0].type:
+        #         new.source.invalidate()
+        old_symbols = o.symbols
+        new = super().visit_Node(o, **kwargs)
+        new_symbols = new.symbols
+        # keep old name, take e.g. new dimensions
+        # adapted_symbols = tuple(_new.clone(name=_old.name) for _new, _old in zip(new_symbols, old_symbols))
+        adapted_symbols = tuple(_old.clone(dimensions=_new.dimensions) if hasattr(_old, 'dimensions') else _old for _new, _old in zip(new_symbols, old_symbols))
+        # print(f"old symbols:     {old_symbols}")
+        # print(f"new symbols:     {new_symbols}")
+        # print(f"adapted_symbols: {adapted_symbols}")
+        return o.clone(symbols=adapted_symbols)
+
+    # def visit_Node(self, o, **kwargs):
+    #     """
+    #     Visit all children of a :any:`Node`.
+    #     """
+    #     return self.visit(o.children, **kwargs)
+
+    # def visit_Node(self, o, **kwargs):
+    #     """
+    #     Handler for :any:`Node` objects.
+
+    #     It replaces :data:`o` by :data:`mapper[o]`, if it is in the mapper,
+    #     otherwise visits all children before rebuilding the node.
+    #     """
+    #     print(f"o.children: {o.children}")
+    #     # print(f"visit_Node: {o}")
+    #     if o in self.mapper:
+    #         handle = self.mapper[o]
+    #         if handle is None:
+    #             # None -> drop /o/
+    #             return None
+
+    #         # For one-to-many mappings making sure this is not replaced again
+    #         # as it has been inserted by visit_tuple already
+    #         if not is_iterable(handle) or o not in handle:
+    #             return handle._rebuild(**handle.args)
+
+    #     rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
+    #     print(f"rebuilt: {rebuilt}")
+    #     return self._rebuild(o, rebuilt)
+
+    # def visit_VariableDeclaration(self, o, **kwargs):
+    #     """
+    #     For :any:`VariableDeclaration`  or :any:`ProcedureDeclaration`
+    #     we set ``recurse_to_declaration_attributes=True`` to make sure
+    #     properties in the symbol table are updated during dispatch to
+    #     the expression mapper.
+
+    #     If source invalidation is being requested, we also check the
+    #     associated type (on first symbol) to track changes there.
+    #     """
+    #     # # got symbols and dimensions
+    #     # new = self.visit_Node(o, **kwargs)
+    #     # # new = super().visit_Node(o, **kwargs)
+    #     # assert False
+    #     # # return o
+
+    #     kwargs['recurse_to_declaration_attributes'] = False
+
+    #     # Store a copy of the old type, as it will be in-place updated
+    #     old_type = o.symbols[0].type.clone() if self.invalidate_source else None
+    #     # new = super().visit_Node(o, **kwargs)
+    #     # new = self.visit_Node(o, **kwargs)
+    #     rebuilt = (o.symbols,) + tuple(self.visit(i, **kwargs) for i in (o.dimensions,))
+    #     print(f"rebuilt: {rebuilt}")
+    #     new = self._rebuild(o, rebuilt)
+
+    #     # Check the type if we're tracking source invalidation
+    #     if self.invalidate_source and o.source:
+    #         if old_type != o.symbols[0].type:
+    #             new.source.invalidate()
+
+    #     return new
+
+def parametrise_routine(routine, dic2p):
+    """
+    dic2p = {'a': 12, 'b': 11}
+    """
+
+    # if 'cloudsc' in routine.name.lower():
+    #     breakpoint()
+
+    dic2p = CaseInsensitiveDict(dic2p)
+    vars2p = [_.lower() for _ in list(dic2p)]
+    # proceed if dictionary with mapping of variables to parametrised is not empty
+    # if dic2p:
+    #     arguments = []
+    #     for arg in routine.arguments:
+    #         if arg.name.lower() not in vars2p:
+    #             arguments.append(arg)
+    #         else:
+    #             arguments.append(arg.clone(name=f'parametrised_{arg.name}'))
+    #     routine.arguments = arguments
+
+    # remove declarations
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    parameter_declarations = []
+    # decl_map = {}
+    # for decl in declarations:
+    #     symbols = []
+    #     for smbl in decl.symbols:
+    #         if smbl in vars2p:
+    #             parameter_declarations.append(decl.clone(symbols=(smbl.clone(
+    #                 type=decl.symbols[0].type.clone(parameter=True, intent=None,
+    #                                                 initial=sym.IntLiteral(
+    #                                                     dic2p[smbl.name]))),))) # or smbl.name?
+    #         else:
+    #             symbols.append(smbl.clone())
+
+    #         if symbols:
+    #             decl_map[decl] = decl.clone(symbols=as_tuple(symbols))
+    #         else:
+    #             decl_map[decl] = None
+    # routine.spec = Transformer(decl_map).visit(routine.spec)
+
+    # # introduce parameter declarations
+    # declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    # for parameter_declaration in parameter_declarations:
+    #     routine.spec.insert(routine.spec.body.index(declarations[0]), parameter_declaration)
+
+    # stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
+    # var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+    # stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
+
+    var_type = SymbolAttributes(dtype=BasicType.INTEGER)
+    ##
+    variable_map = routine.variable_map
+    der_type_vars2p = [var.lower() for var in vars2p if "%" in var]
+    der_type_var_map = {}
+    print()
+    for der_type_var in vars2p: # der_type_vars2p:
+        parent_der_type_var = der_type_var.split('%', maxsplit=1)[0]
+        if parent_der_type_var in variable_map:
+            der_type_var_map[der_type_var] = f'loki_{der_type_var.replace("%", "_")}'
+            parameter_declarations.append(ir.VariableDeclaration(symbols=(sym.Variable(name=f'loki_{der_type_var.replace("%", "_")}', type=var_type.clone(parameter=True, initial=sym.IntLiteral(dic2p[der_type_var]))),)))
+
+    # introduce parameter declarations
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    for parameter_declaration in parameter_declarations:
+        routine.spec.insert(routine.spec.body.index(declarations[0]), parameter_declaration)
+
+    # routine.body = SubstituteDerivedTypeExpressions({}).visit(routine.body)
+    routine.spec = SubstituteDimsStringExpressions(der_type_var_map, scope=routine).visit(routine.spec)
+    routine.body = SubstituteStringExpressions(der_type_var_map, scope=routine).visit(routine.body)
+
+def parametrise_routine_backup(routine, dic2p):
+    """
+    dic2p = {'a': 12, 'b': 11}
+    """
+
+    # if 'cloudsc' in routine.name.lower():
+    #     breakpoint()
+
+    dic2p = CaseInsensitiveDict(dic2p)
+    vars2p = [_.lower() for _ in list(dic2p)]
+    # proceed if dictionary with mapping of variables to parametrised is not empty
+    if dic2p:
+        arguments = []
+        for arg in routine.arguments:
+            if arg.name.lower() not in vars2p:
+                arguments.append(arg)
+            else:
+                arguments.append(arg.clone(name=f'parametrised_{arg.name}'))
+        routine.arguments = arguments
+
+    # remove declarations
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    parameter_declarations = []
+    decl_map = {}
+    for decl in declarations:
+        symbols = []
+        for smbl in decl.symbols:
+            if smbl in vars2p:
+                parameter_declarations.append(decl.clone(symbols=(smbl.clone(
+                    type=decl.symbols[0].type.clone(parameter=True, intent=None,
+                                                    initial=sym.IntLiteral(
+                                                        dic2p[smbl.name]))),))) # or smbl.name?
+            else:
+                symbols.append(smbl.clone())
+
+            if symbols:
+                decl_map[decl] = decl.clone(symbols=as_tuple(symbols))
+            else:
+                decl_map[decl] = None
+    routine.spec = Transformer(decl_map).visit(routine.spec)
+
+    # # introduce parameter declarations
+    # declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    # for parameter_declaration in parameter_declarations:
+    #     routine.spec.insert(routine.spec.body.index(declarations[0]), parameter_declaration)
+
+    # stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
+    # var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+    # stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
+
+    var_type = SymbolAttributes(dtype=BasicType.INTEGER)
+    ##
+    variable_map = routine.variable_map
+    der_type_vars2p = [var.lower() for var in vars2p if "%" in var]
+    der_type_var_map = {}
+    print()
+    for der_type_var in der_type_vars2p:
+        parent_der_type_var = der_type_var.split('%', maxsplit=1)[0]
+        if parent_der_type_var in variable_map:
+            der_type_var_map[der_type_var] = f'loki_{der_type_var.replace("%", "_")}'
+            parameter_declarations.append(ir.VariableDeclaration(symbols=(sym.Variable(name=f'loki_{der_type_var.replace("%", "_")}', type=var_type.clone(parameter=True, initial=sym.IntLiteral(dic2p[der_type_var]))),)))
+
+    # introduce parameter declarations
+    declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    for parameter_declaration in parameter_declarations:
+        routine.spec.insert(routine.spec.body.index(declarations[0]), parameter_declaration)
+
+    # routine.body = SubstituteDerivedTypeExpressions({}).visit(routine.body)
+    routine.body = SubstituteStringExpressions(der_type_var_map, scope=routine).visit(routine.body)
 
 
 def declare_fixed_value_scalars_as_constants(routine):

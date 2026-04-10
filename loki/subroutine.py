@@ -313,7 +313,11 @@ class Subroutine(ProgramUnit):
                     new_decl = ir.ProcedureDeclaration(symbols=(arg, ))
                 else:
                     new_decl = ir.VariableDeclaration(symbols=(arg, ))
-                self.spec.append(new_decl)
+                if not declarations:
+                    self.spec.append(new_decl)
+                else:
+                    # self.spec.insert(declarations[0], new_decl)
+                    self.spec.insert(self.spec.body.index(declarations[0]), new_decl)
 
         # Set new dummy list according to input
         self._dummies = as_tuple(arg.name.lower() for arg in arguments)

@@ -179,7 +179,9 @@ class SGraph:
 
         # propagate 'lib' attribute (the compile unit the item belongs to)
         for new_item in new_items:
-            new_item.config['lib'] = item.config.get('lib', None)
+            print(f"_add_children - {new_item} -> lib: {item.config.get('lib', None)} (derived from {item})")
+            if new_item.config.get('lib', None) is None:
+                new_item.config['lib'] = item.config.get('lib', None)
 
         # Careful not to include cycles (from recursive TypeDefs)
         self.add_edges((item, item_) for item_ in dependencies if not item == item_)
@@ -272,6 +274,7 @@ class SGraph:
                     if lib is not default_lib:
                         use_lib = lib
                         break
+                print(f"{file_item}: propagated lib: {use_lib}")
                 file_item.config['lib'] = use_lib
 
         # Insert edges to the file items corresponding to the successors of the items

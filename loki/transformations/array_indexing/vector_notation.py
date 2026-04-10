@@ -146,15 +146,31 @@ def get_loop_bounds_test(routine, lower, upper):
     def get_valid(elem, variable_map):
         if isinstance(elem, str) and elem.isnumeric():
             return sym.Literal(int(elem))
+        if elem in variable_map:
+            return variable_map[elem]
         if elem.split('%', maxsplit=1)[0] in variable_map:
             return routine.resolve_typebound_var(elem, variable_map)
         return None
 
     bounds = ()
     variable_map = routine.variable_map
-    valid_lower = [get_valid(_lower, variable_map) for _lower in lower]
+    # valid_lower = [get_valid(_lower, variable_map) for _lower in lower]
+    # valid_lower = [_ for _ in valid_lower if _ is not None]
+    # valid_upper = [get_valid(_upper, variable_map) for _upper in upper]
+    # valid_upper = [_ for _ in valid_upper if _ is not None]
+    valid_lower = []
+    for _lower in lower:
+        try:
+            valid_lower.append(get_valid(_lower, variable_map))
+        except Exception as e:
+            pass
+    valid_upper = []
+    for _upper in upper:
+        try:
+            valid_upper.append(get_valid(_upper, variable_map))
+        except Exception as e:
+            pass
     valid_lower = [_ for _ in valid_lower if _ is not None]
-    valid_upper = [get_valid(_upper, variable_map) for _upper in upper]
     valid_upper = [_ for _ in valid_upper if _ is not None]
    
     for _lower in valid_lower:
@@ -373,6 +389,9 @@ class ResolveVectorNotationTransformer(Transformer):
         arrays_dims = [array.dimensions for array in arrays]
         # get the indices for each array dimensions being a range index, e.g., ':' or '1:n'
         arrays_dims_gri = [[i for i, dim in enumerate(dims) if isinstance(dim, sym.RangeIndex)] for dims in arrays_dims]
+        # could be some nested arrays, e.g. arr1(1:n, arr2(1:m))
+        if len(arrays_dims_gri) > 1 and not all(len(array_dim_gri) == len(arrays_dims_gri[0]) for array_dim_gri in arrays_dims_gri[1:]):
+            return stmt
         
         # get the lhs array
         lhs_array = stmt.lhs
@@ -479,7 +498,9 @@ class ResolveVectorNotationTransformer(Transformer):
 
     def visit_MaskedStatement(self, masked, **kwargs):  # pylint: disable=unused-argument
         # TODO: Currently limited to simple, single-clause WHERE stmts
-        assert len(masked.conditions) == 1 and len(masked.bodies) == 1
+        # assert len(masked.conditions) == 1 and len(masked.bodies) == 1
+        if not len(masked.conditions) == 1 and len(masked.bodies) == 1:
+            return masked
 
         # Replace all unbounded ranges with bounded ranges based on array shape
         conditions = masked.conditions

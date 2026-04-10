@@ -36,7 +36,8 @@ __all__ = [
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
     'get_integer_variable', 'get_loop_bounds', 'is_pragma_driver_loop', 'find_driver_loops',
-    'get_local_arrays', 'check_routine_sequential', 'substitute_variables_for_definitions'
+    'get_local_arrays', 'check_routine_sequential', 'substitute_variables_for_definitions',
+    'get_local_variables'
 ]
 
 
@@ -774,6 +775,31 @@ def get_local_arrays(routine, section, unique=True):
     arrays = [v for v in arrays if v.name not in imported_symbols]
 
     return arrays
+
+def get_local_variables(routine, section, unique=True):
+    """
+    Collect all local temporary array symbols in a given section.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which to find local arrays.
+    section : :any:`Section` or tuple of :any:`Node`
+        The section or list of nodes to scan for local temporary
+        symbols.
+    unique : bool, optional
+        Flag whether to return unique instances of each symbol;
+        default: ``False``
+    """
+    imported_symbols = routine.imported_symbols
+    arg_names = tuple(a.lower() for a in routine._dummies)
+    variables = FindVariables(unique=unique).visit(section)
+
+    _vars = [v for v in variables if not v.parent]
+    _vars = [v for v in _vars if str(v.name).lower() not in arg_names]
+    _vars = [v for v in _vars if v.name not in imported_symbols]
+
+    return _vars
 
 
 def check_routine_sequential(routine):

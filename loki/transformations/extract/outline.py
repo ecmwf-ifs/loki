@@ -10,7 +10,8 @@ from loki.expression import symbols as sym, Variable
 from loki.ir import (
     CallStatement, PragmaRegion, Section, FindNodes,
     FindVariables, Transformer, is_loki_pragma,
-    get_pragma_parameters, pragma_regions_attached
+    get_pragma_parameters, pragma_regions_attached,
+    Loop
 )
 from loki.logging import info
 from loki.subroutine import Subroutine
@@ -35,9 +36,18 @@ def order_variables_by_type(variables, imports=None):
     )
 
     if imports:
-        # Order derived types by the order of their type in imports
+        # Order derived types by the order of their type in imports.
+        # If a derived type's name is not found among imported symbols
+        # (e.g. because its module was disabled or the type is local),
+        # sort it after all known imports using a sentinel index.
         imported_symbols = tuple(s for i in imports for s in i.symbols if not i.c_import)
-        derived = tuple(sorted(derived, key=lambda x: imported_symbols.index(x.type.dtype.name)))
+        sentinel = len(imported_symbols)
+        def _import_order(x):
+            try:
+                return imported_symbols.index(x.type.dtype.name)
+            except ValueError:
+                return sentinel
+        derived = tuple(sorted(derived, key=_import_order))
 
     # Order declarations by type and put arrays before scalars
     non_derived = tuple(v for v in variables if v not in derived)
@@ -75,6 +85,13 @@ def outline_region(region, name, imports, intent_map=None):
     imported_symbols |= OrderedSet(
         str(imp.module).split('.', maxsplit=1)[0] for imp in imports if imp.c_import
     )
+    c_imports = [imp for imp in imports if imp.c_import]
+    imports = [imp for imp in imports if not imp.c_import]
+
+
+    loops = FindNodes(Loop).visit(region.body)
+    loop_vars = [loop.variable for loop in loops]
+    print(f"loop_vars: {loop_vars}")
 
     # Create the external subroutine containing the routine's imports and the region's body
     spec = Section(body=imports)
@@ -136,15 +153,23 @@ def outline_region(region, name, imports, intent_map=None):
             region_routine_var_map[arg.name] = local_var
             region_routine_arguments += [local_var]
 
+    loop_vars_names = [var.name.lower() for var in loop_vars]
+    region_routine_arguments = [arg for arg in region_routine_arguments if not arg.name.lower() in loop_vars_names]
+    # print(f"region_routine_arguments: {[arg.name for arg in region_routine_arguments]}") # \n  vs. {loop_vars}"
     # Order the arguments and local declaration lists and put arguments first
     region_routine_locals = tuple(
-        v for v in region_routine_variables if not v in region_routine_arguments
+        v.clone(type=v.type.clone(intent=None)) for v in region_routine_variables if not v in region_routine_arguments
     )
     region_routine_arguments = order_variables_by_type(region_routine_arguments, imports=imports)
     region_routine_locals = order_variables_by_type(region_routine_locals, imports=imports)
 
+    print(f"region_routine_arguments: {[arg.name for arg in region_routine_arguments]}")
+    print(f"region_routine_locals:    {[var.name for var in region_routine_locals]}")
+
     region_routine.variables = region_routine_arguments + region_routine_locals
     region_routine.arguments = region_routine_arguments
+
+    region_routine.spec.append(as_tuple(c_imports))
 
     # Ensure everything has been rescoped
     region_routine.rescope_symbols()
