@@ -7,6 +7,11 @@
 
 from loki.batch import Transformation, TransformationError
 
+from loki.ir.expr_visitors import FindVariables
+from loki.expression import symbols as sym
+from loki.logging import warning
+from loki.ir.find import FindNodes
+from loki.ir import nodes as ir
 from loki.transformations.array_indexing import resolve_vector_dimension, resolve_vector_notation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
@@ -111,6 +116,14 @@ class SCCBaseTransformation(Transformation):
             self.process_driver(
                 routine, do_resolve_vector_notation=do_resolve_vector_notation
             )
+
+        assigns = FindNodes(ir.Assignment).visit(routine.body)
+        assigns = [assign for assign in assigns if not assign.ptr]
+        for assign in assigns:
+            vars = FindVariables().visit(assign)
+            if any(isinstance(dim, sym.RangeIndex) for var in vars for dim in getattr(var, 'dimensions', [])):
+                warning(f'[Loki::SCCBase] Unresolved vector notation in {routine}.')
+                break
 
     def process_kernel(self, routine, rename_indices=False, do_resolve_vector_notation=True):
         """
