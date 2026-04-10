@@ -632,16 +632,16 @@ def test_scc_vector_section_trim_simple(frontend, horizontal, trim_vector_sectio
 
         if trim_vector_sections:
             assert assign not in loop.body
-            assert assign in routine.body.body
+            assert assign in routine.body
 
             assert comment not in loop.body
-            assert comment in routine.body.body
+            assert comment in routine.body
         else:
             assert assign in loop.body
-            assert assign not in routine.body.body
+            assert assign not in routine.body
 
             assert comment in loop.body
-            assert comment not in routine.body.body
+            assert comment not in routine.body
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -689,10 +689,10 @@ def test_scc_vector_section_trim_nested(frontend, horizontal, trim_vector_sectio
 
     if trim_vector_sections:
         assert cond not in loop.body
-        assert cond in routine.body.body
+        assert cond in routine.body
     else:
         assert cond in loop.body
-        assert cond not in routine.body.body
+        assert cond not in routine.body
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -745,7 +745,7 @@ def test_scc_vector_section_trim_complex(
     loop = FindNodes(ir.Loop).visit(routine.body)[0]
 
     assert cond in loop.body
-    assert cond not in routine.body.body
+    assert cond not in routine.body
     if trim_vector_sections:
         assert assign not in loop.body
         assert(len(FindNodes(ir.Assignment).visit(loop.body)) == 3)

@@ -14,6 +14,7 @@ from loki.ir import (
     MaskedTransformer, NestedMaskedTransformer, SubstituteExpressions
 )
 from loki.expression import symbols as sym
+from loki.tools import as_tuple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -290,6 +291,62 @@ end subroutine routine_simple
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_transformer_section_replacement_is_atomic(frontend):
+    """
+    Test that iterable :any:`Section` replacements remain atomic nodes.
+    """
+    fcode = """
+subroutine routine_simple(a)
+  integer, intent(inout) :: a
+
+  a = a + 1
+  a = a + 2
+end subroutine routine_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    section = ir.Section(body=(assigns[1].clone(),), label='wrapped')
+
+    transformed = Transformer({assigns[0]: section}).visit(routine.body)
+
+    sections = FindNodes(ir.Section).visit(transformed)
+    assert len(sections) == 2
+    assert any(s.label == 'wrapped' for s in sections)
+    wrapped = next(s for s in sections if s.label == 'wrapped')
+    assert as_tuple(wrapped) == (wrapped,)
+    assert len(FindNodes(ir.Assignment).visit(wrapped)) == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transformer_associate_replacement_is_atomic(frontend):
+    """
+    Test that iterable :any:`Associate` replacements remain atomic nodes.
+    """
+    fcode = """
+subroutine routine_simple(a)
+  integer, intent(inout) :: a
+  integer :: b
+
+  a = a + 1
+  b = a + 2
+end subroutine routine_simple
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    associate = ir.Associate(  # pylint: disable=unexpected-keyword-arg
+        associations=((routine.variable_map['a'], routine.variable_map['b']),),
+        body=(assigns[1].clone(),), parent=routine
+    )
+
+    transformed = Transformer({assigns[0]: associate}).visit(routine.body)
+
+    associates = FindNodes(ir.Associate).visit(transformed)
+    assert len(associates) == 1
+    assert as_tuple(associates[0]) == (associates[0],)
+    assert len(FindNodes(ir.Assignment).visit(associates[0])) == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_masked_transformer(frontend):
     """
     A very basic sanity test for the MaskedTransformer class.
@@ -477,8 +534,8 @@ end subroutine masked_transformer
     assert len(FindNodes(ir.Assignment).visit(body)) == len(assignments) - 1
     assocs = FindNodes(ir.Associate).visit(body)
     assert len(assocs) == 1
-    assert len(assocs[0].body) == len(assignments) - 1
-    assert all(isinstance(n, ir.Assignment) for n in assocs[0].body)
+    assert len(assocs[0]) == len(assignments) - 1
+    assert all(isinstance(n, ir.Assignment) for n in assocs[0])
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from loki.expression import symbols as sym, parse_expr
 from loki.function import Function
 from loki.ir import nodes as ir
+from loki.tools import as_tuple, flatten
 from loki.types import Scope
 
 
@@ -262,6 +263,63 @@ def test_section(n, a_n, a_i):
     assert sec.body == (assign, func, assign, assign)
     sec.insert(pos=3, node=func)
     assert sec.body == (assign, func, assign, func, assign)
+
+
+def test_section_iterable(a_i):
+    """
+    Test iterable-style access for :any:`Section`.
+    """
+    assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    assign2 = ir.Assignment(lhs=a_i, rhs=sym.Literal(24.0))
+    assign3 = ir.Assignment(lhs=a_i, rhs=sym.Literal(12.0))
+
+    section = ir.Section(body=(assign1, assign2, assign1, assign3))
+    assert list(section) == list(section.body)
+    assert section[0] is assign1
+    assert section[-1] is assign3
+    assert assign1 in section
+    assert len(section) == len(section.body) == 4
+    assert section.index(assign1) == 0
+    assert section.index(assign1, 1) == 2
+    assert section.index(assign3, 0, 4) == 3
+    assert as_tuple(section) == (section,)
+    assert flatten([section]) == [section]
+
+
+def test_loop_is_not_iterable(one, i, n, a_i):
+    """
+    Test that iterable access is not enabled for unrelated internal nodes.
+    """
+    assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    loop = ir.Loop(variable=i, bounds=sym.Range((one, n)), body=(assign,))
+
+    with pytest.raises(TypeError):
+        iter(loop)
+    with pytest.raises(TypeError):
+        _ = loop[0]
+    with pytest.raises(TypeError):
+        len(loop)
+
+
+def test_associate_iterable(scope, a_i):
+    """
+    Test iterable-style access for :any:`Associate` while keeping it atomic.
+    """
+    b = sym.Scalar(name='b', scope=scope)
+    b_a = sym.Array(name='a', parent=b, scope=scope)
+    a = sym.Array(name='a', scope=scope)
+    assign1 = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
+    assign2 = ir.Assignment(lhs=a_i.clone(parent=b), rhs=sym.Literal(66.6))
+
+    assoc = ir.Associate(associations=((b_a, a),), body=(assign1, assign2), parent=scope)  # pylint: disable=unexpected-keyword-arg
+
+    assert list(assoc) == list(assoc.body)
+    assert assoc[0] is assign1
+    assert assoc[-1] is assign2
+    assert assign1 in assoc
+    assert len(assoc) == len(assoc.body) == 2
+    assert as_tuple(assoc) == (assoc,)
+    assert flatten([assoc]) == [assoc]
 
 
 def test_callstatement(scope, one, i, n, a_i):

@@ -500,10 +500,10 @@ end subroutine test_pipeline
     routine = Subroutine.from_source(fcode)
     pipeline.apply(routine)
 
-    assert isinstance(routine.body.body[0], ir.Comment)
-    assert routine.body.body[0].text == '! Whazzup Bob'
-    assert isinstance(routine.body.body[-1], ir.Comment)
-    assert routine.body.body[-1].text == '! Au revoir, Bob'
+    assert isinstance(routine.body[0], ir.Comment)
+    assert routine.body[0].text == '! Whazzup Bob'
+    assert isinstance(routine.body[-1], ir.Comment)
+    assert routine.body[-1].text == '! Au revoir, Bob'
 
 
 def test_transformation_pipeline_constructor():

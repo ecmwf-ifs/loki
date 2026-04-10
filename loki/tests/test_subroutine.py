@@ -83,27 +83,27 @@ end subroutine routine_simple
     # Check the spec
     assert isinstance(routine.body, ir.Section)
     if frontend == OMNI:
-        assert len(routine.spec.body) == 9
-        assert isinstance(routine.spec.body[0], ir.Intrinsic)
-        assert isinstance(routine.spec.body[1], ir.Pragma)
-        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec.body[2:])
-        assert routine.spec.body[2].symbols == ('jprb',)
-        assert routine.spec.body[3].symbols == ('x',)
-        assert routine.spec.body[4].symbols == ('y',)
-        assert routine.spec.body[5].symbols == ('scalar',)
-        assert routine.spec.body[6].symbols == ('vector(x)',)
-        assert routine.spec.body[7].symbols == ('matrix(x, y)',)
-        assert routine.spec.body[8].symbols == ('i',)
+        assert len(routine.spec) == 9
+        assert isinstance(routine.spec[0], ir.Intrinsic)
+        assert isinstance(routine.spec[1], ir.Pragma)
+        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec[2:])
+        assert routine.spec[2].symbols == ('jprb',)
+        assert routine.spec[3].symbols == ('x',)
+        assert routine.spec[4].symbols == ('y',)
+        assert routine.spec[5].symbols == ('scalar',)
+        assert routine.spec[6].symbols == ('vector(x)',)
+        assert routine.spec[7].symbols == ('matrix(x, y)',)
+        assert routine.spec[8].symbols == ('i',)
     else:
-        assert len(routine.spec.body) == 7
-        assert isinstance(routine.spec.body[0], ir.Pragma)
-        assert isinstance(routine.spec.body[1], ir.Comment)
-        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec.body[2:])
-        assert routine.spec.body[2].symbols == ('jprb',)
-        assert routine.spec.body[3].symbols == ('x', 'y')
-        assert routine.spec.body[4].symbols == ('scalar',)
-        assert routine.spec.body[5].symbols == ('vector(x)', 'matrix(x, y)')
-        assert routine.spec.body[6].symbols == ('i',)
+        assert len(routine.spec) == 7
+        assert isinstance(routine.spec[0], ir.Pragma)
+        assert isinstance(routine.spec[1], ir.Comment)
+        assert all(isinstance(n, ir.VariableDeclaration) for n in routine.spec[2:])
+        assert routine.spec[2].symbols == ('jprb',)
+        assert routine.spec[3].symbols == ('x', 'y')
+        assert routine.spec[4].symbols == ('scalar',)
+        assert routine.spec[5].symbols == ('vector(x)', 'matrix(x, y)')
+        assert routine.spec[6].symbols == ('i',)
 
     # Check the routine body
     assert isinstance(routine.spec, ir.Section)
@@ -133,9 +133,9 @@ end subroutine my_routine
     assert routine.prefix == ('PURE', 'ELEMENTAL')
 
     # Check that routine was parsed completely
-    assert isinstance(routine.body.body[-1], ir.Assignment)
-    assert routine.body.body[-1].lhs == 'x'
-    assert routine.body.body[-1].rhs == 'x + y'
+    assert isinstance(routine.body[-1], ir.Assignment)
+    assert routine.body[-1].lhs == 'x'
+    assert routine.body[-1].rhs == 'x + y'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -179,9 +179,9 @@ end module my_module
     assert intf_routine == routine
 
     # Check that module routine was parsed completely
-    assert isinstance(routine.body.body[-1], ir.Assignment)
-    assert routine.body.body[-1].lhs == 'x'
-    assert routine.body.body[-1].rhs == 'x + y'
+    assert isinstance(routine.body[-1], ir.Assignment)
+    assert routine.body[-1].lhs == 'x'
+    assert routine.body[-1].rhs == 'x + y'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -924,10 +924,10 @@ end subroutine routine_empty_spec
 """)
     if frontend == OMNI:
         # OMNI inserts IMPLICIT NONE into spec
-        assert len(routine.spec.body) == 1
+        assert len(routine.spec) == 1
     else:
-        assert not routine.spec.body
-    assert len(routine.body.body) == 1
+        assert not routine.spec
+    assert len(routine.body) == 1
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

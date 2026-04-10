@@ -43,6 +43,14 @@ __all__ = [
 ]
 
 
+def _is_atomic_iterable_ir_node(obj):
+    """
+    Return ``True`` for iterable IR nodes that should stay atomic in helpers.
+    """
+    from loki.ir import nodes as ir  # pylint: disable=import-outside-toplevel, cyclic-import
+    return isinstance(obj, (ir.Section, ir.Associate))
+
+
 def as_tuple(item, type=None, length=None):
     """
     Force item to a tuple, even if `None` is provided.
@@ -55,6 +63,8 @@ def as_tuple(item, type=None, length=None):
         t = ()
     elif isinstance(item, str):
         t = (item,)
+    elif _is_atomic_iterable_ir_node(item):
+        t = (item,) * (length or 1)
     else:
         # Convert iterable to list...
         try:
@@ -78,6 +88,8 @@ def is_iterable(o):
     identified as a :class:`collections.Iterable` and thus this is a much more reliable test than
     ``isinstance(obj, collections.Iterable)``.
     """
+    if _is_atomic_iterable_ir_node(o):
+        return False
     try:
         iter(o)
     except TypeError:

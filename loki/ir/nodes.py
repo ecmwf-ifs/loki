@@ -414,6 +414,23 @@ class Section(InternalNode, _SectionBase):
     Internal representation of a single code region.
     """
 
+    def __iter__(self):
+        return iter(self.body)
+
+    def __getitem__(self, index):
+        return self.body[index]
+
+    def __len__(self):
+        return len(self.body)
+
+    def __contains__(self, item):
+        return item in self.body
+
+    def index(self, item, start=0, stop=None):
+        if stop is None:
+            return self.body.index(item, start)
+        return self.body.index(item, start, stop)
+
     def append(self, node):
         """
         Append the given node(s) to the section's body.
@@ -486,6 +503,9 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
     """
 
     _traversable = ['body', 'associations']
+
+    def __bool__(self):
+        return True
 
     def __post_init__(self, parent=None):
         super(ScopedNode, self).__post_init__(parent=parent)

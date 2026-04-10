@@ -207,9 +207,9 @@ end module some_mod
     )
 
     # ...and full substitution
-    assert fgen(routine.body.body[0]).lower() == 'my_obj%a = my_obj%my_add(my_obj%a(1:my_obj%m, 1:my_obj%n), 1.)'
+    assert fgen(routine.body[0]).lower() == 'my_obj%a = my_obj%my_add(my_obj%a(1:my_obj%m, 1:my_obj%n), 1.)'
     routine.body = SubstituteExpressions(expr_map).visit(routine.body)
-    assert fgen(routine.body.body[0]) == 'obj%a = obj%my_add(obj%a(1:obj%m, 1:obj%n), 1.)'
+    assert fgen(routine.body[0]) == 'obj%a = obj%my_add(obj%a(1:obj%m, 1:obj%n), 1.)'
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Argument mismatch for "min"')]))
 def test_transform_utilites_replace_intrinsics(frontend):
@@ -656,7 +656,7 @@ end module test_get_local_arrays_mod
     assert len(local_arrs) == 2
     assert all(l == 'local(i)' for l in local_arrs)
 
-    local_arrs = get_local_arrays(routine, routine.body.body[-1:], unique=False)
+    local_arrs = get_local_arrays(routine, routine.body[-1:], unique=False)
     assert len(local_arrs) == 1
     assert local_arrs[0] == 'local(i)'
 

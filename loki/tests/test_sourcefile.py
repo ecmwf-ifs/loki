@@ -340,14 +340,14 @@ end subroutine myroutine
     assert isinstance(source.ir.body[2], RawSource)
 
     myroutine = source['myroutine']
-    assert isinstance(myroutine.spec.body[0], RawSource)
+    assert isinstance(myroutine.spec[0], RawSource)
 
     source.make_complete(frontend=frontend)
 
     assert isinstance(source.ir.body[0], Comment)
     assert isinstance(source.ir.body[2], Comment)
     if frontend == OMNI:
-        assert isinstance(myroutine.body.body[0], Comment)
+        assert isinstance(myroutine.body[0], Comment)
     else:
         assert isinstance(myroutine.docstring[0], Comment)
 

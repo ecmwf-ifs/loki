@@ -59,13 +59,13 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
 
             allocations = FindNodes(ir.Allocation).visit(routine.body)
             if allocations:
-                insert_index = routine.body.body.index(allocations[-1])
+                insert_index = routine.body.index(allocations[-1])
                 routine.body.insert(insert_index + 1, ir.Allocation((var.clone(),)))
             else:
                 routine.body.prepend(ir.Allocation((var.clone(),)))
             de_allocations = FindNodes(ir.Deallocation).visit(routine.body)
             if de_allocations:
-                insert_index = routine.body.body.index(de_allocations[-1])
+                insert_index = routine.body.index(de_allocations[-1])
                 routine.body.insert(insert_index + 1, ir.Deallocation((var.clone(dimensions=None),)))
             else:
                 routine.body.append(ir.Deallocation((var.clone(dimensions=None),)))
@@ -815,7 +815,7 @@ class SccLowLevelDataOffload(Transformation):
 
             allocations = FindNodes(ir.Allocation).visit(routine.body)
             if allocations:
-                insert_index = routine.body.body.index(allocations[-1]) + 1
+                insert_index = routine.body.index(allocations[-1]) + 1
             else:
                 insert_index = None
             # or: insert_index = routine.body.body.index(calls[0])
@@ -836,7 +836,7 @@ class SccLowLevelDataOffload(Transformation):
             insert_index = None
             for call in FindNodes(ir.CallStatement).visit(routine.body):
                 if "THREAD_END" in str(call.name):  # TODO: fix/check: very specific to CLOUDSC
-                    insert_index = routine.body.body.index(call) + 1
+                    insert_index = routine.body.index(call) + 1
 
             if insert_index is None:
                 routine.body.append(ir.Comment(''))
