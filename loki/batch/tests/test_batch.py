@@ -713,7 +713,8 @@ def test_procedure_item_from_item1(testdir, default_config):
     # A file with a single subroutine definition that calls a routine via interface block
     item_factory = ItemFactory()
     scheduler_config = SchedulerConfig.from_dict(default_config)
-    file_item = item_factory.get_or_create_file_item_from_path(proj/'source/comp1.F90', config=scheduler_config)
+    source = Sourcefile.from_file(proj/'source/comp1.F90')
+    file_item = item_factory.get_or_create_file_item_from_source(source, config=scheduler_config)
     item = file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
     assert item.name == '#comp1'
     assert isinstance(item, ProcedureItem)
@@ -746,7 +747,8 @@ def test_procedure_item_from_item2(testdir, default_config):
     # where the type is imported via an import statement in the module scope
     item_factory = ItemFactory()
     scheduler_config = SchedulerConfig.from_dict(default_config)
-    file_item = item_factory.get_or_create_file_item_from_path(proj/'module/other_mod.F90', config=scheduler_config)
+    source = Sourcefile.from_file(proj/'module/other_mod.F90')
+    file_item = item_factory.get_or_create_file_item_from_source(source, config=scheduler_config)
     mod_item = file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)[0]
     assert mod_item.name == 'other_mod'
     assert isinstance(mod_item, ModuleItem)
