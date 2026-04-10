@@ -23,7 +23,7 @@ from loki.transformations.utilities import (
 
 
 __all__ = [
-    'RemoveLoopTransformer', 'SCCDevectorTransformation',
+    'RemoveLoopTransformer', 'SCCDevectorTransformation', 'SCCSeqDevectorTransformation'
 ]
 
 
@@ -72,6 +72,7 @@ class SCCDevectorTransformation(Transformation):
     def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
         self.trim_vector_sections = trim_vector_sections
+        self.driver_trim_vector_sections = trim_vector_sections
 
     @classmethod
     def _add_separator(cls, node, section, separator_nodes):
@@ -95,6 +96,20 @@ class SCCDevectorTransformation(Transformation):
         return separator_nodes
 
     @classmethod
+    def _separate_at_calls(cls, section, calls):
+        separator_nodes = []
+        for call in calls:
+
+            # check if calls have been enriched
+            if not call.routine is BasicType.DEFERRED:
+                # check if called routine is marked as sequential
+                if check_routine_sequential(routine=call.routine):
+                    continue
+
+            separator_nodes = cls._add_separator(call, section, separator_nodes)
+        return separator_nodes
+
+    @classmethod
     def extract_vector_sections(cls, section, horizontal):
         """
         Extract a contiguous sections of nodes that contains vector-level
@@ -111,17 +126,7 @@ class SCCDevectorTransformation(Transformation):
 
         # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
         calls = FindNodes(ir.CallStatement).visit(section)
-        separator_nodes = []
-
-        for call in calls:
-
-            # check if calls have been enriched
-            if not call.routine is BasicType.DEFERRED:
-                # check if called routine is marked as sequential
-                if check_routine_sequential(routine=call.routine):
-                    continue
-
-            separator_nodes = cls._add_separator(call, section, separator_nodes)
+        separator_nodes = cls._separate_at_calls(section, calls)
 
         for pragma in FindNodes(ir.Pragma).visit(section):
             # Reductions over thread-parallel regions should be marked as a separator node
@@ -152,8 +157,14 @@ class SCCDevectorTransformation(Transformation):
         assert all(n in section for n in separator_nodes)
         subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
 
+        # filter out unenriched calls
+        calls = [call for call in calls if not call.routine is BasicType.DEFERRED]
+        vec_calls = [call for call in calls if not check_routine_sequential(routine=call.routine)]
+
         # Filter sub-sections that do not use the horizontal loop index variable
-        subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
+        subsections = [s for s in subsections 
+                       if (horizontal.index in list(FindVariables().visit(s)) or 
+                       any(vec_call in FindNodes(ir.CallStatement).visit(s) for vec_call in vec_calls))]
 
         # Recurse on all separator nodes that might contain further vector sections
         for separator in separator_nodes:
@@ -194,7 +205,13 @@ class SCCDevectorTransformation(Transformation):
         trimmed_sections = ()
         with dataflow_analysis_attached(routine):
             for sec in sections:
-                vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
+                calls = FindNodes(ir.CallStatement).visit(sec)
+                # filter out unenriched calls
+                calls = [call for call in calls if not call.routine is BasicType.DEFERRED]
+                vec_calls = [call for call in calls if not check_routine_sequential(routine=call.routine)]
+
+                vec_nodes = [node for node in sec if (horizontal.index.lower() in node.uses_symbols
+                                                      or any(n in vec_calls for n in FindNodes(ir.CallStatement).visit(node)))]
                 start = sec.index(vec_nodes[0])
                 end = sec.index(vec_nodes[-1])
 
@@ -270,9 +287,21 @@ class SCCDevectorTransformation(Transformation):
             new_driver_loop = RemoveLoopTransformer(dimension=self.horizontal).visit(loop.body)
             new_driver_loop = loop.clone(body=new_driver_loop)
             sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
-            if self.trim_vector_sections:
+            if self.driver_trim_vector_sections:
                 sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
             section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
             new_driver_loop = NestedTransformer(section_mapper).visit(new_driver_loop)
             driver_loop_map[loop] = new_driver_loop
         routine.body = Transformer(driver_loop_map).visit(routine.body)
+
+
+class SCCSeqDevectorTransformation(SCCDevectorTransformation):
+
+    def __init__(self, horizontal, trim_vector_sections=False):
+        self.horizontal = horizontal
+        self.trim_vector_sections = trim_vector_sections
+        self.driver_trim_vector_sections = True
+
+    @classmethod
+    def _separate_at_calls(cls, section, calls):
+        return []
