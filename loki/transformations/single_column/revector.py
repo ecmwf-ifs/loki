@@ -441,15 +441,8 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
                                         get_integer_variable(routine, self.horizontal.index))
                                 updated_call = call.clone(kwarguments=call.kwarguments + (new_kwarg,))
                                 call_arg_map = {k.name.lower(): v for (k, v) in call.arg_map.items()}
-                                # loop bound(s) could be derived types ...
-                                ltmp = self._get_loop_bound(self.horizontal.lower, call_arg_map)
-                                utmp = self._get_loop_bound(self.horizontal.upper, call_arg_map)
-                                lower = ltmp[0] if ltmp[1] is None else sym.Variable(name=ltmp[1], parent=ltmp[0])
-                                upper = utmp[0] if utmp[1] is None else sym.Variable(name=utmp[1], parent=utmp[0])
-                                # wrap call with horizontal loop
-                                loop_bounds = (lower, upper)
-                                call_map[call] = wrap_vector_section((updated_call,), routine, bounds=loop_bounds,
-                                        insert_pragma=True, index=self.horizontal.index)
+
+                                call_map[call] = as_tuple(updated_call)
 
                     loop._update(body=Transformer(call_map).visit(loop.body))
 

@@ -20,7 +20,9 @@ from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
-from loki.transformations.single_column.devector import SCCDevectorTransformation
+from loki.transformations.single_column.devector import (
+    SCCDevectorTransformation, SCCSeqDevectorTransformation
+)
 from loki.transformations.single_column.revector import (
     SCCVecRevectorTransformation, SCCSeqRevectorTransformation
 )
@@ -342,7 +344,7 @@ SCCSStackPipeline = partial(
     Pipeline, classes=(
         SCCFuseVerticalLoops,
         SCCBaseTransformation,
-        SCCDevectorTransformation,
+        SCCSeqDevectorTransformation,
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         RemoveUnusedVarTransformation,
