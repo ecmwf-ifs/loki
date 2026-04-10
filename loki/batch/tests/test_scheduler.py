@@ -1687,11 +1687,16 @@ contains
         integer :: val
         call my_member
         write(*,*) val
+        val = my_func(val)
         call kernel
     contains
         subroutine my_member
             call my_routine(val)
         end subroutine my_member
+        integer function my_func(val0)
+           integer, intent(in) :: val0
+           my_func = val0 + 1
+        end function
     end subroutine driver
 end module member_mod
     """.strip()
@@ -1756,19 +1761,20 @@ end subroutine kernel
         #   2) we override the config for the driver to include internal procedures
         #   3) we include internal procedures but disable it for the driver
         # and mark the corresponding excpected dependencies in case 1 and 2
-        include_driver_my_member = (
+        include_driver_internals = (
             (ignore_internal_procedures_driver is None and not ignore_internal_procedures) or
             ignore_internal_procedures_driver is False
         )
 
-        if include_driver_my_member:
-            expected += ['member_mod#driver#my_member::my_member']
-            expected_dependencies_driver = ['my_member', *expected_dependencies_driver]
-
-        expected += ['#kernel::kernel']
+        if include_driver_internals:
+            expected += ['member_mod#driver#my_member::my_member', '#kernel::kernel',
+                         'member_mod#driver#my_func::my_func']
+            expected_dependencies_driver = ['my_member', *expected_dependencies_driver, 'my_func']
+        else:
+            expected += ['#kernel::kernel']
         expected_dependencies_kernel = []
 
-        if include_driver_my_member:
+        if include_driver_internals:
             expected += ['member_mod#my_routine::my_routine']
 
         if not ignore_internal_procedures:
