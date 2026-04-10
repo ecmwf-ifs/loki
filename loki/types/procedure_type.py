@@ -9,7 +9,6 @@
 
 import weakref
 
-from loki.tools import LazyNodeLookup
 from loki.types.datatypes import BasicType, DataType
 
 
@@ -22,24 +21,20 @@ class ProcedureType(DataType):
 
     This serves also as the cross-link between the use of a procedure (e.g. in a
     :any:`CallStatement`) to the :any:`Subroutine` object that is the target of
-    a call. If the corresponding object is not yet available when the
-    :any:`ProcedureType` object is created, or its definition is transient and
-    subject to IR rebuilds (e.g. :any:`StatementFunction`), the :any:`LazyNodeLookup`
-    utility can be used to defer the actual instantiation. In that situation,
-    :data:`name` should be provided in addition.
+    a call.
 
     Parameters
     ----------
     name : str, optional
         The name of the function or subroutine. Can be skipped if :data:`procedure`
-        is provided (not in the form of a :any:`LazyNodeLookup`)
+        is provided.
     is_function : bool, optional
         Indicate that this is a function
     is_generic : bool, optional
         Indicate that this is a generic function
     is_intrinsic : bool, optional
         Indicate that this is an intrinsic function
-    procedure : :any:`Subroutine` or :any:`StatementFunction` or :any:`LazyNodeLookup`, optional
+    procedure : :any:`Subroutine` or :any:`StatementFunction`, optional
         The procedure this type represents
     """
 
@@ -56,23 +51,11 @@ class ProcedureType(DataType):
         assert isinstance(return_type, SymbolAttributes) or procedure or not is_function or is_intrinsic
         self.is_generic = is_generic
         self.is_intrinsic = is_intrinsic
-        if procedure is None or isinstance(procedure, LazyNodeLookup):
-            self._procedure = procedure
-            self._name = name
-            self._is_function = is_function or False
-            self._return_type = return_type
-            # NB: not applying an assert on the procedure name for LazyNodeLookup as
-            # the point of the lazy lookup is that we might not have the the procedure
-            # definition available at type instantiation time
-        else:
-            self._procedure = weakref.ref(procedure)
-            # Cache all properties for when procedure link becomes inactive
-            assert name is None or name.lower() == self.procedure.name.lower()
-            self._name = self.procedure.name
-            assert is_function is None or is_function == self.procedure.is_function
-            self._is_function = self.procedure.is_function
-            # TODO: compare return type once type comparison is more robust
-            self._return_type = self.procedure.return_type if self.procedure.is_function else None
+
+        self.procedure = procedure
+        self._name = procedure.name if procedure else name
+        self._is_function = is_function or False
+        self._return_type = return_type
 
     @property
     def _canonical(self):
@@ -109,6 +92,15 @@ class ProcedureType(DataType):
         if self._procedure() is None:
             return BasicType.DEFERRED
         return self._procedure()
+
+    @procedure.setter
+    def procedure(self, proc):
+        # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.subroutine import Subroutine
+        from loki.function import Function
+        from loki.ir import StatementFunction
+        assert proc is None or isinstance(proc, (Function, Subroutine, StatementFunction))
+        self._procedure = None if proc is None else weakref.ref(proc)
 
     @property
     def is_function(self):

@@ -327,6 +327,9 @@ class DataflowAnalysisAttacher(Transformer):
             uses |= {o.symbols[0].type.kind}
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
+    # The definition of the function has no effect on data flow
+    visit_StatementFunction = visit_Node
+
 
 class DataflowAnalysisDetacher(Transformer):
     """
