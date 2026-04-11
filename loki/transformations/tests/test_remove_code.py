@@ -570,7 +570,7 @@ end subroutine
     assert len(conditionals) == (4 if frontend == OMNI else 0)
 
     # Check that all intrinsic calls to WRITE have been removed
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
     assert len(intrinsics) == 1
     assert 'never gonna let you down' in intrinsics[0].text
 

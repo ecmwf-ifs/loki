@@ -202,7 +202,7 @@ end module test_source_mod
         assert not assigns[0].source
 
     imprts = FindNodes(ir.Import).visit(module.spec)
-    intrs = FindNodes(ir.Intrinsic).visit(module.spec)
+    intrs = FindNodes(ir.GenericStmt).visit(module.spec)
     tdefs = FindNodes(ir.TypeDef).visit(module.spec)
     assert len(imprts) == 1 and len(tdefs) == 1 and len(intrs) == 1
     tdecls = FindNodes(ir.VariableDeclaration).visit(tdefs[0].body)

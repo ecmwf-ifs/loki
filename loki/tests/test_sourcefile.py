@@ -11,10 +11,9 @@ import pytest
 import numpy as np
 
 from loki import (
-    Sourcefile, FindNodes, PreprocessorDirective, Intrinsic,
-    Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
-    StatementFunction, Comment, CommentBlock, RawSource, Scalar
+    Sourcefile, fgen, ProcedureType, ProcedureSymbol, Scalar
 )
+from loki.ir import nodes as ir, FindNodes
 from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI, FP, REGEX
 
@@ -105,7 +104,7 @@ end function function_d
     assert 'contained_c' not in [routine.name.lower() for routine in source.subroutines]
     assert 'contained_c' not in [routine.name.lower() for routine in source.all_subroutines]
 
-    comments = FindNodes((Comment, CommentBlock)).visit(source.ir)
+    comments = FindNodes((ir.Comment, ir.CommentBlock)).visit(source.ir)
     assert len(comments) == 4
     assert all(comment.text.strip() in ['! Some comment', '! Other comment'] for comment in comments)
 
@@ -114,7 +113,7 @@ end function function_d
 def test_sourcefile_pp_macros(here, frontend):
     filepath = here/'sources/sourcefile_pp_macros.F90'
     routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_macros']
-    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.ir)
     assert len(directives) == 8
     assert all(node.text.startswith('#') for node in directives)
 
@@ -128,14 +127,14 @@ def test_sourcefile_pp_directives(here, frontend):
 
     # Note: these checks are rather loose as we currently do not restore the original version but
     # simply replace the PP constants by strings
-    directives = FindNodes(PreprocessorDirective).visit(routine.body)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.body)
     assert len(directives) == 1
     assert directives[0].text == '#define __FILENAME__ __FILE__'
-    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
     assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
     assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
 
-    statements = FindNodes(Assignment).visit(routine.body)
+    statements = FindNodes(ir.Assignment).visit(routine.body)
     assert len(statements) == 1
     assert fgen(statements[0]) == 'y = 0*5 + 0'
 
@@ -146,7 +145,7 @@ def test_sourcefile_pp_include(here, frontend):
     sourcefile = Sourcefile.from_file(filepath, frontend=frontend, includes=[here/'include'])
     routine = sourcefile['routine_pp_include']
 
-    statements = FindNodes(Assignment).visit(routine.body)
+    statements = FindNodes(ir.Assignment).visit(routine.body)
     assert len(statements) == 1
     if frontend == OMNI:
         # OMNI resolves that statement function!
@@ -156,7 +155,7 @@ def test_sourcefile_pp_include(here, frontend):
 
     if frontend is not OMNI:
         # OMNI resolves the import in the frontend
-        imports = FindNodes(Import).visit([routine.spec, routine.body])
+        imports = FindNodes(ir.Import).visit([routine.spec, routine.body])
         assert len(imports) == 1
         assert imports[0].c_import
         assert imports[0].module == 'some_header.h'
@@ -171,11 +170,11 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
 
     source = Sourcefile.from_file(filepath, preprocess=True, frontend=frontend)
     routine = source['sourcefile_external_preprocessing']
-    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.ir)
 
     if frontend is not OMNI:
         # OMNI skips the import in the frontend
-        imports = FindNodes(Import).visit([routine.spec, routine.body])
+        imports = FindNodes(ir.Import).visit([routine.spec, routine.body])
         assert len(imports) == 1
         assert imports[0].c_import
         assert imports[0].module == 'some_header.h'
@@ -187,7 +186,7 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
     source = Sourcefile.from_file(filepath, preprocess=True, defines='FLAG_SMALL',
                                   frontend=frontend)
     routine = source['sourcefile_external_preprocessing']
-    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.ir)
 
     assert len(directives) == 0
     assert 'b = 6' in fgen(routine)
@@ -209,7 +208,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend, tmp_path):
     # OMNI inlines statement functions, so we can't check the representation
     if frontend != OMNI:
         routine = source['cpp_stmt_func']
-        stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
+        stmt_func_decls = FindNodes(ir.StatementFunction).visit(routine.spec)
         assert len(stmt_func_decls) == 4
 
         for decl in stmt_func_decls:
@@ -286,8 +285,8 @@ end function function_d
 
     # Make sure we have an incomplete parse tree until now
     assert source._incomplete
-    assert len(FindNodes(RawSource).visit(source.ir)) == 5
-    assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
+    assert len(FindNodes(ir.RawSource).visit(source.ir)) == 5
+    assert len(FindNodes(ir.RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
     try:
@@ -299,19 +298,19 @@ end function function_d
     assert not source._incomplete
 
     # Make sure no RawSource nodes are left
-    assert not FindNodes(RawSource).visit(source.ir)
+    assert not FindNodes(ir.RawSource).visit(source.ir)
     if frontend == FP:
         # Some newlines are also treated as comments
-        assert len(FindNodes(Comment).visit(source.ir)) == 2
+        assert len(FindNodes(ir.Comment).visit(source.ir)) == 2
     else:
-        assert len(FindNodes(Comment).visit(source.ir)) == 1
+        assert len(FindNodes(ir.Comment).visit(source.ir)) == 1
     if frontend == OMNI:
-        assert not FindNodes(PreprocessorDirective).visit(source.ir)
+        assert not FindNodes(ir.PreprocessorDirective).visit(source.ir)
     else:
-        assert len(FindNodes(PreprocessorDirective).visit(source.ir)) == 2
+        assert len(FindNodes(ir.PreprocessorDirective).visit(source.ir)) == 2
     for routine in source.all_subroutines:
-        assert not FindNodes(RawSource).visit(routine.ir)
-        assert len(FindNodes(Assignment).visit(routine.ir)) == 1
+        assert not FindNodes(ir.RawSource).visit(routine.ir)
+        assert len(FindNodes(ir.Assignment).visit(routine.ir)) == 1
 
     # The previously generated ProgramUnit objects should be the same as before
     assert routine_b is source['routine_b']
@@ -336,20 +335,20 @@ end subroutine myroutine
     """.strip()
     source = Sourcefile.from_source(fcode, frontend=REGEX)
 
-    assert isinstance(source.ir.body[0], RawSource)
-    assert isinstance(source.ir.body[2], RawSource)
+    assert isinstance(source.ir.body[0], ir.RawSource)
+    assert isinstance(source.ir.body[2], ir.RawSource)
 
     myroutine = source['myroutine']
-    assert isinstance(myroutine.spec.body[0], RawSource)
+    assert isinstance(myroutine.spec.body[0], ir.RawSource)
 
     source.make_complete(frontend=frontend)
 
-    assert isinstance(source.ir.body[0], Comment)
-    assert isinstance(source.ir.body[2], Comment)
+    assert isinstance(source.ir.body[0], ir.Comment)
+    assert isinstance(source.ir.body[2], ir.Comment)
     if frontend == OMNI:
-        assert isinstance(myroutine.body.body[0], Comment)
+        assert isinstance(myroutine.body.body[0], ir.Comment)
     else:
-        assert isinstance(myroutine.docstring[0], Comment)
+        assert isinstance(myroutine.docstring[0], ir.Comment)
 
     code = source.to_fortran()
     assert '! Comment outside' in code
@@ -409,7 +408,7 @@ end subroutine other_routine
     assert 'new_mod_routine' in new_new_source['my_mod']
 
     if not source._incomplete:
-        assert isinstance(source.ir.body[0], Comment)
+        assert isinstance(source.ir.body[0], ir.Comment)
         comment_text = source.ir.body[0].text
         new_comment_text = comment_text + ' some more text'
         source.ir.body[0]._update(text=new_comment_text)

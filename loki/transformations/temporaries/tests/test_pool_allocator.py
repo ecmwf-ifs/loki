@@ -16,9 +16,8 @@ from loki.expression import (
 )
 from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import (
-    FindNodes, CallStatement, Assignment, Allocation, Deallocation,
-    Loop, Pragma, get_pragma_parameters, FindVariables, FindInlineCalls,
-    Intrinsic
+    nodes as ir, FindNodes, FindVariables, FindInlineCalls,
+    get_pragma_parameters
 )
 
 from loki.transformations.pragma_model import PragmaModelTransformation
@@ -58,21 +57,21 @@ def check_stack_created_in_driver(
     assert 'ylstack_l' in driver.variables
 
     # Is there an allocation and deallocation for the stack storage?
-    allocations = FindNodes(Allocation).visit(driver.body)
+    allocations = FindNodes(ir.Allocation).visit(driver.body)
     assert len(allocations) == 1 and 'zstack(istsz,nb)' in allocations[0].variables
-    deallocations = FindNodes(Deallocation).visit(driver.body)
+    deallocations = FindNodes(ir.Deallocation).visit(driver.body)
     assert len(deallocations) == 1 and 'zstack' in deallocations[0].variables
 
     # # Check the stack size
-    assignments = FindNodes(Assignment).visit(driver.body)
+    assignments = FindNodes(ir.Assignment).visit(driver.body)
     for assignment in assignments:
         if assignment.lhs == 'istsz':
             assert simplify(assignment.rhs) == simplify(stack_size)
 
     # # Check for stack assignment inside loop
-    loops = FindNodes(Loop).visit(driver.body)
+    loops = FindNodes(ir.Loop).visit(driver.body)
     assert len(loops) == num_block_loops
-    assignments = FindNodes(Assignment).visit(loops[0].body)
+    assignments = FindNodes(ir.Assignment).visit(loops[0].body)
     assert assignments[0].lhs == 'ylstack_l'
     if cray_ptr_loc_rhs:
         assert assignments[0].rhs == '1'
@@ -272,7 +271,7 @@ end module kernel_mod
     driver = scheduler['#driver'].ir
     check_c_sizeof_import(driver)
     check_real64_import(driver)
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 1 if trafo == TemporariesPoolAllocatorTransformation else 2
     if nclv_param:
         expected_args = ('1', 'nlon', 'nlon', 'nz', 'field1(:,b)', 'field2(:,:,b)')
@@ -336,7 +335,7 @@ end module kernel_mod
     else:
         tmp_indices = (1, 2, 3, 5)
     assign_idx = {}
-    for idx, assign in enumerate(FindNodes(Assignment).visit(kernel.body)):
+    for idx, assign in enumerate(FindNodes(ir.Assignment).visit(kernel.body)):
         if assign.lhs == 'ylstack_l' and assign.rhs == 'ydstack_l':
             # Local copy of stack status
             assign_idx['stack_assign'] = idx
@@ -478,9 +477,11 @@ end module kernel_mod
 
     # check that the correct variables end up on the stack
     #  look for 'POINTER(IP_tmp<...>, tmp<...>)' Intrinsics
-    pointers = [intrinsic.text.split(',')[1].replace(')', '').replace(' ', '') for intrinsic
-            in FindNodes(Intrinsic).visit(kernel_item.ir.spec)
-            if 'pointer' in intrinsic.text.lower()]
+    pointers = [
+        intrinsic.text.split(',')[1].replace(')', '').replace(' ', '')
+        for intrinsic in FindNodes(ir.GenericStmt).visit(kernel_item.ir.spec)
+        if 'pointer' in intrinsic.text.lower()
+    ]
     assert 'tmp1' in pointers
     assert 'tmp2' in pointers
     assert 'tmp6' in pointers
@@ -682,7 +683,7 @@ end module kernel_mod
     #
     driver = scheduler['#driver'].ir
 
-    stack_order = FindNodes(Assignment).visit(driver.body)
+    stack_order = FindNodes(ir.Assignment).visit(driver.body)
     if stack_insert_pragma:
         assert stack_order[0].lhs == "a"
     else:
@@ -696,7 +697,7 @@ end module kernel_mod
         assert 'jprb' not in driver.import_map['jpim'].symbols
 
     # Has the stack been added to the call statements?
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_U'))
     if cray_ptr_loc_rhs:
         expected_kwarguments += (('ZSTACK', 'zstack(:,b)'),)
@@ -725,7 +726,7 @@ end module kernel_mod
     if directive in ['openmp', 'openacc']:
         keyword = {'openmp': 'omp', 'openacc': 'acc'}[directive]
         pragmas = [
-            p for p in FindNodes(Pragma).visit(driver.body)
+            p for p in FindNodes(ir.Pragma).visit(driver.body)
             if p.keyword.lower() == keyword and p.content.startswith('parallel')
         ]
         assert len(pragmas) == 2
@@ -737,7 +738,7 @@ end module kernel_mod
     # Are there data regions for the stack?
     if directive == ['openacc']:
         pragmas = [
-            p for p in FindNodes(Pragma).visit(driver.body)
+            p for p in FindNodes(ir.Pragma).visit(driver.body)
             if p.keyword.lower() == 'acc' and 'data' in p.content
         ]
         assert len(pragmas) == 2
@@ -780,7 +781,7 @@ end module kernel_mod
 
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
-        for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
+        for idx, ass in enumerate(FindNodes(ir.Assignment).visit(kernel.body)):
 
             if ass.lhs == 'ylstack_l' and ass.rhs == 'ydstack_l':
                 # Local copy of stack status
@@ -996,7 +997,7 @@ end module kernel_mod
         assert driver.import_map['jpim'] == driver.import_map['jplm']
 
     # Has the stack been added to the call statements?
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
     if cray_ptr_loc_rhs:
         expected_kwarguments += (('ZSTACK', 'zstack(:,b)'),)
@@ -1025,7 +1026,7 @@ end module kernel_mod
     if directive in ['openmp', 'openacc']:
         keyword = {'openmp': 'omp', 'openacc': 'acc'}[directive]
         pragmas = [
-            p for p in FindNodes(Pragma).visit(driver.body)
+            p for p in FindNodes(ir.Pragma).visit(driver.body)
             if p.keyword.lower() == keyword and p.content.startswith('parallel')
         ]
         assert len(pragmas) == 1
@@ -1038,7 +1039,7 @@ end module kernel_mod
     # Are there data regions for the stack?
     if directive == ['openacc']:
         pragmas = [
-            p for p in FindNodes(Pragma).visit(driver.body)
+            p for p in FindNodes(ir.Pragma).visit(driver.body)
             if p.keyword.lower() == 'acc' and 'data' in p.content
         ]
         assert len(pragmas) == 2
@@ -1048,7 +1049,7 @@ end module kernel_mod
     #
     # A few checks on the kernels
     #
-    calls = FindNodes(CallStatement).visit(kernel_item.ir.body)
+    calls = FindNodes(ir.CallStatement).visit(kernel_item.ir.body)
     expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
     if cray_ptr_loc_rhs:
         expected_kwarguments += (('ZSTACK', 'zstack'),)
@@ -1085,7 +1086,7 @@ end module kernel_mod
 
         # Let's check for the relevant "allocations" happening in the right order
         assign_idx = {}
-        for idx, ass in enumerate(FindNodes(Assignment).visit(kernel.body)):
+        for idx, ass in enumerate(FindNodes(ir.Assignment).visit(kernel.body)):
 
             if ass.lhs == 'ylstack_l' and ass.rhs == 'ydstack_l':
                 # Local copy of stack status
@@ -1213,7 +1214,7 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
     assert 'ylstack_u' in kernel.variables
 
     # Has the stack been added to the call statement at the correct location?
-    calls = FindNodes(CallStatement).visit(kernel.body)
+    calls = FindNodes(ir.CallStatement).visit(kernel.body)
     expected_kwarguments = (('YDSTACK_L', 'ylstack_l'), ('YDSTACK_U', 'ylstack_u'))
     if cray_ptr_loc_rhs:
         expected_kwarguments += (('ZSTACK', 'zstack'),)
@@ -1387,7 +1388,7 @@ end module kernel_mod
     assert 'ydstack_l' in kernel2.arguments
     assert 'ydstack_u' in kernel2.arguments
 
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     additional_kwargs = (('ZSTACK', 'zstack(:,b)'),) if cray_ptr_loc_rhs else ()
     assert calls[0].arguments == ()
     assert calls[0].kwarguments == (
@@ -1424,7 +1425,7 @@ end module kernel_mod
     ) + additional_kwargs
 
     # check stack size allocation
-    allocations = FindNodes(Allocation).visit(driver.body)
+    allocations = FindNodes(ir.Allocation).visit(driver.body)
     assert len(allocations) == 1 and 'zstack(istsz,geom%blk_dim%nb)' in allocations[0].variables
 
     # check that array size was imported to the driver

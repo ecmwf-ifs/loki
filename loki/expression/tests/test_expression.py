@@ -602,7 +602,7 @@ end subroutine output_intrinsics
         ref[1] = ref[1].replace(' * ', '*')
         ref[1] = ref[1].replace('- 1', '-1')
 
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
     assert len(intrinsics) == 2
     assert intrinsics[0].text.lower() == ref[0]
     assert intrinsics[1].text.lower() == ref[1]

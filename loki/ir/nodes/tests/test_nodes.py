@@ -11,6 +11,7 @@ import pytest
 from pymbolic.primitives import Expression
 from pydantic import ValidationError
 
+from loki.backend import fgen
 from loki.expression import symbols as sym, parse_expr
 from loki.function import Function
 from loki.ir import nodes as ir
@@ -413,3 +414,71 @@ def test_multiconditional(scope, a_i, i):
         expr=i, values=(()), bodies=(()), else_body=((assign3,), assign2)
     )
     assert multicond.else_body == (assign3, assign2)
+
+
+def test_stmt_nodes(scope, n, i):
+    """
+    Test constructors and scoping behaviour of various :any:`GenericStmt` nodes.
+    """
+
+    assert fgen(ir.GenericStmt('Hello World')) == 'Hello World'
+    with pytest.raises(ValidationError):
+        ir.GenericStmt(n)
+
+    # Potential symbol quantifiers
+    assert fgen(ir.ImplicitStmt()) == 'IMPLICIT NONE'
+    assert fgen(ir.ImplicitStmt('NONE')) == 'IMPLICIT NONE'
+    assert fgen(ir.ImplicitStmt(i)) == 'IMPLICIT i'
+    assert fgen(ir.ImplicitStmt((n, i))) == 'IMPLICIT n, i'
+
+    assert fgen(ir.SaveStmt()) == 'SAVE'
+    assert fgen(ir.SaveStmt(i)) == 'SAVE i'
+    assert fgen(ir.SaveStmt((n, i))) == 'SAVE n, i'
+
+    assert fgen(ir.PublicStmt()) == 'PUBLIC'
+    assert fgen(ir.PublicStmt(i)) == 'PUBLIC i'
+    assert fgen(ir.PublicStmt((n, i))) == 'PUBLIC n, i'
+
+    assert fgen(ir.PrivateStmt()) == 'PRIVATE'
+    assert fgen(ir.PrivateStmt(i)) == 'PRIVATE i'
+    assert fgen(ir.PrivateStmt((n, i))) == 'PRIVATE n, i'
+
+    assert fgen(ir.CommonStmt(i)) == 'COMMON i'
+    assert fgen(ir.CommonStmt((n, i))) == 'COMMON n, i'
+    with pytest.raises(ValidationError):
+        ir.CommonStmt()  # Need at least one argument
+
+    # Control flow statements
+    assert fgen(ir.ContainsStmt()) == 'CONTAINS'
+    with pytest.raises(ValidationError):
+        ir.ContainsStmt(n)
+
+    assert fgen(ir.ReturnStmt()) == 'RETURN'
+    with pytest.raises(ValidationError):
+        ir.ReturnStmt(n)
+
+    assert fgen(ir.CycleStmt()) == 'CYCLE'
+    with pytest.raises(ValidationError):
+        ir.CycleStmt(n)
+
+    assert fgen(ir.ContinueStmt()) == 'CONTINUE'
+    with pytest.raises(ValidationError):
+        ir.ContinueStmt(n)
+
+    assert fgen(ir.StopStmt()) == 'STOP'
+    with pytest.raises(ValidationError):
+        ir.StopStmt(n)
+
+    assert fgen(ir.GotoStmt('2345')) == 'GO TO 2345'
+    with pytest.raises(ValidationError):
+        assert ir.GotoStmt()
+
+    # Output statements
+    assert fgen(ir.PrintStmt(i)) == 'PRINT i'
+    assert fgen(ir.PrintStmt((n, i))) == 'PRINT n, i'
+    with pytest.raises(ValidationError):
+        ir.PrintStmt()  # Need at least one argument
+
+    assert fgen(ir.FormatStmt()) == 'FORMAT'
+    assert fgen(ir.FormatStmt(i)) == 'FORMAT i'
+    assert fgen(ir.FormatStmt((n, i))) == 'FORMAT n, i'
