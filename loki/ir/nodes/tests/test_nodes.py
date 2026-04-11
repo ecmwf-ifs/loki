@@ -443,6 +443,11 @@ def test_stmt_nodes(scope, n, i):
     assert fgen(ir.PrivateStmt(i)) == 'PRIVATE i'
     assert fgen(ir.PrivateStmt((n, i))) == 'PRIVATE n, i'
 
+    assert fgen(ir.CommonStmt(i)) == 'COMMON i'
+    assert fgen(ir.CommonStmt((n, i))) == 'COMMON n, i'
+    with pytest.raises(ValidationError):
+        ir.CommonStmt()  # Need at least one argument
+
     # Control flow statements
     assert fgen(ir.ContainsStmt()) == 'CONTAINS'
     with pytest.raises(ValidationError):
@@ -456,6 +461,24 @@ def test_stmt_nodes(scope, n, i):
     with pytest.raises(ValidationError):
         ir.CycleStmt(n)
 
+    assert fgen(ir.ContinueStmt()) == 'CONTINUE'
+    with pytest.raises(ValidationError):
+        ir.ContinueStmt(n)
+
+    assert fgen(ir.StopStmt()) == 'STOP'
+    with pytest.raises(ValidationError):
+        ir.StopStmt(n)
+
     assert fgen(ir.GotoStmt('2345')) == 'GO TO 2345'
     with pytest.raises(ValidationError):
         assert ir.GotoStmt()
+
+    # Output statements
+    assert fgen(ir.PrintStmt(i)) == 'PRINT i'
+    assert fgen(ir.PrintStmt((n, i))) == 'PRINT n, i'
+    with pytest.raises(ValidationError):
+        ir.PrintStmt()  # Need at least one argument
+
+    assert fgen(ir.FormatStmt()) == 'FORMAT'
+    assert fgen(ir.FormatStmt(i)) == 'FORMAT i'
+    assert fgen(ir.FormatStmt((n, i))) == 'FORMAT n, i'
