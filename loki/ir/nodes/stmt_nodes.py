@@ -18,8 +18,9 @@ from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
 
 __all__ = [
     'GenericStmt', 'ImplicitStmt', 'SaveStmt', 'PublicStmt',
-    'PrivateStmt', 'ContainsStmt', 'ReturnStmt', 'CycleStmt',
-    'GotoStmt'
+    'PrivateStmt', 'CommonStmt', 'ContainsStmt', 'ReturnStmt',
+    'CycleStmt', 'ContinueStmt', 'StopStmt', 'ExitStmt', 'GotoStmt',
+    'PrintStmt', 'FormatStmt'
 ]
 
 
@@ -162,6 +163,32 @@ class PrivateStmt(GenericStmt):
 
 
 @dataclass_strict(frozen=True)
+class CommonStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``COMMON`` specifier.
+
+    Parameters
+    ----------
+    text : str or tuple of :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'COMMON'
+
+    text: Tuple[Expression, ...]
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Common:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
 class ContainsStmt(GenericStmt):
     """
     :any:`GenericStmt` node that represents the ``CONTAINS`` specifier.
@@ -234,6 +261,79 @@ class CycleStmt(GenericStmt):
 
 
 @dataclass_strict(frozen=True)
+class ContinueStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``CONTINUE`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'CONTINUE'
+
+    text: Optional[None] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.text is None:
+            raise ValidationError('[Loki] ContinueStmt takes no constructor arguments')
+
+    def __repr__(self):
+        return 'Continue::'
+
+
+@dataclass_strict(frozen=True)
+class StopStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``STOP`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'STOP'
+
+    text: Optional[None] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.text is None:
+            raise ValidationError('[Loki] StopStmt takes no constructor arguments')
+
+    def __repr__(self):
+        return 'Stop::'
+
+
+@dataclass_strict(frozen=True)
+class ExitStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``EXIT`` specifier.
+
+    Parameters
+    ----------
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'EXIT'
+
+    text: Optional[Expression] = None
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_literal(cls, value):
+        from loki.expression import symbols as sym  # pylint: disable=import-outside-toplevel
+        return sym.IntLiteral(value) if value else None
+
+    def __repr__(self):
+        return f'Exit::{self.text if self.text else ""}'
+
+
+@dataclass_strict(frozen=True)
 class GotoStmt(GenericStmt):
     """
     :any:`GenericStmt` node that represents the ``GO TO`` specifier.
@@ -250,3 +350,55 @@ class GotoStmt(GenericStmt):
 
     def __repr__(self):
         return f'Goto:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class PrintStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``PRINT`` specifier.
+
+    Parameters
+    ----------
+    text : str or tuple of :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'PRINT'
+
+    text: Tuple[Expression, ...]
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Print:: {truncate_string(self.text)}'
+
+
+@dataclass_strict(frozen=True)
+class FormatStmt(GenericStmt):
+    """
+    :any:`GenericStmt` node that represents the ``FORMAT`` specifier.
+
+    Parameters
+    ----------
+    text : str or tuple of :any:`Expression`, optional
+        Either a tuple of variable specifiers or a string; default: ``NONE``
+    **kwargs : optional
+        Other parameters that are passed on to the parent class constructor.
+    """
+
+    keyword = 'FORMAT'
+
+    text: Optional[Tuple[Expression, ...]] = ()
+
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_tuple(cls, value):
+        return sanitize_tuple(value)
+
+    def __repr__(self):
+        return f'Format:: {truncate_string(self.text)}'
