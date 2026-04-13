@@ -17,6 +17,7 @@ import shutil
 from codetiming import Timer
 
 from loki.jit_build import workqueue
+from loki.backend import IFSFortranStyle
 from loki.batch import Scheduler, SchedulerConfig, Item, Transformation
 from loki.config import config as loki_config
 from loki.lint.reporter import (
@@ -226,7 +227,7 @@ class Linter:
         sourcefile = Fixer.fix(sourcefile, file_report.fixable_reports, config)
 
         # Create the the source string for the output
-        sourcefile.write(conservative=True)
+        sourcefile.write(conservative=True, style=IFSFortranStyle)
 
 
 class LinterTransformation(Transformation):
