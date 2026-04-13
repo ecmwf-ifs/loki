@@ -133,7 +133,7 @@ end subroutine data_stmt
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    assert isinstance(routine.spec.body[-1], DataDeclaration)
+    assert isinstance(routine.spec[-1], DataDeclaration)
     spec_code = fgen(routine.spec)
     assert spec_code.lower().count('data ') == 2
     assert spec_code.count('/') == 4

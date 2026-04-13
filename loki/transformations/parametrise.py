@@ -341,7 +341,7 @@ class ParametriseTransformation(Transformation):
             # introduce parameter declarations
             declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
             for parameter_declaration in parameter_declarations:
-                routine.spec.insert(routine.spec.body.index(declarations[0]), parameter_declaration)
+                routine.spec.insert(routine.spec.index(declarations[0]), parameter_declaration)
 
             # replace all parameter variables with their corresponding value (inline constant parameters)
             if self.replace_by_value:
