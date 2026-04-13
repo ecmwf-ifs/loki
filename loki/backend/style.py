@@ -62,9 +62,9 @@ class IFSFortranStyle(FortranStyle):
 
     procedure_spec_indent: int = 0
     procedure_body_indent: int = 0
-    procedure_contains_indent: int = 2
+    procedure_contains_indent: int = 0
     procedure_end_named: bool = True
 
     module_spec_indent: int = 0
-    module_contains_indent: int = 2
+    module_contains_indent: int = 0
     module_end_named: bool = True
