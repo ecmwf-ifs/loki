@@ -439,7 +439,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             _kind = routine.symbol_map.get('REAL64', None) or Variable(name='REAL64')
 
             # Convert stack_size from bytes to integer
-            stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
+            stack_type_bytes = Cast('REAL', expression=Literal(1), kind=_kind)
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
@@ -577,15 +577,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         """
 
         if arr.type.dtype == BasicType.REAL:
-            param = Cast(name='REAL', expression=IntLiteral(1))
+            param = Cast('REAL', expression=IntLiteral(1))
         elif arr.type.dtype == BasicType.INTEGER:
-            param = Cast(name='INT', expression=IntLiteral(1))
+            param = Cast('INT', expression=IntLiteral(1))
         elif arr.type.dtype == BasicType.CHARACTER:
-            param = Cast(name='CHAR', expression=IntLiteral(1))
+            param = Cast('CHAR', expression=IntLiteral(1))
         elif arr.type.dtype == BasicType.LOGICAL:
-            param = Cast(name='LOGICAL', expression=LogicLiteral('.TRUE.'))
+            param = Cast('LOGICAL', expression=LogicLiteral('.TRUE.'))
         elif arr.type.dtype == BasicType.COMPLEX:
-            param = Cast(name='CMPLX', expression=(IntLiteral(1), IntLiteral(1)))
+            param = Cast('CMPLX', expression=(IntLiteral(1), IntLiteral(1)))
 
         param.kind = getattr(arr.type, 'kind', None) # pylint: disable=possibly-used-before-assignment
 
@@ -871,7 +871,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
                 )
             else:
-                _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
+                _real_size_bytes = Cast('REAL', expression=Literal(1), kind=_kind)
                 _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                               parameters=as_tuple(_real_size_bytes))
                 stack_incr = Assignment(

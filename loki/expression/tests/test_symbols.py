@@ -179,7 +179,7 @@ def test_symbol_recreation():
     exprs.append( sym.LoopRange((sym.IntLiteral(1), i)) )
     exprs.append( sym.RangeIndex((sym.IntLiteral(1), i)) )
 
-    exprs.append( sym.Cast(name='int', expression=b, kind=i) )
+    exprs.append( sym.Cast(function='int', expression=b, kind=i) )
     exprs.append( sym.Reference(expression=b) )
     exprs.append( sym.Dereference(expression=b) )
 
