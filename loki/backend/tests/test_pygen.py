@@ -194,7 +194,31 @@ end subroutine pygen_arguments
 
 # TODO: implement and test transpilation of derived types
 
-# TODO: implement and test transpilation of associates
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pygen_associate(frontend):
+    """
+    Test Python code generation of ASSOCIATE blocks without prior sanitisation.
+    """
+
+    fcode = """
+subroutine pygen_associate(a, b, c)
+  use iso_fortran_env, only: real64
+  implicit none
+
+  real(kind=real64), intent(in) :: a, b
+  real(kind=real64), intent(out) :: c
+
+  associate (x => a, y => b)
+    c = x + y
+  end associate
+end subroutine pygen_associate
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    pycode = pygen(routine)
+    assert 'associate (' not in pycode.lower()
+    assert 'c = a + b' in pycode.lower()
 
 # TODO: implement and test transpilation of modules
 

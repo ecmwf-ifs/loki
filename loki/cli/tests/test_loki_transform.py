@@ -11,7 +11,9 @@ import tomli_w
 
 from click.testing import CliRunner
 
+from loki import Sourcefile
 from loki.cli.loki_transform import cli
+from loki.ir import FindNodes, nodes as ir
 from loki.logging import log_levels
 
 
@@ -151,3 +153,125 @@ def test_loki_transform_convert(testdir, config, caplog, tmp_path):
             # Ensure all files have been generated
             fname_mod = fname.replace('.f90', '.idem.f90').replace('.F90', '.idem.F90')
             assert (tmp_path/'build'/fname_mod).exists()
+
+
+def test_loki_transform_ass_wipe(caplog, tmp_path):
+    """Test the CLI invocation of "convert --ass-wipe" on a source file."""
+
+    source_file = tmp_path/'ass_wipe_test.F90'
+    source_file.write_text(
+    """
+subroutine ass_wipe_test(a, b, c)
+  use iso_fortran_env, only: real64
+  implicit none
+  real(kind=real64), intent(in) :: a, b
+  real(kind=real64), intent(out) :: c
+
+  associate (x => a, y => b)
+    c = x + y
+  end associate
+end subroutine ass_wipe_test
+""".strip() + '\n'
+    )
+
+    caplog.clear()
+    with caplog.at_level(log_levels['INFO']):
+        result = CliRunner().invoke(
+            cli, [
+                '--debug', 'convert', '--frontend=fp',
+                f'--source={source_file}', '--ass-wipe',
+            ]
+        )
+
+    assert result.exit_code == 0
+    updated = source_file.read_text().lower()
+    assert 'associate' not in updated
+    assert 'c = a + b' in updated
+
+    logout = ''.join(str(r) for r in caplog.records)
+    assert '[Loki] Removing ASSOCIATE blocks from source files' in logout
+    assert '[Loki] ASS-WIPE request completed' in logout
+
+
+def test_loki_transform_ass_wipe_nested(caplog, tmp_path):
+    """Test "convert --ass-wipe" resolves nested ASSOCIATE blocks."""
+
+    source_file = tmp_path/'ass_wipe_nested_test.F90'
+    source_file.write_text(
+                """
+subroutine ass_wipe_nested_test(a, b, c)
+    use iso_fortran_env, only: real64
+    implicit none
+    real(kind=real64), intent(in) :: a, b
+    real(kind=real64), intent(out) :: c
+
+    associate (x => a + b)
+        associate (y => x * 2.0_real64)
+            c = y
+        end associate
+    end associate
+end subroutine ass_wipe_nested_test
+""".strip() + '\n'
+    )
+
+    caplog.clear()
+    with caplog.at_level(log_levels['INFO']):
+        result = CliRunner().invoke(
+                        cli, [
+                                '--debug', 'convert', '--frontend=fp',
+                                f'--source={source_file}', '--ass-wipe',
+                        ]
+                )
+
+    assert result.exit_code == 0
+    updated = source_file.read_text().lower()
+    assert 'associate' not in updated
+    assert 'c = (a + b)*2.0_real64' in updated
+
+    logout = ''.join(str(r) for r in caplog.records)
+    assert '[Loki] Removing ASSOCIATE blocks from source files' in logout
+    assert '[Loki] ASS-WIPE request completed' in logout
+
+
+def test_loki_transform_ass_wipe_nested_slices(caplog, tmp_path):
+    """Test "convert --ass-wipe" resolves nested ASSOCIATE blocks with array slices."""
+
+    source_file = tmp_path/'ass_wipe_nested_slices_test.F90'
+    source_file.write_text(
+                """
+subroutine ass_wipe_nested_slices_test(n, arr, c)
+    use iso_fortran_env, only: real64
+    implicit none
+    integer, intent(in) :: n
+    real(kind=real64), intent(in) :: arr(n, 2)
+    real(kind=real64), intent(out) :: c(n)
+
+    associate (x => arr(:, 1), y => arr(:, 2))
+        associate (tmp => x + y)
+            c(:) = tmp(:)
+        end associate
+    end associate
+end subroutine ass_wipe_nested_slices_test
+""".strip() + '\n'
+        )
+
+    caplog.clear()
+    with caplog.at_level(log_levels['INFO']):
+        result = CliRunner().invoke(
+                        cli, [
+                                '--debug', 'convert', '--frontend=fp',
+                                f'--source={source_file}', '--ass-wipe',
+                        ]
+                )
+
+    assert result.exit_code == 0
+    updated = source_file.read_text().lower()
+    assert 'associate' not in updated
+
+    sfile = Sourcefile.from_file(source_file, frontend='fp')
+    associates = FindNodes(ir.Associate).visit(sfile.ir)
+    assert len(associates) == 0
+
+    logout = ''.join(str(r) for r in caplog.records)
+    assert '[Loki] Removing ASSOCIATE blocks from source files' in logout
+    assert '[Loki] ASS-WIPE request completed' in logout
