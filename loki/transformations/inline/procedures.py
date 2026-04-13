@@ -124,7 +124,13 @@ def map_call_to_procedure_body(call, caller, callee=None):
                 else:
                     new_dimensions[indices[index]] = _offset_lbound(lower, decl_lbound, dim)
             else:
-                new_dimensions[indices[index]] = simplify(sym.Sum((dim, lbdiff)))
+                if isinstance(dim, sym.Range) and dim.lower is not None:
+                    # prevent e.g., `-1 + 1:n` and generate `0:n-1` instead
+                    _lower = simplify(sym.Sum((dim.lower, lbdiff)))
+                    _upper = simplify(sym.Sum((dim.upper, lbdiff)))
+                    new_dimensions[indices[index]] = sym.Range((_lower, _upper))
+                else:
+                    new_dimensions[indices[index]] = simplify(sym.Sum((dim, lbdiff)))
 
         return val.clone(dimensions=tuple(new_dimensions))
 
