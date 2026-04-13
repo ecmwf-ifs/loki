@@ -106,7 +106,7 @@ end subroutine my_routine
     body_new = AttachScopes().visit(body_new, scope=scope_new)
     assert body_new == routine.body
 
-    # Ensure equivalence after pickle-cyle
+    # Ensure equivalence after pickle-cycle
     assert routine == loads(dumps(routine))
 
 
@@ -126,7 +126,7 @@ end module my_type_mod
 """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    # Ensure equivalence after pickle-cyle
+    # Ensure equivalence after pickle-cycle
     assert module.symbol_attrs == loads(dumps(module.symbol_attrs))
     assert module.spec == loads(dumps(module.spec))
     assert module.contains == loads(dumps(module.contains))
@@ -172,7 +172,7 @@ end module my_type_mod
     contains_new = AttachScopes().visit(contains_new, scope=scope_new)
     assert contains_new == module.contains
 
-    # Ensure equivalence after pickle-cyle
+    # Ensure equivalence after pickle-cycle
     assert module.symbol_attrs == loads(dumps(module.symbol_attrs))
     assert module.spec == loads(dumps(module.spec))
     assert module.contains == loads(dumps(module.contains))
@@ -225,7 +225,7 @@ end subroutine my_routine
     body_new = AttachScopes().visit(contains_new, scope=scope_new)
     assert contains_new == routine.contains
 
-    # Ensure equivalence after pickle-cyle with scope-level replication
+    # Ensure equivalence after pickle-cycle with scope-level replication
     routine_new = loads(dumps(routine))
     assert routine_new.spec == routine.spec
     assert routine_new.body == routine.body
@@ -281,7 +281,7 @@ end module my_module
     contains_new = AttachScopes().visit(contains_new, scope=scope_new)
     assert contains_new == module.contains
 
-    # Ensure equivalence after pickle-cyle with scope-level replication
+    # Ensure equivalence after pickle-cycle with scope-level replication
     module_new = loads(dumps(module))
     assert module_new.spec == module.spec
     assert module_new.contains == module.contains
@@ -326,7 +326,7 @@ def test_pickle_expressions(frontend):
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Ensure equivalence after pickle-cyle with scope-level replication
+    # Ensure equivalence after pickle-cycle with scope-level replication
     routine_new = loads(dumps(routine))
     assert routine_new.spec == routine.spec
     assert routine_new.body == routine.body
