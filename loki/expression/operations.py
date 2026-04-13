@@ -158,7 +158,7 @@ class Cast(StrCompareMixin, pmbl.Call):
 
     @expression.setter
     def expression(self, expr):
-        self.parameters = expr
+        self.parameters = as_tuple(expr)
 
 
 class Reference(StrCompareMixin, pmbl.Expression):
