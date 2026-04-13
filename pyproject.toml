@@ -17,22 +17,21 @@ requires-python = ">=3.8"
 license = {text = "Apache-2.0"}
 dynamic = ["version", "readme"]
 dependencies = [
-  "numpy >= 2.0",  # essential for tests, loop transformations and other dependencies
-  "pymbolic==2022.2",  # essential for expression tree
-  "PyYAML",  # essential for loki-lint
-  "pcpp",  # essential for preprocessing
-  "more-itertools",  # essential for SCC transformation
-  "click",  # essential for CLI scripts
-  "click-option-group",  # essential for CLI scripts
-  "tomli ; python_version < '3.11'",  # essential for scheduler configuration
-  "networkx",  # essential for scheduler and build utilities
-  "fparser>=0.0.15",  # (almost) essential as frontend
-  "graphviz",  # optional for scheduler callgraph
-  "tqdm",  # optional for build utilities
-  "coloredlogs",  # optional for loki-build utility
-  "junit_xml",  # optional for JunitXML output in loki-lint
-  "codetiming",  # essential for scheduler and sourcefile timings
-  "pydantic>=2.0,<2.10.0",  # type checking for IR nodes
+  "numpy >= 2.0", # essential for tests, loop transformations and other dependencies
+  "pymbolic==2022.2", # essential for expression tree
+  "PyYAML", # essential for loki-lint
+  "pcpp", # essential for preprocessing
+  "more-itertools", # essential for SCC transformation
+  "click", # essential for CLI scripts
+  "toml", # essential for scheduler configuration
+  "networkx", # essential for scheduler and build utilities
+  "fparser>=0.0.15", # (almost) essential as frontend
+  "graphviz", # optional for scheduler callgraph
+  "tqdm", # optional for build utilities
+  "coloredlogs", # optional for loki-build utility
+  "junit_xml", # optional for JunitXML output in loki-lint
+  "codetiming", # essential for scheduler and sourcefile timings
+  "pydantic>=2.0,<2.10.0",
 ]
 
 [project.optional-dependencies]
@@ -92,3 +91,11 @@ namespaces = false
 
 # Enable SCM versioning
 [tool.setuptools_scm]
+
+[dependency-groups]
+dev = [
+    "ruff",
+]
+ai-agent = [
+    "ollama",
+]
