@@ -340,19 +340,6 @@ class SeparateModesKernel(Transformation):
 
     Therefore, this transformation creates a new item and also implements
     the relevant routines for dry-run pipeline planning runs.
-
-    Parameters
-    ----------
-    duplicate_kernels : str|tuple|list, optional
-        Kernel name(s) to be duplicated.
-    duplicate_suffix : str, optional
-        Suffix to be used to append the original kernel name(s).
-    duplicate_module_suffix : str, optional
-        Suffix to be used to append the original module name(s),
-        if defined, otherwise `duplicate_suffix`
-    duplicate_subgraph : bool, optional
-        Whether or not duplicate the subgraph beneath the kernel(s)
-        that are duplicated.
     """
 
     creates_items = True
@@ -551,6 +538,7 @@ class SeparateModesKernel(Transformation):
     def _adapt_calls_imports(self, routine, new_dependencies):
         call_map = {}
         if not new_dependencies:
+            warning('[Loki] SeparateModesKernel: _adapt_calls_imports called with empty new_dependencies')
             return
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             call_name = str(call.name).lower()

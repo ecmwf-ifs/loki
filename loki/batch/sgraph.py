@@ -503,7 +503,7 @@ class SGraph:
         item_factory : :any:`ItemFactory`
             The item factory to use.
         include_scope_items : bool, optional
-            Whether to scope items like module and file items.
+            Whether to include scope items like module and file items.
         """
         item_descendants = list(nx.descendants(self._graph, item))
         scope_items = []

@@ -5,7 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import sys
 from enum import Enum, auto
 from os.path import commonpath
 from pathlib import Path
@@ -224,7 +223,6 @@ class Scheduler:
         self.process_transformation(SeparateModesKernel(), proc_strategy=proc_strategy)
         modes = {item.mode for item in self.items}
         return as_tuple(modes)
-
 
     def _propagate_modes(self):
         """
@@ -489,8 +487,8 @@ class Scheduler:
             # check if all required pipelines are available
             for mode in modes:
                 if mode not in transformation:
-                    msg = f'[Loki] ERROR: Pipeline or transformation mode {mode} not found in config file.\n'
-                    sys.exit(msg)
+                    error('[Loki] ERROR: Pipeline or transformation mode %s not found in config file.', mode)
+                    raise RuntimeError(f'Could not find pipeline or transformation mode {mode}')
             # apply those pipelines
             for mode in modes:
                 self.process_pipeline(pipeline=self.config.pipelines[mode], proc_strategy=proc_strategy, mode=mode)
