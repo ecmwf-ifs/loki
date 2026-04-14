@@ -346,3 +346,11 @@ class LiteralList(StrCompareMixin, pmbl.AlgebraicLeaf):
 
     def __getinitargs__(self):
         return (self.elements, self.dtype)
+
+    @property
+    def values(self):
+        return self.elements
+
+    @values.setter
+    def values(self, values):
+        self.elements = values
