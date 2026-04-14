@@ -8,6 +8,7 @@
 from enum import Enum, auto
 from os.path import commonpath
 from pathlib import Path
+
 from codetiming import Timer
 
 from loki.batch.configure import SchedulerConfig
