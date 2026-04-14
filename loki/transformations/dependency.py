@@ -9,6 +9,7 @@ from loki.batch.transformation import Transformation
 from loki.ir import nodes as ir, Transformer, FindNodes
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 from loki.subroutine import Subroutine
+from loki.logging import warning
 
 __all__ = ['DuplicateKernel', 'RemoveKernel', 'SeparateModesKernel']
 
@@ -371,9 +372,11 @@ class SeparateModesKernel(Transformation):
         item : :any:`Item`
             The item used to derive ``local_name``,
             ``scope_name`` and ``new_item_name``.
+        mode : str
+           Transformation mode.
+
         Returns
         -------
-        mode : TODO
         scope_name : str
             New item scope name.
         new_item_name : str
@@ -407,9 +410,10 @@ class SeparateModesKernel(Transformation):
 
         Parameters
         ----------
-        mode : TODO
         item : :any:`Item`
             Item to duplicate/to use to derive new item.
+        mode : str
+            Transformation mode.
         item_factory : :any:`ItemFactory`
             The :any:`ItemFactory` to use when creating the items.
         config : :any:`SchedulerConfig`
@@ -438,16 +442,6 @@ class SeparateModesKernel(Transformation):
         if new_item is None:
             new_item = as_tuple(item_factory.get_or_create_item_from_item(new_item_name, item, config=config))[0]
         return new_item
-
-    @staticmethod
-    def get_parent_items(item, item_factory):
-        item_cache = item_factory.item_cache
-        parent_items = ()
-        if item.scope_name in item_cache:
-            parent_items += (item_cache[item.scope_name],)
-        if str(item.source.path) in item_cache:
-            parent_items += (item_cache[str(item.source.path)],)
-        return parent_items
 
     def _create_new_items(self, successors, item_factory, config, item, sub_sgraph,
             rename_calls=False, ignore=None):
@@ -496,10 +490,10 @@ class SeparateModesKernel(Transformation):
                 new_item = self._get_or_create_or_rename_item(child, mode_to_duplicate, item_factory, config)
                 new_item.config = child.config.copy()
                 new_item.config['mode'] = mode_to_duplicate
-                parent_items = self.get_parent_items(new_item, item_factory)
+                parent_items = item_factory.get_scope_and_file_items(new_item)
                 for parent_item in parent_items:
                     parent_item.config['mode'] = mode_to_duplicate
-                child.inherited_mode.discard(mode_to_duplicate)
+                child.trafo_data['inherited_mode'].discard(mode_to_duplicate)
                 removed_items += (child,)
                 new_items += as_tuple(new_item)
                 item.trafo_data['SeparateModes'][child] = new_item
@@ -512,15 +506,15 @@ class SeparateModesKernel(Transformation):
                 new_item.plan_data['additional_dependencies'] += new_item_new_items
                 new_item.plan_data['removed_dependencies'] += new_item_removed_items
                 if rename_calls:
-                    new_dependencies = CaseInsensitiveDict((new_item.local_name, new_item)
-                            for new_item in new_item_new_items)
                     new_dependencies = CaseInsensitiveDict((k.local_name, v) for k, v in
                             new_item.trafo_data.get('SeparateModes', {}).items() if not isinstance(k, str))
                     self._adapt_calls_imports(new_item.ir, new_dependencies)
             else:
+                # like this we keep for one transformation pipeline mode the original item
+                # this is not strictly necessary but currently the MO
                 mode_to_duplicate = modes_to_duplicate[0]
                 child.config['mode'] = item.mode
-                parent_items = self.get_parent_items(child, item_factory)
+                parent_items = item_factory.get_scope_and_file_items(child)
                 for parent_item in parent_items:
                     parent_item.config['mode'] = mode_to_duplicate
 
@@ -550,7 +544,9 @@ class SeparateModesKernel(Transformation):
                     new_symbol = _new_symbol.scope_ir.procedure_symbol # local_name
                     new_module_name = _new_symbol.scope_name
                     im._update(module=new_module_name, symbols=(new_symbol,))
-            # TODO: Deal with unqualified blanket imports
+                if not im.symbols:
+                    warning('[Loki] SeparateModesKernel: encountered unqualified blank import' +
+                            f' for {im.module}')
 
     def _adapt_calls_imports(self, routine, new_dependencies):
         call_map = {}
@@ -560,7 +556,6 @@ class SeparateModesKernel(Transformation):
             call_name = str(call.name).lower()
             if call_name in new_dependencies:
                 new_item = as_tuple(new_dependencies[call_name])[0]
-                # new_call_name = (new_item.name).lower() # str(new_item.local_name).lower()
                 proc_symbol = new_item.ir.procedure_symbol.rescope(scope=routine)
                 call_map[call] = call.clone(name=proc_symbol)
         if call_map:
@@ -597,7 +592,7 @@ class SeparateModesKernel(Transformation):
         self._adapt_calls_imports(routine, new_dependencies)
 
     def _get_item_modes(self, item):
-        inherited_modes = item.inherited_mode
+        inherited_modes = item.trafo_data['inherited_mode']
         modes_to_duplicate = inherited_modes.copy() if inherited_modes is not None else set()
         return modes_to_duplicate
 

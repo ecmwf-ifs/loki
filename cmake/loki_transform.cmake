@@ -42,7 +42,7 @@ include( loki_transform_helpers )
 
 function( loki_transform )
 
-    set( options CPP MULTIMODE )
+    set( options CPP MULTIPIPELINE )
     set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
     set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD )
 
@@ -73,8 +73,8 @@ function( loki_transform )
         list( APPEND _ARGS --cpp )
     endif()
 
-    if ( _PAR_MULTIMODE )
-        list( APPEND _ARGS --multimode )
+    if ( _PAR_MULTIPIPELINE )
+        list( APPEND _ARGS --multipipeline )
     endif()
 
     # Ensure transformation script and environment is available
@@ -119,7 +119,7 @@ endfunction()
 
 function( loki_transform_plan )
 
-    set( options NO_SOURCEDIR CPP MULTIMODE )
+    set( options NO_SOURCEDIR CPP MULTIPIPELINE )
     set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH PLAN )
     set( multiValueArgs SOURCES HEADERS )
 
@@ -156,8 +156,8 @@ function( loki_transform_plan )
         ecbuild_critical( "No PLAN file specified for loki_transform_plan()" )
     endif()
 
-    if ( _PAR_MULTIMODE )
-        list( APPEND _ARGS --multimode )
+    if ( _PAR_MULTIPIPELINE )
+        list( APPEND _ARGS --multipipeline )
     endif()
 
     _loki_transform_env_setup()
@@ -308,7 +308,7 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN MULTIMODE )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN MULTIPIPELINE )
     set( single_value_args COMMAND MODE FRONTEND CONFIG PLAN )
     set( multi_value_args TARGET SOURCES HEADERS DEFINITIONS INCLUDES )
 
@@ -342,8 +342,8 @@ function( loki_transform_target )
     if( _PAR_T_CPP_PLAN )
         list( APPEND _PLAN_OPTIONS CPP )
     endif()
-    if ( _PAR_T_MULTIMODE )
-        list( APPEND _PLAN_OPTIONS MULTIMODE )
+    if ( _PAR_T_MULTIPIPELINE )
+        list( APPEND _PLAN_OPTIONS MULTIPIPELINE )
     endif()
     if( _PAR_T_NO_PLAN_SOURCEDIR )
         list( APPEND _PLAN_OPTIONS NO_SOURCEDIR )
@@ -378,8 +378,8 @@ function( loki_transform_target )
         if( _PAR_T_CPP )
             list( APPEND _TRANSFORM_OPTIONS CPP )
         endif()
-        if ( _PAR_T_MULTIMODE )
-            list( APPEND _TRANSFORM_OPTIONS MULTIMODE )
+        if ( _PAR_T_MULTIPIPELINE )
+            list( APPEND _TRANSFORM_OPTIONS MULTIPIPELINE )
         endif()
 
         loki_transform(

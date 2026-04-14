@@ -348,6 +348,14 @@ class ItemFactory:
         return file_item
 
     def get_file_item_from_source(self, source):
+        """
+        Utility method to get a :any:`FileItem` from a given source object
+
+        Parameters
+        ----------
+        source : :any:`Sourcefile`
+            The existing sourcefile object for which to create the file item
+        """
         # Check for file item with the same source object
         for item in self.item_cache.values():
             if isinstance(item, FileItem) and item.source is source:
@@ -621,6 +629,20 @@ class ItemFactory:
                 )
                 items += [_it for _it in definition_items if _it.name[_it.name.index('#')+1:] == name.lower()]
         return tuple(items)
+
+    def get_scope_and_file_items(self, item):
+        """
+        Get corresponding module and file item of a given :data:`item`.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item node in the dependency graph for which to determine the successors
+        """
+        mod_item = self.item_cache.get(item.scope_name)
+        _items = (mod_item,) if mod_item is not None else ()
+        _items += (self.get_file_item_from_source(item.source),)
+        return _items
 
     @staticmethod
     def _get_imported_symbol_name(imprt, symbol_name):

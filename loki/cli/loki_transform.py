@@ -39,10 +39,10 @@ from loki.transformations.build_system import FileWriteTransformation
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
-@click.option('--multimode', '-z', is_flag=True, help="Multi-mode processing.")
+@click.option('--multipipeline', '-z', is_flag=True, help="Multi-pipeline processing.")
 def convert(
         frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level,
-        multimode
+        multipipeline
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -90,8 +90,8 @@ def convert(
         definitions=definitions, output_dir=scheduler_opts.build, **frontend_opts.asdict
     )
 
-    if multimode:
-        # multimode, therefore pass all available pipelines and let process handle the rest
+    if multipipeline:
+        # multipipeline, therefore pass all available pipelines and let process handle the rest
         info('[Loki-transform] Applying custom pipelines from config')
         scheduler.process(config.pipelines, proc_strategy=processing_strategy)
     else:
@@ -139,7 +139,7 @@ def convert(
 @click.option('--log-level', '-l', default='info', envvar='LOKI_LOGGING',
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
-@click.option('--multimode', '-z', is_flag=True, help="Multi-mode processing.")
+@click.option('--multipipeline', '-z', is_flag=True, help="Multi-pipeline processing.")
 @click.pass_context
 def plan(ctx, *_args, **_kwargs):
     """

@@ -204,36 +204,45 @@ class Scheduler:
             self._enrich()
 
     def propagate_and_separate_modes(self, proc_strategy=ProcessingStrategy.DEFAULT):
+        """
+        If in "MULTIPIPELINE" mode, different driver items can have different transformation pipelines assigned to them,
+        this utility:
+
+        * propagates the transformation pipeline modes to all descendants, where some could end up with multiple
+          being assigned to them
+        * seaparates the call tree via duplication to make sure every item in the tree is only assigned
+          a single transformation pipeline to
+
+        Parameters
+        ----------
+        proc_strategy : :any:`ProcessingStrategy`
+            The processing strategy to use when applying the given
+            :data:`transformation` to the scheduler's graph.
+        """
         from loki.transformations.dependency import SeparateModesKernel # pylint: disable=import-outside-toplevel
         self._propagate_modes()
         self.process_transformation(SeparateModesKernel(), proc_strategy=proc_strategy)
-        self._propagate_modes_set()
         modes = {item.mode for item in self.items}
         return as_tuple(modes)
 
 
     def _propagate_modes(self):
+        """
+        If in "MULTIPIPELINE" mode, different driver items can have different transformation pipelines assigned to them,
+        this utility routine propagates this information to all descendants, whereas some could end up being targeted
+        by different transformation pipelines.
+        """
         driver_items = [item for item in self.items if item.role == 'driver']
         for item in driver_items:
-            module_file_items = self.sgraph.get_corresponding_module_and_file_item(item, self.item_factory)
+            module_file_items = self.item_factory.get_scope_and_file_items(item)
             for _item in module_file_items:
                 if _item is not None:
                     _item.config['mode'] = item.mode
             descendants = self.sgraph.descendants(item, self.item_factory,
-                    include_module_items=True, include_file_items=True)
+                    include_scope_items=True)
             for descendant in descendants:
                 if descendant is not None:
-                    descendant.config.setdefault('inherited_mode', set()).add(item.mode)
-
-    def _propagate_modes_set(self):
-        driver_items = [item for item in self.items if item.role == 'driver']
-        for item in driver_items:
-            descendants = self.sgraph.descendants(item, self.item_factory,
-                    include_module_items=True, include_file_items=True)
-            for descendant in descendants:
-                if descendant is not None:
-                    descendant.config['mode'] = item.mode
-                    descendant.config['inherited_mode'] = set()
+                    descendant.trafo_data.setdefault('inherited_mode', set()).add(item.mode)
 
     @Timer(logger=info, text='[Loki::Scheduler] Performed initial source scan in {:.2f}s')
     def _discover(self):
