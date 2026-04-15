@@ -137,7 +137,7 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
 
         # remap root variable names to current scope
         arg_map = get_sanitised_arg_map(o.arg_map)
-        child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis']
+        child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis'].get('analysis', {}) # ['analysis']
         child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
         # Dimensions of array arguments must also be included in uses_symbols OrderedSet

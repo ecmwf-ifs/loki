@@ -774,7 +774,12 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         Replace an expr with its substitution, if found in the :attr:`expr_map`,
         otherwise continue tree traversal
         """
+        # print(f"  map_from_expr_map: '{expr}'")
+        # if 'bnds' in expr:
+        #     print(f"  expr in? {expr in self.expr_map} | self.expr_map: {self.expr_map}")
         if expr in self.expr_map:
+            # if 'bnds' in expr:
+            #      print(f"  returning {self._rebuild(self.expr_map[expr])}")
             return self._rebuild(self.expr_map[expr])
         map_fn = getattr(super(), expr.mapper_method)
         return map_fn(expr, *args, **kwargs)

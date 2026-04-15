@@ -518,11 +518,14 @@ class SeparateModesKernel(Transformation):
                             new_item.trafo_data.get('SeparateModes', {}).items() if not isinstance(k, str))
                     self._adapt_calls_imports(new_item.ir, new_dependencies)
             else:
-                mode_to_duplicate = modes_to_duplicate[0]
-                child.config['mode'] = item.mode
-                parent_items = self.get_parent_items(child, item_factory)
-                for parent_item in parent_items:
-                    parent_item.config['mode'] = mode_to_duplicate
+                try:
+                    mode_to_duplicate = modes_to_duplicate[0]
+                    child.config['mode'] = item.mode
+                    parent_items = self.get_parent_items(child, item_factory)
+                    for parent_item in parent_items:
+                        parent_item.config['mode'] = mode_to_duplicate
+                except Exception as e:
+                    pass
 
         return tuple(new_items), tuple(removed_items)
 

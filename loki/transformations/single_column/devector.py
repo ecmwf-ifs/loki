@@ -191,11 +191,13 @@ class SCCDevectorTransformation(Transformation):
         involving vector parallel arrays.
         """
 
+        print(f"[HERE] VEC get trimmed sections {routine} | {sections}")
         trimmed_sections = ()
         with dataflow_analysis_attached(routine):
             for sec in sections:
                 vec_nodes = [node for node in sec if horizontal.index.lower() in node.uses_symbols]
                 start = sec.index(vec_nodes[0])
+                print(f"  [HERE] start: {start} | sec[start]")
                 end = sec.index(vec_nodes[-1])
 
                 trimmed_sections += (sec[start:end+1],)
@@ -237,9 +239,10 @@ class SCCDevectorTransformation(Transformation):
         routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
 
         # Extract vector-level compute sections from the kernel
-        sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+        with pragmas_attached(routine, ir.CallStatement):
+            sections = self.extract_vector_sections(routine.body.body, self.horizontal)
 
-        if self.trim_vector_sections:
+        if True: # self.trim_vector_sections:
             sections = self.get_trimmed_sections(routine, self.horizontal, sections)
 
         # Replace sections with marked Section node
@@ -269,7 +272,8 @@ class SCCDevectorTransformation(Transformation):
         for loop in driver_loops:
             new_driver_loop = RemoveLoopTransformer(dimension=self.horizontal).visit(loop.body)
             new_driver_loop = loop.clone(body=new_driver_loop)
-            sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
+            with pragmas_attached(routine, ir.CallStatement):
+                sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
             if self.trim_vector_sections:
                 sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
             section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
