@@ -491,3 +491,23 @@ class SGraph:
             graph.render(path, view=False)
         except gviz.ExecutableNotFound as e:
             warning(f'[Loki] Failed to render callgraph due to graphviz error:\n  {e}')
+
+    def descendants(self, item, item_factory, include_scope_items=False):
+        """
+        Get all descendants of a given :data:`item`.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item node in the dependency graph for which to determine the successors
+        item_factory : :any:`ItemFactory`
+            The item factory to use.
+        include_scope_items : bool, optional
+            Whether to include scope items like module and file items.
+        """
+        item_descendants = list(nx.descendants(self._graph, item))
+        scope_items = []
+        if include_scope_items:
+            for _item in item_descendants:
+                scope_items.extend(item_factory.get_scope_and_file_items(_item))
+        return item_descendants + scope_items

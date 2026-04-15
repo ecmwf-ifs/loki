@@ -290,6 +290,7 @@ class ItemFactory:
 
             # Create a new FileItem for the new source
             new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
+            new_source.orig_path = item.orig_path
             file_item = self.get_or_create_file_item_from_source(new_source, config=config)
 
             # Get the definition items for the FileItem and return the new item
@@ -346,6 +347,21 @@ class ItemFactory:
         self.item_cache[item_name] = file_item
         return file_item
 
+    def get_file_item_from_source(self, source):
+        """
+        Utility method to get a :any:`FileItem` from a given source object
+
+        Parameters
+        ----------
+        source : :any:`Sourcefile`
+            The existing sourcefile object for which to create the file item
+        """
+        # Check for file item with the same source object
+        for item in self.item_cache.values():
+            if isinstance(item, FileItem) and item.source is source:
+                return item
+        return None
+
     def get_or_create_file_item_from_source(self, source, config):
         """
         Utility method to create a :any:`FileItem` corresponding to a given source object
@@ -368,9 +384,9 @@ class ItemFactory:
             The config object from which the item configuration will be derived
         """
         # Check for file item with the same source object
-        for item in self.item_cache.values():
-            if isinstance(item, FileItem) and item.source is source:
-                return item
+        item_ = self.get_file_item_from_source(source)
+        if item_ is not None:
+            return item_
 
         if not source.path:
             raise RuntimeError('Cannot create FileItem from source: Sourcefile has no path')
@@ -613,6 +629,20 @@ class ItemFactory:
                 )
                 items += [_it for _it in definition_items if _it.name[_it.name.index('#')+1:] == name.lower()]
         return tuple(items)
+
+    def get_scope_and_file_items(self, item):
+        """
+        Get corresponding module and file item of a given :data:`item`.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item node in the dependency graph for which to determine the successors
+        """
+        mod_item = self.item_cache.get(item.scope_name)
+        _items = (mod_item,) if mod_item is not None else ()
+        _items += (self.get_file_item_from_source(item.source),)
+        return _items
 
     @staticmethod
     def _get_imported_symbol_name(imprt, symbol_name):

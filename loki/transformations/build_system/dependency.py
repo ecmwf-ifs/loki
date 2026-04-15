@@ -305,8 +305,14 @@ class DependencyTransformation(Transformation):
             calls = {str(c.name).lower() for c in FindNodes(CallStatement).visit(source.body)}
             calls |= {str(c.name).lower() for c in FindInlineCalls().visit(source.body)}
 
+        def replace_last(s, old, new):
+            index = s.rfind(old)
+            if index == -1:
+                return s
+            return s[:index] + new + s[index + len(old):]
+
         # Import statements still point to unmodified call names
-        calls = {call.replace(f'{self.suffix.lower()}', '') for call in calls}
+        calls = {replace_last(call, f'{self.suffix.lower()}', '') for call in calls}
         call_targets = {call for call in calls if call in as_tuple(targets)}
 
         # We go through the IR, as C-imports can be attributed to the body
@@ -340,7 +346,6 @@ class DependencyTransformation(Transformation):
                         im._update(module=new_module_name, symbols=symbols)
 
                 # TODO: Deal with unqualified blanket imports
-
         if import_map:
             source.spec = Transformer(import_map).visit(source.spec)
 
