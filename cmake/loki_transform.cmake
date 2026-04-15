@@ -42,7 +42,7 @@ include( loki_transform_helpers )
 
 function( loki_transform )
 
-    set( options CPP )
+    set( options CPP MULTIMODE )
     set( oneValueArgs COMMAND MODE FRONTEND CONFIG BUILDDIR )
     set( multiValueArgs OUTPUT DEPENDS SOURCES HEADERS INCLUDES DEFINITIONS OMNI_INCLUDE XMOD )
 
@@ -71,6 +71,10 @@ function( loki_transform )
 
     if( _PAR_CPP )
         list( APPEND _ARGS --cpp )
+    endif()
+
+    if ( _PAR_MULTIMODE )
+        list( APPEND _ARGS --multimode )
     endif()
 
     # Ensure transformation script and environment is available
@@ -115,7 +119,7 @@ endfunction()
 
 function( loki_transform_plan )
 
-    set( options NO_SOURCEDIR CPP )
+    set( options NO_SOURCEDIR CPP MULTIMODE )
     set( oneValueArgs MODE FRONTEND CONFIG BUILDDIR SOURCEDIR CALLGRAPH PLAN )
     set( multiValueArgs SOURCES HEADERS )
 
@@ -150,6 +154,10 @@ function( loki_transform_plan )
         list( APPEND _ARGS --plan-file ${_PAR_PLAN} )
     else()
         ecbuild_critical( "No PLAN file specified for loki_transform_plan()" )
+    endif()
+
+    if ( _PAR_MULTIMODE )
+        list( APPEND _ARGS --multimode )
     endif()
 
     _loki_transform_env_setup()
@@ -300,7 +308,7 @@ endfunction()
 
 function( loki_transform_target )
 
-    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN )
+    set( options NO_PLAN_SOURCEDIR COPY_UNMODIFIED CPP CPP_PLAN MULTIMODE )
     set( single_value_args COMMAND MODE FRONTEND CONFIG PLAN )
     set( multi_value_args TARGET SOURCES HEADERS DEFINITIONS INCLUDES )
 
@@ -334,6 +342,9 @@ function( loki_transform_target )
     if( _PAR_T_CPP_PLAN )
         list( APPEND _PLAN_OPTIONS CPP )
     endif()
+    if ( _PAR_T_MULTIMODE )
+        list( APPEND _PLAN_OPTIONS MULTIMODE )
+    endif()
     if( _PAR_T_NO_PLAN_SOURCEDIR )
         list( APPEND _PLAN_OPTIONS NO_SOURCEDIR )
     endif()
@@ -366,6 +377,9 @@ function( loki_transform_target )
         set( _TRANSFORM_OPTIONS "" )
         if( _PAR_T_CPP )
             list( APPEND _TRANSFORM_OPTIONS CPP )
+        endif()
+        if ( _PAR_T_MULTIMODE )
+            list( APPEND _TRANSFORM_OPTIONS MULTIMODE )
         endif()
 
         loki_transform(

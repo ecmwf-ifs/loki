@@ -101,6 +101,12 @@ class CMakePlanTransformation(Transformation):
             if source_exists:
                 self.sources_to_transform.setdefault(key,[]).append(sourcepath)
             if item.replicate:
+                orig_sourcepath = item.orig_path
+                orig_source_exists = orig_sourcepath.exists()
+                if self.rootpath is not None:
+                    orig_sourcepath = orig_sourcepath.resolve().relative_to(self.rootpath)
+                if orig_source_exists and not source_exists:
+                    self.sources_to_transform.setdefault(key,[]).append(orig_sourcepath)
                 # Add new source file next to the old one
                 self.sources_to_append.setdefault(key,[]).append(newsource)
             else:
@@ -143,18 +149,19 @@ class CMakePlanTransformation(Transformation):
         self._write_plan(filepath)
 
         # write plan file for each key/target/library
-        all_targets = self.sources_to_transform | self.sources_to_append | self.sources_to_remove
-        for target in all_targets:
-            if target is None:
+        keys = set(self.sources_to_transform.keys()) | \
+                set(self.sources_to_append.keys()) | set(self.sources_to_remove.keys())
+        for key in keys:
+            if key is None:
                 continue
             with Path(filepath).open('a') as f:
-                # sanitize target = target, e.g., remove '.' and replace with '_'
-                sanitized_target = target.replace('.', '_')
-                s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform.get(target, ()))
-                f.write(f'set( LOKI_SOURCES_TO_TRANSFORM_{sanitized_target} \n{s_transform}\n   )\n')
+                # sanitize key = target, e.g., remove '.' and replace with '_'
+                sanitized_key = key.replace('.', '_')
+                s_transform = '\n'.join(f'    {s}' for s in self.sources_to_transform.get(key, ()))
+                f.write(f'set( LOKI_SOURCES_TO_TRANSFORM_{sanitized_key} \n{s_transform}\n   )\n')
 
-                s_append = '\n'.join(f'    {s}' for s in self.sources_to_append.get(target, ()))
-                f.write(f'set( LOKI_SOURCES_TO_APPEND_{sanitized_target} \n{s_append}\n   )\n')
+                s_append = '\n'.join(f'    {s}' for s in self.sources_to_append.get(key, ()))
+                f.write(f'set( LOKI_SOURCES_TO_APPEND_{sanitized_key} \n{s_append}\n   )\n')
 
-                s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove.get(target, ()))
-                f.write(f'set( LOKI_SOURCES_TO_REMOVE_{sanitized_target} \n{s_remove}\n   )\n')
+                s_remove = '\n'.join(f'    {s}' for s in self.sources_to_remove.get(key, ()))
+                f.write(f'set( LOKI_SOURCES_TO_REMOVE_{sanitized_key} \n{s_remove}\n   )\n')

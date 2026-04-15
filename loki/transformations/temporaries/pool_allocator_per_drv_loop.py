@@ -5,8 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-import re
-from collections import  defaultdict
+from collections import defaultdict
 
 from loki.batch import Transformation
 from loki.expression import (
@@ -18,20 +17,20 @@ from loki.expression import (
 from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, Transformer, Intrinsic,
     Assignment, Conditional, CallStatement, Import, Allocation,
-    Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
-    SubstituteExpressions
+    Deallocation, Loop, Pragma, Interface,
+    SubstituteExpressions, pragmas_attached
 )
 from loki.logging import warning, debug
 from loki.tools import as_tuple, OrderedSet
 from loki.types import SymbolAttributes, BasicType, DerivedType
 
-from loki.transformations.utilities import recursive_expression_map_update
+from loki.transformations.utilities import recursive_expression_map_update, find_driver_loops
 
 
-__all__ = ['TemporariesPoolAllocatorTransformation', 'EcstackPoolAllocatorTransformation']
+__all__ = ['TemporariesPoolAllocatorPerDrvLoopTransformation'] 
 
 
-class TemporariesPoolAllocatorTransformation(Transformation):
+class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
     """
     Transformation to inject a pool allocator that allocates a large scratch space per block
     on the driver and maps temporary arrays in kernels to this scratch space
@@ -214,7 +213,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 f'"stack_end_name": "{self.stack_end_name}" must be different!')
 
     def transform_subroutine(self, routine, **kwargs):
-
+        """
+        Main entry point: dispatch pool allocator logic based on routine
+        role.  For kernels, replace temporaries with Cray-pointer stack
+        allocations.  For drivers, determine aggregate stack sizes and
+        create the pool allocator setup within each driver loop.
+        """
         role = kwargs['role']
         item = kwargs.get('item', None)
         ignore = item.ignore if item else ()
@@ -232,24 +236,107 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
-        if role == 'kernel':
-            stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
+        with pragmas_attached(routine, Loop):
+            # Determine which loops need pool allocator infrastructure
+            # (ISTSZ/ZSTACK/ALLOCATE/DEALLOCATE).
+            #
+            # For drivers: all driver loops get pool allocator setup.
+            # For kernels: only *block-dimension* loops (created by
+            # SCCBlockSectionToLoopTransformation for "nested driver"
+            # kernels like sigam_gp, sitnu_gp) get pool allocator setup.
+            # Regular kernel loops (e.g. larcinb's DO JFLD loop) do NOT
+            # get pool allocator -- their loop variable does not match
+            # any block_dim index.
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            if role == 'kernel':
+                driver_loops = self._filter_block_dim_loops(driver_loops)
+
+            if driver_loops:
+                self.add_driver_imports(routine)
+
+                # First pass: compute per-loop stack sizes for ALL driver
+                # loops, then aggregate with MAX.  This is necessary because
+                # _get_stack_storage_and_size_var creates the ISTSZ variable
+                # and its assignment only on the first call; subsequent calls
+                # reuse the existing variable.  Without aggregation, ISTSZ
+                # would be set to only the first loop's stack size, which
+                # may be 0 even when later loops need non-zero stack space.
+                per_loop_sizes = []
+                for drv_loop in driver_loops:
+                    per_loop_sizes.append(
+                        self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
+                    )
+                aggregate_stack_size = self._aggregate_stack_sizes(per_loop_sizes)
+
+                drv_loop_map = {}
+                for drv_loop in driver_loops:
+                    drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(
+                        routine, aggregate_stack_size, drv_loop=drv_loop
+                    )
+
+                if drv_loop_map:
+                    routine.body = Transformer(drv_loop_map).visit(routine.body)
+                for drv_loop in driver_loops:
+                    self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=True, drv_loop=drv_loop)
+
+            self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
+
             if item:
-                stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
+                self.import_allocation_types(routine, item)
+                if role == 'kernel':
+                    stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
+                    stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
+                else:
+                    stack_size = self._determine_stack_size(routine, successors, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
 
-        elif role == 'driver':
-            self.add_driver_imports(routine)
-            stack_size = self._determine_stack_size(routine, successors, item=item)
-            if item:
-                # import variable type specifiers used in stack allocations
-                self.import_allocation_types(routine, item)
-            self.create_pool_allocator(routine, stack_size)
-
-        self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
-
     def add_driver_imports(self, routine):
-        pass
+        """
+        Hook for subclasses to inject additional imports into driver
+        routines when driver loops are present.  The default
+        implementation is a no-op.
+        """
+
+    def _filter_block_dim_loops(self, driver_loops):
+        """
+        Filter driver loops to keep only those whose loop variable
+        matches a ``block_dim`` index (accounting for ``local_`` prefix).
+
+        In "nested driver" kernels (e.g. ``sigam_gp``, ``sitnu_gp``),
+        ``SCCBlockSectionToLoopTransformation`` creates block-dimension
+        loops (``DO local_JKGLO = ...``) that need pool allocator
+        infrastructure.  Regular kernel loops (e.g. ``larcinb``'s
+        ``DO JFLD = ...``) should NOT get pool allocator setup because
+        their loop variable is not a block-dimension index.
+
+        Parameters
+        ----------
+        driver_loops : list of :any:`Loop`
+            Driver loops found by :func:`find_driver_loops`.
+
+        Returns
+        -------
+        list of :any:`Loop`
+            Subset of *driver_loops* whose loop variable matches a
+            ``block_dim`` index.
+        """
+        # Build a set of normalised block-dim index names.
+        # For compound names like "YDCPG_BNDS%KBL" we match the final
+        # component ("KBL") as well as the full name.
+        block_indices = set()
+        for idx in self.block_dim.indices:
+            block_indices.add(idx.lower())
+            if '%' in idx:
+                block_indices.add(idx.split('%')[-1].lower())
+
+        filtered = []
+        for loop in driver_loops:
+            var_name = str(loop.variable).lower()
+            # Strip 'local_' prefix that SCCBlockSectionToLoopTransformation adds
+            bare_name = var_name.replace('local_', '', 1) if var_name.startswith('local_') else var_name
+            if var_name in block_indices or bare_name in block_indices:
+                filtered.append(loop)
+        return filtered
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -258,7 +345,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         """
 
         # add qualified iso_c_binding import
-        if not 'C_SIZEOF' in routine.imported_symbols:
+        if 'C_SIZEOF' not in routine.imported_symbols:
             imp = Import(
                 module='ISO_C_BINDING', symbols=as_tuple(ProcedureSymbol('C_SIZEOF', scope=routine)),
                 nature='intrinsic'
@@ -272,7 +359,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         """
 
         # add qualified iso_fortran_env import
-        if not 'REAL64' in routine.imported_symbols:
+        if 'REAL64' not in routine.imported_symbols:
             imp = Import(
                 module='ISO_FORTRAN_ENV', symbols=as_tuple(ProcedureSymbol('REAL64', scope=routine)),
                 nature='intrinsic'
@@ -381,8 +468,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         )
 
     def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
+        stack_size_var_wrapped = InlineCall(function=Variable(name='MAX'), parameters=(stack_size_var, 1), kw_parameters=())
         stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-            stack_size_var, block_size)),))
+            stack_size_var_wrapped, block_size)),))
         return stack_alloc
 
     def _get_stack_dealloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
@@ -459,7 +547,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
-            block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
+            block_size = None
+            for _size in self.block_dim.sizes:
+                try:
+                    block_size = routine.resolve_typebound_var(_size, routine.symbol_map)
+                    break
+                except (KeyError, AttributeError):
+                    continue
+            if block_size is None:
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve any block dimension size '
+                    f'({self.block_dim.sizes}) in {routine.name}'
+                )
             stack_alloc = self._get_stack_alloc(routine, stack_storage, stack_size_var, block_size)
             stack_dealloc = self._get_stack_dealloc(routine, stack_storage, stack_size_var, block_size)
 
@@ -493,7 +592,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return True
         return False
 
-    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
+    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None, drv_loop=None):
         """
         Utility routine to determine the stack size required for the given :data:`routine`,
         including calls to subroutines
@@ -531,11 +630,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             for successor in successors
         }
 
+        section = routine.body
+        if drv_loop is not None:
+            section = drv_loop.body
+
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
         stack_sizes = []
-        for call in FindNodes(CallStatement).visit(routine.body):
+
+        for call in FindNodes(CallStatement).visit(section):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
                 # Replace any occurence of routine arguments in the stack size expression
@@ -569,6 +673,56 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Re-build the max expressions, taking into account the local stack size and calls to successors
         stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
         return stack_size
+
+    @staticmethod
+    def _aggregate_stack_sizes(sizes):
+        """
+        Combine a list of stack-size expressions into a single aggregate.
+
+        Unwraps nested ``MAX(...)`` calls, removes zero literals and
+        duplicates, then returns ``Literal(0)`` (all zero), a single
+        expression, or ``MAX(...)`` of all unique non-zero expressions.
+
+        Parameters
+        ----------
+        sizes : list of :any:`Expression`
+            Per-loop or per-section stack-size expressions produced by
+            :meth:`_determine_stack_size`.
+
+        Returns
+        -------
+        :any:`Expression`
+            The aggregated stack size (the maximum across all inputs).
+        """
+        # Flatten nested MAX(...) calls
+        flat = []
+        for s in sizes:
+            if isinstance(s, InlineCall) and s.function == 'MAX':
+                flat.extend(s.parameters)
+            else:
+                flat.append(s)
+
+        # Remove literal zeros and de-duplicate by string representation
+        # (two expressions with the same fgen output are functionally identical)
+        seen = set()
+        non_zero = []
+        for s in flat:
+            if isinstance(s, (Literal, IntLiteral)) and int(s) == 0:
+                continue
+            key = str(s)
+            if key not in seen:
+                seen.add(key)
+                non_zero.append(s)
+
+        if not non_zero:
+            return Literal(0)
+        if len(non_zero) == 1:
+            return non_zero[0]
+        return InlineCall(
+            function=Variable(name='MAX'),
+            parameters=as_tuple(non_zero),
+            kw_parameters=()
+        )
 
     def _get_c_sizeof_arg(self, arr):
         """
@@ -650,8 +804,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         ishift_func = InlineCall(function=Variable(name='ISHFT'))
         arr_size = ishift_func.clone(parameters=(Sum((arr_size, 7)), -3))
 
-        # Increment stack size
-        stack_size = simplify(Sum((stack_size, arr_size)))
+        # Increment stack size; fall back to unsimplified expression if simplify fails
+        try:
+            stack_size = simplify(Sum((stack_size, arr_size)))
+        except (TypeError, ValueError, AttributeError):
+            stack_size = Sum((stack_size, arr_size))
 
         if self.cray_ptr_loc_rhs:
             ptr_increment = Assignment(lhs=stack_ptr, rhs=Sum((stack_ptr, arr_size)))
@@ -714,6 +871,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         temporary_arrays = [
             var for var in temporary_arrays
             if not var.type.pointer or var.type.allocatable
+        ]
+
+        # Filter out variables with the block size as last dimension
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if var.shape[-1] not in self.block_dim.sizes
+        ]
+
+        # filter arrays with dimensions being :, :
+        # TODO: this shouldn't be necessary, somehow this is called twice and then ZTACK is suddenly a temporary array ...
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if not any(shape == RangeIndex((None, None)) for shape in var.shape)
         ]
 
         # Create stack argument and local stack var
@@ -783,124 +953,90 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return routine.resolve_typebound_var(block_index[0], variable_map)
         return None
 
-    def create_pool_allocator(self, routine, stack_size):
+
+    def create_pool_allocator_drv_loop(self, routine, stack_size, drv_loop):
         """
-        Create a pool allocator in the driver
+        Create the pool allocator setup within a driver loop: allocate
+        the stack storage array, inject stack pointer initialisation at
+        the top of the first block loop, and pass the stack storage as
+        an additional argument to each call within the driver loop.
         """
-        # Create and allocate the stack
         stack_storage, stack_size_var = self._get_stack_storage_and_size_var(routine, stack_size)
         stack_var = self._get_local_stack_var(routine)
         stack_var_end = self._get_local_stack_var_end(routine) if self.check_bounds else None
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
 
-        pragma_map = {}
-        pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'loki']
-        for pragma in pragmas:
-            if pragma.content.lower().startswith('loop gang'):
-                parameters = get_pragma_parameters(pragma, starts_with='loop gang', only_loki_pragmas=False)
-                if 'private' in [p.lower() for p in parameters]:
-                    var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                    content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str} ',
-                            pragma.content.lower())
-                else:
-                    var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
-                    content = pragma.content + f' private({stack_var.name}{var_end_str})'
-                pragma_map[pragma] = pragma.clone(content=content)
-        # problem being that code, like e.g. ecwam transformed for 'idem-stack', already having
-        #  OpenMP pragmas rely on the following. Once we (decide to) implement a
-        #  'reverse PragmaModel' trafo that converts e.g., OpenMP pragmas to generic Loki pragmas
-        #  we do not longer rely on the following
-        omp_pragmas = [p for p in FindNodes(Pragma).visit(routine.body) if p.keyword.lower() == 'omp']
-        for pragma in omp_pragmas:
-            if pragma.content.lower().startswith('parallel'):
-                parameters = get_pragma_parameters(pragma, starts_with='parallel', only_loki_pragmas=False)
-                if 'private' in [p.lower() for p in parameters]:
-                    var_end_str = f' {stack_var_end.name},' if self.check_bounds else ''
-                    content = re.sub(r'\bprivate\(', f'private({stack_var.name},{var_end_str}',
-                            pragma.content.lower())
-                else:
-                    var_end_str = f', {stack_var_end.name}' if self.check_bounds else ''
-                    content = pragma.content + f' private({stack_var.name}{var_end_str})'
-                pragma_map[pragma] = pragma.clone(content=content)
-
-        if pragma_map:
-            routine.body = Transformer(pragma_map).visit(routine.body)
-
+        # TODO: adapt pragma loop
         # Find first block loop and assign local stack pointers there
-        loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.body):
-            assignments = FindNodes(Assignment).visit(loop.body)
-            if loop.variable != self.block_dim.index:
-                # Check if block variable is assigned in loop body
-                for assignment in assignments:
-                    if assignment.lhs == self.block_dim.index:
-                        assert assignment in loop.body
-                        # Need to insert the pointer assignment after block dimension is set
-                        assign_pos = loop.body.index(assignment)
-                        break
-                else:
-                    warning(
-                        f'{self.__class__.__name__}: '
-                        f'Could not find a block dimension for loop with variable {loop.variable} and '
-                        f'bounds {loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
-                    )
-                    continue
+        assignments = FindNodes(Assignment).visit(drv_loop.body)
+        if drv_loop.variable != self.block_dim.index:
+            # Check if block variable is assigned in loop body
+            for assignment in assignments:
+                if assignment.lhs in self.block_dim.indices:
+                    assert assignment in drv_loop.body
+                    # Need to insert the pointer assignment after block dimension is set
+                    assign_pos = drv_loop.body.index(assignment)
+                    break
             else:
-                # block variable is the loop variable: pointer assignment can happen
-                # at the beginning of the loop body
-                assign_pos = -1
-
-            # Check for existing pointer assignment
-            if any(a.lhs == f'{self.stack_local_var_name}_{self.stack_ptr_name}' for a in assignments):
-                debug(
+                warning(
                     f'{self.__class__.__name__}: '
-                    f'Stack (pointer) already exists within/for loop with variable {loop.variable} and '
-                    f'bounds {loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
+                    f'Could not find a block dimension for loop with variable {drv_loop.variable} and '
+                    f'bounds {drv_loop.bounds} in {routine.name}; no stack pointer assignment inserted!'
                 )
-                break
-            if self.cray_ptr_loc_rhs:
-                ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
-            else:
-                ptr_assignment = Assignment(
-                    lhs=stack_ptr, rhs=InlineCall(
-                        function=Variable(name='LOC'),
-                        parameters=(
-                            stack_storage.clone(
-                                # dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
-                                dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
-                            ),
+                return drv_loop
+        else:
+            # block variable is the loop variable: pointer assignment can happen
+            # at the beginning of the loop body
+            assign_pos = -1
+
+        # Check for existing pointer assignment
+        if any(a.lhs == f'{self.stack_local_var_name}_{self.stack_ptr_name}' for a in assignments):
+            debug(
+                f'{self.__class__.__name__}: '
+                f'Stack (pointer) already exists within/for loop with variable {drv_loop.variable} and '
+                f'bounds {drv_loop.bounds} in {routine.name}; thus no stack pointer assignment inserted!'
+            )
+            return drv_loop
+        if self.cray_ptr_loc_rhs:
+            ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
+        else:
+            ptr_assignment = Assignment(
+                lhs=stack_ptr, rhs=InlineCall(
+                    function=Variable(name='LOC'),
+                    parameters=(
+                        stack_storage.clone(
+                            dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
                         ),
-                        kw_parameters=None
-                    )
+                    ),
+                    kw_parameters=None
                 )
-
-            # Retrieve kind parameter of stack storage
-            _kind = routine.imported_symbol_map.get('REAL64')
-
-            # Stack increment
-            if self.cray_ptr_loc_rhs:
-                stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
-                )
-            else:
-                _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
-                _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
-                                              parameters=as_tuple(_real_size_bytes))
-                stack_incr = Assignment(
-                    lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
-                )
-            new_assignments = (ptr_assignment,)
-            if self.check_bounds:
-                new_assignments += (stack_incr,)
-            loop_map[loop] = loop.clone(
-                body=loop.body[:assign_pos + 1] + new_assignments + loop.body[assign_pos + 1:]
             )
 
-        if loop_map:
-            routine.body = Transformer(loop_map).visit(routine.body)
+        # Retrieve kind parameter of stack storage
+        _kind = routine.imported_symbol_map.get('REAL64')
 
-    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False):
+        # Stack increment
+        if self.cray_ptr_loc_rhs:
+            stack_incr = Assignment(
+                lhs=stack_end, rhs=Sum((stack_ptr, stack_size_var))
+            )
+        else:
+            _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
+            _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                                          parameters=as_tuple(_real_size_bytes))
+            stack_incr = Assignment(
+                lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
+            )
+        new_assignments = (ptr_assignment,)
+        if self.check_bounds:
+            new_assignments += (stack_incr,)
+        new_loop = drv_loop.clone(
+                body=drv_loop.body[:assign_pos + 1] + new_assignments + drv_loop.body[assign_pos + 1:]
+        )
+        return new_loop
+
+    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False, drv_loop=None):
         """
         Add the pool allocator argument into subroutine calls
         """
@@ -927,7 +1063,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             dimensions = as_tuple(stack_storage_var_dim)
             new_kwarguments += ((stack_storage_var.name, stack_storage_var.clone(dimensions=dimensions)),)
 
-        for call in FindNodes(CallStatement).visit(routine.body):
+        section = routine
+        if drv_loop is not None:
+            section = drv_loop
+
+        for call in FindNodes(CallStatement).visit(section.body):
             if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
@@ -936,6 +1076,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     _ = self._get_stack_arg(call.routine)
 
                 if call.routine != BasicType.DEFERRED and stack_arg_name in call.routine.arguments:
+                    # skip if already added to the call ...
+                    skip = False
+                    for new_kwarg in new_kwarguments:
+                        if new_kwarg in call.kwarguments:
+                            skip = True
+                            break
+                    if skip:
+                        continue
                     call_map[call] = call.clone(
                         kwarguments=call.kwarguments + new_kwarguments
                     )
@@ -945,7 +1093,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # Now repeat the process for InlineCalls
         call_map = {}
-        for call in FindInlineCalls().visit(routine.body):
+        for call in FindInlineCalls().visit(section.body):
             if call.name.lower() in [t.lower() for t in targets]:
                 call_map[call] = call.clone(
                     kw_parameters=as_tuple(call.kw_parameters) + new_kwarguments
@@ -953,83 +1101,3 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         if call_map:
             routine.body = SubstituteExpressions(call_map).visit(routine.body)
-
-
-class EcstackPoolAllocatorTransformation(TemporariesPoolAllocatorTransformation):
-    """
-    Analog to :any:`TemporariesPoolAllocatorTransformation`, however, instead of
-    inserting offload pragmas use an external defined module to get a pointer to
-    an offloaded chunk of memory.
-
-    The minimal interface expected from ECSTACK should look like:
-
-    .. code-block:: fortran
-
-        MODULE ECSTACK_MOD
-
-        IMPLICIT NONE
-
-        TYPE TECSTACK
-          ...
-        CONTAINS
-          PROCEDURE :: GET_STACK_PTR
-        END TYPE TECSTACK
-
-        PRIVATE
-
-        TYPE(TECSTACK) :: ECSTACK
-        PUBLIC :: TECSTACK, ECSTACK
-
-        CONTAINS
-
-        SUBROUTINE GET_STACK_PTR(SELF, PTR, KSIZE, NGPBLKS)
-           CLASS(TECSTACK) :: SELF
-           REAL(KIND=JPRD), POINTER, CONTIGUOUS, INTENT(INOUT) :: PTR(:, :)
-           INTEGER(KIND=JPIM), INTENT(IN) :: KSIZE
-           INTEGER(KIND=JPIM), INTENT(IN) :: NGPBLKS
-
-           ...
-        END SUBROUTINE GET_STACK_PTR
-
-        END MODULE ECSTACK_MOD
-    """
-
-    def add_driver_imports(self, routine):
-        self.import_ecstack(routine)
-
-    @staticmethod
-    def import_ecstack(routine):
-        if not 'ECSTACK' in routine.imported_symbols:
-            imp = Import(
-                    module='ECSTACK_MOD', symbols=as_tuple(Variable(name='ECSTACK')),
-            )
-            routine.spec.prepend(imp)
-
-    def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size):
-        stack_alloc_call_name = ProcedureSymbol(name="GET_STACK_PTR",
-                parent=routine.imported_symbol_map['ecstack'], scope=routine)
-        stack_alloc = CallStatement(name=stack_alloc_call_name,
-                arguments=(stack_storage.clone(dimensions=None), stack_size_var, block_size))
-        return stack_alloc
-
-    def _get_stack_dealloc(self, routine, stack_storage, stack_size_var, block_size):
-        return None
-
-    def _get_pragma_start(self, routine, stack_storage):
-        pragma = Pragma(
-            keyword='loki',
-            content=f'structured-data present({stack_storage.name})' # pylint: disable=no-member
-        )
-        return pragma
-
-    def _get_pragma_end(self, routine, stack_storage):
-        return Pragma(keyword='loki', content='end structured-data')
-
-    def _get_stack_type(self, routine):
-        stack_type = SymbolAttributes(
-            dtype=BasicType.REAL,
-            kind=Variable(name='REAL64', scope=routine),
-            shape=(RangeIndex((None, None)), RangeIndex((None, None))),
-            pointer=True, contiguous=True
-        )
-        return stack_type

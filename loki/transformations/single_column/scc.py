@@ -7,10 +7,11 @@
 
 from functools import partial
 
-from loki.batch import Pipeline
+from loki.batch import Pipeline, Transformation
 
 from loki.transformations.temporaries import (
         HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
+        TemporariesPoolAllocatorPerDrvLoopTransformation,
         TemporariesRawStackTransformation,
         FtrPtrStackTransformation, DirectIdxStackTransformation,
         EcstackPoolAllocatorTransformation
@@ -24,9 +25,19 @@ from loki.transformations.single_column.devector import SCCDevectorTransformatio
 from loki.transformations.single_column.revector import (
     SCCVecRevectorTransformation, SCCSeqRevectorTransformation
 )
+from loki.transformations.single_column.block import SCCBlockSectionTransformation, SCCBlockSectionToLoopTransformation
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
+from loki.transformations.block_index_transformations import (
+        LowerBlockLoopTransformation, InjectBlockIndexTransformation,
+        LowerBlockIndexTransformation
+)
+from loki.ir import (
+    SubstituteExpressions, FindNodes, Pragma, Transformer,
+    is_loki_pragma, get_pragma_parameters
+)
+from loki.tools import as_tuple
 
 __all__ = [
     'SCCVectorPipeline', 'SCCVVectorPipeline', 'SCCSVectorPipeline',
@@ -35,9 +46,158 @@ __all__ = [
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
-    'SCCSEcStackPipeline'
+    'SCCSEcStackPipeline', 'SCCSmallKernelsPipeline'
 ]
 
+
+class CreateLocalCopiesTransformation(Transformation):
+    """
+    Create local scalar copies of block-dimension and horizontal-dimension
+    index variables inside kernel routines.
+
+    For each variable in ``block_dim.indices``, ``horizontal.upper``, and
+    ``horizontal.lower`` that appears in the routine's variable map, a new
+    ``local_<name>`` variable is created and all body references are
+    rewritten to use the local copy.  This prevents accidental aliasing
+    when the caller-side variable is a derived-type component (e.g.
+    ``YDCPG_BNDS%KIDIA``).
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        Dimension object describing the blocking data dimension.
+    horizontal : :any:`Dimension`
+        Dimension object describing the horizontal (column) dimension.
+    """
+    
+    def __init__(self, block_dim, horizontal):
+        self.block_dim = block_dim 
+        self.horizontal = horizontal
+   
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply SCCDevector utilities to a :any:`Subroutine`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : string
+            Role of the subroutine in the call tree; should be ``"kernel"``
+        """
+        role = kwargs['role']
+        item = kwargs.get('item', None)
+
+        if role == 'kernel':
+            if 'LowerBlockIndex' in item.trafo_data:
+                self._create_local_copies(routine)
+            # Always clean up device-present pragmas for bounds-parent
+            # variables, even when LowerBlockIndex did not propagate to
+            # this item (e.g. sub-sub-kernels not directly marked with
+            # ``!$loki small-kernels``).
+            self._remove_bounds_parents_from_device_present(routine)
+
+    def get_block_index(self, routine, variable_map, index):
+        """
+        Utility to retrieve the block-index loop induction variable.
+        """
+        if (block_index := variable_map.get(index, None)):
+            return block_index
+        if (index.split('%', maxsplit=1)[0] in variable_map):
+            block_index = index.split('%', maxsplit=1)
+            return routine.resolve_typebound_var(block_index[0], variable_map)
+        return None
+
+    def _create_local_copies(self, routine):
+        routine_variable_map = routine.variable_map
+
+        # Variables that match horizontal.size are array dimension sizes
+        # (e.g. KLON, NPROMA) and must NOT be localized even if they also
+        # appear in horizontal.upper (as loop bounds).  Localizing them
+        # would substitute ``local_KLON`` into pool-allocator ISTSZ
+        # expressions and other code outside the block loop where the
+        # local copy is never assigned.
+        size_names = {s.split('%')[-1].lower() for s in (self.horizontal.sizes or ())}
+
+        create_local_copy = []
+        for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
+            if _index.split('%')[-1].lower() in size_names:
+                continue
+            if (block_index := self.get_block_index(routine, routine_variable_map, _index)):
+                create_local_copy.append(block_index)
+        local_copy_map = {var: var.clone(name=f'local_{var.name}', type=var.type.clone(intent=None)) for var in create_local_copy if f'local_{var.name}' not in routine_variable_map}
+        routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
+        routine.variables += as_tuple(local_copy_map.values())
+
+        # Remove replaced variable names from !$loki device-present vars(...)
+        # pragmas.  The annotation step (SCCAnnotateTransformation) runs before
+        # local-copy creation, so it includes the original derived-type arguments
+        # (e.g. ``bnds``) in the vars list.  After the substitution above, the
+        # original variable is no longer accessed on the device and should be
+        # excluded from the ``present()`` clause that PragmaModelTransformation
+        # will generate.
+        #
+        # We use create_local_copy (not local_copy_map) because an earlier
+        # pipeline step (SCCBlockSectionToLoopTransformation) may have already
+        # created the local copy, causing local_copy_map to be empty here.
+        replaced_names = {str(var.name).lower() for var in create_local_copy}
+        if replaced_names:
+            self._filter_device_present_pragma(routine, replaced_names)
+
+    @staticmethod
+    def _filter_device_present_pragma(routine, names_to_remove):
+        """
+        Remove variable names in *names_to_remove* from any
+        ``!$loki device-present vars(...)`` pragmas in *routine*.
+        """
+        pragma_map = {}
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            if not is_loki_pragma(pragma, starts_with='device-present'):
+                continue
+            params = get_pragma_parameters(pragma, starts_with='device-present',
+                                           only_loki_pragmas=False)
+            if params is None or 'vars' not in params:
+                continue
+            var_list = [v.strip() for v in params['vars'].split(',')]
+            filtered = [v for v in var_list if v.lower() not in names_to_remove]
+            if len(filtered) < len(var_list):
+                if filtered:
+                    new_content = f'device-present vars({", ".join(filtered)})'
+                else:
+                    new_content = 'device-present'
+                pragma_map[pragma] = pragma.clone(content=new_content)
+        if pragma_map:
+            routine.body = Transformer(pragma_map).visit(routine.body)
+
+    def _get_bounds_parent_names(self):
+        """
+        Return the set of lower-cased parent variable names from all
+        ``block_dim.indices``, ``horizontal.upper``, and ``horizontal.lower``
+        entries that contain a ``%`` (i.e. are derived-type components).
+
+        For example, ``YDCPG_BNDS%KIDIA`` yields ``ydcpg_bnds``.
+        """
+        parents = set()
+        for _index in self.block_dim.indices + self.horizontal._upper + self.horizontal._lower:
+            if '%' in _index:
+                parents.add(_index.split('%')[0].lower())
+        return parents
+
+    def _remove_bounds_parents_from_device_present(self, routine):
+        """
+        Remove bounds-parent variable names (e.g. ``YDCPG_BNDS``, ``DIMS``)
+        from ``!$loki device-present vars(...)`` pragmas.
+
+        These variables are derived-type containers for loop bounds
+        (KIDIA, KFDIA, KBL, etc.) and are never accessed as device data.
+        The annotation step adds them because they are derived-type
+        arguments, but they should be excluded from ``present()`` clauses
+        since their components are only used as scalar loop bounds / block
+        indices that do not require device-side data transfers.
+        """
+        bounds_parents = self._get_bounds_parent_names()
+        if bounds_parents:
+            self._filter_device_present_pragma(routine, bounds_parents)
 
 class RemoveUnusedVarTransformation(RemoveCodeTransformation):
     """
@@ -61,6 +221,22 @@ class RemoveUnusedVarTransformation(RemoveCodeTransformation):
         super().__init__(remove_unused_vars=remove_unused_vars, remove_only_arrays=remove_only_arrays,
                 remove_marked_regions=False, kernel_only=True)
 
+SCCSmallKernelsPipeline = partial(
+    Pipeline, classes=(
+        LowerBlockIndexTransformation,
+        InjectBlockIndexTransformation,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        SCCBlockSectionTransformation,
+        SCCBlockSectionToLoopTransformation,
+        SCCAnnotateTransformation,
+        TemporariesPoolAllocatorPerDrvLoopTransformation,
+        CreateLocalCopiesTransformation,
+        PragmaModelTransformation
+        )
+)
 
 SCCVVectorPipeline = partial(
     Pipeline, classes=(

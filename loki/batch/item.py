@@ -564,6 +564,14 @@ class Item(ItemConfig):
         """
         return self.source.path
 
+    @property
+    def orig_path(self):
+        """
+        The original filepath of the associated source file
+        necessary for planning when duplicating/renaming items
+        """
+        return self.source.orig_path
+
 
 class FileItem(Item):
     """

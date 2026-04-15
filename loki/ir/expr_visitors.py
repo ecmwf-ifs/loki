@@ -30,7 +30,7 @@ __all__ = [
     'FindTypedSymbols', 'FindInlineCalls', 'FindLiterals',
     'FindRealLiterals', 'ExpressionTransformer',
     'SubstituteExpressions', 'SubstituteStringExpressions',
-    'AttachScopes', 'FindLiteralLists'
+    'AttachScopes', 'FindLiteralLists', 'FindUsedVariables'
 ]
 
 
@@ -183,6 +183,10 @@ class FindVariables(ExpressionFinder):
     """
     retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)))
 
+class FindUsedVariables(ExpressionFinder):
+
+    retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)),
+            recurse_var_parent=False)
 
 class FindInlineCalls(ExpressionFinder):
     """

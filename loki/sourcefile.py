@@ -61,6 +61,7 @@ class Sourcefile:
 
     def __init__(self, path, ir=None, ast=None, source=None, incomplete=False, parser_classes=None):
         self.path = Path(path) if path is not None else path
+        self.orig_path = self.path
         if ir is not None and not isinstance(ir, Section):
             ir = Section(body=ir)
         self.ir = ir
