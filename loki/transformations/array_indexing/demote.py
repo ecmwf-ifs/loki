@@ -8,6 +8,7 @@
 """ Utilities for demoting the rank of array variables. """
 
 from loki.expression import symbols as sym
+from loki.expression.mappers import SubstituteExpressionsMapper
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, FindVariables,
     SubstituteExpressions
@@ -59,6 +60,13 @@ def demote_variables(routine, variable_names, dimensions):
 
         new_type = v.type.clone(shape=new_shape or None)
         vmap[v] = v.clone(dimensions=new_dims or None, type=new_type)
+
+    # Apply the substitution map to its own values so that indirect
+    # addressing is handled correctly (e.g. A(B(JROF)) where both A
+    # and B are being demoted — the replacement for A must use the
+    # already-demoted B).
+    mapper = SubstituteExpressionsMapper(vmap)
+    vmap = {k: mapper(v) for k, v in vmap.items()}
 
     # Propagate the new dimensions to declarations and routine bodys
     routine.body = SubstituteExpressions(vmap).visit(routine.body)
