@@ -52,9 +52,13 @@ class ReblockSectionTransformer(Transformer):
         self.insert_pragma = insert_pragma
         self.item = item
 
+        print(f"[DEBUG] ReblockSectionTransformer routine {routine}")
+
         if 'LowerBlockIndex' in item.trafo_data:
+            print(f"   found driver loop: {item.trafo_data['LowerBlockIndex']['driver_loop']}")
             self.driver_loop = item.trafo_data['LowerBlockIndex']['driver_loop']
         else:
+            print(f"  'LowerBlockIndex' missing from item.trafo_data!!!")
             self.driver_loop = None
 
     def visit_Section(self, s, **kwargs):
@@ -73,6 +77,8 @@ class ReblockSectionTransformer(Transformer):
                     f'a block section needs to be wrapped in a driver loop'
                 )
             else:
+                from loki import fgen
+                print(f"[DEBUG] ReblockSectionTransformer: driver_loop.body: {fgen(self.driver_loop.body)}")
                 return (ir.Comment(text='! START OF BLOCK LOOP'), ir.Comment(text=''),
                         self.driver_loop.clone(body=self.driver_loop.body+s.body, pragma=(ir.Pragma(keyword='loki', content=f'loop driver{vector_length}'),)),
                         ir.Comment(text=''), 
@@ -160,6 +166,7 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         item = kwargs.get('item', None)
 
         if role == 'kernel':
+            print(f"call ReblockSectionTransformer for {routine}")
             routine.body = ReblockSectionTransformer(routine, item, self.horizontal).visit(routine.body)
             self.activate_pragmas(routine)
             if 'LowerBlockIndex' in item.trafo_data:
@@ -249,9 +256,19 @@ class SCCBlockSectionTransformation(Transformation):
         
             separator_nodes = cls._add_separator(call, section, separator_nodes)
 
+        # separator_nodes = cls._add_separator(section[-1], section, separator_nodes)
+
+        # this doesn't work as we are in pragmas_attached mode ...
+        # pragmas = FindNodes(ir.CallStatement).visit(section)
+        # print(f"[HERE] adding separator nodes pragmas: {pragmas}")
+        # pragmas = [pragma for pragma in pragmas if pragma.keyword.lower() == 'acc']
+        # for pragma in pragmas:
+        #     print(f"[HERE] adding separator node for pragma: {pragma}")
+        #     separator_nodes = cls._add_separator(pragma, section, separator_nodes)
+
         subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
 
-        subsections = [s for s in subsections if any([index in list(FindVariables().visit(s)) for index in block_dim.indices])]
+        subsections = [s for s in subsections if any([index in list(FindVariables().visit(s)) for index in block_dim.indices]) or any([call for call in list(FindNodes(ir.CallStatement).visit(s)) if call.routine is not BasicType.DEFERRED])]
 
         # Recurse on all separator nodes that might contain further vector sections
         for separator in separator_nodes:
@@ -288,13 +305,24 @@ class SCCBlockSectionTransformation(Transformation):
         with dataflow_analysis_attached(routine):
             for sec in sections:
                 block_nodes = [node for node in sec if any([index.lower() in node.uses_symbols for index in block_dim.indices])]
-                start = sec.index(block_nodes[0])
-                # don't loose e.g. loop vector pragmas ...
-                if isinstance(sec[start-1], ir.Pragma):
-                    start -= 1
-                end = sec.index(block_nodes[-1])
-
-                trimmed_sections += (sec[start:end+1],)
+                if block_nodes:
+                    start = sec.index(block_nodes[0])
+                    # don't loose e.g. loop vector pragmas ...
+                    if isinstance(sec[start-1], ir.Pragma) and 'loop' in sec[start-1].content.lower():
+                        start -= 1
+                    end = sec.index(block_nodes[-1])
+                
+                    trimmed_sections += (sec[start:end+1],)
+                else:
+                    # maybe a call ...
+                    call_nodes = [node for node in sec if any([call for call in FindNodes(ir.CallStatement).visit(node) if call is not BasicType.DEFERRED])]
+                    if call_nodes:
+                        print(f"[YES] routine: {routine} | call_nodes: {call_nodes}")
+                        start = sec.index(call_nodes[0])
+                        end = sec.index(call_nodes[-1])
+                        trimmed_sections += (sec[start:end+1],)
+                    else:
+                        trimmed_sections += (sec,)
 
         return trimmed_sections
 
@@ -376,14 +404,24 @@ class SCCBlockSectionTransformation(Transformation):
         pragma_map = {pragma: None for pragma in pragmas}
         routine.spec = Transformer(pragma_map).visit(routine.spec)
         routine.body = Transformer(pragma_map).visit(routine.body)
+        local_trim_block_sections = True
 
         # Extract vector-level compute sections from the kernel
         with pragmas_attached(routine, ir.CallStatement):
             sections = self.extract_block_sections(routine.body.body, self.block_dim, successor_map)
+        print(f"[SECTIONS] routine {routine} | {not sections} | {sections}")
+        from loki import fgen
+        for section in sections:
+            print(fgen(section))
+            print("---")
+        # if not sections:
+        #     local_trim_block_sections = False
+        #     sections = [routine.body.body]
 
-        if self.trim_block_sections:
+        if self.trim_block_sections and local_trim_block_sections:
             sections = self.get_trimmed_sections(routine, self.block_dim, sections)
 
+        print(f"[DEBUG] SCCBlockSectionTransformation routine {routine} | sections: {sections}")
         # Replace sections with marked Section node
         section_mapper = {s: ir.Section(body=s, label='block_section') for s in sections
                 if s and [s for s in s if not isinstance(s, (ir.Comment, ir.Pragma, ir.CommentBlock))]}

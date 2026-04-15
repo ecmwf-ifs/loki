@@ -162,6 +162,8 @@ class SCCAnnotateTransformation(Transformation):
         role = kwargs['role']
         targets = as_tuple(kwargs.get('targets'))
 
+        print(f"[ANN] routine {routine}")
+
         if role == 'kernel':
             # Bail if this routine has been processed before
             for p in FindNodes(ir.Pragma).visit(routine.ir):
@@ -185,7 +187,7 @@ class SCCAnnotateTransformation(Transformation):
                     acc_vars = self.find_kernel_acc_vars(routine)
                     driver_loops = find_driver_loops(section=routine.body, targets=targets)
                     for loop in driver_loops:
-                        self.annotate_driver_loop(loop, acc_vars, privatise_derived_types=False)
+                        self.annotate_driver_loop(loop, acc_vars, privatise_derived_types=True)
 
 
         if role == 'driver':
@@ -320,6 +322,7 @@ class SCCAnnotateTransformation(Transformation):
             List of column locals to be hoisted to driver layer
         """
 
+        print(f"column_locals: {column_locals}")
         if column_locals:
             vnames = ', '.join(v.name for v in column_locals)
             pragma = ir.Pragma(keyword='loki', content=f'unstructured-data create({vnames})')
@@ -357,6 +360,8 @@ class SCCAnnotateTransformation(Transformation):
             structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
             structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
             structs = [v for v in structs if not v.type.intent]
+            # THIS WORKS FOR MY PARTICULAR PROBLEM BUT PROBABLY ISN'T A VALID GENERIC CRITERION
+            structs = [v for v in structs if not v.type.pointer]
             # Exclude derived-type components whose root variable is a subroutine argument
             # (has intent) or is imported from a module, as these are not loop-local variables
             # and should not be privatised.
