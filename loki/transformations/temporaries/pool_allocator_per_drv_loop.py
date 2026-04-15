@@ -236,6 +236,8 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         sub_sgraph = kwargs.get('sub_sgraph', None)
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
+
+        print(f"[TMP] transform_subroutine -> routine {routine} | item {item}")
         with pragmas_attached(routine, Loop):
             # Determine which loops need pool allocator infrastructure
             # (ISTSZ/ZSTACK/ALLOCATE/DEALLOCATE).
@@ -247,48 +249,73 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
             # Regular kernel loops (e.g. larcinb's DO JFLD loop) do NOT
             # get pool allocator -- their loop variable does not match
             # any block_dim index.
-            driver_loops = find_driver_loops(section=routine.body, targets=targets)
-            if role == 'kernel':
-                driver_loops = self._filter_block_dim_loops(driver_loops)
 
-            if driver_loops:
-                self.add_driver_imports(routine)
-
-                # First pass: compute per-loop stack sizes for ALL driver
-                # loops, then aggregate with MAX.  This is necessary because
-                # _get_stack_storage_and_size_var creates the ISTSZ variable
-                # and its assignment only on the first call; subsequent calls
-                # reuse the existing variable.  Without aggregation, ISTSZ
-                # would be set to only the first loop's stack size, which
-                # may be 0 even when later loops need non-zero stack space.
-                per_loop_sizes = []
-                for drv_loop in driver_loops:
-                    per_loop_sizes.append(
-                        self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
-                    )
-                aggregate_stack_size = self._aggregate_stack_sizes(per_loop_sizes)
-
-                drv_loop_map = {}
-                for drv_loop in driver_loops:
-                    drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(
-                        routine, aggregate_stack_size, drv_loop=drv_loop
-                    )
-
-                if drv_loop_map:
-                    routine.body = Transformer(drv_loop_map).visit(routine.body)
-                for drv_loop in driver_loops:
-                    self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=True, drv_loop=drv_loop)
-
-            self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
+            # DAMN, that's hacky ...
+            if role == 'driver' or 'LowerBlockIndex' in item.trafo_data:
+                driver_loops = find_driver_loops(section=routine.body, targets=targets)
+            else:
+                driver_loops = []
+            print(f"[POOL] [1] routine {routine} | driver_loops {driver_loops}")
+            # FILTERING IS NOT THE RIGHT APPROACH
+            # if role == 'kernel':
+            #     driver_loops = self._filter_block_dim_loops(driver_loops)
+            #     print(f"[POOL] [2] routine {routine} | driver_loops {driver_loops}")
 
             if item:
-                self.import_allocation_types(routine, item)
                 if role == 'kernel':
                     stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
                     stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
                 else:
                     stack_size = self._determine_stack_size(routine, successors, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
+                print(f"[TMP] import allocation types for routine {routine}")
+                self.import_allocation_types(routine, item)
+
+            print(f"[HERE] routine {routine} | stack_size: {stack_size}")
+
+            # if stack_size != 0:
+            if True:
+                if driver_loops: 
+                    print(f"[HERE] continuing routine {routine}")
+                    self.add_driver_imports(routine)
+
+                    # First pass: compute per-loop stack sizes for ALL driver
+                    # loops, then aggregate with MAX.  This is necessary because
+                    # _get_stack_storage_and_size_var creates the ISTSZ variable
+                    # and its assignment only on the first call; subsequent calls
+                    # reuse the existing variable.  Without aggregation, ISTSZ
+                    # would be set to only the first loop's stack size, which
+                    # may be 0 even when later loops need non-zero stack space.
+                    per_loop_sizes = []
+                    for drv_loop in driver_loops:
+                        per_loop_sizes.append(
+                            self._determine_stack_size(routine, successors, item=item, drv_loop=drv_loop)
+                        )
+                    print(f"  [POOL] per_loop_sizes: {per_loop_sizes}")
+                    aggregate_stack_size = self._aggregate_stack_sizes(per_loop_sizes)
+
+                    drv_loop_map = {}
+                    for drv_loop in driver_loops:
+                        drv_loop_map[drv_loop] = self.create_pool_allocator_drv_loop(
+                            routine, aggregate_stack_size, drv_loop=drv_loop
+                        )
+
+                    if drv_loop_map:
+                        routine.body = Transformer(drv_loop_map).visit(routine.body)
+                    for drv_loop in driver_loops:
+                        self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=True, drv_loop=drv_loop)
+
+                self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
+
+            # if item:
+            #     if role == 'kernel':
+            #         stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
+            #         stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
+            #     else:
+            #         stack_size = self._determine_stack_size(routine, successors, item=item)
+            #     item.trafo_data[self._key]['stack_size'] = stack_size
+            #     print(f"[TMP] import allocation types for routine {routine}")
+            #     self.import_allocation_types(routine, item)
 
     def add_driver_imports(self, routine):
         """
@@ -375,6 +402,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         for s, m in item.trafo_data[self._key]['kind_imports'].items():
             new_imports[m] |= OrderedSet(as_tuple(s))
 
+        print(f"  [TMP] routine {routine} -> kind_imports: {item.trafo_data[self._key]['kind_imports']}")
         import_map = {i.module.lower(): i for i in routine.imports}
         for mod, symbs in new_imports.items():
             if mod in import_map:
@@ -841,6 +869,8 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
             if isinstance(var, Array) and var not in arguments
         ]
 
+        print(f"[TMP] 0 routine {routine} | temporary_arrays: {temporary_arrays}")
+
         # Filter out derived-type objects. Partly because the possibility of derived-type
         # nesting increases the complexity of determing allocation size, and partly because `C_SIZEOF`
         # doesn't account for the size of allocatable/pointer members of derived-types.
@@ -849,6 +879,8 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         temporary_arrays = [
             var for var in temporary_arrays if not isinstance(var.type.dtype, DerivedType)
         ]
+
+        print(f"[TMP] 1 routine {routine} | temporary_arrays: {temporary_arrays}")
 
         # Filter out unused vars
         #  this used to rely on dataflow_analysis only putting temporaries that are defined/written to
@@ -920,6 +952,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         declarations = []
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
+        print(f"[TMP] 2 routine {routine} | temporary_arrays: {temporary_arrays}")
         for arr in temporary_arrays:
             ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
             declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
@@ -935,7 +968,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
                 dims = [d for d in arr.shape if d in routine.imported_symbols]
                 for d in dims:
                     item.trafo_data[self._key]['kind_imports'][d] = routine.import_map[d.name].module.lower()
-
+                print(f"[TMP] SETTING kind_imports for routine {routine} -> {item.trafo_data[self._key]['kind_imports']}")
         routine.spec.append(declarations)
         routine.body.prepend(allocations)
 
@@ -948,9 +981,14 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
 
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
+        if (block_index := variable_map.get(f'local_{self.block_dim.index}', "")):
+            return block_index
         if (block_index := [i for i in self.block_dim.indices
                             if i.split('%', maxsplit=1)[0] in variable_map]):
             return routine.resolve_typebound_var(block_index[0], variable_map)
+        if (block_index := [i for i in self.block_dim.indices
+                            if f"local_{i.split('%', maxsplit=1)[0]}" in variable_map]):
+            return routine.resolve_typebound_var(f"local_{block_index[0]}", variable_map)
         return None
 
 
@@ -973,7 +1011,7 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(Transformation):
         if drv_loop.variable != self.block_dim.index:
             # Check if block variable is assigned in loop body
             for assignment in assignments:
-                if assignment.lhs in self.block_dim.indices:
+                if assignment.lhs in self.block_dim.indices + as_tuple([f'local_{index}' for index in self.block_dim.indices]):
                     assert assignment in drv_loop.body
                     # Need to insert the pointer assignment after block dimension is set
                     assign_pos = drv_loop.body.index(assignment)
