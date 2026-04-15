@@ -3722,7 +3722,7 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
             output_dir=builddir)
     if wrong_pipeline_name:
         # check failure since pipeline 'm1' can't be found
-        with pytest.raises(SystemExit):
+        with pytest.raises(RuntimeError):
             scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
         return
     scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
