@@ -714,9 +714,9 @@ class ResolveVectorNotationTransformer(Transformer):
 
         # --- Step 4: Filter to resolvable dimensions ---
         if self.resolve_implicit_rhs_ranges:
-            resolved_dim_indices = lhs_qualified_range_indices
+            resolvable_dim_indices = lhs_qualified_range_indices
         else:
-            resolved_dim_indices = [
+            resolvable_dim_indices = [
                 i for i, j in enumerate(lhs_qualified_range_indices)
                 if all(
                     array_dims[rhs_pos[i]] != sym.RangeIndex((None, None))
@@ -725,12 +725,12 @@ class ResolveVectorNotationTransformer(Transformer):
             ]
 
         # Nothing to resolve
-        if not resolved_dim_indices:
+        if not resolvable_dim_indices:
             return stmt
 
         # --- Step 5: Map LHS ranges to loop index variables ---
         resolved_lhs_ranges = [
-            lhs_dims[lhs_range_positions[i]] for i in resolved_dim_indices
+            lhs_dims[lhs_range_positions[i]] for i in resolvable_dim_indices
         ]
         new_lhs_dims, index_range_map, synthesized_ivars = self._map_ranges_to_indices(
             resolved_lhs_ranges, self.loop_map,
@@ -746,7 +746,7 @@ class ResolveVectorNotationTransformer(Transformer):
         actually_resolved = [
             (orig_i, lhs_rng, new_dim)
             for orig_i, lhs_rng, new_dim
-            in zip(resolved_dim_indices, resolved_lhs_ranges, new_lhs_dims)
+            in zip(resolvable_dim_indices, resolved_lhs_ranges, new_lhs_dims)
             if not isinstance(new_dim, sym.RangeIndex)
         ]
         if not actually_resolved:
