@@ -699,9 +699,9 @@ class ResolveVectorNotationTransformer(Transformer):
             if isinstance(var, sym.Array)
             and any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions)
         ]
-        rhs_arrays_dims = [array.dimensions for array in rhs_arrays]
+        rhs_dims_per_array = [array.dimensions for array in rhs_arrays]
         rhs_range_positions_per_array = [
-            self._find_range_positions(dims) for dims in rhs_arrays_dims
+            self._find_range_positions(dims) for dims in rhs_dims_per_array
         ]
 
         # LHS array dimensions
@@ -720,7 +720,7 @@ class ResolveVectorNotationTransformer(Transformer):
                 i for i, j in enumerate(lhs_qualified_range_indices)
                 if all(
                     array_dims[rhs_pos[i]] != sym.RangeIndex((None, None))
-                    for array_dims, rhs_pos in zip(rhs_arrays_dims, rhs_range_positions_per_array)
+                    for array_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
                 )
             ]
 
@@ -756,7 +756,7 @@ class ResolveVectorNotationTransformer(Transformer):
         # --- Step 6: Compute RHS index expressions (with offset) ---
         resolved_rhs_ranges_per_array = [
             [array_dims[rhs_pos[i]] for i in resolved_dim_indices]
-            for array_dims, rhs_pos in zip(rhs_arrays_dims, rhs_range_positions_per_array)
+            for array_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
         ]
         new_rhs_dims_per_array = []
         for array, resolved_rhs_ranges in zip(rhs_arrays, resolved_rhs_ranges_per_array):
@@ -787,7 +787,7 @@ class ResolveVectorNotationTransformer(Transformer):
         # New RHS arrays with loop indices replacing ranges
         new_rhs_array_list = []
         for i_arr, _array in enumerate(rhs_arrays):
-            new_arr_dims = list(rhs_arrays_dims[i_arr])
+            new_arr_dims = list(rhs_dims_per_array[i_arr])
             for i, d in enumerate(new_rhs_dims_per_array[i_arr]):
                 new_arr_dims[rhs_range_positions_per_array[i_arr][resolved_dim_indices[i]]] = d
             new_rhs_array_list.append(_array.clone(dimensions=as_tuple(new_arr_dims)))
