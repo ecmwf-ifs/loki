@@ -1033,3 +1033,91 @@ end module dave_mod
     assert imports[0].symbols == ('a_type', 'a_kind')
     assert imports[1].module == 'rick_mod'
     assert imports[1].symbols == ('rick',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inline_marked_subroutines_3layer_array_offset(frontend, tmp_path):
+    """
+    Test that array bounds are correctly remapped when inlining a
+    subroutine whose formal argument has different bounds than the
+    caller, and the inlined body contains a call to a third routine
+    (not marked for inlining) that passes a sub-range of that array.
+
+    Layer 1 (outer_layer): declares arr(0:len), calls middle_layer
+        with !$loki inline
+    Layer 2 (middle_layer): declares arr(1:len+1), calls
+        kernel(arr(1:len), len) — NOT marked for inlining
+    Layer 3 (kernel): declares arr(1:len)
+
+    After inlining middle_layer into outer_layer, the remaining call
+    to kernel should read: call kernel(arr(0:len - 1), len)
+
+    A bug in _map_unbound_dims produces arr(-1 + (1:len)) instead of
+    arr(0:len - 1) because the else-branch does not decompose Range
+    objects into separate lower/upper adjustments.
+    """
+
+    fcode = """
+module inline_3layer_mod
+  implicit none
+contains
+
+  subroutine kernel(arr, len)
+    integer, intent(in) :: len
+    real(kind=8), intent(inout) :: arr(1:len)
+    integer :: i
+    do i = 1, len
+      arr(i) = arr(i) + 1.0
+    end do
+  end subroutine kernel
+
+  subroutine middle_layer(arr, len)
+    integer, intent(in) :: len
+    real(kind=8), intent(inout) :: arr(1:len+1)
+    integer :: i
+    do i = 1, len + 1
+      arr(i) = arr(i) * 2.0
+    end do
+    call kernel(arr(1:len), len)
+  end subroutine middle_layer
+
+  subroutine outer_layer(arr, len)
+    integer, intent(in) :: len
+    real(kind=8), intent(inout) :: arr(0:len)
+    !$loki inline
+    call middle_layer(arr, len)
+  end subroutine outer_layer
+
+end module inline_3layer_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    outer = module['outer_layer']
+
+    inline_marked_subroutines(routine=outer)
+
+    # After inlining, the call to kernel should remain (it was not
+    # marked with !$loki inline).
+    calls = FindNodes(ir.CallStatement).visit(outer.body)
+    assert len(calls) == 1
+    assert calls[0].routine.name == 'kernel'
+
+    # The first argument to kernel was arr(1:len) in middle_layer.
+    # middle_layer declares arr(1:len+1), outer_layer declares arr(0:len).
+    # So callee index 1 maps to caller index 0, and callee index len
+    # maps to caller index len-1.
+    # The correctly remapped call should be: kernel(arr(0:len - 1), len)
+    arg = calls[0].arguments[0]
+    assert isinstance(arg, sym.Array)
+    assert arg.name == 'arr'
+
+    dims = arg.dimensions
+    dim = dims[0]
+    assert len(dims) == 1
+    assert isinstance(dim, sym.Range)
+
+    # The lower bound must be 0 (not -1 + 1, not a Sum wrapping the
+    # original Range, etc.)
+    assert dim.lower == 0
+
+    # The upper bound must be len - 1
+    assert dim.upper in ('len - 1', '-1 + len')
