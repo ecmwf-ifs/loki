@@ -211,7 +211,8 @@ def _get_all_valid_loop_bounds(routine, lower, upper):
         Each inner tuple is ``(lower_expr, upper_expr)`` as resolved
         expression nodes.
     """
-    def get_valid(elem, variable_map):
+    variable_map = routine.variable_map
+    def get_valid(elem):
         if isinstance(elem, str) and elem.isnumeric():
             return sym.Literal(int(elem))
         if elem.split('%', maxsplit=1)[0] in variable_map:
@@ -219,11 +220,8 @@ def _get_all_valid_loop_bounds(routine, lower, upper):
         return None
 
     bounds = ()
-    variable_map = routine.variable_map
-    valid_lower = [get_valid(_lower, variable_map) for _lower in lower]
-    valid_lower = [_ for _ in valid_lower if _ is not None]
-    valid_upper = [get_valid(_upper, variable_map) for _upper in upper]
-    valid_upper = [_ for _ in valid_upper if _ is not None]
+    valid_lower = [valid for _lower in lower if (valid := get_valid(_lower)) is not None]
+    valid_upper = [valid for _upper in upper if (valid := get_valid(_upper)) is not None]
 
     for _lower in valid_lower:
         for _upper in valid_upper:
