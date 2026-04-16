@@ -16,6 +16,7 @@ from loki.transformations.temporaries import (
         EcstackPoolAllocatorTransformation
 )
 
+from loki.transformations.single_column.vertical_kcaching import SCCVerticalKCaching
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
@@ -35,7 +36,7 @@ __all__ = [
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
-    'SCCSEcStackPipeline'
+    'SCCSEcStackPipeline', 'SCCSStackKCachingPipeline'
 ]
 
 
@@ -337,6 +338,59 @@ check_bounds : bool, optional
 
 # alias for backwards compability
 SCCStackPipeline = SCCVStackPipeline
+
+SCCSStackKCachingPipeline = partial(
+    Pipeline, classes=(
+        SCCVerticalKCaching,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCSeqRevectorTransformation,
+        RemoveUnusedVarTransformation,
+        SCCAnnotateTransformation,
+        TemporariesPoolAllocatorTransformation,
+        PragmaModelTransformation
+    )
+)
+"""
+SCC-style k-caching transformation with sequential kernels.
+
+This pipeline uses :any:`SCCVerticalKCaching` to fuse all vertical
+loops into a single ``DO JK = 1, KLEV+1`` loop with IF guards,
+convert multi-level array dependencies to scalar carry variables
+(``_vc``/``_next``), and demote KLEV-dimensioned temporaries to
+scalars.  The standard SCC sequential kernel pipeline with
+pool-allocator stack management is then applied to the resulting
+kernel.
+
+For details of the kernel and driver-side transformations, please
+refer to :any:`SCCSStackPipeline`.  The key addition is the
+:any:`SCCVerticalKCaching` pass that precedes all other
+transformations to perform vertical loop fusion and k-caching.
+
+Parameters
+----------
+horizontal : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the horizontal data dimension and iteration space.
+vertical : :any:`Dimension`
+    :any:`Dimension` object describing the variable conventions used in code
+    to define the vertical data dimension and iteration space.
+block_dim : :any:`Dimension`
+    Optional ``Dimension`` object to define the blocking dimension
+    to use for hoisted column arrays if hoisting is enabled.
+directive : string or None
+    Directives flavour to use for parallelism annotations; either
+    ``'openacc'``, ``'omp-gpu'`` or ``None``.
+trim_vector_sections : bool
+    Flag to trigger trimming of extracted vector sections to remove
+    nodes that are not assignments involving vector parallel arrays.
+demote_local_arrays : bool
+    Flag to trigger local array demotion to scalar variables where possible
+check_bounds : bool, optional
+    Insert bounds-checks in the kernel to make sure the allocated
+    stack size is not exceeded (default: `True`)
+"""
 
 SCCSStackPipeline = partial(
     Pipeline, classes=(
