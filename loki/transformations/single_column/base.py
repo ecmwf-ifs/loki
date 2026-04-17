@@ -74,14 +74,6 @@ class SCCBaseTransformation(Transformation):
         """
         Apply SCCBase utilities to a :any:`Subroutine`.
 
-        Parameters
-        ----------
-        routine : :any:`Subroutine`
-            Subroutine to apply this transformation to.
-        role : string
-            Role of the subroutine in the call tree; should be ``"kernel"``
-            or ``"driver"``.
-
         Notes
         -----
         The per-routine item config key ``resolve_vector_notation`` (bool,
@@ -91,6 +83,14 @@ class SCCBaseTransformation(Transformation):
             [routines.my_routine]
             role = "kernel"
             resolve_vector_notation = false
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : string
+            Role of the subroutine in the call tree; should be ``"kernel"``
+            or ``"driver"``.
         """
         role = kwargs['role']
         item = kwargs.get('item', None)
