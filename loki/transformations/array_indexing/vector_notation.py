@@ -321,71 +321,6 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
         return expr
 
 
-class IterationRangeIndexMapper(LokiIdentityMapper):
-    """
-    A mapper that replaces fully qualified :any:`RangeIndex` symbols
-    with discrete loop indices and collects the according
-    ``index_to_range_map``.
-
-    This takes mapping of known loop indices for a set of ranges and will
-    use these variables if it encounters a matching index range. If not it
-    will create new index variables using the given scope and ``basename``.
-    The flag ``map_unknown_ranges`` can be used to toggle the
-    automatic generation of generic indices from qualified range
-    symbols.
-
-    Parameters
-    ----------
-    routine: :any:`Subroutine`
-        The subroutine to check
-    loop_map : dict of :any:`RangeIndex` to :any:`Scalar`
-        Map of known loop indices for given ranges
-    basename : str
-        Base name string for new iteration variables
-    scope : :any:`Subroutine` or :any:`Module`
-        Scope in which to create potential new iteration index symbols
-    map_unknown_ranges : bool
-        Flag to indicate whether range indices not encountered in ``loop_map``
-        should be should be remapped to generic loop indices.
-    """
-
-    def __init__(
-            self, *args, loop_map=None, basename=None, scope=None,
-            map_unknown_ranges=True, **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        self.loop_map = loop_map or {}
-        self.basename = basename if basename else 'i'
-        self.scope = scope
-        self.map_unknown_ranges = map_unknown_ranges
-
-        self.index_range_map = {}
-
-    def map_array(self, expr, *args, **kwargs):
-
-        shape_index_map = {}
-        for i, dim in zip(count(), expr.dimensions):
-            if isinstance(dim, sym.RangeIndex):
-                # See if index variable is knwon for this loop range
-                if dim in self.loop_map:
-                    ivar = self.loop_map[dim]
-                else:
-                    # Skip if we're not supposed to create new indices
-                    if not self.map_unknown_ranges or dim == sym.RangeIndex((None, None)):
-                        continue
-
-                    # Create new index variable
-                    vtype = SymbolAttributes(BasicType.INTEGER)
-                    ivar = sym.Variable(name=f'{self.basename}_{i}', type=vtype, scope=self.scope)
-                shape_index_map[(i, dim)] = ivar
-                self.index_range_map[ivar] = dim
-
-        # Add index variable to range replacement
-        new_dims = as_tuple(
-            shape_index_map.get((i, d), d) for i, d in zip(count(), expr.dimensions)
-        )
-        return expr.clone(dimensions=new_dims)
-
 
 
 class ResolveVectorNotationTransformer(Transformer):
@@ -853,12 +788,27 @@ class ResolveVectorNotationTransformer(Transformer):
         if self.derive_qualified_ranges:
             conditions = IterationRangeShapeMapper()(conditions)
 
-        index_mapper = IterationRangeIndexMapper(
-            loop_map=self.loop_map, scope=self.scope,
-            map_unknown_ranges=self.map_unknown_ranges
-        )
-        conditions = index_mapper(conditions)
-        index_range_map = index_mapper.index_range_map
+        # Find arrays with RangeIndex dims in the condition
+        cond_vars = FindVariables(unique=False).visit(conditions)
+        cond_arrays = [
+            v for v in cond_vars
+            if isinstance(v, sym.Array)
+            and any(isinstance(d, sym.RangeIndex) for d in v.dimensions)
+        ]
+
+        # Map ranges to indices using the shared static method
+        index_range_map = {}
+        subst_map = {}
+        for array in cond_arrays:
+            new_dims, arr_index_map, _ = self._map_ranges_to_indices(
+                array.dimensions, self.loop_map,
+                map_unknown_ranges=self.map_unknown_ranges,
+                scope=self.scope
+            )
+            index_range_map.update(arr_index_map)
+            subst_map[array] = array.clone(dimensions=new_dims)
+
+        conditions = SubstituteExpressions(subst_map).visit(conditions)
 
         with dict_override(kwargs, {'create_loops': False}):
             bodies = self.visit(masked.bodies, **kwargs)
@@ -868,23 +818,21 @@ class ResolveVectorNotationTransformer(Transformer):
         if not index_range_map:
             return masked
 
-        idx_range = list(index_range_map.values())[0]
-        bounds = sym.LoopRange((idx_range.start, idx_range.stop, idx_range.step))
+        # Record all newly created loop index variables for declaration
+        self.index_vars.update(list(index_range_map.keys()))
+
         cond = ir.Conditional(
             condition=conditions[0], body=bodies, else_body=else_body
         )
 
         # Recursively build new loop nest over all implicit dims
-        if len(index_range_map):
-            loop = None
-            body = cond
-            for ivar, irange in index_range_map.items():
-                if isinstance(irange, sym.RangeIndex):
-                    bounds = sym.LoopRange(irange.children)
-                else:
-                    bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
-                loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
-                body = loop
-            return loop
-
-        return masked
+        loop = None
+        body = cond
+        for ivar, irange in index_range_map.items():
+            if isinstance(irange, sym.RangeIndex):
+                bounds = sym.LoopRange(irange.children)
+            else:
+                bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
+            loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
+            body = loop
+        return loop
