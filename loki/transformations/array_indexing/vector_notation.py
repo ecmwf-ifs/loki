@@ -779,6 +779,29 @@ class ResolveVectorNotationTransformer(Transformer):
         # No vector dimensions encountered, return unchanged
         return stmt
 
+    def visit_Conditional(self, o, **kwargs):
+        """
+        Visit children (which may resolve vector notation in the body),
+        then demote ``inline=True`` conditionals whose body is no longer
+        compatible with single-line ``IF`` formatting.
+
+        This happens when ``visit_Assignment`` wraps a body statement in
+        a loop nest (plus a comment), expanding the body beyond a single
+        simple statement.
+        """
+        visited = self.visit_Node(o, **kwargs)
+
+        if isinstance(visited, ir.Conditional) and visited.inline:
+            body = visited.body
+            is_one_liner = (
+                len(body) == 1
+                and not isinstance(body[0], (ir.Loop, ir.Comment, tuple))
+            )
+            if not is_one_liner:
+                visited = visited.clone(inline=False)
+
+        return visited
+
     def visit_MaskedStatement(self, masked, **kwargs):  # pylint: disable=unused-argument
         # TODO: Currently limited to simple, single-clause WHERE stmts
         assert len(masked.conditions) == 1 and len(masked.bodies) == 1

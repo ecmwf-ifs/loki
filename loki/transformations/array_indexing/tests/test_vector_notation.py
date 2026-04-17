@@ -1398,6 +1398,51 @@ end subroutine test_no_implicit_rhs_pos
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_inline_conditional(frontend):
+    """
+    When an inline conditional (single-line ``IF``) contains a vector
+    notation assignment, resolving it wraps the body in a loop.  The
+    conditional must be demoted from ``inline=True`` to ``inline=False``
+    so that the backend does not attempt to format it as a single line.
+    """
+    fcode = """
+subroutine test_inline_cond(n, flag, a, b)
+  implicit none
+  integer, intent(in) :: n
+  logical, intent(in) :: flag
+  real, intent(inout) :: a(n), b(n)
+
+  if (flag) a(1:n) = b(1:n)
+
+end subroutine test_inline_cond
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # Before resolution: should have an inline conditional
+    # (OMNI does not preserve the inline flag, so only check for fparser)
+    conds_before = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds_before) == 1
+    if frontend != OMNI:
+        assert conds_before[0].inline is True
+
+    resolve_vector_notation(routine)
+
+    # After resolution: the conditional should no longer be inline
+    conds_after = FindNodes(ir.Conditional).visit(routine.body)
+    assert len(conds_after) == 1
+    assert conds_after[0].inline is False
+
+    # The body should contain a loop wrapping the assignment
+    loops = FindNodes(ir.Loop).visit(conds_after[0].body)
+    assert len(loops) == 1
+
+    # The generated Fortran should be valid (block IF, not inline)
+    fcode_out = routine.to_fortran()
+    assert 'IF (flag) THEN' in fcode_out
+    assert 'END IF' in fcode_out
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_dimension_empty_bounds_warning(frontend, caplog):
     """
     When ``resolve_vector_dimension`` is called with a dimension whose

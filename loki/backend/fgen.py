@@ -681,8 +681,7 @@ class FortranCodegen(Stringifier):
             [...body...]
           END IF [name]
         """
-        # TODO: hack ..., this is a necessary but not a sufficient criteria
-        if o.inline and len(o.body) <= 1:
+        if o.inline:
             # No indentation and only a single body node
             cond = self.visit(o.condition, **kwargs)
             d = self.depth
