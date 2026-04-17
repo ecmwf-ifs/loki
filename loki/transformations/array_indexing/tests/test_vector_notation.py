@@ -1436,10 +1436,27 @@ end subroutine test_inline_cond
     loops = FindNodes(ir.Loop).visit(conds_after[0].body)
     assert len(loops) == 1
 
+    # By default, no 'loki resolved vector notation' comment should be inserted
+    comments = FindNodes(ir.Comment).visit(routine.body)
+    assert not any('loki resolved vector notation' in c.text for c in comments)
+
     # The generated Fortran should be valid (block IF, not inline)
     fcode_out = routine.to_fortran()
     assert 'IF (flag) THEN' in fcode_out
     assert 'END IF' in fcode_out
+
+    # --- Part 2: with insert_comments=True ---
+    routine2 = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine2, insert_comments=True)
+
+    # The comment should now be present (search entire body including nested nodes)
+    all_comments = FindNodes(ir.Comment).visit(routine2.body)
+    assert any('loki resolved vector notation' in c.text for c in all_comments)
+
+    # For fparser: the conditional should still be demoted
+    conds2 = FindNodes(ir.Conditional).visit(routine2.body)
+    assert len(conds2) == 1
+    assert conds2[0].inline is False
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

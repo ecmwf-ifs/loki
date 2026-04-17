@@ -147,7 +147,8 @@ def add_explicit_array_dimensions(routine):
 
 
 def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True,
-                            substitute_derived_type_bounds=False):
+                            substitute_derived_type_bounds=False,
+                            insert_comments=False):
     """
     Resolve implicit vector notation by inserting explicit loops.
 
@@ -162,6 +163,9 @@ def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True,
         When ``True``, replace derived-type member references in
         synthesized loop bounds with plain scalar variables.  Only
         needed for driver routines.  Defaults to ``False``.
+    insert_comments : bool
+        When ``True``, insert a ``! loki resolved vector notation``
+        comment before each generated loop nest.  Defaults to ``False``.
     """
 
     # Find loops and map their range to the loop index variable
@@ -176,6 +180,7 @@ def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True,
         map_unknown_ranges=True,
         resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges,
         substitute_derived_type_bounds=substitute_derived_type_bounds,
+        insert_comments=insert_comments,
     )
     routine.body = transformer.visit(routine.body)
 
@@ -230,7 +235,8 @@ def _get_all_valid_loop_bounds(routine, lower, upper):
 
 def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
                              resolve_implicit_rhs_ranges=True,
-                             substitute_derived_type_bounds=False):
+                             substitute_derived_type_bounds=False,
+                             insert_comments=False):
     """
     Resolve vector notation for a given dimension only. The dimension
     is defined by a loop variable and the bounds of the given range.
@@ -255,6 +261,9 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
         When ``True``, replace derived-type member references in
         synthesized loop bounds with plain scalar variables.  Only
         needed for driver routines.  Defaults to ``False``.
+    insert_comments : bool
+        When ``True``, insert a ``! loki resolved vector notation``
+        comment before each generated loop nest.  Defaults to ``False``.
     """
     # Find the iteration index variable and bound variables
     index = get_integer_variable(routine, name=dimension.index)
@@ -279,6 +288,7 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
         map_unknown_ranges=False,
         resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges,
         substitute_derived_type_bounds=substitute_derived_type_bounds,
+        insert_comments=insert_comments,
     )
     routine.body = transformer.visit(routine.body)
 
@@ -353,6 +363,9 @@ class ResolveVectorNotationTransformer(Transformer):
         This is intended for **driver** routines where device-safe plain
         scalars are required.  Defaults to ``False``; kernels should
         leave derived-type bounds as-is.
+    insert_comments : bool
+        When ``True``, insert a ``! loki resolved vector notation``
+        comment before each generated loop nest.  Defaults to ``False``.
     """
 
     def __init__(
@@ -360,6 +373,7 @@ class ResolveVectorNotationTransformer(Transformer):
             derive_qualified_ranges=True, map_unknown_ranges=True,
             resolve_implicit_rhs_ranges=True,
             substitute_derived_type_bounds=False,
+            insert_comments=False,
             **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -373,6 +387,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.derive_qualified_ranges = derive_qualified_ranges
         self.resolve_implicit_rhs_ranges = resolve_implicit_rhs_ranges
         self.substitute_derived_type_bounds_flag = substitute_derived_type_bounds
+        self.insert_comments = insert_comments
         self.infer_iteration_shape = True
 
         # Build a lookup of existing scalar assignments of the form:
@@ -774,7 +789,9 @@ class ResolveVectorNotationTransformer(Transformer):
                 loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
                 body = loop
 
-            return (ir.Comment('! loki resolved vector notation'),) + (loop,)
+            if self.insert_comments:
+                return (ir.Comment('! loki resolved vector notation'),) + (loop,)
+            return (loop,)
 
         # No vector dimensions encountered, return unchanged
         return stmt
