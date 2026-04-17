@@ -21,7 +21,8 @@ from loki.expression.mappers import (
 )
 from loki.expression.symbols import (
     Array, Scalar, InlineCall, TypedSymbol, FloatLiteral, IntLiteral,
-    LogicLiteral, StringLiteral, IntrinsicLiteral, DeferredTypeSymbol
+    LogicLiteral, StringLiteral, IntrinsicLiteral, DeferredTypeSymbol,
+    LiteralList
 )
 
 __all__ = [
@@ -29,7 +30,7 @@ __all__ = [
     'FindTypedSymbols', 'FindInlineCalls', 'FindLiterals',
     'FindRealLiterals', 'ExpressionTransformer',
     'SubstituteExpressions', 'SubstituteStringExpressions',
-    'AttachScopes'
+    'AttachScopes', 'FindLiteralLists'
 ]
 
 
@@ -203,6 +204,17 @@ class FindLiterals(ExpressionFinder):
     retriever = ExpressionRetriever(lambda e: isinstance(e, (
         FloatLiteral, IntLiteral, LogicLiteral, StringLiteral, IntrinsicLiteral
     )))
+
+
+class FindLiteralLists(ExpressionFinder):
+    """
+    A visitor to collect all literal lists (which includes :any:`LiteralList`)
+    used in an IR tree.
+
+    See :class:`ExpressionFinder`
+    """
+    retriever = ExpressionRetriever(lambda e: isinstance(e, LiteralList))
+
 
 class FindRealLiterals(ExpressionFinder):
     """

@@ -103,6 +103,108 @@ def test_scc_base_resolve_vector_notation(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
+    """
+    Test that per-routine config key ``resolve_vector_notation = False`` still
+    resolves the horizontal dimension but leaves other vector notation intact.
+
+    The horizontal dimension (``start:end``) is always resolved by
+    ``resolve_vector_dimension`` regardless of the flag, so that downstream
+    SCC transformations find scalar loop indices.  Only ``resolve_vector_notation``
+    (which handles remaining bare ``:`` ranges) is gated behind the flag.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q, t, z)
+    INTEGER, INTENT(IN) :: start, end  ! Iteration indices
+    INTEGER, INTENT(IN) :: nlon, nz    ! Size of the horizontal and vertical
+    REAL, INTENT(INOUT) :: t(nlon,nz)
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL, INTENT(INOUT) :: z(nz)       ! 1-D non-horizontal array
+    INTEGER :: jk
+    REAL :: c
+
+    c = 5.345
+    DO jk = 2, nz
+      t(start:end, jk) = c * jk
+      q(start:end, jk) = q(start:end, jk-1) + t(start:end, jk) * c
+    END DO
+
+    ! Non-horizontal vector notation -- only resolved by resolve_vector_notation
+    z(:) = 0.0
+  END SUBROUTINE compute_column
+"""
+
+    # --- Case 1: resolve_vector_notation = False ---
+    # Horizontal dimension (start:end) IS resolved by resolve_vector_dimension.
+    # Non-horizontal vector notation (z(:)) is NOT resolved.
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel = kernel_source.subroutines[0]
+    kernel_item = ProcedureItem(
+        name='#compute_column', source=kernel_source,
+        config={'resolve_vector_notation': False}
+    )
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel', item=kernel_item)
+
+    # Horizontal loop variable must have been declared
+    assert 'jl' in kernel.variables
+
+    # Horizontal ranges resolved: 1 jk loop + 2 jl loops (one per assignment)
+    kernel_loops = FindNodes(Loop).visit(kernel.body)
+    jl_loops = [l for l in kernel_loops if str(l.variable) == 'jl']
+    assert len(jl_loops) == 2
+    assert all(str(l.bounds) == 'start:end' for l in jl_loops)
+
+    # Assignments use scalar jl index, not range notation
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    t_assign = next(a for a in assigns if 't(' in fgen(a).lower())
+    q_assign = next(a for a in assigns if 'q(' in fgen(a).lower() and 'jk)' in fgen(a).lower())
+    assert 'start:end' not in fgen(t_assign).lower()
+    assert 'jl' in fgen(t_assign).lower()
+    assert 'start:end' not in fgen(q_assign).lower()
+    assert 'jl' in fgen(q_assign).lower()
+
+    # Non-horizontal vector notation z(:) must NOT have been resolved into a loop
+    z_loops = [l for l in kernel_loops if 'i_z' in str(l.variable).lower()]
+    assert not z_loops, f"z(:) should not be resolved, got loops: {z_loops}"
+    z_assigns = [a for a in assigns if str(a.lhs).lower().startswith('z(')]
+    assert len(z_assigns) == 1
+    assert ':' in fgen(z_assigns[0]).lower(), \
+        f"z(:) assignment should retain range notation, got: {fgen(z_assigns[0])}"
+
+    # --- Case 2: resolve_vector_notation = True (default) ---
+    # Both horizontal and non-horizontal vector notation are fully resolved.
+    kernel_source2 = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel2 = kernel_source2.subroutines[0]
+    kernel_item2 = ProcedureItem(
+        name='#compute_column', source=kernel_source2,
+        config={'resolve_vector_notation': True}
+    )
+
+    scc_transform2 = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform2.apply(kernel2, role='kernel', item=kernel_item2)
+
+    # Horizontal loop variable declared
+    assert 'jl' in kernel2.variables
+
+    # All vector notation resolved: 1 jk + 2 jl + 1 synthesized loop for z(:)
+    kernel_loops2 = FindNodes(Loop).visit(kernel2.body)
+    assert any(str(l.variable) == 'jl' for l in kernel_loops2)
+    z_loops2 = [l for l in kernel_loops2 if 'i_z' in str(l.variable).lower()]
+    assert len(z_loops2) == 1, \
+        f"z(:) should be resolved into exactly 1 loop, got: {z_loops2}"
+
+    # z(:) assignment no longer present as range notation
+    assigns2 = FindNodes(Assignment).visit(kernel2.body)
+    z_assigns2 = [a for a in assigns2 if str(a.lhs).lower().startswith('z(')]
+    assert len(z_assigns2) == 1
+    assert ':' not in fgen(z_assigns2[0]).lower(), \
+        f"z(:) should be resolved, got: {fgen(z_assigns2[0])}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('rel_index', ('jl', 'jcol', 'ji'))
 @pytest.mark.parametrize('indices', (('jl', 'jcol', 'jlll'), ('jcol','jcol', 'jcol'),
     ('jl', 'jl', 'jl'), ('jcol', 'jlll', 'jlll')))
@@ -992,27 +1094,33 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
         scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.ir)
-    assert len(pragmas) == 6
+    # Note: local_dims%wrk = 0 (wrk is a 100-element array) gets resolved to an
+    # explicit loop, which receives an '!$acc loop seq' pragma, giving 7 pragmas total.
+    assert len(pragmas) == 7
 
     assert pragmas[0].keyword.lower() == 'acc'
     assert pragmas[0].content == 'data present(dims)'
-    assert pragmas[5].content == 'end data'
-    assert pragmas[5].keyword.lower() == 'acc'
+    assert pragmas[6].content == 'end data'
+    assert pragmas[6].keyword.lower() == 'acc'
 
     if data_offload:
-        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:5])
+        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:6])
         assert pragmas[2].content == 'parallel loop gang private(local_dims) vector_length(dims%klon)'
-        assert pragmas[3].content == 'end parallel loop'
-        assert pragmas[4].content == 'end data'
+        assert pragmas[3].keyword.lower() == 'acc'
+        assert pragmas[3].content == 'loop seq'
+        assert pragmas[4].content == 'end parallel loop'
+        assert pragmas[5].content == 'end data'
 
         assert 'data copy(work)' in pragmas[1].content
     else:
         assert pragmas[1].keyword == 'loki'
         assert pragmas[2].keyword.lower() == 'omp'
-        assert pragmas[3].keyword.lower() == 'omp'
-        assert pragmas[4].keyword == 'loki'
+        assert pragmas[3].keyword.lower() == 'acc'
+        assert pragmas[3].content == 'loop seq'
+        assert pragmas[4].keyword.lower() == 'omp'
+        assert pragmas[5].keyword == 'loki'
         assert pragmas[2].content == 'parallel do private(b) shared(work, nproma)'
-        assert pragmas[3].content == 'end parallel do'
+        assert pragmas[4].content == 'end parallel do'
 
     # check that pointer association was correctly identified as a separator node
     routine = source['some_kernel']
