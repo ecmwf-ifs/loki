@@ -768,11 +768,13 @@ class ResolveVectorNotationTransformer(Transformer):
             for lhs_range, new_lhs_dim, rhs_range in zip(
                 resolved_lhs_ranges, new_lhs_dims, resolved_rhs_ranges
             ):
-                if (lhs_range == rhs_range
-                        or rhs_range == sym.RangeIndex((None, None))
-                        or isinstance(lhs_range, sym.RangeIndex)
-                        and isinstance(rhs_range, sym.RangeIndex)
-                        and lhs_range.lower == rhs_range.lower):
+                is_aligned_dim = (
+                    lhs_range == rhs_range or rhs_range == sym.RangeIndex((None, None))
+                ) or (
+                    isinstance(lhs_range, sym.RangeIndex) and isinstance(rhs_range, sym.RangeIndex) and
+                    lhs_range.lower == rhs_range.lower
+                )
+                if is_aligned_dim:
                     new_rhs_dims.append(new_lhs_dim)
                 else:
                     new_rhs_dims.append(
