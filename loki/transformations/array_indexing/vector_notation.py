@@ -716,11 +716,15 @@ class ResolveVectorNotationTransformer(Transformer):
         if self.resolve_implicit_rhs_ranges:
             resolvable_dim_indices = lhs_qualified_positions
         else:
+            rhs_qualified_positions_per_array = [
+                self._find_qualified_range_positions(rhs_dims, rhs_pos)
+                for rhs_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
+            ]
             resolvable_dim_indices = [
                 j for j in lhs_qualified_positions
                 if all(
-                    array_dims[rhs_pos[j]] != sym.RangeIndex((None, None))
-                    for array_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
+                    j in rhs_qualified
+                    for rhs_qualified in rhs_qualified_positions_per_array
                 )
             ]
 
