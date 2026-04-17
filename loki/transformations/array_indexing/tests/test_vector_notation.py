@@ -1356,6 +1356,46 @@ end subroutine test_no_implicit_rhs
     assert 'c(' in str(loop_assigns[0].rhs), \
         f"Expected resolved c(...) in loop body, got: {loop_assigns[0].rhs}"
 
+    # --- Part 2: range dimension NOT in the first position ---
+    # Ensures that qualified-position tracking works when the range
+    # dimension sits at a non-leading position in the index tuple.
+    fcode2 = """
+subroutine test_no_implicit_rhs_pos(start, end, m, n, a, b, c)
+  implicit none
+  integer, intent(in) :: start, end, m, n
+  real, intent(inout) :: a(m, n), b(m, n), c(m, n)
+
+  ! RHS bare ':' in second dim -- should NOT be resolved
+  a(1, start:end) = b(1, :)
+
+  ! Both sides explicit in second dim -- SHOULD be resolved
+  a(1, start:end) = c(1, start:end)
+
+end subroutine test_no_implicit_rhs_pos
+    """.strip()
+    routine2 = Subroutine.from_source(fcode2, frontend=frontend)
+    dim2 = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+    resolve_vector_dimension(routine2, dimension=dim2, resolve_implicit_rhs_ranges=False)
+
+    loops2 = FindNodes(ir.Loop).visit(routine2.body)
+    assigns2 = FindNodes(ir.Assignment).visit(routine2.body)
+
+    # Exactly one loop for the explicit-range assignment
+    assert len(loops2) == 1, \
+        f"Expected exactly 1 loop, got {len(loops2)}"
+
+    # The unresolved assignment should still have a RangeIndex
+    unresolved2 = [a for a in assigns2 if isinstance(a.lhs, sym.Array)
+                   and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
+    assert len(unresolved2) >= 1, \
+        "Assignment with bare RHS ':' should remain unresolved"
+
+    # The resolved loop body should reference c
+    loop_assigns2 = FindNodes(ir.Assignment).visit(loops2[0].body)
+    assert len(loop_assigns2) == 1
+    assert 'c(' in str(loop_assigns2[0].rhs), \
+        f"Expected resolved c(...) in loop body, got: {loop_assigns2[0].rhs}"
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_dimension_empty_bounds_warning(frontend, caplog):

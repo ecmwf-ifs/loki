@@ -464,10 +464,10 @@ class ResolveVectorNotationTransformer(Transformer):
         return [i for i, dim in enumerate(dims) if isinstance(dim, sym.RangeIndex)]
 
     @staticmethod
-    def _find_qualified_range_indices(dims, range_positions):
+    def _find_qualified_range_positions(dims, range_positions):
         """
-        Return indices into ``range_positions`` excluding bare ``(:)``
-        (i.e. ``RangeIndex((None, None))``) ranges.
+        Return ordinal indices into ``range_positions`` whose corresponding
+        dimension is *not* a bare ``(:)`` (i.e. ``RangeIndex((None, None))``).
         """
         return [
             i for i, j in enumerate(range_positions)
@@ -708,18 +708,18 @@ class ResolveVectorNotationTransformer(Transformer):
         lhs_array = stmt.lhs
         lhs_dims = lhs_array.dimensions
         lhs_range_positions = self._find_range_positions(lhs_dims)
-        lhs_qualified_range_indices = self._find_qualified_range_indices(
+        lhs_qualified_positions = self._find_qualified_range_positions(
             lhs_dims, lhs_range_positions
         )
 
         # --- Step 4: Filter to resolvable dimensions ---
         if self.resolve_implicit_rhs_ranges:
-            resolvable_dim_indices = lhs_qualified_range_indices
+            resolvable_dim_indices = lhs_qualified_positions
         else:
             resolvable_dim_indices = [
-                i for i, j in enumerate(lhs_qualified_range_indices)
+                j for j in lhs_qualified_positions
                 if all(
-                    array_dims[rhs_pos[i]] != sym.RangeIndex((None, None))
+                    array_dims[rhs_pos[j]] != sym.RangeIndex((None, None))
                     for array_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
                 )
             ]
