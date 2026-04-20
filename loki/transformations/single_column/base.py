@@ -5,12 +5,12 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.batch import Transformation
+from loki.batch import Transformation, TransformationError
 
-from loki.transformations.array_indexing import resolve_vector_dimension
+from loki.transformations.array_indexing import resolve_vector_dimension, resolve_vector_notation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    check_routine_sequential, rename_variables
+    check_routine_sequential, get_loop_bounds, rename_variables
 )
 
 
@@ -74,33 +74,64 @@ class SCCBaseTransformation(Transformation):
         """
         Apply SCCBase utilities to a :any:`Subroutine`.
 
+        Notes
+        -----
+        The per-routine item config key ``resolve_vector_notation`` (bool,
+        default ``True``) can be set to ``False`` to skip vector notation
+        resolution for a specific routine.  Example scheduler config::
+
+            [routines.my_routine]
+            role = "kernel"
+            resolve_vector_notation = false
+
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
         role : string
             Role of the subroutine in the call tree; should be ``"kernel"``
+            or ``"driver"``.
         """
         role = kwargs['role']
         item = kwargs.get('item', None)
         rename_indices = kwargs.get('rename_index_aliases', self.rename_indices)
+        do_resolve_vector_notation = True
         if item:
             rename_indices = item.config.get('rename_index_aliases', rename_indices)
+            do_resolve_vector_notation = item.config.get(
+                'resolve_vector_notation', do_resolve_vector_notation
+            )
 
         if role == 'kernel':
-            self.process_kernel(routine, rename_indices=rename_indices)
+            self.process_kernel(
+                routine, rename_indices=rename_indices,
+                do_resolve_vector_notation=do_resolve_vector_notation
+            )
         if role == 'driver':
-            self.process_driver(routine)
+            self.process_driver(
+                routine, do_resolve_vector_notation=do_resolve_vector_notation
+            )
 
-    def process_kernel(self, routine, rename_indices=False):
+    def process_kernel(self, routine, rename_indices=False, do_resolve_vector_notation=True):
         """
-        Applies the SCCBase utilities to a "kernel". This consists simply
-        of resolving associations, masked statements and vector notation.
+        Applies the SCCBase utilities to a "kernel". This consists of
+        resolving associates, masked statements and vector notation.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
+        rename_indices : bool, optional
+            Whether to rename index aliases to ``dimension.index``.
+            Default is ``False``.
+        do_resolve_vector_notation : bool, optional
+            Whether to resolve remaining vector notation (beyond the
+            horizontal dimension) into explicit loops via
+            :any:`resolve_vector_notation`.  The horizontal dimension
+            is always resolved by :any:`resolve_vector_dimension`
+            regardless of this flag, so that downstream SCC
+            transformations find scalar loop indices instead of range
+            notation.  Default is ``True``.
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
@@ -118,21 +149,50 @@ class SCCBaseTransformation(Transformation):
         # with the sections we need to do for detecting subroutine calls
         do_resolve_associates(routine)
 
-        # Resolve vector notation, eg. VARIABLE(KIDIA:KFDIA)
-        resolve_vector_dimension(routine, dimension=self.horizontal)
+        # Check that horizontal loop bounds are present in the routine;
+        # raise TransformationError early rather than silently skipping.
+        try:
+            get_loop_bounds(routine, dimension=self.horizontal, extended_candidates=False)
+        except RuntimeError as e:
+            raise TransformationError(
+                message=str(e), transformation=type(self), source=routine
+            ) from e
 
-    def process_driver(self, routine):
+        # Resolve the horizontal vector dimension, eg. VARIABLE(KIDIA:KFDIA).
+        # Always performed so that downstream SCC transformations find scalar
+        # loop indices instead of range notation, even when full vector notation
+        # resolution is disabled.
+        resolve_vector_dimension(
+            routine, dimension=self.horizontal, derive_qualified_ranges=True
+        )
+
+        if do_resolve_vector_notation:
+            resolve_vector_notation(routine)
+
+    def process_driver(self, routine, do_resolve_vector_notation=True):
         """
-        Applies the SCCBase utilities to a "driver". This consists simply
-        of resolving associations.
+        Applies the SCCBase utilities to a "driver". This consists of
+        resolving associates and, by default, vector notation.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
+        do_resolve_vector_notation : bool, optional
+            Whether to resolve vector notation into explicit loops.
+            Set to ``False`` to skip this step for driver routines
+            where generated loop bounds may not be available on device.
+            Default is ``True``.
         """
 
         # Resolve associates, since the PGI compiler cannot deal with
         # implicit derived type component offload by calling device
         # routines.
         do_resolve_associates(routine)
+
+        if do_resolve_vector_notation:
+            resolve_vector_dimension(
+                routine, dimension=self.horizontal, derive_qualified_ranges=True,
+                substitute_derived_type_bounds=True,
+            )
+            resolve_vector_notation(routine, substitute_derived_type_bounds=True)
