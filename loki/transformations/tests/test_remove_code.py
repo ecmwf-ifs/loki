@@ -11,7 +11,7 @@ import pytest
 from loki import Subroutine, Module, Sourcefile, gettempdir
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, FindInlineCalls
 
 from loki.transformations.remove_code import (
     do_remove_dead_code, do_remove_marked_regions, do_remove_calls,
@@ -156,9 +156,23 @@ subroutine driver(dims, StrUct)
 end subroutine driver
 """
 
+    fcode_inline_module = """
+module inline_mod
+contains
+function inline_func(kst, kend, D, E, F) result(res)
+    implicit none
+    integer, intent(in) :: kst, kend, d, e, f
+    integer :: res
+
+    res = kst + kend + d
+end function inline_func
+end module inline_mod
+"""
+
     fcode_kernel = """
 subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d)
     use types_mod, only : dims_type, some_unused_type
+    use inline_mod, only : inline_func
     implicit none
     integer, intent(in) :: kst, kend
     type(dims_type), intent(in) :: dIms
@@ -184,6 +198,7 @@ subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d)
     !$loki end remove
 
     call another_kernel(kst, kend, c, c, f=d)
+    ji = inline_func(kst, kend, ji, ji, f=jrof)
 
 end subroutine kernel
 """
@@ -202,6 +217,7 @@ end subroutine another_kernel
 """
 
     (srcdir/'module.F90').write_text(fcode_module)
+    (srcdir/'inline_mod.F90').write_text(fcode_inline_module)
     (srcdir/'driver.F90').write_text(fcode_driver)
     (srcdir/'kernel.F90').write_text(fcode_kernel)
     (srcdir/'another_kernel.F90').write_text(fcode_another_kernel)
@@ -209,6 +225,7 @@ end subroutine another_kernel
     yield srcdir
 
     (srcdir/'module.F90').unlink()
+    (srcdir/'inline_mod.F90').unlink()
     (srcdir/'driver.F90').unlink()
     (srcdir/'kernel.F90').unlink()
     (srcdir/'another_kernel.F90').unlink()
@@ -688,6 +705,7 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     driver = scheduler['#driver'].ir
 
     kernel_calls = FindNodes(ir.CallStatement).visit(kernel.body)
+    kernel_inline_calls = list(FindInlineCalls().visit(kernel.body))
     driver_calls = FindNodes(ir.CallStatement).visit(driver.body)
 
     assert len(kernel_calls) == 1
@@ -701,6 +719,11 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     else:
         assert kernel_calls[0].arguments == ('kst', 'kend', 'c')
         assert kernel_calls[0].kwarguments == ()
+
+    assert len(kernel_inline_calls) == 1
+    assert kernel_inline_calls[0].name == 'inline_func'
+    assert kernel_inline_calls[0].arguments == ('kst', 'kend', 'ji')
+    assert kernel_inline_calls[0].kwarguments == ()
 
     kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
 

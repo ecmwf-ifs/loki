@@ -15,7 +15,7 @@ import operator as op
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
-from loki.ir import nodes as ir, Transformer, FindNodes, FindVariables
+from loki.ir import nodes as ir, Transformer, FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions
 from loki.ir.pragma_utils import (
     is_loki_pragma, pragma_regions_attached, get_pragma_parameters
 )
@@ -208,15 +208,15 @@ def do_remove_unused_vars(routine, unused_vars=None, remove_only_arrays=True):
 def do_remove_unused_call_args(routine, unused_args_map):
     """
     Utility routine to remove unused arguments from all the
-    :any:`CallStatement`s in a given routine.
+    :any:`CallStatement`s and :any:`InlineCall`s in a given routine.
 
     Parameters
     ----------
     routine : :any:`Subroutine`
-        A :any:`Subroutine` whose call statements will be updated.
+        A :any:`Subroutine` whose call statements and inline calls will be updated.
     unused_args_map : dict
-       A dict mapping the :any:`Subroutine` corresponding to the :any:`CallStatement`,
-       accessed via the `any:`CallStatement`.routine property, to its unused arguments.
+       A dict mapping the :any:`Subroutine` corresponding to the :any:`CallStatement`
+       or :any:`InlineCall`, accessed via the ``routine`` property, to its unused arguments.
        The unused arguments must be retrieved using the :any:`find_unused_dummy_args`
        utility.
     """
@@ -232,6 +232,23 @@ def do_remove_unused_call_args(routine, unused_args_map):
         new_kwargs = [(kw, arg) for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs]
 
         call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
+
+    # Handle inline function calls
+    inline_call_map = {}
+    for call in FindInlineCalls().visit(routine.body):
+        if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
+            continue
+
+        unused_positions = {c for c in unused_args_map[call.routine].values() if c < len(call.arguments)}
+        unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_args_map[call.routine]]
+
+        new_args = tuple(arg for i, arg in enumerate(call.arguments) if i not in unused_positions)
+        new_kwargs = {kw: arg for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs}
+
+        inline_call_map[call] = call.clone(parameters=new_args, kw_parameters=new_kwargs)
+
+    if inline_call_map:
+        routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
 
 def find_unused_dummy_args_and_vars(routine):
