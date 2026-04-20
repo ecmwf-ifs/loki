@@ -153,16 +153,54 @@ class RemoveCodeTransformation(Transformation):
         if self.remove_unused_args and (item := kwargs['item']):
             # collect unused args from successors
             successors = kwargs['sub_sgraph'].successors(item=item)
-            unused_args_map = {successor.ir: successor.trafo_data.get(self._key, {}).get('unused_args', {})
-                               for successor in successors}
+            unused_args_map = {}
+            for successor in successors:
+                succ_data = successor.trafo_data.get(self._key, {})
+                succ_ir = successor.ir
+                unused_args_map[succ_ir] = succ_data.get(succ_ir.name, {}).get('unused_args', {})
+
+            variable_map = routine.symbol_map
+            used_or_defined_symbols = OrderedSet()
+            if item.config.get('remove_unused_args', True) and kwargs['role'] == 'kernel':
+                # internal procedures are transformed after the parent routine,
+                # so determine their unused args eagerly to update call sites here
+                for child in routine.subroutines:
+                    child_symbol_map = child.symbol_map
+                    child_used_symbols = get_used_or_defined_symbols(child)
+
+                    # Collect symbols used or defined in contained subroutines, whilst ignoring
+                    # those that mask parent symbols
+                    used_or_defined_symbols |= OrderedSet(
+                        variable_map[child_symbol.name_parts[0]].clone(dimensions=None)
+                        for child_symbol in child_used_symbols
+                        if child_symbol.name_parts[0] in variable_map
+                        and child_symbol.name_parts[0] not in child_symbol_map
+                    )
+
+                    child_unused_args, _ = find_unused_dummy_args_and_vars(
+                        child, used_or_defined_symbols=child_used_symbols
+                    )
+                    unused_args_map[child] = child_unused_args
+                    item.trafo_data.setdefault(self._key, {})[child.name] = {'unused_args': child_unused_args}
+
             do_remove_unused_call_args(routine, unused_args_map)
 
             if item.config.get('remove_unused_args', True) and kwargs['role'] == 'kernel':
-                # find unused args
-                unused_args, _ = find_unused_dummy_args_and_vars(routine)
+                # find unused args, which for contained subroutines may already be known
+                item_data = item.trafo_data.get(self._key, {})
+                unused_args = item_data.get(routine.name, {}).get('unused_args', {})
+
+                if not unused_args:
+                    used_or_defined_symbols |= get_used_or_defined_symbols(routine)
+                    unused_args, _ = find_unused_dummy_args_and_vars(
+                        routine, used_or_defined_symbols=used_or_defined_symbols
+                    )
+
+                    # store unused args keyed by routine name to avoid
+                    # internal procedures overwriting the parent's data
+                    item.trafo_data.setdefault(self._key, {})[routine.name] = {'unused_args': unused_args}
+
                 do_remove_unused_dummy_args(routine, unused_args)
-                # store unused args
-                item.trafo_data[self._key] = {'unused_args': unused_args}
 
 
 def do_remove_unused_dummy_args(routine, unused_args):
@@ -251,7 +289,35 @@ def do_remove_unused_call_args(routine, unused_args_map):
         routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
 
-def find_unused_dummy_args_and_vars(routine):
+def get_used_or_defined_symbols(routine):
+    """
+    Collect symbols used or defined in a routine, including array-shape references.
+    """
+    variable_map = routine.symbol_map
+    routine_arg_names = [arg.name.lower() for arg in routine.arguments]
+    with dataflow_analysis_attached(routine):
+        used_or_defined_symbols = routine.body.uses_symbols | routine.body.defines_symbols
+
+        # We search for symbols used to define array sizes of symbols referenced
+        # in the body, as well as local arrays declared in the routine.
+        used_or_defined_array_shapes = [s.shape for s in used_or_defined_symbols if isinstance(s, sym.Array)]
+        local_var_shapes = [
+            var.shape for var in routine.variables
+            if isinstance(var, sym.Array) and var.name.lower() not in routine_arg_names
+        ]
+        used_or_defined_symbols |= FindVariables(unique=True).visit(
+            used_or_defined_array_shapes + local_var_shapes
+        )
+
+        used_or_defined_symbols |= OrderedSet(
+            variable_map.get(v.name_parts[0], v).clone(dimensions=None)
+            for v in used_or_defined_symbols
+        )
+
+    return used_or_defined_symbols
+
+
+def find_unused_dummy_args_and_vars(routine, used_or_defined_symbols=None):
     """
     Utility routine to find all the unused arguments in a :any:`Subroutine`.
 
@@ -259,6 +325,8 @@ def find_unused_dummy_args_and_vars(routine):
     ----------
     routine : :any:`Subroutine`
         A :any:`Subroutine` to search for unused dummy arguments.
+    used_or_defined_symbols : set, optional
+        The set of symbols used or defined in the routine.
 
     Return
     ------
@@ -267,23 +335,15 @@ def find_unused_dummy_args_and_vars(routine):
        routine's argument list.
     """
 
-    variable_map = routine.symbol_map
-    with dataflow_analysis_attached(routine):
-        used_or_defined_symbols = routine.body.uses_symbols | routine.body.defines_symbols
+    if used_or_defined_symbols is None:
+        used_or_defined_symbols = get_used_or_defined_symbols(routine)
 
-        # we search for symbols used to define array sizes
-        used_or_defined_array_shapes = [s.shape for s in used_or_defined_symbols if isinstance(s, sym.Array)]
-        used_or_defined_symbols |= FindVariables(unique=True).visit(used_or_defined_array_shapes)
-
-        used_or_defined_symbols |= OrderedSet(variable_map.get(v.name_parts[0], v).clone(dimensions=None)
-                                              for v in used_or_defined_symbols)
-
-        unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
-                       if not a.name.lower() in used_or_defined_symbols}
-        routine_arg_names = [arg.name.lower() for arg in routine.arguments]
-        local_vars = [var for var in routine.variables if var.name.lower() not in routine_arg_names]
-        unused_vars = [var.clone(dimensions=None) for var in local_vars
-                if not var.name.lower() in used_or_defined_symbols]
+    unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
+                   if not a.name.lower() in used_or_defined_symbols}
+    routine_arg_names = [arg.name.lower() for arg in routine.arguments]
+    local_vars = [var for var in routine.variables if var.name.lower() not in routine_arg_names]
+    unused_vars = [var.clone(dimensions=None) for var in local_vars
+            if not var.name.lower() in used_or_defined_symbols]
 
     return unused_args, unused_vars
 
