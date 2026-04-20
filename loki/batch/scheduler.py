@@ -374,9 +374,9 @@ class Scheduler:
             )
             f_sources = self.executor.map(self._parse_source, sources, fargs)
 
-        # Set the "completed" Sourcefile on the item
-        for item, source in zip(items, f_sources):
-            item.source = source
+            # Set the "completed" Sourcefile on the item
+            for item, source in zip(items, f_sources):
+                item.source = source
 
         # Re-build the SGraph after parsing to pick up all new connections
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
