@@ -183,16 +183,16 @@ subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d)
     call an_unused_kernel(stRuCt)
     !$loki end remove
 
-    call another_kernel(kst, kend, d=C, e=D)
+    call another_kernel(kst, kend, c, c, f=d)
 
 end subroutine kernel
 """
 
     fcode_another_kernel = """
-subroutine another_kernel(kst, kend, D, E)
+subroutine another_kernel(kst, kend, D, E, F)
     implicit none
     integer, intent(in) :: kst, kend
-    real, intent(out) :: d(:), e(:)
+    real, intent(out) :: d(:), e(:), f(:)
     integer :: jrof
 
     do jrof = kst, kend
@@ -694,6 +694,13 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     assert kernel_calls[0].name.name.lower() == 'another_kernel'
     assert len(driver_calls) == 1
     assert driver_calls[0].name.name.lower() == 'kernel'
+
+    if kernel_override:
+        assert kernel_calls[0].arguments == ('kst', 'kend', 'c', 'c')
+        assert kernel_calls[0].kwarguments == (('f', 'd'),)
+    else:
+        assert kernel_calls[0].arguments == ('kst', 'kend', 'c')
+        assert kernel_calls[0].kwarguments == ()
 
     kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
 

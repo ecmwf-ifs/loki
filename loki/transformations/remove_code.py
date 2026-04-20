@@ -225,10 +225,10 @@ def do_remove_unused_call_args(routine, unused_args_map):
         if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
             continue
 
-        unused_args = [call.arguments[c] for c in unused_args_map[call.routine].values() if c < len(call.arguments)]
+        unused_positions = {c for c in unused_args_map[call.routine].values() if c < len(call.arguments)}
         unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_args_map[call.routine]]
 
-        new_args = [arg for arg in call.arguments if not arg in unused_args]
+        new_args = [arg for i, arg in enumerate(call.arguments) if i not in unused_positions]
         new_kwargs = [(kw, arg) for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs]
 
         call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
