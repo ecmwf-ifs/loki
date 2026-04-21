@@ -171,16 +171,20 @@ class SCCDemoteTransformation(Transformation):
         if role == 'kernel':
             demote_locals = self.demote_local_arrays
             preserve_arrays = []
+            argument_demotion = True
             if item:
                 demote_locals = item.config.get('demote_locals', self.demote_local_arrays)
                 preserve_arrays = item.config.get('preserve_arrays', [])
+                argument_demotion = item.config.get('argument_demotion', True)
             self.process_kernel(routine, item=item, successors=successors,
-                                demote_locals=demote_locals, preserve_arrays=preserve_arrays)
+                                demote_locals=demote_locals, preserve_arrays=preserve_arrays,
+                                argument_demotion=argument_demotion)
 
         if role == 'driver':
             self.process_driver(routine, successors=successors)
 
-    def process_kernel(self, routine, item=None, successors=(), demote_locals=True, preserve_arrays=None):
+    def process_kernel(self, routine, item=None, successors=(), demote_locals=True,
+                        preserve_arrays=None, argument_demotion=True):
         """
         Applies the SCCDemote utilities to a "kernel" and demotes all suitable arrays.
 
@@ -196,6 +200,9 @@ class SCCDemoteTransformation(Transformation):
             Flag to trigger demotion of local arrays; default: True.
         preserve_arrays : list, optional
             List of array names to preserve from demotion.
+        argument_demotion : bool, optional
+            Flag to allow demotion of subroutine arguments; default: True.
+            When False, only local arrays are considered for demotion.
         """
 
         # Find vector sections marked in the SCCDevectorTransformation
@@ -210,6 +217,11 @@ class SCCDemoteTransformation(Transformation):
         # Filter out arrays marked explicitly for preservation
         if preserve_arrays:
             to_demote = [v for v in to_demote if v not in preserve_arrays]
+
+        # Filter out subroutine arguments if argument demotion is disabled
+        if not argument_demotion:
+            arg_names = {arg.name.lower() for arg in routine.arguments}
+            to_demote = [v for v in to_demote if v not in arg_names]
 
         # Build successor map: callee Subroutine -> set of demoted variable names
         successor_map = self._build_successor_map(successors)
