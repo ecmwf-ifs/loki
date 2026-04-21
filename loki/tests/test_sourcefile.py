@@ -9,13 +9,10 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-from loki import (
-    Sourcefile, FindNodes, PreprocessorDirective, Intrinsic,
-    Assignment, Import, fgen, ProcedureType, ProcedureSymbol,
-    StatementFunction, Comment
-)
+from loki import Sourcefile, fgen, ProcedureType, ProcedureSymbol
 from loki.jit_build import jit_compile, clean_test
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes
 
 
 @pytest.fixture(scope='module', name='here')
@@ -27,7 +24,7 @@ def fixture_here():
 def test_sourcefile_pp_macros(here, frontend):
     filepath = here/'sources/sourcefile_pp_macros.F90'
     routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_macros']
-    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.ir)
     assert len(directives) == 8
     assert all(node.text.startswith('#') for node in directives)
 
@@ -41,14 +38,14 @@ def test_sourcefile_pp_directives(here, frontend):
 
     # Note: these checks are rather loose as we currently do not restore the original version but
     # simply replace the PP constants by strings
-    directives = FindNodes(PreprocessorDirective).visit(routine.body)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.body)
     assert len(directives) == 1
     assert directives[0].text == '#define __FILENAME__ __FILE__'
-    intrinsics = FindNodes(Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
     assert '__FILENAME__' in intrinsics[0].text and '__DATE__' in intrinsics[0].text
     assert '__FILE__' in intrinsics[1].text and '__VERSION__' in intrinsics[1].text
 
-    statements = FindNodes(Assignment).visit(routine.body)
+    statements = FindNodes(ir.Assignment).visit(routine.body)
     assert len(statements) == 1
     assert fgen(statements[0]) == 'y = 0*5 + 0'
 
@@ -59,7 +56,7 @@ def test_sourcefile_pp_include(here, frontend):
     sourcefile = Sourcefile.from_file(filepath, frontend=frontend, includes=[here/'include'])
     routine = sourcefile['routine_pp_include']
 
-    statements = FindNodes(Assignment).visit(routine.body)
+    statements = FindNodes(ir.Assignment).visit(routine.body)
     assert len(statements) == 1
     if frontend == OMNI:
         # OMNI resolves that statement function!
@@ -69,7 +66,7 @@ def test_sourcefile_pp_include(here, frontend):
 
     if frontend is not OMNI:
         # OMNI resolves the import in the frontend
-        imports = FindNodes(Import).visit([routine.spec, routine.body])
+        imports = FindNodes(ir.Import).visit([routine.spec, routine.body])
         assert len(imports) == 1
         assert imports[0].c_import
         assert imports[0].module == 'some_header.h'
@@ -84,11 +81,11 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
 
     source = Sourcefile.from_file(filepath, preprocess=True, frontend=frontend)
     routine = source['sourcefile_external_preprocessing']
-    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.ir)
 
     if frontend is not OMNI:
         # OMNI skips the import in the frontend
-        imports = FindNodes(Import).visit([routine.spec, routine.body])
+        imports = FindNodes(ir.Import).visit([routine.spec, routine.body])
         assert len(imports) == 1
         assert imports[0].c_import
         assert imports[0].module == 'some_header.h'
@@ -100,7 +97,7 @@ def test_sourcefile_cpp_preprocessing(here, frontend):
     source = Sourcefile.from_file(filepath, preprocess=True, defines='FLAG_SMALL',
                                   frontend=frontend)
     routine = source['sourcefile_external_preprocessing']
-    directives = FindNodes(PreprocessorDirective).visit(routine.ir)
+    directives = FindNodes(ir.PreprocessorDirective).visit(routine.ir)
 
     assert len(directives) == 0
     assert 'b = 6' in fgen(routine)
@@ -122,7 +119,7 @@ def test_sourcefile_cpp_stmt_func(here, frontend, tmp_path):
     # OMNI inlines statement functions, so we can't check the representation
     if frontend != OMNI:
         routine = source['cpp_stmt_func']
-        stmt_func_decls = FindNodes(StatementFunction).visit(routine.spec)
+        stmt_func_decls = FindNodes(ir.StatementFunction).visit(routine.spec)
         assert len(stmt_func_decls) == 4
 
         for decl in stmt_func_decls:
@@ -198,7 +195,7 @@ end subroutine other_routine
     assert 'new_mod_routine' in new_new_source['my_mod']
 
     if not source._incomplete:
-        assert isinstance(source.ir.body[0], Comment)
+        assert isinstance(source.ir.body[0], ir.Comment)
         comment_text = source.ir.body[0].text
         new_comment_text = comment_text + ' some more text'
         source.ir.body[0]._update(text=new_comment_text)

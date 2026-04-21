@@ -14,8 +14,8 @@ from loki.jit_build import jit_compile, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
-    nodes as ir, FindNodes, FindVariables, FindTypedSymbols,
-    Transformer
+    nodes as ir, FindNodes, FindVariables, FindInlineCalls,
+    FindTypedSymbols, Transformer
 )
 from loki.types import BasicType, DerivedType, SymbolAttributes
 
