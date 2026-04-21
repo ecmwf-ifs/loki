@@ -196,9 +196,14 @@ class TestBuildBoundsGuard:
         upper = sym.Variable(name='KLEV')
         guard = _build_bounds_guard(jk, lower, upper)
         assert isinstance(guard, sym.LogicalAnd)
-        guard_str = str(guard).lower()
-        assert '>=' in guard_str
-        assert '<=' in guard_str
+        # Check structural properties of the guard: (JK >= 1) .AND. (JK <= KLEV)
+        left, right = guard.children
+        assert left.operator == '>='
+        assert left.left == 'jk'
+        assert left.right == 1
+        assert right.operator == '<='
+        assert right.left == 'jk'
+        assert right.right == 'klev'
 
 
 # --------------------------------------------------------------------------
@@ -228,7 +233,7 @@ def test_loop_upper_bound(frontend):
 
     expr = _loop_upper_bound_expr(loops[0])
     assert expr is not None
-    assert str(expr).strip().lower() == 'klev'
+    assert expr == 'klev'
 
     s = _loop_upper_bound_str(loops[0])
     assert s == 'klev'
@@ -470,9 +475,7 @@ def test_merge_vertical_loops_different_bounds(frontend):
     assert merged is not None
 
     # The merged loop upper bound should be KLEV + 1
-    upper_str = str(merged.bounds.children[1]).strip().lower()
-    assert 'klev' in upper_str
-    assert '1' in upper_str
+    assert merged.bounds.children[1] == 'klev + 1'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

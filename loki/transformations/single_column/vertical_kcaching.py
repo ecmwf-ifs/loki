@@ -308,9 +308,6 @@ class SCCVerticalKCaching(Transformation):
         # consulted, so routines using alias names will not be matched.
         vertical_index = self.vertical.index
         vertical_size = str(self.vertical.size)
-        horizontal_index = (
-            self.horizontal.index if self.horizontal is not None else None
-        )
 
         # Phase 1a: Loop interchange (pragma-based + automatic)
         do_loop_interchange(routine)
@@ -336,7 +333,7 @@ class SCCVerticalKCaching(Transformation):
 
         for loop, _cond in all_vloops:
             new_loop, init_stmts, conversions = _convert_all_carries(
-                routine, loop, vertical_size
+                routine, loop, vertical_size, horizontal=self.horizontal
             )
             if conversions:
                 routine.body = Transformer(
@@ -396,7 +393,8 @@ class SCCVerticalKCaching(Transformation):
 
         # Phase 1d: Init-expression substitution
         substituted = _substitute_init_expressions_all_loops(
-            routine, vertical_index, vertical_size
+            routine, vertical_index, vertical_size,
+            horizontal=self.horizontal
         )
         if substituted:
             info('[SCCVerticalKCaching] %s: Phase 1d - substituted '
@@ -457,7 +455,7 @@ class SCCVerticalKCaching(Transformation):
                 merged_loop = all_vloops[0][0]
                 n_wb = _insert_writebacks_for_argument_carries(
                     routine, merged_loop, carry_registry,
-                    horizontal_index=horizontal_index
+                    horizontal=self.horizontal
                 )
                 if n_wb:
                     info('[SCCVerticalKCaching] %s: Phase 2c - '
@@ -482,15 +480,14 @@ class SCCVerticalKCaching(Transformation):
                      ', '.join(demotable))
 
         # Phase 4: Cleanup
-        all_vloops = _collect_vertical_loops(routine.body, vertical_index)
-        if all_vloops:
-            merged_loop = all_vloops[0][0]
 
-            # 4a. Remove self-assignment no-ops
-            n_noops = _remove_self_assignments(routine, merged_loop)
-            if n_noops:
-                info('[SCCVerticalKCaching] %s: Phase 4a - removed '
-                     '%d self-assignment no-op(s)', routine.name, n_noops)
+        # 4a. Remove self-assignment no-ops from all vertical loops.
+        all_vloops = _collect_vertical_loops(routine.body, vertical_index)
+        all_loops = [vloop for vloop, _ in all_vloops]
+        n_noops_total = _remove_self_assignments(routine, all_loops)
+        if n_noops_total:
+            info('[SCCVerticalKCaching] %s: Phase 4a - removed '
+                 '%d self-assignment no-op(s)', routine.name, n_noops_total)
 
         # 4b. Remove dead carry-original declarations
         if carry_registry and demotable:

@@ -17,7 +17,7 @@ from collections import defaultdict, OrderedDict
 
 from loki.expression import symbols as sym
 from loki.ir import (
-    nodes as ir, FindNodes, Transformer, FindVariables,
+    nodes as ir, FindNodes, Visitor, Transformer, FindVariables,
     SubstituteExpressions, SubstituteExpressionsSkipLHS
 )
 from loki.logging import info, warning
@@ -31,6 +31,113 @@ from loki.analyse.analyse_dataflow import (
 
 
 __all__ = []
+
+
+class _EarlyTermination(Exception):
+    """Raised to short-circuit a Visitor walk."""
+
+
+class _SkipNodesVisitor(Visitor):
+    """
+    Base :any:`Visitor` that skips specific node instances and recurses
+    into transparent container nodes (:any:`Section`, :any:`Associate`,
+    :any:`Conditional`, :any:`Loop`).
+
+    Subclasses override ``visit_Node`` (or type-specific ``visit_*``
+    methods) to process leaf / non-container nodes.  The default
+    ``visit_Node`` does nothing.
+    """
+
+    def __init__(self, skip_nodes=None):
+        super().__init__()
+        self.skip_nodes = skip_nodes or set()
+
+    # -- tuple / list: filter out skipped nodes before dispatching ------
+
+    def visit_tuple(self, o, **kwargs):
+        for c in o:
+            if c not in self.skip_nodes:
+                self.visit(c, **kwargs)
+
+    visit_list = visit_tuple
+
+    # -- expressions / unknown objects: nothing to do -------------------
+
+    def visit_object(self, o, **kwargs):
+        pass
+
+    # -- default leaf: subclasses override this -------------------------
+
+    def visit_Node(self, o, **kwargs):
+        pass
+
+    # -- transparent containers: recurse --------------------------------
+
+    def visit_Section(self, o, **kwargs):
+        self.visit(o.body, **kwargs)
+
+    def visit_Associate(self, o, **kwargs):
+        self.visit(o.body, **kwargs)
+
+    def visit_Conditional(self, o, **kwargs):
+        self.visit(o.body, **kwargs)
+        if o.else_body:
+            self.visit(o.else_body, **kwargs)
+
+    def visit_Loop(self, o, **kwargs):
+        self.visit(o.body, **kwargs)
+
+
+def _walk_outside(body, skip_nodes, callback):
+    """
+    Walk *body* recursively, skipping any node in *skip_nodes*.
+
+    For each non-skipped, non-container leaf node, calls
+    ``callback(node)``.  Recurses into :any:`Section`, :any:`Associate`,
+    :any:`Conditional` (body + else_body), and :any:`Loop` containers.
+
+    Parameters
+    ----------
+    body : tuple, list, or node with ``.body``
+        The IR nodes to walk.
+    skip_nodes : set
+        Nodes to skip entirely (e.g. vertical loops).
+    callback : callable(node) -> bool or None
+        Called for each leaf node.  If it returns ``True`` the walk
+        stops early and ``_walk_outside`` returns ``True``.
+    """
+
+    class _Walker(_SkipNodesVisitor):
+        def __init__(self, skip_nodes, callback):
+            super().__init__(skip_nodes)
+            self.callback = callback
+
+        def visit_Node(self, o, **kwargs):
+            if self.callback(o):
+                raise _EarlyTermination()
+
+    try:
+        _Walker(skip_nodes, callback).visit(body)
+        return False
+    except _EarlyTermination:
+        return True
+
+
+def _collect_call_arg_names(routine):
+    """
+    Return a set of lowercase variable names that appear as arguments
+    in any :any:`CallStatement` in *routine*.
+    """
+    names = set()
+    for call in FindNodes(ir.CallStatement).visit(routine.body):
+        for arg in call.arguments:
+            for v in FindVariables().visit(arg):
+                names.add(v.name.lower())
+        if call.kwarguments:
+            for _kw, arg in call.kwarguments:
+                for v in FindVariables().visit(arg):
+                    names.add(v.name.lower())
+    return names
 
 
 def _make_zero_literal(orig_type):
@@ -59,15 +166,41 @@ def _make_zero_literal(orig_type):
     return sym.FloatLiteral(0.0, kind=kind)
 
 
-def _loop_upper_bound_expr(loop):
+def _loop_is_backward(loop):
+    """Return ``True`` if *loop* has a negative step."""
+    bounds = loop.bounds
+    if bounds is None or bounds.children is None:
+        return False
+    if len(bounds.children) > 2 and bounds.children[2] is not None:
+        # str() is intentional: step may be a symbolic negation (e.g. Product((-1, x)))
+        # whose rendered form starts with '-'; no reliable node comparison exists.
+        step_str = str(bounds.children[2]).strip()
+        return step_str.startswith('-') or step_str.startswith('-(')
+    return False
+
+
+def _loop_effective_bounds(loop):
     """
-    Return the upper-bound expression of *loop*'s range, or ``None``
-    if bounds are not available.
+    Return ``(lower, upper)`` expressions for *loop*, accounting for
+    backward (negative-step) loops where children[0] > children[1].
     """
     bounds = loop.bounds
     if bounds is None or bounds.children is None:
-        return None
-    return bounds.children[1]
+        return None, None
+    lower, upper = bounds.children[0], bounds.children[1]
+    if _loop_is_backward(loop):
+        lower, upper = upper, lower
+    return lower, upper
+
+
+def _loop_upper_bound_expr(loop):
+    """
+    Return the effective upper-bound expression of *loop*'s range, or
+    ``None`` if bounds are not available.  For backward loops the start
+    expression (children[0]) is returned since it is the larger value.
+    """
+    _lower, upper = _loop_effective_bounds(loop)
+    return upper
 
 
 def _loop_upper_bound_str(loop):
@@ -148,28 +281,65 @@ def _collect_vertical_loops(body, vertical_index):
        an alias (e.g. ``NLEV``) instead of the primary index name, those
        loops will not be collected.
     """
-    vertical_index_lower = vertical_index.lower()
-    result = []
-    nodes = body if isinstance(body, (tuple, list)) else body.body
 
-    for node in nodes:
-        if isinstance(node, ir.Loop):
-            if node.variable.name.lower() == vertical_index_lower:
-                result.append((node, None))
-            # don't recurse into the JK loop body
-        elif isinstance(node, ir.Conditional):
-            # Check for JK loops directly inside the conditional branches
-            for branch_nodes in (node.body, node.else_body or ()):
+    class _VLoopCollector(Visitor):
+        def __init__(self):
+            super().__init__()
+            self.vertical_index_lower = vertical_index.lower()
+            self.result = []
+
+        def visit_tuple(self, o, **kwargs):
+            for c in o:
+                self.visit(c, **kwargs)
+
+        visit_list = visit_tuple
+
+        def visit_object(self, o, **kwargs):
+            pass
+
+        def visit_Node(self, o, **kwargs):
+            pass  # don't recurse into unrecognised node types
+
+        def visit_Loop(self, o, **kwargs):
+            if o.variable.name.lower() == self.vertical_index_lower:
+                self.result.append((o, kwargs.get('wrapper')))
+            # don't recurse into the loop body
+
+        def visit_Conditional(self, o, **kwargs):  # pylint: disable=unused-argument
+            # Only check for JK loops as direct children of conditional
+            # branches (matching original non-recursive behavior).
+            for branch_nodes in (o.body, o.else_body or ()):
                 for child in branch_nodes:
                     if isinstance(child, ir.Loop):
-                        if child.variable.name.lower() == vertical_index_lower:
-                            result.append((child, node))
-        elif isinstance(node, (ir.Section, ir.Associate)):
-            # Recurse into transparent container nodes
-            result.extend(_collect_vertical_loops(node, vertical_index))
-        elif isinstance(node, ir.Comment):
-            pass  # skip
-    return result
+                        if child.variable.name.lower() == self.vertical_index_lower:
+                            self.result.append((child, o))
+
+        def visit_Section(self, o, **kwargs):
+            self.visit(o.body, **kwargs)
+
+        def visit_Associate(self, o, **kwargs):
+            self.visit(o.body, **kwargs)
+
+        def visit_Comment(self, o, **kwargs):
+            pass
+
+    collector = _VLoopCollector()
+    collector.visit(body)
+    return collector.result
+
+
+def _collect_loop_node_set(all_vloops):
+    """
+    Build a set of IR nodes (loops and their conditional wrappers) from the
+    list returned by :func:`_collect_vertical_loops`.  This set is used by
+    several helpers to skip over vertical-loop bodies when walking the IR.
+    """
+    loop_nodes = set()
+    for loop, cond_wrapper in all_vloops:
+        loop_nodes.add(loop)
+        if cond_wrapper is not None:
+            loop_nodes.add(cond_wrapper)
+    return loop_nodes
 
 
 def _is_jk_eq_1(expr, loop_var_name):
@@ -264,63 +434,45 @@ def _any_read_outside_node(body, exclude_node, written_names):
     assignment, in a conditional expression, in a call argument, or
     in any context other than the bare LHS of an assignment.
     """
-    nodes = body if isinstance(body, (tuple, list)) else body.body
-    for node in nodes:
-        if node is exclude_node:
-            continue
-        # Recurse into transparent containers
-        if isinstance(node, (ir.Section, ir.Associate)):
-            if _any_read_outside_node(node.body, exclude_node,
-                                       written_names):
-                return True
-            continue
-        # For assignments, check RHS + LHS subscripts (but not the
-        # LHS variable name itself)
-        if isinstance(node, ir.Assignment):
+
+    class _ReadChecker(_SkipNodesVisitor):
+        def __init__(self, exclude_node, written_names):
+            skip = {exclude_node} if exclude_node else set()
+            super().__init__(skip)
+            self.written_names = written_names
+
+        def _check(self, vars_iter):
+            for var in vars_iter:
+                if var.name.lower() in self.written_names:
+                    raise _EarlyTermination()
+
+        def visit_Assignment(self, o, **kwargs):  # pylint: disable=unused-argument
             # RHS reads
-            rhs_vars = FindVariables().visit(node.rhs)
-            for var in rhs_vars:
-                if var.name.lower() in written_names:
-                    return True
+            self._check(FindVariables().visit(o.rhs))
             # LHS subscript reads (e.g. A(ZTRPAUS) would be a read)
-            lhs = node.lhs
+            lhs = o.lhs
             if hasattr(lhs, 'dimensions') and lhs.dimensions:
                 for dim in lhs.dimensions:
-                    dim_vars = FindVariables().visit(dim)
-                    for var in dim_vars:
-                        if var.name.lower() in written_names:
-                            return True
-            continue
-        # For conditionals, check condition + branches
-        if isinstance(node, ir.Conditional):
-            cond_vars = FindVariables().visit(node.condition)
-            for var in cond_vars:
-                if var.name.lower() in written_names:
-                    return True
-            if _any_read_outside_node(node.body, exclude_node,
-                                       written_names):
-                return True
-            if node.else_body:
-                if _any_read_outside_node(node.else_body, exclude_node,
-                                           written_names):
-                    return True
-            continue
-        # For loops (non-JK), check bounds + body
-        if isinstance(node, ir.Loop):
-            bounds_vars = FindVariables().visit(node.bounds)
-            for var in bounds_vars:
-                if var.name.lower() in written_names:
-                    return True
-            if _any_read_outside_node(node.body, exclude_node,
-                                       written_names):
-                return True
-            continue
-        # For everything else, any reference counts as a read
-        all_vars = FindVariables().visit(node)
-        for var in all_vars:
-            if var.name.lower() in written_names:
-                return True
-    return False
+                    self._check(FindVariables().visit(dim))
+
+        def visit_Conditional(self, o, **kwargs):
+            self._check(FindVariables().visit(o.condition))
+            self.visit(o.body, **kwargs)
+            if o.else_body:
+                self.visit(o.else_body, **kwargs)
+
+        def visit_Loop(self, o, **kwargs):
+            self._check(FindVariables().visit(o.bounds))
+            self.visit(o.body, **kwargs)
+
+        def visit_Node(self, o, **kwargs):
+            self._check(FindVariables().visit(o))
+
+    try:
+        _ReadChecker(exclude_node, written_names).visit(body)
+        return False
+    except _EarlyTermination:
+        return True
 
 
 def _substitute_jk_in_expr(expr, jk_var, replacement):
@@ -354,84 +506,90 @@ def _substitute_jk_in_expr(expr, jk_var, replacement):
 
 
 def _build_init_subst_map(body, loop_nodes, init_map, local_2d,
-                           vertical_index_lower, expr_map, substituted):
+                           expr_map, substituted, horizontal=None):
     """
     Walk *body* and for any Array reference to an init-mapped array
     that appears outside all JK loops, add a substitution entry.
     """
-    nodes = body if isinstance(body, (tuple, list)) else body.body
 
-    for node in nodes:
-        if node in loop_nodes:
-            continue
-        if isinstance(node, (ir.Section, ir.Associate)):
-            _build_init_subst_map(node.body, loop_nodes, init_map,
-                                  local_2d, vertical_index_lower,
-                                  expr_map, substituted)
-            continue
-        if isinstance(node, ir.Conditional):
-            _build_init_subst_map(node.body, loop_nodes, init_map,
-                                  local_2d, vertical_index_lower,
-                                  expr_map, substituted)
-            if node.else_body:
-                _build_init_subst_map(node.else_body, loop_nodes,
-                                      init_map, local_2d,
-                                      vertical_index_lower,
-                                      expr_map, substituted)
-            continue
-        # Recurse into non-vertical Loop nodes (e.g. DO JM loops) so
-        # that inner vertical loops in loop_nodes are properly skipped.
-        if isinstance(node, ir.Loop):
-            _build_init_subst_map(node.body, loop_nodes, init_map,
-                                  local_2d, vertical_index_lower,
-                                  expr_map, substituted)
-            continue
+    class _InitSubstBuilder(_SkipNodesVisitor):
+        def __init__(self):
+            super().__init__(loop_nodes)
 
-        # Check Array references in this node
-        all_vars = FindVariables().visit(node)
-        for var in all_vars:
-            var_lower = var.name.lower()
-            if var_lower not in init_map:
-                continue
-            if not hasattr(var, 'dimensions') or not var.dimensions:
-                continue
-
-            init_assign = init_map[var_lower]
-            info_entry = local_2d[var_lower]
-            klev_dim = info_entry['klev_dim_idx']
-            if klev_dim >= len(var.dimensions):
-                continue
-            level_idx = var.dimensions[klev_dim]
-
-            # Verify non-vertical subscripts match between the
-            # reference and the init expression (e.g. reject
-            # ZQX(:,:,JM) when init was for ZQX(:,:,NCLDQV)).
-            # Range subscripts (`:`) are considered compatible with
-            # any scalar subscript (e.g. `:` matches `JL`).
-            init_dims = init_assign.lhs.dimensions
-            if len(var.dimensions) == len(init_dims):
-                mismatch = False
-                for di, (ref_d, init_d) in enumerate(
-                        zip(var.dimensions, init_dims)):
-                    if di == klev_dim:
-                        continue  # vertical dim — allowed to differ
-                    # Range subscripts are compatible with anything
-                    if isinstance(ref_d, sym.RangeIndex):
-                        continue
-                    if isinstance(init_d, sym.RangeIndex):
-                        continue
-                    if str(ref_d).strip().lower() != str(init_d).strip().lower():
-                        mismatch = True
-                        break
-                if mismatch:
+        def visit_Node(self, o, **kwargs):
+            all_vars = FindVariables().visit(o)
+            for var in all_vars:
+                var_lower = var.name.lower()
+                if var_lower not in init_map:
+                    continue
+                if not hasattr(var, 'dimensions') or not var.dimensions:
                     continue
 
-            # Build RHS with JK replaced by the level index
-            jk_var = init_assign.lhs.dimensions[klev_dim]
-            rhs_substituted = _substitute_jk_in_expr(
-                init_assign.rhs, jk_var, level_idx)
-            expr_map[var] = rhs_substituted
-            substituted.add(var_lower)
+                init_assign = init_map[var_lower]
+                info_entry = local_2d[var_lower]
+                klev_dim = info_entry['klev_dim_idx']
+                if klev_dim >= len(var.dimensions):
+                    continue
+                level_idx = var.dimensions[klev_dim]
+
+                # Verify non-vertical subscripts match between the
+                # reference and the init expression (e.g. reject
+                # ZQX(:,:,JM) when init was for ZQX(:,:,NCLDQV)).
+                # Range subscripts (`:`) are considered compatible with
+                # any scalar subscript (e.g. `:` matches `JL`).
+                init_dims = init_assign.lhs.dimensions
+                if len(var.dimensions) == len(init_dims):
+                    mismatch = False
+                    for di, (ref_d, init_d) in enumerate(
+                            zip(var.dimensions, init_dims)):
+                        if di == klev_dim:
+                            continue  # vertical dim — allowed to differ
+                        if isinstance(ref_d, sym.RangeIndex):
+                            continue
+                        if isinstance(init_d, sym.RangeIndex):
+                            continue
+                        if ref_d != init_d:
+                            mismatch = True
+                            break
+                    if mismatch:
+                        continue
+
+                # Build RHS with JK replaced by the level index
+                jk_var = init_assign.lhs.dimensions[klev_dim]
+                rhs_substituted = _substitute_jk_in_expr(
+                    init_assign.rhs, jk_var, level_idx)
+
+                # If the target reference uses ':' (RangeIndex) for a
+                # dimension where the init expression used a scalar loop
+                # variable (e.g. JL), replace that loop variable with a
+                # range in the substituted RHS to avoid out-of-scope refs.
+                # When the horizontal Dimension is available we use its
+                # bounds (e.g. ``KIDIA:KFDIA``) so that the SCC pipeline's
+                # ``resolve_vector_dimension`` can later resolve the range
+                # to the scalar index.  Without a horizontal Dimension we
+                # fall back to an unbounded ``:`` (sufficient for idem).
+                init_dims = init_assign.lhs.dimensions
+                if len(var.dimensions) == len(init_dims):
+                    if horizontal is not None:
+                        _lower = sym.Variable(name=horizontal.bounds[0], scope=None)
+                        _upper = sym.Variable(name=horizontal.bounds[1], scope=None)
+                        range_idx = sym.RangeIndex((_lower, _upper, None))
+                    else:
+                        range_idx = sym.RangeIndex((None, None, None))
+                    for di, (ref_d, init_d) in enumerate(
+                            zip(var.dimensions, init_dims)):
+                        if di == klev_dim:
+                            continue
+                        if (isinstance(ref_d, sym.RangeIndex)
+                                and isinstance(init_d, (sym.Scalar, sym.DeferredTypeSymbol))
+                                and not isinstance(init_d, sym.IntLiteral)):
+                            rhs_substituted = _substitute_jk_in_expr(
+                                rhs_substituted, init_d, range_idx)
+
+                expr_map[var] = rhs_substituted
+                substituted.add(var_lower)
+
+    _InitSubstBuilder().visit(body)
 
 
 def _apply_subst_outside_loops(routine, loop_nodes, expr_map):
@@ -461,45 +619,35 @@ def _collect_refs_outside_loops(body, loop_nodes):
     Collect all variable names referenced outside any node in
     *loop_nodes*.  Returns a set of lowercase variable names.
     """
-    refs = set()
-    nodes = body if isinstance(body, (tuple, list)) else body.body
 
-    for node in nodes:
-        if node in loop_nodes:
-            continue
-        if isinstance(node, (ir.Section, ir.Associate)):
-            refs.update(
-                _collect_refs_outside_loops(node.body, loop_nodes))
-            continue
-        if isinstance(node, ir.Conditional):
-            if node in loop_nodes:
-                continue
-            for var in FindVariables().visit(node.condition):
-                refs.add(var.name.lower())
-            refs.update(
-                _collect_refs_outside_loops(node.body, loop_nodes))
-            if node.else_body:
-                refs.update(
-                    _collect_refs_outside_loops(
-                        node.else_body, loop_nodes))
-            continue
-        # Recurse into non-vertical Loop nodes (e.g. DO JM) so that
-        # inner vertical loops in loop_nodes are properly skipped.
-        if isinstance(node, ir.Loop):
-            for var in FindVariables().visit(node.variable):
-                refs.add(var.name.lower())
-            for bound in (node.bounds.lower, node.bounds.upper,
-                          node.bounds.step):
+    class _RefCollector(_SkipNodesVisitor):
+        def __init__(self):
+            super().__init__(loop_nodes)
+            self.refs = set()
+
+        def _add_vars(self, expr):
+            for var in FindVariables().visit(expr):
+                self.refs.add(var.name.lower())
+
+        def visit_Conditional(self, o, **kwargs):
+            self._add_vars(o.condition)
+            self.visit(o.body, **kwargs)
+            if o.else_body:
+                self.visit(o.else_body, **kwargs)
+
+        def visit_Loop(self, o, **kwargs):
+            self._add_vars(o.variable)
+            for bound in (o.bounds.lower, o.bounds.upper, o.bounds.step):
                 if bound is not None:
-                    for var in FindVariables().visit(bound):
-                        refs.add(var.name.lower())
-            refs.update(
-                _collect_refs_outside_loops(node.body, loop_nodes))
-            continue
-        for var in FindVariables().visit(node):
-            refs.add(var.name.lower())
+                    self._add_vars(bound)
+            self.visit(o.body, **kwargs)
 
-    return refs
+        def visit_Node(self, o, **kwargs):
+            self._add_vars(o)
+
+    collector = _RefCollector()
+    collector.visit(body)
+    return collector.refs
 
 
 def _find_demotable_arrays(routine, vertical_index, vertical_size):
@@ -534,15 +682,7 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size):
     arg_names = {v.name.lower() for v in routine.arguments}
 
     # Variables passed to calls (not safe to demote)
-    call_arg_names = set()
-    for call in FindNodes(ir.CallStatement).visit(routine.body):
-        for arg in call.arguments:
-            for v in FindVariables().visit(arg):
-                call_arg_names.add(v.name.lower())
-        if call.kwarguments:
-            for _kw, arg in call.kwarguments:
-                for v in FindVariables().visit(arg):
-                    call_arg_names.add(v.name.lower())
+    call_arg_names = _collect_call_arg_names(routine)
 
     # Find all local arrays with KLEV dimension
     candidates = {}
@@ -569,11 +709,7 @@ def _find_demotable_arrays(routine, vertical_index, vertical_size):
 
     # Collect all vertical loops
     all_vloops = _collect_vertical_loops(routine.body, vertical_index)
-    loop_nodes = set()
-    for loop, cond_wrapper in all_vloops:
-        loop_nodes.add(loop)
-        if cond_wrapper is not None:
-            loop_nodes.add(cond_wrapper)
+    loop_nodes = _collect_loop_node_set(all_vloops)
 
     # Check that no candidate is accessed outside vertical loops
     outside_refs = _collect_refs_outside_loops(routine.body, loop_nodes)
@@ -784,7 +920,8 @@ def _build_save_assignment(orig_decl, carry_decl, orig_shape, dim_idx,
 
 
 def _convert_all_carries(routine, loop, vertical_size,
-                         carry_suffix='_vc', next_suffix='_next'):
+                         carry_suffix='_vc', next_suffix='_next',
+                         horizontal=None):
     """
     Convert all carry and stencil patterns in *loop* to scalar carry
     variables, making the loop body level-local.
@@ -854,15 +991,7 @@ def _convert_all_carries(routine, loop, vertical_size,
 
     # Arguments and call-args (stencil conversion applies only to locals)
     arg_names = {v.name.lower() for v in routine.arguments}
-    call_arg_names = set()
-    for call in FindNodes(ir.CallStatement).visit(routine.body):
-        for arg in call.arguments:
-            for v in FindVariables().visit(arg):
-                call_arg_names.add(v.name.lower())
-        if call.kwarguments:
-            for _kw, arg in call.kwarguments:
-                for v in FindVariables().visit(arg):
-                    call_arg_names.add(v.name.lower())
+    call_arg_names = _collect_call_arg_names(routine)
 
     var_map_ci = CaseInsensitiveDict(
         {v.name: v for v in routine.variables}
@@ -1035,14 +1164,29 @@ def _convert_all_carries(routine, loop, vertical_size,
         # --- Helper closures (called within the same loop iteration) ---
         # pylint: disable=cell-var-from-loop
 
+        # Build the range index for out-of-loop (init/save/rotate) context.
+        # When horizontal bounds are available, use them (e.g. KIDIA:KFDIA)
+        # so that resolve_vector_dimension can later resolve the range to
+        # the horizontal index variable.  Fall back to bare ':' otherwise.
+        if horizontal is not None:
+            _h_lower = sym.Variable(name=horizontal.bounds[0], scope=None)
+            _h_upper = sym.Variable(name=horizontal.bounds[1], scope=None)
+            _ool_range = sym.RangeIndex((_h_lower, _h_upper, None))
+        else:
+            _ool_range = sym.RangeIndex((None, None, None))
+
         # range dims for carry (in-body context)
         def _carry_range_dims():
             if actual_non_vert_dims is not None:
                 return actual_non_vert_dims
+            if not carry_shape:
+                return None
+            if len(carry_shape) == 1 and horizontal is not None:
+                return (_ool_range,)
             return tuple(
                 sym.RangeIndex((None, None, None))
                 for _ in carry_shape
-            ) if carry_shape else None
+            )
 
         # range dims for init/rotate (out-of-loop context)
         # All non-vertical dimensions (including the horizontal index)
@@ -1052,20 +1196,36 @@ def _convert_all_carries(routine, loop, vertical_size,
         # converted the horizontal loop variable to a scalar parameter.
 
         def _init_rotate_dims():
-            """Dims for init/rotate statements (all non-vertical dims become ':')."""
+            """Dims for init/rotate statements (all non-vertical dims become ranges).
+
+            Uses bounded range (``KIDIA:KFDIA``) for carry variables with
+            exactly one non-vertical dimension (assumed horizontal).
+            For multi-dimensional carries (e.g. ``(nlon, NCLV)``), bare
+            ``:`` is used because we cannot reliably identify which
+            dimension is horizontal from shape alone.
+            """
+            if not carry_shape:
+                return None
+            if len(carry_shape) == 1 and horizontal is not None:
+                return (_ool_range,)
             return tuple(
                 sym.RangeIndex((None, None, None))
                 for _ in carry_shape
-            ) if carry_shape else None
+            )
 
         def _out_of_loop_dim(dim_expr):
             """Sanitize a single dim expr for out-of-loop (init/save/rotate) context.
 
-            Replaces all scalar loop variables (including the horizontal
-            index) with ':' (RangeIndex).  Integer literals and other
-            non-variable expressions are kept as-is.
+            Replaces scalar loop variables with a range index.  When the
+            variable matches the horizontal index (e.g. ``JL``), a bounded
+            range (``KIDIA:KFDIA``) is used; other scalar variables get a
+            bare ``:``.  Integer literals and non-variable expressions are
+            kept as-is.
             """
             if isinstance(dim_expr, sym.Scalar) and not isinstance(dim_expr, sym.IntLiteral):
+                if (horizontal is not None
+                        and dim_expr == horizontal.index):
+                    return _ool_range
                 return sym.RangeIndex((None, None, None))
             return dim_expr
 
@@ -1235,7 +1395,7 @@ def _convert_all_carries(routine, loop, vertical_size,
 
 
 def _substitute_init_expressions_all_loops(routine, vertical_index,
-                                            vertical_size):
+                                            vertical_size, horizontal=None):
     """
     Like the ``_substitute_init_expressions`` variant in
     ``vertical_complete`` but searches *all* vertical loops (not just
@@ -1319,17 +1479,13 @@ def _substitute_init_expressions_all_loops(routine, vertical_index,
         return set()
 
     # Identify all vertical loop nodes (to exclude from substitution)
-    loop_nodes = set()
-    for loop, cond_wrapper in all_vloops:
-        loop_nodes.add(loop)
-        if cond_wrapper is not None:
-            loop_nodes.add(cond_wrapper)
+    loop_nodes = _collect_loop_node_set(all_vloops)
 
     # Build expression substitution map for outside-loop reads
     expr_map = {}
     substituted = set()
     _build_init_subst_map(routine.body, loop_nodes, init_map, local_kd,
-                          vertical_index_lower, expr_map, substituted)
+                          expr_map, substituted, horizontal)
 
     if expr_map:
         _apply_subst_outside_loops(routine, loop_nodes, expr_map)
@@ -1371,48 +1527,29 @@ def _find_zero_inits_outside_loops(body, loop_nodes, klev_locals,
     Walk *body* outside loop nodes and find whole-array zero-init
     assignments to vertical locals.
     """
-    nodes = body if isinstance(body, (tuple, list)) else body.body
 
-    for node in nodes:
-        if node in loop_nodes:
-            continue
-        if isinstance(node, (ir.Section, ir.Associate)):
-            _find_zero_inits_outside_loops(
-                node.body, loop_nodes, klev_locals, zero_init_map
-            )
-            continue
-        if isinstance(node, ir.Conditional):
-            _find_zero_inits_outside_loops(
-                node.body, loop_nodes, klev_locals, zero_init_map
-            )
-            if node.else_body:
-                _find_zero_inits_outside_loops(
-                    node.else_body, loop_nodes, klev_locals, zero_init_map
-                )
-            continue
+    class _ZeroInitFinder(_SkipNodesVisitor):
+        def __init__(self):
+            super().__init__(loop_nodes)
 
-        if not isinstance(node, ir.Assignment):
-            continue
+        # Don't recurse into Loop bodies (only Section/Associate/Conditional)
+        def visit_Loop(self, o, **kwargs):
+            pass
 
-        lhs = node.lhs
-        lhs_name = lhs.name.lower()
-        if lhs_name not in klev_locals:
-            continue
+        def visit_Assignment(self, o, **kwargs):  # pylint: disable=unused-argument
+            lhs = o.lhs
+            lhs_name = lhs.name.lower()
+            if lhs_name not in klev_locals:
+                return
+            dims = getattr(lhs, 'dimensions', None)
+            if not dims:
+                return
+            if not all(isinstance(d, sym.RangeIndex) for d in dims):
+                return
+            if _is_zero_literal(o.rhs):
+                zero_init_map[lhs_name] = o
 
-        # Check: LHS must use all-range-index dimensions
-        dims = getattr(lhs, 'dimensions', None)
-        if not dims:
-            continue
-        all_range = all(
-            isinstance(d, sym.RangeIndex) for d in dims
-        )
-        if not all_range:
-            continue
-
-        # Check: RHS must be a zero literal
-        rhs = node.rhs
-        if _is_zero_literal(rhs):
-            zero_init_map[lhs_name] = node
+    _ZeroInitFinder().visit(body)
 
 
 def _collect_outside_refs_for_array(body, loop_nodes, arr_name,
@@ -1423,40 +1560,38 @@ def _collect_outside_refs_for_array(body, loop_nodes, arr_name,
 
     Returns a list of nodes.
     """
-    refs = []
-    nodes = body if isinstance(body, (tuple, list)) else body.body
 
-    for node in nodes:
-        if node in loop_nodes:
-            continue
-        if node is exclude_node:
-            continue
-        if isinstance(node, (ir.Section, ir.Associate)):
-            refs.extend(_collect_outside_refs_for_array(
-                node.body, loop_nodes, arr_name, exclude_node
-            ))
-            continue
-        if isinstance(node, ir.Conditional):
-            # Check condition
-            for var in FindVariables().visit(node.condition):
+    class _ArrayRefCollector(_SkipNodesVisitor):
+        def __init__(self):
+            skip = set(loop_nodes)
+            if exclude_node is not None:
+                skip.add(exclude_node)
+            super().__init__(skip)
+            self.refs = []
+
+        # Don't recurse into Loop bodies
+        def visit_Loop(self, o, **kwargs):
+            pass
+
+        def visit_Conditional(self, o, **kwargs):
+            # Check condition for references
+            for var in FindVariables().visit(o.condition):
                 if var.name.lower() == arr_name:
-                    refs.append(node)
+                    self.refs.append(o)
                     break
-            refs.extend(_collect_outside_refs_for_array(
-                node.body, loop_nodes, arr_name, exclude_node
-            ))
-            if node.else_body:
-                refs.extend(_collect_outside_refs_for_array(
-                    node.else_body, loop_nodes, arr_name, exclude_node
-                ))
-            continue
-        # Check if this node references the array
-        for var in FindVariables().visit(node):
-            if var.name.lower() == arr_name:
-                refs.append(node)
-                break
+            self.visit(o.body, **kwargs)
+            if o.else_body:
+                self.visit(o.else_body, **kwargs)
 
-    return refs
+        def visit_Node(self, o, **kwargs):
+            for var in FindVariables().visit(o):
+                if var.name.lower() == arr_name:
+                    self.refs.append(o)
+                    break
+
+    collector = _ArrayRefCollector()
+    collector.visit(body)
+    return collector.refs
 
 
 def _remove_whole_array_zero_inits(routine, vertical_index, vertical_size):
@@ -1483,15 +1618,7 @@ def _remove_whole_array_zero_inits(routine, vertical_index, vertical_size):
     arg_names = {v.name.lower() for v in routine.arguments}
 
     # Variables passed to calls
-    call_arg_names = set()
-    for call in FindNodes(ir.CallStatement).visit(routine.body):
-        for arg in call.arguments:
-            for v in FindVariables().visit(arg):
-                call_arg_names.add(v.name.lower())
-        if call.kwarguments:
-            for _kw, arg in call.kwarguments:
-                for v in FindVariables().visit(arg):
-                    call_arg_names.add(v.name.lower())
+    call_arg_names = _collect_call_arg_names(routine)
 
     # Find local KLEV arrays
     klev_locals = {}
@@ -1515,11 +1642,7 @@ def _remove_whole_array_zero_inits(routine, vertical_index, vertical_size):
 
     # Collect all vertical loop nodes
     all_vloops = _collect_vertical_loops(routine.body, vertical_index)
-    loop_nodes = set()
-    for loop, cond_wrapper in all_vloops:
-        loop_nodes.add(loop)
-        if cond_wrapper is not None:
-            loop_nodes.add(cond_wrapper)
+    loop_nodes = _collect_loop_node_set(all_vloops)
 
     # Find whole-array zero-init assignments outside loops
     # Pattern: LHS has all-range-index dimensions, RHS is 0 or 0.0
@@ -1581,7 +1704,7 @@ def _extract_plus_n(upper_expr, vertical_size):
         if isinstance(diff, int):
             return diff
         # Check if it's exactly KLEV (diff == 0 symbolically)
-        if diff is not None and str(diff).strip() == '0':
+        if diff is not None and diff == 0:
             return 0
         # Expression-level check didn't resolve; fall through to string
 
@@ -1621,9 +1744,9 @@ def _relocate_interloop_code(body, top_nodes, merged_loop):
     * Any non-loop statements that sit **between** consecutive vertical-
       loop top-nodes are moved to just **before** the merged loop.
 
-    The function recurses into transparent container nodes
-    (:any:`Section`, :any:`Associate`) because the vertical loops may
-    live inside such containers.
+    The function uses a :any:`Visitor` to recurse into transparent
+    container nodes (:any:`Section`, :any:`Associate`) until it finds
+    the level that directly contains the *top_nodes*.
 
     Parameters
     ----------
@@ -1638,59 +1761,56 @@ def _relocate_interloop_code(body, top_nodes, merged_loop):
     -------
     Rebuilt *body* with the same type as the input.
     """
-    if isinstance(body, (tuple, list)):
-        nodes = body
-        wrap = tuple
-    else:
-        nodes = body.body
-        wrap = None  # will wrap at the end
 
-    # Check if any top_nodes live directly in this node list
-    has_top_nodes = any(n in top_nodes for n in nodes)
+    class _Relocator(Visitor):
+        def __init__(self):
+            super().__init__()
+            self.top_nodes = top_nodes
+            self.merged_loop = merged_loop
 
-    if has_top_nodes:
-        # Partition the node list into three regions:
-        # 1. pre-region: everything before the first top-node
-        # 2. loop-region: first top-node through last top-node (inclusive)
-        # 3. post-region: everything after the last top-node
-        first_idx = None
-        last_idx = None
-        for i, n in enumerate(nodes):
-            if n in top_nodes:
-                if first_idx is None:
-                    first_idx = i
-                last_idx = i
+        def visit_object(self, o, **kwargs):
+            return o
 
-        pre = list(nodes[:first_idx])
-        post = list(nodes[last_idx + 1:])
+        def visit_Node(self, o, **kwargs):
+            return o  # leaf nodes pass through unchanged
 
-        # From the loop-region, collect inter-loop statements
-        # (nodes that are NOT top-nodes) and move them before
-        # the merged loop
-        interloop = []
-        for i in range(first_idx, last_idx + 1):
-            n = nodes[i]
-            if n not in top_nodes:
-                interloop.append(n)
+        def visit_tuple(self, o, **kwargs):
+            has_top = any(n in self.top_nodes for n in o)
+            if has_top:
+                # Find first/last top-node indices
+                first_idx = last_idx = None
+                for i, n in enumerate(o):
+                    if n in self.top_nodes:
+                        if first_idx is None:
+                            first_idx = i
+                        last_idx = i
+                pre = o[:first_idx]
+                post = o[last_idx + 1:]
+                # Collect inter-loop statements (non-top-nodes in the
+                # loop region) and place them before the merged loop
+                interloop = tuple(
+                    n for i, n in enumerate(o)
+                    if first_idx <= i <= last_idx and n not in self.top_nodes
+                )
+                return pre + interloop + (self.merged_loop,) + post
+            # Recurse into children to find the level with top_nodes
+            return tuple(self.visit(n, **kwargs) for n in o)
 
-        new_nodes = pre + interloop + [merged_loop] + post
-        result = tuple(new_nodes)
-    else:
-        # Recurse into container nodes to find the level that
-        # contains the top-nodes
-        new_nodes = []
-        for n in nodes:
-            if isinstance(n, (ir.Section, ir.Associate)):
-                new_n = _relocate_interloop_code(n, top_nodes, merged_loop)
-                new_nodes.append(new_n)
-            else:
-                new_nodes.append(n)
-        result = tuple(new_nodes)
+        visit_list = visit_tuple
 
-    if wrap is not None:
-        return result
-    # Reconstruct the container node
-    return body.clone(body=result)
+        def visit_Section(self, o, **kwargs):
+            new_body = self.visit(o.body, **kwargs)
+            if new_body is o.body:
+                return o
+            return o.clone(body=new_body)
+
+        def visit_Associate(self, o, **kwargs):
+            new_body = self.visit(o.body, **kwargs)
+            if new_body is o.body:
+                return o
+            return o.clone(body=new_body)
+
+    return _Relocator().visit(body)
 
 
 def _merge_vertical_loops(routine, vertical_index, vertical_size):
@@ -1770,8 +1890,7 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
         # replacement logic only operates on cond_wrapper.body.  This
         # edge case does not occur in the IFS/cloudsc kernels.
         body = loop.body
-        lower_expr = loop.bounds.children[0]
-        upper_expr = loop.bounds.children[1]
+        lower_expr, upper_expr = _loop_effective_bounds(loop)
 
         # Build IF guard condition: JK >= lower .AND. JK <= upper
         guard_cond = _build_bounds_guard(loop_var, lower_expr, upper_expr)
@@ -1835,7 +1954,7 @@ def _merge_vertical_loops(routine, vertical_index, vertical_size):
     return merged_loop
 
 
-def _collect_rotates_from_node(node, rotate_keys, save_names,
+def _collect_rotates_from_node(node, rotate_keys, save_names,  # pylint: disable=unused-argument
                                enclosing_guard_cond, remove_map, hoisted):
     """
     Recursively walk an IR node tree to find carry rotate/save
@@ -1853,44 +1972,50 @@ def _collect_rotates_from_node(node, rotate_keys, save_names,
     hoisted : list
         Updated in-place: ``(guard_condition, assignment)`` pairs.
     """
-    if isinstance(node, ir.Conditional):
-        # This is a guarded block — recurse into body with this guard
-        guard_cond = node.condition
-        for child in node.body:
-            _collect_rotates_from_node(
-                child, rotate_keys, save_names,
-                guard_cond, remove_map, hoisted
-            )
-        # Also check nested conditionals in else_body
-        for child in node.else_body:
-            _collect_rotates_from_node(
-                child, rotate_keys, save_names,
-                enclosing_guard_cond, remove_map, hoisted
-            )
-    elif isinstance(node, ir.Section):
-        for child in node.body:
-            _collect_rotates_from_node(
-                child, rotate_keys, save_names,
-                enclosing_guard_cond, remove_map, hoisted
-            )
-    elif isinstance(node, ir.Assignment):
-        lhs_name = node.lhs.name.lower() if hasattr(node.lhs, 'name') else ''
-        rhs_name = node.rhs.name.lower() if hasattr(node.rhs, 'name') else ''
 
-        # Check for B_readback rotate: _vc = _next
-        if (lhs_name, rhs_name) in rotate_keys:
-            remove_map[node] = None
-            hoisted.append((enclosing_guard_cond, node))
+    class _RotateCollector(Visitor):
+        def visit_tuple(self, o, **kwargs):
+            for c in o:
+                self.visit(c, **kwargs)
 
-        # Check for Pattern A / stencil save: the save is typically the
-        # LAST assignment to _vc in the loop body.  We identify it by
-        # LHS being a carry variable AND the RHS NOT being a _next
-        # variable and NOT being part of the computation (i.e., the
-        # RHS is a simple variable, not a complex expression with _vc).
-        # Actually, we should NOT hoist Pattern A saves because they
-        # set _vc to the CURRENT level value, which is needed by
-        # cross-loop reads at offset 0 within the same iteration.
-        # Only hoist B_readback rotates.
+        visit_list = visit_tuple
+
+        def visit_object(self, o, **kwargs):
+            pass
+
+        def visit_Node(self, o, **kwargs):
+            pass
+
+        def visit_Section(self, o, **kwargs):
+            self.visit(o.body, **kwargs)
+
+        def visit_Conditional(self, o, **kwargs):
+            # Recurse into body with this conditional's guard
+            guard_cond = o.condition
+            self.visit(o.body, guard_cond=guard_cond)
+            # Also check nested conditionals in else_body
+            self.visit(o.else_body, **kwargs)
+
+        def visit_Assignment(self, o, guard_cond=None, **kwargs):  # pylint: disable=unused-argument
+            lhs_name = o.lhs.name.lower() if hasattr(o.lhs, 'name') else ''
+            rhs_name = o.rhs.name.lower() if hasattr(o.rhs, 'name') else ''
+
+            # Check for B_readback rotate: _vc = _next
+            if (lhs_name, rhs_name) in rotate_keys:
+                remove_map[o] = None
+                hoisted.append((guard_cond, o))
+
+            # Check for Pattern A / stencil save: the save is typically the
+            # LAST assignment to _vc in the loop body.  We identify it by
+            # LHS being a carry variable AND the RHS NOT being a _next
+            # variable and NOT being part of the computation (i.e., the
+            # RHS is a simple variable, not a complex expression with _vc).
+            # Actually, we should NOT hoist Pattern A saves because they
+            # set _vc to the CURRENT level value, which is needed by
+            # cross-loop reads at offset 0 within the same iteration.
+            # Only hoist B_readback rotates.
+
+    _RotateCollector().visit(node, guard_cond=enclosing_guard_cond)
 
 
 def _hoist_rotates_to_end(routine, merged_loop, carry_registry):
@@ -1974,6 +2099,7 @@ def _hoist_rotates_to_end(routine, merged_loop, carry_registry):
     # rotates under the same guard.
     guard_groups = OrderedDict()
     for guard_cond, assign in hoisted:
+        # str() is intentional: used as a hashable grouping key for guard conditions
         key = str(guard_cond) if guard_cond is not None else '__no_guard__'
         if key not in guard_groups:
             guard_groups[key] = (guard_cond, [])
@@ -2114,7 +2240,7 @@ def _cross_loop_carry_substitution(routine, merged_loop, carry_registry):
 
 def _insert_writebacks_for_argument_carries(routine, merged_loop,
                                              carry_registry,
-                                             horizontal_index=None):
+                                             horizontal=None):
     """
     Insert write-back statements for INTENT(OUT) argument arrays that
     were converted to B_readback carry patterns.
@@ -2144,9 +2270,6 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
     carry_registry : dict
         ``{array_name_lower: {'carry': str, 'pattern': str,
         'next': str or None, 'dim_index': int}}``
-    horizontal_index : str, optional
-        Name of the horizontal loop variable (e.g. ``'JL'``).  Used to
-        construct correct array subscripts for write-back statements.
 
     Returns
     -------
@@ -2158,11 +2281,6 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
         {v.name: v for v in routine.variables}
     )
     arg_names = {v.name.lower() for v in routine.arguments}
-
-    # Get the horizontal index variable object if available
-    horiz_var = None
-    if horizontal_index:
-        horiz_var = var_map.get(horizontal_index)
 
     # Collect B_readback entries for argument arrays
     writebacks = []
@@ -2200,23 +2318,23 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
                 )
             else:
                 next_shape = next_decl.type.shape if next_decl.type.shape else ()
-                if horiz_var is not None:
-                    # Use the horizontal index variable (e.g. JL) on
-                    # both LHS and RHS for rank-consistent indexing.
-                    wb_orig_dims.append(horiz_var)
-                    if nv_idx < len(next_shape):
-                        wb_next_dims.append(horiz_var)
-                elif nv_idx < len(next_shape):
-                    wb_next_dims.append(
-                        sym.RangeIndex((None, None, None))
-                    )
-                    wb_orig_dims.append(
-                        sym.RangeIndex((None, None, None))
-                    )
+                # Use a range for non-vertical dimensions in write-backs.
+                # The write-back sits outside any horizontal (DO JL) loop,
+                # so scalar JL would be out-of-scope.  For dimensions that
+                # match the horizontal size, use bounded range (KIDIA:KFDIA)
+                # so that resolve_vector_dimension can resolve it.
+                # Other non-vertical dims use bare ':'.
+                _is_horiz = (horizontal is not None
+                             and _s == horizontal.size)
+                if _is_horiz:
+                    _lower = sym.Variable(name=horizontal.bounds[0], scope=None)
+                    _upper = sym.Variable(name=horizontal.bounds[1], scope=None)
+                    range_dim = sym.RangeIndex((_lower, _upper, None))
                 else:
-                    wb_orig_dims.append(
-                        sym.RangeIndex((None, None, None))
-                    )
+                    range_dim = sym.RangeIndex((None, None, None))
+                wb_orig_dims.append(range_dim)
+                if nv_idx < len(next_shape):
+                    wb_next_dims.append(range_dim)
                 nv_idx += 1
 
         wb_lhs = orig_decl.clone(dimensions=tuple(wb_orig_dims))
@@ -2269,8 +2387,9 @@ def _remove_self_assignments(routine, merged_loop):
     Parameters
     ----------
     routine : :any:`Subroutine`
-    merged_loop : :any:`Loop`
-        The single merged vertical loop.
+    merged_loop : :any:`Loop` or list of :any:`Loop`
+        The vertical loop(s) to clean up.  When a list is given every
+        loop is processed in a single tree-rebuild pass.
 
     Returns
     -------
@@ -2279,20 +2398,28 @@ def _remove_self_assignments(routine, merged_loop):
     """
     from loki.backend import fgen  # pylint: disable=import-outside-toplevel
 
-    to_remove = {}
-    for assign in FindNodes(ir.Assignment).visit(merged_loop.body):
-        lhs_str = fgen(assign.lhs).strip().lower()
-        rhs_str = fgen(assign.rhs).strip().lower()
-        if lhs_str == rhs_str:
-            to_remove[assign] = None  # Transformer convention: map to None = delete
+    loops = merged_loop if isinstance(merged_loop, (list, tuple)) else [merged_loop]
 
-    if not to_remove:
+    # Collect self-assignments across all target loops
+    loop_map = {}   # old_loop -> new_loop (only for loops with removals)
+    n_total = 0
+    for loop in loops:
+        to_remove = {}
+        for assign in FindNodes(ir.Assignment).visit(loop.body):
+            lhs_str = fgen(assign.lhs).strip().lower()
+            rhs_str = fgen(assign.rhs).strip().lower()
+            if lhs_str == rhs_str:
+                to_remove[assign] = None
+        if to_remove:
+            new_body = Transformer(to_remove).visit(loop.body)
+            loop_map[loop] = loop.clone(body=new_body)
+            n_total += len(to_remove)
+
+    if not loop_map:
         return 0
 
-    new_body = Transformer(to_remove).visit(merged_loop.body)
-    new_loop = merged_loop.clone(body=new_body)
-    routine.body = Transformer({merged_loop: new_loop}).visit(routine.body)
-    return len(to_remove)
+    routine.body = Transformer(loop_map).visit(routine.body)
+    return n_total
 
 
 def _remove_dead_carry_originals(routine, carry_registry, demoted_names):
