@@ -28,6 +28,8 @@ For broader validation, keep using the same activated environment and local `.py
 
 When editing or adding tests, prefer assertions that match Loki's native IR and expression semantics rather than assertions that depend on rendered source formatting.
 
+When editing test imports, keep `loki.*` import lines ordered alphabetically by submodule, but do not reorder names within a single import line unless there is a separate reason to do so.
+
 - In structural IR tests, prefer native Loki node comparisons over `str(...)`.
 - Loki symbols and expressions compare directly to strings, so prefer:
   - `node == 'a + b'` over `str(node) == 'a + b'`
