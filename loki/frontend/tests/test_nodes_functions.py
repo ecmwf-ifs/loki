@@ -5,18 +5,21 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+"""
+Verify correct frontend behaviour for function declarations and signatures.
+"""
+
 import pytest
 
-from loki import Module, Function, fgen
+from loki import Module, Function, fgen, BasicType
 from loki.frontend import available_frontends, OMNI, REGEX
 from loki.ir import nodes as ir, FindNodes
-from loki.types import BasicType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_function_return_type(tmp_path, frontend):
     """
-    Test various ways to define the return type of a function
+    Test various ways to define the return type of a function.
     """
     fcode = """
 module my_funcs
@@ -52,7 +55,6 @@ end module my_funcs
     """
     module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
 
-    # Implicit return type definition
     assert isinstance(module['funca'], Function)
     assert module['funca'].result_name == 'funca'
     assert module['funca'].return_type.dtype == BasicType.REAL
@@ -61,20 +63,17 @@ end module my_funcs
     assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funca'].spec)) == 0
 
     if frontend == OMNI:
-        # Ensure return type is declared (OMNI alwas inserts declaration)
         fdecl = tuple(
-            d for d in FindNodes(ir.VariableDeclaration).visit(module['funca'].spec)
-            if 'funca' in d.symbols
+            decl for decl in FindNodes(ir.VariableDeclaration).visit(module['funca'].spec)
+            if 'funca' in decl.symbols
         )
         assert len(fdecl) == 1 and fdecl[0].symbols[0] == 'funca'
         assert fdecl[0].symbols[0].type.dtype == BasicType.REAL
         assert fdecl[0].symbols[0].type.kind == 8
     else:
-        # Check for implicit return value in `fgen`
         fstr_header = fgen(module['funca']).splitlines()[0]
         assert 'real(kind=8) function funca (a)' == fstr_header.lower()
 
-    # Explicit return type declaration
     assert isinstance(module['funcb'], Function)
     assert module['funcb'].result_name == 'funcb'
     assert module['funcb'].return_type.dtype == BasicType.REAL
@@ -82,7 +81,6 @@ end module my_funcs
     assert len(FindNodes(ir.VariableDeclaration).visit(module['funcb'].spec)) == 2
     assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funcb'].spec)) == 0
 
-    # Re-named return type declaration
     assert isinstance(module['funcky'], Function)
     assert module['funcky'].result_name == 'fun'
     assert module['funcky'].return_type.dtype == BasicType.REAL
@@ -90,7 +88,6 @@ end module my_funcs
     assert len(FindNodes(ir.VariableDeclaration).visit(module['funcky'].spec)) == 2
     assert len(FindNodes(ir.ProcedureDeclaration).visit(module['funcky'].spec)) == 0
 
-    # Implicit return type and renamed result name
     assert isinstance(module['square'], Function)
     assert module['square'].result_name == 'b'
     assert module['square'].return_type.dtype == BasicType.REAL
@@ -101,7 +98,7 @@ end module my_funcs
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_function_prefix(frontend):
     """
-    Test various prefixes that can occur in function/subroutine definitions
+    Test various prefixes that can occur in function definitions.
     """
     fcode = """
 pure elemental real function f_elem(a)
@@ -132,7 +129,7 @@ end function f_elem
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_function_suffix(frontend, tmp_path):
     """
-    Test that subroutine suffixes are supported and correctly reproduced
+    Test that function suffixes are supported and correctly reproduced.
     """
     fcode = """
 module subroutine_suffix_mod
@@ -189,7 +186,7 @@ end module subroutine_suffix_mod
     assert fix_value.return_type.dtype is BasicType.REAL
     assert fix_value.return_type.kind == 'c_float'
     if frontend == OMNI:
-        assert "result(fixed)" in fgen(fix_value).lower()
+        assert 'result(fixed)' in fgen(fix_value).lower()
     else:
         assert fix_value.bind == 'fix_value'
         assert "result(fixed) bind(c, name='fix_value')" in fgen(fix_value).lower()
@@ -199,21 +196,13 @@ end module subroutine_suffix_mod
     assert routine.result_name == 'is_bad'
     assert routine.bind is None
     assert routine.return_type.dtype is BasicType.LOGICAL
-    assert "result(is_bad)" in fgen(routine).lower()
+    assert 'result(is_bad)' in fgen(routine).lower()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_function_lazy_prefix(frontend):
     """
-    Test that prefixes for functions are correctly captured when the object is made
-    complete.
-
-    This test represents a case where the REGEX frontend fails to capture these attributes correctly.
-
-    The rationale for this test is that we don't currently need these attributes
-    in the incomplete REGEX-parsed IR and we accept that this information is incomplete initially.
-    tmp_path, we make sure this information is captured correctly after completing the full frontend
-    parse.
+    Test that prefixes for functions are correctly captured when the object is made complete.
     """
     fcode = """
 pure elemental real function f_elem(a)
@@ -236,3 +225,42 @@ end function f_elem
     assert routine.arguments == ('a',)
     assert routine.is_function is True
     assert routine.return_type.dtype is BasicType.REAL
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('dim_decl', [':: add_to_a(n)', ', DIMENSION(n) :: add_to_a'])
+def test_function_array_return_type(frontend, dim_decl):
+    """
+    Verify array return types are correctly represented with all frontends.
+    """
+    fcode = f"""
+subroutine member_functions
+    implicit none
+    integer :: i
+    real(kind=8) :: a(3)
+    contains
+    function add_to_a(b, n)
+      integer, intent(in) :: n
+      real(kind=8), intent(in) :: b(n)
+      real(kind=8) {dim_decl}
+
+      do i = 1, n
+        add_to_a(i) = a(i) + b(i)
+      end do
+    end function
+end subroutine member_functions
+    """.strip()
+    routine = Function.from_source(fcode, frontend=frontend)
+    add_to_a = routine['add_to_a']
+    return_type = add_to_a.procedure_type.return_type
+    assert return_type.dtype == BasicType.REAL
+    assert return_type.shape == ('n',)
+    ret_var = add_to_a.variable_map['add_to_a']
+    assert ret_var.type.dtype == BasicType.REAL
+    assert ret_var.type.shape == ('n',)
+    assert ret_var.dimensions == ('n',)
+
+    if frontend == OMNI:
+        assert ':: add_to_a(n)' in routine.to_fortran()
+    else:
+        assert dim_decl in routine.to_fortran()
