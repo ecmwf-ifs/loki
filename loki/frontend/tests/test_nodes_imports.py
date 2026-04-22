@@ -12,9 +12,9 @@ Verify correct frontend behaviour for import and access-spec parsing.
 import pytest
 
 from loki import Module, fgen
-from loki.jit_build import jit_compile_lib
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
+from loki.jit_build import jit_compile_lib
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

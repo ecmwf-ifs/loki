@@ -14,10 +14,10 @@ from pathlib import Path
 import pytest
 
 from loki import Sourcefile, Subroutine, fgen
-from loki.jit_build import jit_compile, jit_compile_lib, clean_test
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
+from loki.jit_build import jit_compile, jit_compile_lib, clean_test
 from loki.types import BasicType, ProcedureType, SymbolAttributes
 
 

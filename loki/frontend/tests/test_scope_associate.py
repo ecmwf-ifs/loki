@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 
 from loki import Module, Subroutine, BasicType
-from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables
+from loki.jit_build import jit_compile
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

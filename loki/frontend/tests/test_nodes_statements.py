@@ -12,10 +12,10 @@ Verify correct frontend behaviour for statement-like IR nodes.
 import pytest
 
 from loki import Module, Subroutine, Sourcefile, fgen
-from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI, FP
 from loki.ir import nodes as ir, FindNodes
+from loki.jit_build import jit_compile
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
