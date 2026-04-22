@@ -14,7 +14,7 @@ import pytest
 
 from loki import Subroutine, Dimension
 from loki.frontend import available_frontends
-from loki.ir import FindNodes, Assignment, Conditional
+from loki.ir import FindNodes, Assignment, Conditional, Loop
 from loki.backend import fgen
 
 from loki.transformations.single_column.vertical_kcaching import (
@@ -709,12 +709,10 @@ def test_kcaching_auto_interchange(frontend, horizontal, vertical):
     trafo.process_kernel(routine)
 
     # After interchange, JK should be the outermost loop
-    code = fgen(routine)
     # The generated code should show JK as outermost, JM as inner
     loops = _find_jk_loops(routine)
     assert len(loops) == 1
     # JM loop should be nested inside JK
-    from loki.ir import FindNodes, Loop
     inner_loops = FindNodes(Loop).visit(loops[0].body)
     jm_loops = [l for l in inner_loops if l.variable.name.lower() == 'jm']
     assert len(jm_loops) == 1

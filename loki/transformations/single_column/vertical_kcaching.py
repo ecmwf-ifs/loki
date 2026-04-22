@@ -9,7 +9,7 @@
 K-caching vertical-loop merge transformation for SCC pipelines.
 
 :class:`SCCVerticalKCaching` fuses **all** vertical loops in a routine
-into a single ``DO JK = 1, KLEV+1`` loop with IF guards, converts
+into a single ``DO JK = 1, KLEV+N`` loop with IF guards, converts
 multi-level array dependencies to scalar carry variables (two-scalar
 ``_vc``/``_next`` approach with explicit rotate), demotes KLEV-
 dimensioned temporaries to scalars, and performs cross-loop carry
@@ -21,19 +21,19 @@ The transformation operates in the following phases:
     1a. Loop interchange to expose vertical loops as outermost.
     1b. Dead-loop elimination.
     1c. Comprehensive carry conversion in *all* vertical loops.
+    1c-post. Carry-aware dead-loop elimination (zeroing loops for
+        arrays now served by carry variables).
     1d. Init-expression substitution for outside-loop reads.
     1e. Whole-array zero-init removal.
 
-**Phase 2 — Merge**
-    Merge all remaining vertical loops into a single
-    ``DO JK = 1, <max_upper>`` loop.  Each original loop body is
-    wrapped in ``IF (JK >= lower .AND. JK <= upper)`` guards.
-
-**Phase 2b — Cross-loop carry substitution**
-    Replace remaining raw array references in the merged loop body
-    with carry variables created in Phase 1c.  This resolves forward
-    read-only accesses that span multiple original loops and enables
-    further demotion.
+**Phase 2 — Merge & cross-loop fixup**
+    2.  Merge all remaining vertical loops into a single
+        ``DO JK = 1, <max_upper>`` loop with IF guards.
+    2-post. Hoist carry rotates to the end of the merged loop body.
+    2b. Cross-loop carry substitution (replace raw array references
+        with carry variables from other original loops).
+    2c. Argument write-backs for INTENT(OUT/INOUT) arrays converted
+        to B-readback carry patterns.
 
 **Phase 3 — Demotion**
     Demote all local arrays whose vertical dimension became
@@ -43,6 +43,9 @@ The transformation operates in the following phases:
     4a. Remove self-assignment no-ops.
     4b. Remove declarations of demoted local arrays that have zero
         remaining executable references.
+
+See the :class:`SCCVerticalKCaching` class docstring for a detailed
+description of each phase.
 """
 
 from loki.batch import Transformation
@@ -238,8 +241,9 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
             )
             loop_map[outer_loop] = new_outer
 
-    # TODO: Consider extracting loop interchange into a reusable utility
-    # (e.g. ``do_loop_interchange``) if other transformations need it.
+    # NOTE: Pragma-based interchange is handled by do_loop_interchange()
+    # in Phase 1a.  This function covers the heuristic (automatic) case
+    # for loop nests without explicit interchange pragmas.
     if loop_map:
         routine.body = Transformer(loop_map).visit(routine.body)
     return len(loop_map)
@@ -247,26 +251,168 @@ def _auto_interchange_vertical_loops(routine, vertical_index):
 
 class SCCVerticalKCaching(Transformation):
     """
-    Full k-caching vertical-loop merge transformation.
+    K-caching vertical-loop merge transformation for SCC pipelines.
 
-    Merges **all** vertical loops in a routine into a single
-    vertical loop with IF guards, converts array
-    dependencies to scalar carry variables (``_vc``/``_next``),
-    performs cross-loop carry substitution, and demotes all eligible
-    local arrays.
+    This transformation fuses all vertical (``DO JK``) loops in a Fortran
+    kernel routine into a single loop, converts inter-level array
+    dependencies to scalar carry variables, and demotes KLEV-dimensioned
+    temporaries — dramatically reducing GPU memory traffic and register
+    pressure.
 
-    This is designed as a general-purpose transformation that works
-    on any kernel with proper-dimensioned vertical loops.
+    Overview
+    --------
+
+    Given a kernel with *N* vertical loops that operate on shared local
+    arrays, the transformation:
+
+    1. Merges all *N* loops into a single ``DO JK = 1, <max_upper>``
+       loop with ``IF (JK >= lower .AND. JK <= upper)`` guards.
+    2. Converts array accesses at neighbouring levels (``X(JK-1)``,
+       ``X(JK+1)``) to scalar carry variables (``x_vc``, ``x_next``)
+       that are rotated at the end of each iteration.
+    3. Demotes local arrays whose vertical dimension became level-local
+       (i.e., only accessed at offset 0) from 2-D/3-D to 1-D/2-D.
+
+    After transformation, the fused loop body reads and writes scalars
+    instead of indexing into large arrays, enabling the GPU compiler
+    to map carries to registers.
+
+    Phases in detail
+    ----------------
+
+    **Phase 1a — Loop interchange**
+
+    Exposes vertical loops hidden inside non-vertical outer loops.
+    For example, ``DO JM = 1, NCLV`` / ``DO JK = 1, KLEV`` is
+    interchanged to ``DO JK`` / ``DO JM`` so that the vertical loop
+    becomes outermost and visible to the merge pass.
+
+    Uses :func:`do_loop_interchange` (pragma-driven) followed by
+    :func:`_auto_interchange_vertical_loops` (heuristic: interchange
+    when the outer loop body contains *only* the inner vertical loop
+    plus pragmas/comments).
+
+    **Phase 1b — Dead-loop elimination**
+
+    Removes vertical loops whose written outputs are never read
+    elsewhere in the routine.  Delegates to
+    :func:`_find_dead_loops_all`.
+
+    **Phase 1c — Carry conversion**
+
+    The core of the transformation.  Scans every vertical loop for
+    four array access patterns and converts them to scalar carry
+    variables:
+
+    * **Pattern A** (cumulative sum): ``X(JK) = X(JK-1) + delta``
+      with an ``IF (JK==1)`` init.  One carry: ``x_vc``.
+    * **Pattern B-simple** (forward propagation): writes at ``JK+1``,
+      reads at ``JK``, no readback at ``JK+1`` in the same iteration.
+      One carry: ``x_vc``.
+    * **Pattern B-readback** (forward propagation with readback):
+      writes at ``JK+1``, reads at both ``JK`` and ``JK+1`` in the
+      same iteration.  Two carries: ``x_vc`` (incoming level) and
+      ``x_next`` (outgoing level), with an explicit rotate
+      ``x_vc = x_next`` at the end of each iteration.
+    * **Stencil** (read-only backward access): array written in one
+      loop, read at ``JK`` and ``JK-1`` in another loop but never
+      written there.  One carry: ``x_vc``, initialised from the
+      array at ``lower - 1`` before the merged loop.
+
+    Delegates to :func:`_convert_all_carries`.
+
+    **Phase 1c-post — Carry-aware dead-loop elimination**
+
+    After carry conversion, zeroing loops (e.g. ``X(:,:) = 0``) that
+    initialise arrays now served by carry variables become dead.
+    :func:`_find_dead_loops_carry_aware` removes them using the carry
+    registry built in Phase 1c.
+
+    **Phase 1d — Init-expression substitution**
+
+    When a local array is first written inside a vertical loop
+    (``X(JL, JK) = f(args)``) and also referenced outside all loops
+    (e.g. as a carry init), the outside reference is replaced with the
+    RHS expression ``f(args)`` evaluated at the appropriate level.
+    Delegates to :func:`_substitute_init_expressions_all_loops`.
+
+    **Phase 1e — Whole-array zero-init removal**
+
+    Removes ``X(:,:) = 0.0`` statements that are the sole
+    outside-loop reference to a local array, enabling demotion.
+    Delegates to :func:`_remove_whole_array_zero_inits`.
+
+    **Phase 2 — Loop merge**
+
+    All remaining vertical loops are merged into a single
+    ``DO JK = 1, <max_upper>`` loop.  The upper bound is the maximum
+    across all loops (comparing ``KLEV+N`` values when loops have
+    different bounds).  Each original loop body is wrapped in
+    ``IF (JK >= lower .AND. JK <= upper)`` guards.  Delegates to
+    :func:`_merge_vertical_loops`.
+
+    **Phase 2 post-merge — Hoist rotates**
+
+    Carry rotate statements (``x_vc = x_next``) and save statements
+    (``x_vc = X(:, JK)``) are moved to the end of the merged loop
+    body so that all reads of ``x_vc`` within the iteration see the
+    incoming value before the rotate overwrites it.  Delegates to
+    :func:`_hoist_rotates_to_end`.
+
+    **Phase 2b — Cross-loop carry substitution**
+
+    After merge, some loop bodies still reference the original array
+    at offsets served by a carry variable from a *different* original
+    loop.  This phase replaces those remaining array references with
+    the appropriate carry variable (offset 0 → ``x_vc``, offset +1 →
+    ``x_next``, offset -1 → ``x_vc`` for Pattern A / stencil).
+    Delegates to :func:`_cross_loop_carry_substitution`.
+
+    **Phase 2c — Argument write-backs**
+
+    For ``INTENT(OUT)`` or ``INTENT(INOUT)`` argument arrays converted
+    to B-readback carries, inserts ``ARRAY(JL, JK+1) = array_next``
+    before the rotate so that the output array is populated with the
+    correct values.  This must happen *after* Phase 2b to avoid
+    cross-loop substitution turning the write-back into a
+    self-assignment.  Delegates to
+    :func:`_insert_writebacks_for_argument_carries`.
+
+    **Phase 3 — Demotion**
+
+    Local arrays whose vertical dimension is now accessed only at
+    offset 0 (level-local) are demoted: the KLEV dimension is
+    removed from their declaration.  Delegates to
+    :func:`_find_demotable_arrays` and :func:`demote_variables`.
+
+    **Phase 4a — Self-assignment cleanup**
+
+    Removes no-op self-assignments (``x_vc = x_vc``) that arise when
+    carry substitution replaces both sides of a save statement.
+    Delegates to :func:`_remove_self_assignments`.
+
+    **Phase 4b — Dead declaration removal**
+
+    Removes declarations of demoted local arrays that have zero
+    remaining executable references (the original array name is fully
+    replaced by the carry variable).  Delegates to
+    :func:`_remove_dead_carry_originals`.
 
     Parameters
     ----------
     horizontal : :any:`Dimension`, optional
         Dimension object describing the horizontal (index, size, bounds).
+        When provided, horizontal loop variables (e.g. ``JL``) in carry
+        init, save, and write-back statements are replaced with bounded
+        ranges (e.g. ``KIDIA:KFDIA``) so that the downstream SCC
+        pipeline's ``resolve_vector_dimension`` pass can resolve them
+        correctly.  Without this, bare ``:`` ranges would persist and
+        cause rank mismatches during devectorisation.
     vertical : :any:`Dimension`
-        Dimension object describing the vertical (index, size, bounds).
+        Dimension object describing the vertical (index, size).
     apply_to : list of str, optional
-        Routine names to apply to (lowercase).  If not provided,
-        apply to all kernel routines.
+        Routine names to apply to (case-insensitive).  If not provided,
+        the transformation is applied to all kernel routines.
     """
 
     def __init__(self, horizontal=None, vertical=None, apply_to=None):

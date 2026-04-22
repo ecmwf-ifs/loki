@@ -10,7 +10,51 @@
 """
 Shared utility functions for vertical loop transformations.
 
-This module collects helper functions for vertical loop transformations.
+This module provides the building blocks used by
+:class:`~loki.transformations.single_column.vertical_kcaching.SCCVerticalKCaching`
+to merge vertical loops, convert array dependencies to scalar carry
+variables, and demote KLEV-dimensioned temporaries.
+
+The utilities are grouped as follows:
+
+**Loop inspection**
+    :func:`_collect_vertical_loops`, :func:`_loop_upper_bound_expr`,
+    :func:`_loop_upper_bound_str`, :func:`_loop_is_backward`,
+    :func:`_loop_effective_bounds`, :func:`_is_klev_plus_n`,
+    :func:`_extract_plus_n`.
+
+**Carry conversion** (Phase 1c)
+    :func:`_convert_all_carries`, :func:`_build_carry_expr_entries`,
+    :func:`_build_save_assignment`.
+
+**Init-expression substitution** (Phase 1d)
+    :func:`_substitute_init_expressions_all_loops`,
+    :func:`_build_init_subst_map`, :func:`_apply_subst_outside_loops`.
+
+**Dead-loop / zero-init elimination** (Phases 1b, 1e)
+    :func:`_find_dead_loops_all`, :func:`_remove_whole_array_zero_inits`,
+    :func:`_find_zero_inits_outside_loops`.
+
+**Loop merging** (Phase 2)
+    :func:`_merge_vertical_loops`, :func:`_build_bounds_guard`,
+    :func:`_relocate_interloop_code`.
+
+**Post-merge fixup** (Phases 2b, 2c)
+    :func:`_cross_loop_carry_substitution`,
+    :func:`_insert_writebacks_for_argument_carries`,
+    :func:`_hoist_rotates_to_end`.
+
+**Demotion helpers** (Phase 3)
+    :func:`_find_demotable_arrays`, :func:`_collect_call_arg_names`,
+    :func:`_collect_refs_outside_loops`.
+
+**Cleanup** (Phase 4)
+    :func:`_remove_self_assignments`, :func:`_remove_dead_carry_originals`.
+
+**Shared infrastructure**
+    :class:`_SkipNodesVisitor`, :class:`_EarlyTermination`,
+    :func:`_make_zero_literal`, :func:`_is_zero_literal`,
+    :func:`_is_jk_eq_1`, :func:`_collect_loop_node_set`.
 """
 
 from collections import defaultdict, OrderedDict
@@ -86,41 +130,6 @@ class _SkipNodesVisitor(Visitor):
 
     def visit_Loop(self, o, **kwargs):
         self.visit(o.body, **kwargs)
-
-
-def _walk_outside(body, skip_nodes, callback):
-    """
-    Walk *body* recursively, skipping any node in *skip_nodes*.
-
-    For each non-skipped, non-container leaf node, calls
-    ``callback(node)``.  Recurses into :any:`Section`, :any:`Associate`,
-    :any:`Conditional` (body + else_body), and :any:`Loop` containers.
-
-    Parameters
-    ----------
-    body : tuple, list, or node with ``.body``
-        The IR nodes to walk.
-    skip_nodes : set
-        Nodes to skip entirely (e.g. vertical loops).
-    callback : callable(node) -> bool or None
-        Called for each leaf node.  If it returns ``True`` the walk
-        stops early and ``_walk_outside`` returns ``True``.
-    """
-
-    class _Walker(_SkipNodesVisitor):
-        def __init__(self, skip_nodes, callback):
-            super().__init__(skip_nodes)
-            self.callback = callback
-
-        def visit_Node(self, o, **kwargs):
-            if self.callback(o):
-                raise _EarlyTermination()
-
-    try:
-        _Walker(skip_nodes, callback).visit(body)
-        return False
-    except _EarlyTermination:
-        return True
 
 
 def _collect_call_arg_names(routine):
@@ -508,8 +517,40 @@ def _substitute_jk_in_expr(expr, jk_var, replacement):
 def _build_init_subst_map(body, loop_nodes, init_map, local_2d,
                            expr_map, substituted, horizontal=None):
     """
-    Walk *body* and for any Array reference to an init-mapped array
-    that appears outside all JK loops, add a substitution entry.
+    Walk *body* and for any :any:`Array` reference to an init-mapped
+    array that appears outside all vertical loops, add a substitution
+    entry to *expr_map*.
+
+    The substitution replaces the outside-loop array reference with
+    the RHS expression of the first in-loop assignment to that array,
+    evaluated at the appropriate level index.
+
+    Non-vertical subscripts (e.g. ``JL``) in the substitution expression
+    are replaced with the appropriate range:
+
+    * Horizontal loop variables matching ``horizontal.index`` are
+      replaced with ``horizontal.bounds`` (e.g. ``KIDIA:KFDIA``).
+    * Other scalar subscripts are replaced with bare ``:``
+      (:any:`RangeIndex`).
+
+    Parameters
+    ----------
+    body : :any:`Section` or tuple
+        The routine body to walk.
+    loop_nodes : set
+        IR nodes to skip (the vertical loops).
+    init_map : dict
+        ``{array_name_lower: Assignment}`` — the first in-loop write.
+    local_2d : dict
+        ``{array_name_lower: {'klev_dim_idx': int, ...}}`` — info about
+        each local array with a KLEV dimension.
+    expr_map : dict
+        Accumulator for ``{old_expr: new_expr}`` substitution entries.
+    substituted : set
+        Accumulator for lowercase array names that were substituted.
+    horizontal : :any:`Dimension`, optional
+        When provided, horizontal loop variables in substitution
+        expressions use bounded ranges from ``horizontal.bounds``.
     """
 
     class _InitSubstBuilder(_SkipNodesVisitor):
@@ -971,6 +1012,11 @@ def _convert_all_carries(routine, loop, vertical_size,
     vertical_size : str
     carry_suffix : str
     next_suffix : str
+    horizontal : :any:`Dimension`, optional
+        When provided, horizontal loop variables in carry init, save,
+        and rotate statements are replaced with bounded ranges from
+        ``horizontal.bounds`` so that the SCC pipeline's
+        ``resolve_vector_dimension`` can resolve them.
 
     Returns
     -------
@@ -1397,21 +1443,28 @@ def _convert_all_carries(routine, loop, vertical_size,
 def _substitute_init_expressions_all_loops(routine, vertical_index,
                                             vertical_size, horizontal=None):
     """
-    Like the ``_substitute_init_expressions`` variant in
-    ``vertical_complete`` but searches *all* vertical loops (not just
-    a designated main loop) for init assignments.
+    For each local 2-D+ array with a KLEV dimension, find the first
+    ``X(JL, JK) = f(args)`` assignment (in source order across all
+    vertical loops) and substitute outside-loop references to that
+    array with the RHS expression evaluated at the appropriate level.
 
-    .. note::
+    This is the all-loops variant of ``_substitute_init_expressions``
+    from ``vertical_complete``: it searches *all* vertical loops for
+    init assignments rather than only a designated main loop.
 
-       A future improvement could unify this with the
-       ``_substitute_init_expressions`` function by adding an
-       optional ``main_loop_only`` parameter.
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+    vertical_index : str
+    vertical_size : str
+    horizontal : :any:`Dimension`, optional
+        Forwarded to :func:`_build_init_subst_map` to replace
+        horizontal loop variables with bounded ranges.
 
-    For each local 2-D+ array with a KLEV dimension, the first
-    ``X(JL, JK) = f(args)`` assignment found (in source order across
-    all vertical loops) is used to substitute outside-loop reads.
-
-    Returns a set of lowercase array names that were substituted.
+    Returns
+    -------
+    set of str
+        Lowercase array names that were substituted.
     """
     vertical_index_lower = vertical_index.lower()
     vertical_size_lower = vertical_size.lower()
@@ -2270,6 +2323,10 @@ def _insert_writebacks_for_argument_carries(routine, merged_loop,
     carry_registry : dict
         ``{array_name_lower: {'carry': str, 'pattern': str,
         'next': str or None, 'dim_index': int}}``
+    horizontal : :any:`Dimension`, optional
+        When provided, the horizontal dimension in write-back array
+        subscripts uses bounded ranges from ``horizontal.bounds``
+        instead of bare ``:``.
 
     Returns
     -------

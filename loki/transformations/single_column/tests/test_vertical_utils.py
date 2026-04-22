@@ -14,7 +14,7 @@ import pytest
 from loki import Subroutine
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
-from loki.ir import FindNodes, Loop, Conditional
+from loki.ir import FindNodes, Loop, Conditional, Assignment
 from loki.backend import fgen
 
 from loki.types import BasicType, SymbolAttributes
@@ -26,10 +26,14 @@ from loki.transformations.single_column.vertical_utils import (
     _loop_upper_bound_expr,
     _loop_upper_bound_str,
     _collect_vertical_loops,
+    _collect_call_arg_names,
+    _collect_refs_outside_loops,
+    _collect_outside_refs_for_array,
     _build_bounds_guard,
     _find_demotable_arrays,
     _make_zero_literal,
     _merge_vertical_loops,
+    _remove_self_assignments,
 )
 
 
@@ -608,3 +612,224 @@ class TestMakeZeroLiteral:
         result = _make_zero_literal(stype)
         assert isinstance(result, sym.FloatLiteral)
         assert fgen(result) == '0.0'
+
+
+# --------------------------------------------------------------------------
+# _collect_call_arg_names
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_collect_call_arg_names(frontend):
+    """
+    _collect_call_arg_names should return lowercase names of all
+    variables passed as positional or keyword arguments to calls.
+    """
+    fcode = """
+  SUBROUTINE test_callargs(nlon, nz, a, b, c, d)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL :: a(nlon), b(nlon), c(nlon), d(nlon)
+    REAL :: local_var
+    INTEGER :: jl
+
+    local_var = 1.0
+    CALL foo(a, b, key=c)
+    DO jl = 1, nlon
+      d(jl) = local_var
+    END DO
+  END SUBROUTINE test_callargs
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    result = _collect_call_arg_names(routine)
+
+    # Positional and keyword args should be collected
+    assert 'a' in result
+    assert 'b' in result
+    assert 'c' in result
+
+    # Variables not passed to any call should be absent
+    assert 'local_var' not in result
+    assert 'd' not in result
+
+
+# --------------------------------------------------------------------------
+# _collect_refs_outside_loops — visit_Loop on non-skipped loops
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_collect_refs_outside_loops_loop_bounds(frontend):
+    """
+    _RefCollector.visit_Loop should collect variable references from
+    the bounds of non-skipped loops (e.g. DO JM = 1, NCLV).
+    """
+    fcode = """
+  SUBROUTINE test_ref_loop(nlon, nz, nclv, a)
+    INTEGER, INTENT(IN) :: nlon, nz, nclv
+    REAL :: a(nlon, nz, nclv)
+    INTEGER :: jl, jk, jm
+
+    DO jm = 1, nclv
+      a(1, 1, jm) = 0.0
+    END DO
+
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        a(jl, jk, 1) = 1.0
+      END DO
+    END DO
+  END SUBROUTINE test_ref_loop
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    # The JK loop is in the skip set; the JM loop is not
+    jk_loops = [l for l in FindNodes(Loop).visit(routine.body)
+                if l.variable.name.lower() == 'jk']
+    assert len(jk_loops) == 1
+    loop_nodes = set(jk_loops)
+
+    result = _collect_refs_outside_loops(routine.body, loop_nodes)
+
+    # JM loop bounds should be collected (visit_Loop recurses)
+    assert 'jm' in result
+    assert 'nclv' in result
+    # Array referenced in non-skipped loop body
+    assert 'a' in result
+    # JL only appears inside the skipped JK loop
+    assert 'jl' not in result
+
+
+# --------------------------------------------------------------------------
+# _collect_outside_refs_for_array — visit_Conditional (condition check)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_collect_outside_refs_for_array_conditional(frontend):
+    """
+    _ArrayRefCollector.visit_Conditional should detect array references
+    in a conditional's condition expression, not only in its body.
+    """
+    fcode = """
+  SUBROUTINE test_arrref_cond(nlon, nz, arr, out)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(IN) :: arr(nlon)
+    REAL, INTENT(OUT) :: out(nlon, nz)
+    INTEGER :: jl, jk
+
+    IF (arr(1) > 0.0) THEN
+      out(1, 1) = 1.0
+    END IF
+
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        out(jl, jk) = arr(jl)
+      END DO
+    END DO
+  END SUBROUTINE test_arrref_cond
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    jk_loops = [l for l in FindNodes(Loop).visit(routine.body)
+                if l.variable.name.lower() == 'jk']
+    assert len(jk_loops) == 1
+
+    result = _collect_outside_refs_for_array(
+        routine.body, set(jk_loops), 'arr'
+    )
+
+    # The IF condition references 'arr', so a Conditional should be collected
+    assert len(result) >= 1
+    assert any(isinstance(node, Conditional) for node in result)
+
+
+# --------------------------------------------------------------------------
+# _merge_vertical_loops — Both KLEV+N, compare N values
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_merge_vertical_loops_both_klev_plus_n(frontend):
+    """
+    When two loops both have KLEV+N upper bounds with different N values,
+    the merged loop should take the larger N as its upper bound.
+    """
+    fcode = """
+  SUBROUTINE test_klev_n(nlon, nz, a, b)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(OUT) :: a(nlon, nz + 1), b(nlon, nz + 2)
+    INTEGER :: jl, jk
+
+    DO jk = 1, nz + 1
+      DO jl = 1, nlon
+        a(jl, jk) = 1.0
+      END DO
+    END DO
+
+    DO jk = 1, nz + 2
+      DO jl = 1, nlon
+        b(jl, jk) = 2.0
+      END DO
+    END DO
+  END SUBROUTINE test_klev_n
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    vloops = _collect_vertical_loops(routine.body, 'jk')
+    assert len(vloops) == 2
+
+    merged = _merge_vertical_loops(routine, 'jk', 'nz')
+
+    # Should produce a single merged loop
+    jk_loops = [l for l in FindNodes(Loop).visit(routine.body)
+                if l.variable.name.lower() == 'jk']
+    assert len(jk_loops) == 1
+
+    # The upper bound should be NZ + 2 (the larger N)
+    assert merged.bounds.children[1] == 'nz + 2'
+
+    # Should have IF guards
+    conds = FindNodes(Conditional).visit(merged.body)
+    assert len(conds) >= 2
+
+
+# --------------------------------------------------------------------------
+# _remove_self_assignments — to_remove branch (actual removals)
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_remove_self_assignments_with_removals(frontend):
+    """
+    _remove_self_assignments should detect and remove self-assignment
+    no-ops (x = x) from inside vertical loops and return the count.
+    """
+
+    fcode = """
+  SUBROUTINE test_selfassign(nlon, nz)
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL :: x(nlon)
+    INTEGER :: jl, jk
+
+    DO jk = 1, nz
+      DO jl = 1, nlon
+        x(jl) = x(jl)
+        x(jl) = 1.0
+      END DO
+    END DO
+  END SUBROUTINE test_selfassign
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    jk_loops = [l for l in FindNodes(Loop).visit(routine.body)
+                if l.variable.name.lower() == 'jk']
+    assert len(jk_loops) == 1
+
+    n_removed = _remove_self_assignments(routine, jk_loops[0])
+    assert n_removed == 1
+
+    # After removal, no self-assignments should remain
+    assigns = FindNodes(Assignment).visit(routine.body)
+    for a in assigns:
+        lhs_str = fgen(a.lhs).strip().lower()
+        rhs_str = fgen(a.rhs).strip().lower()
+        assert lhs_str != rhs_str, (
+            f'Self-assignment should have been removed: {fgen(a)}'
+        )
+
+    # The real assignment x(jl) = 1.0 should survive
+    assert any(fgen(a.rhs).strip() == '1.0' for a in assigns)
