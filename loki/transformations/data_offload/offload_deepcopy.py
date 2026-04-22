@@ -15,22 +15,24 @@ try:
 except ImportError:
     HAVE_YAML = False
 
+from loki.analyse import dfa_attached, DataflowAnalysis
 from loki.batch import Transformation, TypeDefItem, ProcedureItem
+from loki.expression import symbols as sym
 from loki.ir import (
         nodes as ir, FindNodes, SubstituteExpressions, Transformer,
         pragma_regions_attached, get_pragma_parameters, SubstitutePragmaStrings,
         is_loki_pragma, pragmas_attached
 )
-from loki.expression import symbols as sym
-from loki.analyse.dataflow_analysis import DataflowAnalysis
-from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
 from loki.tools import as_tuple, OrderedSet
 from loki.types import BasicType, DerivedType
+
 from loki.transformations.field_api import (
-        FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data,
+        FieldAPITransferType, field_get_device_data,
+        field_get_host_data, field_delete_device_data,
         FieldAPIAccessorType
 )
+from loki.transformations.utilities import find_driver_loops, get_integer_variable
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -329,43 +331,34 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if pointers:
             warning(f'[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in {routine_name}')
 
-        dataflow_analysis = DeepcopyDataflowAnalysis(successor_map=successor_map, include_literal_kinds=False)
-        dataflow_analysis.attach_dataflow_analysis(scope_node)
+        dataflow_analysis = DeepcopyDataflowAnalysis(
+            successor_map=successor_map, include_literal_kinds=False
+        )
+        with dfa_attached(scope_node, dfa=dataflow_analysis):
 
-        #gather used symbols in specification
-        if has_spec:
-            spec_uses_symbols = scope_node.body.uses_symbols
-        else:
-            spec_uses_symbols = OrderedSet()
+            # Gather used symbols in specification
+            spec_uses_symbols = scope_node.body.uses_symbols if has_spec else OrderedSet()
 
-        if has_spec:
-            for v in scope_node.spec.uses_symbols:
-                if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []):
+            if has_spec:
+                for v in scope_node.spec.uses_symbols:
+                    if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []):
+                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
+
+            # Gather used and defined symbols in body
+            uses_symbols = scope_node.body.uses_symbols if has_spec else scope_node.uses_symbols
+
+            for v in uses_symbols:
+                if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
                     item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
 
-        #gather used and defined symbols in body
-        if has_spec:
-            uses_symbols = scope_node.body.uses_symbols
-        else:
-            uses_symbols = scope_node.uses_symbols
+            defines_symbols = scope_node.body.defines_symbols if has_spec else scope_node.defines_symbols
 
-        for v in uses_symbols:
-            if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
-                item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
-
-        if has_spec:
-            defines_symbols = scope_node.body.defines_symbols
-        else:
-            defines_symbols = scope_node.defines_symbols
-
-        for v in defines_symbols:
-            if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
-                if v in (spec_uses_symbols | uses_symbols):
-                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
-                else:
-                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
-
-        dataflow_analysis.detach_dataflow_analysis(scope_node)
+            for v in defines_symbols:
+                if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
+                    if v in (spec_uses_symbols | uses_symbols):
+                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
+                    else:
+                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
 
     def gather_typedef_configs(self, successors, typedef_configs):
         """Gather typedef configs from children."""
