@@ -857,8 +857,7 @@ def test_scc_outer_loop(frontend, horizontal, blocking):
         assert kernel_loops[0].pragma[0].content == 'loop vector'
         assert kernel_loops[1].variable == 'niter'
         assert kernel_loops[1].bounds == '1:3'
-        assert kernel_loops[1].pragma[0].keyword == 'acc'
-        assert kernel_loops[1].pragma[0].content == 'loop seq'
+        assert kernel_loops[1].pragma is None
         assert kernel_loops[2].variable == 'jl'
         assert kernel_loops[2].bounds == 'start:end'
         assert kernel_loops[2].pragma[0].keyword == 'acc'
@@ -1094,33 +1093,27 @@ def test_scc_multiple_acc_pragmas(frontend, horizontal, blocking, dims_type, tmp
         scc_pipeline.apply(routine, role='driver', targets=['some_kernel',])
 
     pragmas = FindNodes(Pragma).visit(routine.ir)
-    # Note: local_dims%wrk = 0 (wrk is a 100-element array) gets resolved to an
-    # explicit loop, which receives an '!$acc loop seq' pragma, giving 7 pragmas total.
-    assert len(pragmas) == 7
+    assert len(pragmas) == 6
 
     assert pragmas[0].keyword.lower() == 'acc'
     assert pragmas[0].content == 'data present(dims)'
-    assert pragmas[6].content == 'end data'
-    assert pragmas[6].keyword.lower() == 'acc'
+    assert pragmas[5].content == 'end data'
+    assert pragmas[5].keyword.lower() == 'acc'
 
     if data_offload:
-        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:6])
+        assert all(p.keyword.lower() == 'acc' for p in pragmas[1:5])
         assert pragmas[2].content == 'parallel loop gang private(local_dims) vector_length(dims%klon)'
-        assert pragmas[3].keyword.lower() == 'acc'
-        assert pragmas[3].content == 'loop seq'
-        assert pragmas[4].content == 'end parallel loop'
-        assert pragmas[5].content == 'end data'
+        assert pragmas[3].content == 'end parallel loop'
+        assert pragmas[4].content == 'end data'
 
         assert 'data copy(work)' in pragmas[1].content
     else:
         assert pragmas[1].keyword == 'loki'
         assert pragmas[2].keyword.lower() == 'omp'
-        assert pragmas[3].keyword.lower() == 'acc'
-        assert pragmas[3].content == 'loop seq'
-        assert pragmas[4].keyword.lower() == 'omp'
-        assert pragmas[5].keyword == 'loki'
+        assert pragmas[3].keyword.lower() == 'omp'
+        assert pragmas[4].keyword == 'loki'
         assert pragmas[2].content == 'parallel do private(b) shared(work, nproma)'
-        assert pragmas[4].content == 'end parallel do'
+        assert pragmas[3].content == 'end parallel do'
 
     # check that pointer association was correctly identified as a separator node
     routine = source['some_kernel']

@@ -45,6 +45,54 @@ def fixture_blocking():
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
+def test_scc_revector_mark_seq_loops_constant_bounds(frontend, horizontal, revector_trafo):
+    """
+    Test that loops with compile-time constant bounds are not marked as seq.
+    """
+    fcode = """
+subroutine some_kernel(start, end, nlon, nz, work)
+  implicit none
+  integer, intent(in) :: start, end, nlon, nz
+  real, intent(inout) :: work(nlon, nz)
+  integer :: jl, jk
+
+  do jk = 1, 3
+    do jl = start, end
+      work(jl, jk) = 1.
+    end do
+  end do
+
+  do jk = 2, nz
+    do jl = start, end
+      work(jl, jk) = work(jl, jk-1) + 1.
+    end do
+  end do
+end subroutine some_kernel
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    transformation = revector_trafo(horizontal=horizontal)
+
+    with pragmas_attached(routine, node_type=ir.Loop):
+        transformation.mark_seq_loops(routine.body)
+
+        loops = FindNodes(ir.Loop).visit(routine.body)
+        constant_loop = next(loop for loop in loops if loop.variable == 'jk' and loop.bounds.start == 1)
+        variable_loop = next(loop for loop in loops if loop.variable == 'jk' and loop.bounds.stop == 'nz')
+        horizontal_loops = [loop for loop in loops if loop.variable == 'jl']
+
+        assert constant_loop.bounds.stop == 3
+        assert constant_loop.pragma is None
+
+        assert variable_loop.bounds.start == 2
+        assert variable_loop.pragma
+        assert is_loki_pragma(variable_loop.pragma, starts_with='loop seq')
+
+        assert all(loop.pragma is None for loop in horizontal_loops)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
 @pytest.mark.parametrize('ignore_nested_kernel', [False, True])
 def test_scc_revector_transformation(frontend, horizontal, revector_trafo, ignore_nested_kernel, tmp_path):
     """

@@ -8,7 +8,7 @@
 import re
 
 from loki.batch import Transformation
-from loki.expression import symbols as sym
+from loki.expression import symbols as sym, simplify, is_dimension_constant
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, is_loki_pragma,
     pragmas_attached, pragma_regions_attached
@@ -138,6 +138,18 @@ class BaseRevectorTransformation(Transformation):
                         loops[0]._update(pragma=(pragma,))
                         region._update(pragma=None, pragma_post=None)
 
+    @staticmethod
+    def _has_constant_loop_bounds(loop):
+        """
+        Return ``True`` if all explicitly provided loop bounds and step
+        reduce to compile-time constants.
+        """
+        return all(
+            is_dimension_constant(simplify(bound))
+            for bound in (loop.bounds.start, loop.bounds.stop, loop.bounds.step)
+            if bound is not None
+        )
+
     def mark_seq_loops(self, section):
         """
         Mark interior sequential loops in a thread-parallel section
@@ -145,6 +157,9 @@ class BaseRevectorTransformation(Transformation):
 
         This utility requires loop-pragmas to be attached via
         :any:`pragmas_attached`. It also updates loops in-place.
+
+        Loops whose bounds and step are compile-time constants are left
+        unannotated.
 
         Parameters
         ----------
@@ -155,6 +170,10 @@ class BaseRevectorTransformation(Transformation):
 
             # Skip loops explicitly marked with `!$loki/claw nodep`
             if loop.pragma and any('nodep' in p.content.lower() for p in as_tuple(loop.pragma)):
+                continue
+
+            # Skip loops with compile-time constant iteration spaces
+            if self._has_constant_loop_bounds(loop):
                 continue
 
             # Mark loop as sequential with `!$loki loop seq`
