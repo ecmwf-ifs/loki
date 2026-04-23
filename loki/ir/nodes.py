@@ -790,6 +790,8 @@ class PragmaRegion(InternalNode, _PragmaRegionBase):
         self._update(body=as_tuple(node) + self.body)
 
     def __repr__(self):
+        if self.label is not None:
+            return f'PragmaRegion:: {self.label}'
         return 'PragmaRegion::'
 
 
