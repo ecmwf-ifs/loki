@@ -570,7 +570,8 @@ class PragmaRegionAttacher(Transformer):
                 idx_start = o.index(start)
                 idx_stop = o.index(stop)
                 region = PragmaRegion(
-                    body=o[idx_start+1:idx_stop], pragma=start, pragma_post=stop
+                    body=o[idx_start+1:idx_stop], pragma=start, pragma_post=stop,
+                    label=start.content
                 )
                 o = o[:idx_start] + (region,) + o[idx_stop+1:]
 
