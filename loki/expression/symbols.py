@@ -850,8 +850,14 @@ class Variable:
         kwargs['type'] = _type
 
         if _type and isinstance(_type.dtype, ProcedureType):
-            # This is the name in a function/subroutine call
-            return ProcedureSymbol(**kwargs)
+            # This is the name in a function/subroutine call.
+            # If dimensions are present, this was originally parsed as an Array
+            # (due to Fortran's syntactic ambiguity between array subscripts and
+            # function calls). Preserve as Array so that the dimensions (i.e.,
+            # call arguments) are not lost. The LokiIdentityMapper.map_array
+            # workaround will convert it to InlineCall when needed.
+            if not kwargs.get('dimensions'):
+                return ProcedureSymbol(**kwargs)
 
         if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
             # This the name of a derived type, as found in USE import statements
