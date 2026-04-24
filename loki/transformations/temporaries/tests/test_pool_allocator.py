@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
 import pytest
 
 from loki.expression.parser import parse_expr
@@ -65,9 +66,15 @@ def check_stack_created_in_driver(
 
     # # Check the stack size
     assignments = FindNodes(Assignment).visit(driver.body)
-    for assignment in assignments:
-        if assignment.lhs == 'istsz':
-            assert simplify(assignment.rhs) == simplify(stack_size)
+    istsz_assigns = [a for a in assignments if a.lhs == 'istsz']
+    assert len(istsz_assigns) >= 1
+    # First assignment is the size computation
+    assert simplify(istsz_assigns[0].rhs) == simplify(stack_size)
+    # When the transformation generates the stack (not pre-existing),
+    # a MAX(..., 1) clamp statement follows to prevent zero-sized allocations
+    if len(istsz_assigns) == 2:
+        assert isinstance(istsz_assigns[1].rhs, InlineCall)
+        assert istsz_assigns[1].rhs.function == 'MAX'
 
     # # Check for stack assignment inside loop
     loops = FindNodes(Loop).visit(driver.body)
@@ -1429,3 +1436,103 @@ end module kernel_mod
 
     # check that array size was imported to the driver
     assert 'n' in driver.imported_symbols
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pool_allocator_zero_size_allocation(tmp_path, frontend, block_dim, horizontal):
+    """
+    When the kernel has no stack-allocatable temporaries (e.g. all arrays
+    have been demoted to scalars by a prior k-caching transformation), the
+    computed stack size is 0.  A zero-sized ALLOCATE causes a Fortran
+    runtime error when the stack is accessed at index 1
+    (``LOC(ZSTACK(1, IBL))``).
+
+    Verify that the pool allocator inserts a clamp statement
+    ``ISTSZ = MAX(ISTSZ, 1)`` after the size assignment to guarantee a
+    minimum allocation of 1.
+    """
+    fcode_driver = """
+subroutine driver(NLON, NZ, NB, FIELD1)
+    use kernel_mod, only: kernel
+    implicit none
+    INTEGER, PARAMETER :: JPRB = SELECTED_REAL_KIND(13,300)
+    INTEGER, INTENT(IN) :: NLON, NZ, NB
+    real(kind=jprb), intent(inout) :: field1(nlon, nb)
+    integer :: b
+    do b=1,nb
+        call KERNEL(1, nlon, nlon, nz, field1(:,b))
+    end do
+end subroutine driver
+    """.strip()
+    fcode_kernel = """
+module kernel_mod
+    implicit none
+contains
+    subroutine kernel(start, end, klon, klev, field1)
+        implicit none
+        integer, parameter :: jprb = selected_real_kind(13,300)
+        integer, intent(in) :: start, end, klon, klev
+        real(kind=jprb), intent(inout) :: field1(klon)
+        real(kind=jprb) :: scalar_tmp
+        integer :: jl
+
+        do jl=start,end
+            scalar_tmp = field1(jl) * 2.0_jprb
+            field1(jl) = scalar_tmp
+        end do
+    end subroutine kernel
+end module kernel_mod
+    """.strip()
+
+    config = {
+        'default': {
+            'mode': 'idem',
+            'role': 'kernel',
+            'expand': True,
+            'strict': False,
+            'enable_imports': True,
+        },
+        'routines': {
+            'driver': {'role': 'driver'}
+        }
+    }
+
+    (tmp_path/'driver.F90').write_text(fcode_driver)
+    (tmp_path/'kernel_mod.F90').write_text(fcode_kernel)
+    scheduler = Scheduler(
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        frontend=frontend, xmods=[tmp_path]
+    )
+
+    transformation = TemporariesPoolAllocatorTransformation(
+        block_dim=block_dim, horizontal=horizontal, check_bounds=False,
+        cray_ptr_loc_rhs=False
+    )
+    scheduler.process(transformation=transformation)
+    driver = scheduler['#driver'].ir
+
+    # Stack infrastructure should still be created
+    assert 'istsz' in driver.variables
+    assert 'zstack(:,:)' in driver.variables
+
+    # Find all assignments to ISTSZ
+    assigns = [a for a in FindNodes(Assignment).visit(driver.body)
+                if a.lhs == 'istsz']
+    assert len(assigns) == 2, (
+        f'Expected 2 ISTSZ assignments (size + clamp), got {len(assigns)}'
+    )
+
+    # First assignment: ISTSZ = 0 (no temporaries)
+    assert assigns[0].rhs == 0
+
+    # Second assignment: ISTSZ = MAX(ISTSZ, 1)
+    clamp_rhs = assigns[1].rhs
+    assert isinstance(clamp_rhs, InlineCall)
+    assert clamp_rhs.function == 'MAX'
+    assert clamp_rhs.parameters[0] == 'istsz'
+    assert clamp_rhs.parameters[1] == 1
+
+    # ALLOCATE should reference ISTSZ
+    allocations = FindNodes(Allocation).visit(driver.body)
+    assert len(allocations) == 1
+    assert 'zstack(istsz,nb)' in allocations[0].variables

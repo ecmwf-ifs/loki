@@ -443,7 +443,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
-            body_prepend += [stack_size_assign]
+            # Ensure the stack size is at least 1 to avoid zero-sized allocations,
+            # which cause runtime errors when the stack storage is accessed at index 1
+            # (e.g. LOC(ZSTACK(1, IBL))).
+            stack_size_clamp = Assignment(
+                lhs=stack_size_var,
+                rhs=InlineCall(
+                    function=Variable(name='MAX'),
+                    parameters=(stack_size_var, IntLiteral(1)),
+                    kw_parameters=()
+                )
+            )
+            body_prepend += [stack_size_assign, stack_size_clamp]
             variables_append += [stack_size_var]
 
         if self.stack_storage_name in variable_map:
