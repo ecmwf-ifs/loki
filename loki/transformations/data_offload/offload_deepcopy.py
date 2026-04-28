@@ -15,22 +15,24 @@ try:
 except ImportError:
     HAVE_YAML = False
 
+from loki.analyse import dfa_attached, DataflowAnalysis
 from loki.batch import Transformation, TypeDefItem, ProcedureItem
+from loki.expression import symbols as sym
 from loki.ir import (
         nodes as ir, FindNodes, SubstituteExpressions, Transformer,
         pragma_regions_attached, get_pragma_parameters, SubstitutePragmaStrings,
         is_loki_pragma, pragmas_attached
 )
-from loki.expression import symbols as sym
-from loki.analyse.analyse_dataflow import DataflowAnalysisAttacher, DataflowAnalysisDetacher
-from loki.transformations.utilities import find_driver_loops, get_integer_variable
 from loki.logging import warning
 from loki.tools import as_tuple, OrderedSet
 from loki.types import BasicType, DerivedType
+
 from loki.transformations.field_api import (
-        FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data,
+        FieldAPITransferType, field_get_device_data,
+        field_get_host_data, field_delete_device_data,
         FieldAPIAccessorType
 )
+from loki.transformations.utilities import find_driver_loops, get_integer_variable
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -115,7 +117,7 @@ def merge_nested_dict(ref_dict, temp_dict, force=False):
     return ref_dict
 
 
-class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
+class DeepcopyDataflowAnalysis(DataflowAnalysis):
     """
     Dummy argument intents in Fortran also have implications on memory status, and `INTENT(OUT)`
     is therefore fundamentally unsafe for allocatables and pointers. Therefore in order to discern
@@ -123,28 +125,29 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
     the dataflow analysis of the child :any:`Subroutine` and ignoring the intents altogether.
     """
 
-    def visit_CallStatement(self, o, **kwargs):
+    def __init__(self, successor_map, include_literal_kinds=False):
+        super().__init__(include_literal_kinds=include_literal_kinds)
+        self.successor_map = successor_map
 
-        successor_map = kwargs['successor_map']
-
-        if not o.routine:
-            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {o}.'
+    def resolve_call_effects(self, call, *, attacher, **kwargs):
+        if call.routine is BasicType.DEFERRED:
+            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
             raise RuntimeError(msg)
 
-        child = successor_map.get(o, None)
+        child = self.successor_map.get(call, None)
         if not child:
-            return self.visit_Node(o, **kwargs)
+            return None
 
         # remap root variable names to current scope
-        arg_map = get_sanitised_arg_map(o.arg_map)
+        arg_map = get_sanitised_arg_map(call.arg_map)
         child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis']
         child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
         # Dimensions of array arguments must also be included in uses_symbols OrderedSet
         defines = OrderedSet()
-        array_args = [v for v in o.arg_map.values() if isinstance(v, sym.Array)]
+        array_args = [v for v in call.arg_map.values() if isinstance(v, sym.Array)]
         uses = OrderedSet(v for a in array_args
-                   for v in self._symbols_from_expr(a.dimensions))
+                   for v in attacher._symbols_from_expr(a.dimensions))
         for k, v in child_analysis.items():
 
             if 'read' in v:
@@ -152,7 +155,7 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
             if 'write' in v:
                 defines |= {k}
 
-        return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
+        return defines, uses
 
 class DataOffloadDeepcopyAnalysis(Transformation):
     """
@@ -328,53 +331,34 @@ class DataOffloadDeepcopyAnalysis(Transformation):
         if pointers:
             warning(f'[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in {routine_name}')
 
-        # We make do here (lazily) without a context manager, as this override of the
-        # DataflowAnalysisAttacher is not meant for use outside of the current module.
-        dataflow_analysis = DeepcopyDataflowAnalysisAttacher(include_literal_kinds=False)
-        if has_spec:
-            dataflow_analysis.visit(scope_node.spec, successor_map=successor_map)
-            dataflow_analysis.visit(scope_node.body, successor_map=successor_map)
-        else:
-            dataflow_analysis.visit(scope_node, successor_map=successor_map)
+        dataflow_analysis = DeepcopyDataflowAnalysis(
+            successor_map=successor_map, include_literal_kinds=False
+        )
+        with dfa_attached(scope_node, dfa=dataflow_analysis):
 
-        #gather used symbols in specification
-        if has_spec:
-            spec_uses_symbols = scope_node.body.uses_symbols
-        else:
-            spec_uses_symbols = OrderedSet()
+            # Gather used symbols in specification
+            spec_uses_symbols = scope_node.body.uses_symbols if has_spec else OrderedSet()
 
-        if has_spec:
-            for v in scope_node.spec.uses_symbols:
-                if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []):
+            if has_spec:
+                for v in scope_node.spec.uses_symbols:
+                    if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []):
+                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
+
+            # Gather used and defined symbols in body
+            uses_symbols = scope_node.body.uses_symbols if has_spec else scope_node.uses_symbols
+
+            for v in uses_symbols:
+                if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
                     item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
 
-        #gather used and defined symbols in body
-        if has_spec:
-            uses_symbols = scope_node.body.uses_symbols
-        else:
-            uses_symbols = scope_node.uses_symbols
+            defines_symbols = scope_node.body.defines_symbols if has_spec else scope_node.defines_symbols
 
-        for v in uses_symbols:
-            if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
-                item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
-
-        if has_spec:
-            defines_symbols = scope_node.body.defines_symbols
-        else:
-            defines_symbols = scope_node.defines_symbols
-
-        for v in defines_symbols:
-            if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
-                if v in (spec_uses_symbols | uses_symbols):
-                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
-                else:
-                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
-
-        if has_spec:
-            DataflowAnalysisDetacher().visit(scope_node.spec)
-            DataflowAnalysisDetacher().visit(scope_node.body)
-        else:
-            DataflowAnalysisDetacher().visit(scope_node)
+            for v in defines_symbols:
+                if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
+                    if v in (spec_uses_symbols | uses_symbols):
+                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
+                    else:
+                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
 
     def gather_typedef_configs(self, successors, typedef_configs):
         """Gather typedef configs from children."""
