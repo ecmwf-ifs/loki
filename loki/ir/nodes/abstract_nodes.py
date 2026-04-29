@@ -55,6 +55,11 @@ class Node:
 
     _traversable = []
 
+    @field_validator('label', mode='before')
+    @classmethod
+    def ensure_string(cls, value):
+        return str(value) if value else value
+
     def __post_init__(self):
         # Create private placeholders for dataflow analysis fields that
         # do not show up in the dataclass field definitions, as these

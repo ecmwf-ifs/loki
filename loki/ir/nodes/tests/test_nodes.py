@@ -545,3 +545,12 @@ def test_stmt_nodes(scope, n, i):
     assert fgen(ir.FormatStmt()) == 'FORMAT'
     assert fgen(ir.FormatStmt(i)) == 'FORMAT i'
     assert fgen(ir.FormatStmt((n, i))) == 'FORMAT n, i'
+
+    # Check adding labels for certain control flow statements
+    assert ir.ReturnStmt(label=42).label == '42'
+    assert ir.ReturnStmt(label='666').label == '666'
+    assert ir.ReturnStmt().label is None
+    assert ir.CycleStmt(label=42).label == '42'
+    assert ir.ContinueStmt(label=42).label == '42'
+    assert ir.ExitStmt(label=42).label == '42'
+    assert ir.StopStmt(label=42).label == '42'
