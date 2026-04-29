@@ -262,8 +262,9 @@ end subroutine empty_kernel
     rmtree(workdir)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
-                         'OMNI fails to import undefined module.')]))
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI fails to import undefined module.')])
+)
 @pytest.mark.parametrize('force_inject_arrays', [True, False])
 def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend, blockview_to_fieldview_code,
                                          force_inject_arrays, tmp_path):
@@ -338,8 +339,9 @@ def test_blockview_to_fieldview_pipeline(horizontal, blocking, config, frontend,
     assert assigns[0].rhs == '1.'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
-                         'OMNI fails to import undefined module.')]))
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI fails to import undefined module.')])
+)
 @pytest.mark.parametrize('global_gfl_ptr', [False, True])
 def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blockview_to_fieldview_code,
                                      global_gfl_ptr, tmp_path):
@@ -406,8 +408,9 @@ def test_blockview_to_fieldview_only(horizontal, blocking, config, frontend, blo
     assert field_ptr[0].type.polymorphic
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
-                         'OMNI correctly complains about rank mismatch in assignment.')]))
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI correctly complains about rank mismatch in assignment.')])
+)
 def test_simple_blockindex_inject(blocking, frontend):
     fcode = """
 subroutine kernel(nlon,nlev,nb,var)
@@ -444,8 +447,9 @@ end subroutine kernel
     assert 'var(:,:,1,ibl)' in calls[0].arguments
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI,
-                         'OMNI complains about undefined type.')]))
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI complains about undefined type.')])
+)
 def test_blockview_to_fieldview_exception(frontend, horizontal):
     fcode = """
 subroutine kernel(nlon,nlev,start,end,var)
