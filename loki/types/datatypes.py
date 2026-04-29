@@ -46,7 +46,7 @@ class BasicType(DataType, int, Enum):
     heuristically converted.
     """
 
-    DEFERRED = -1
+    DEFERRED = 0
     LOGICAL = 1
     INTEGER = 2
     REAL = 3
