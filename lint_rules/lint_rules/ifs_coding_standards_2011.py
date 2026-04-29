@@ -449,9 +449,10 @@ class BannedStatementsRule(GenericRule):  # Coding standards 4.11
     def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Check for banned statements in intrinsic nodes.'''
         for intr in FindNodes(ir.GenericStmt).visit(subroutine.ir):
-            for keyword in config['banned']:
-                if keyword.upper() in intr.text.upper() or keyword.upper() == intr.keyword:
-                    rule_report.add(f'Banned keyword "{keyword}"', intr)
+            # Get the keyword of individual statement nodes
+            keyword = intr.keyword if intr.keyword else intr.text.split(' ')[0]
+            if keyword.upper() in config['banned']:
+                rule_report.add(f'Banned keyword "{keyword}"', intr)
 
 
 class Fortran90OperatorsRule(GenericRule):  # Coding standards 4.15
