@@ -299,7 +299,7 @@ class FParser2IR(GenericVisitor):
         Helper method that returns the label of the node.
         """
         if o is not None and not isinstance(o, str) and o.item is not None:
-            return getattr(o.item, 'label', None)
+            return str(getattr(o.item, 'label', None))
         return None
 
     def visit(self, o, **kwargs):  # pylint: disable=arguments-differ
@@ -3492,23 +3492,30 @@ class FParser2IR(GenericVisitor):
     #
 
     def visit_Save_Stmt(self, o, **kwargs):
-        return ir.SaveStmt(source=kwargs.get('source'))
+        return ir.SaveStmt(**kwargs)
 
     def visit_Return_Stmt(self, o, **kwargs):
-        return ir.ReturnStmt(source=kwargs.get('source'))
+        return ir.ReturnStmt(**kwargs)
 
     def visit_Cycle_Stmt(self, o, **kwargs):
-        return ir.CycleStmt(source=kwargs.get('source'))
+        return ir.CycleStmt(**kwargs)
+
+    def visit_Continue_Stmt(self, o, **kwargs):
+        return ir.ContinueStmt(**kwargs)
 
     def visit_Goto_Stmt(self, o, **kwargs):
         label = o.items[0].tostr()
-        return ir.GotoStmt(text=label, source=kwargs.get('source'))
+        return ir.GotoStmt(text=label, **kwargs)
+
+    def visit_Exit_Stmt(self, o, **kwargs):
+        return ir.ExitStmt(o.items[1], **kwargs)
+
+    def visit_Stop_Stmt(self, o, **kwargs):
+        return ir.StopStmt(**kwargs)
 
     visit_Intrinsic_Stmt = visit_Generic_Stmt
     visit_Format_Stmt = visit_Generic_Stmt
     visit_Write_Stmt = visit_Generic_Stmt
-    visit_Continue_Stmt = visit_Generic_Stmt
-    visit_Exit_Stmt = visit_Generic_Stmt
     visit_Read_Stmt = visit_Generic_Stmt
     visit_Open_Stmt = visit_Generic_Stmt
     visit_Close_Stmt = visit_Generic_Stmt
@@ -3518,8 +3525,7 @@ class FParser2IR(GenericVisitor):
     visit_Dimension_Stmt = visit_Generic_Stmt
     visit_Equivalence_Stmt = visit_Generic_Stmt
     visit_Common_Stmt = visit_Generic_Stmt
-    visit_Stop_Stmt = visit_Generic_Stmt
-    visit_Error_Stop_Stmt = visit_Generic_Stmt
+
     visit_Backspace_Stmt = visit_Generic_Stmt
     visit_Rewind_Stmt = visit_Generic_Stmt
     visit_Entry_Stmt = visit_Generic_Stmt
