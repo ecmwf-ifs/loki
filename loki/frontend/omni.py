@@ -1293,14 +1293,14 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FcycleStatement(self, o, **kwargs):
         # TODO: do-construct-name is not preserved
-        return ir.CycleStmt(source=kwargs['source'])
+        return ir.CycleStmt(**kwargs)
 
     def visit_continueStatement(self, o, **kwargs):
-        return ir.GenericStmt(text='continue', source=kwargs['source'])
+        return ir.ContinueStmt(**kwargs)
 
     def visit_FexitStatement(self, o, **kwargs):
         # TODO: do-construct-name is not preserved
-        return ir.GenericStmt(text='exit', source=kwargs['source'])
+        return ir.ExitStmt(**kwargs)
 
     def visit_FopenStatement(self, o, **kwargs):
         nvalues = [self.visit(nv, **kwargs) for nv in o.find('namedValueList')]
@@ -1457,11 +1457,10 @@ class OMNI2IR(GenericVisitor):
         return ir.GotoStmt(text=label, source=kwargs['source'])
 
     def visit_FstopStatement(self, o, **kwargs):
-        code = o.attrib['code']
-        return ir.GenericStmt(text=f'stop {code!s}', source=kwargs['source'])
+        return ir.StopStmt(**kwargs)
 
     def visit_statementLabel(self, o, **kwargs):
         return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])
 
     def visit_FreturnStatement(self, o, **kwargs):
-        return ir.ReturnStmt(source=kwargs['source'])
+        return ir.ReturnStmt(**kwargs)
