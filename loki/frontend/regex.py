@@ -423,7 +423,7 @@ class ModulePattern(Pattern):
         name = match['name']
         if scope is not None and name in scope.symbol_attrs:
             module_type = scope.symbol_attrs[name]  # Look-up only in current scope!
-            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+            if module_type and module_type.dtype.module:
                 module = module_type.dtype.module
 
         if module is None:
@@ -510,7 +510,7 @@ class SubroutineFunctionPattern(Pattern):
         name = match['name']
         if scope is not None and name in scope.symbol_attrs:
             proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and getattr(proc_type.dtype, 'procedure', BasicType.DEFERRED) != BasicType.DEFERRED:
+            if proc_type and getattr(proc_type.dtype, 'procedure', None):
                 routine = proc_type.dtype.procedure
 
         if routine is None:

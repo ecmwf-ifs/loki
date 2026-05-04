@@ -882,7 +882,7 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
         )
 
         # Inherit non-overriden symbols from parent type
-        if (parent_type := self.parent_type) and parent_type is not BasicType.DEFERRED:
+        if parent_type := self.parent_type:
             local_symbols = [s for decl in decls for s in decl.symbols]
             for decl in parent_type.declarations:
                 decl_symbols = tuple(s.clone(scope=self) for s in decl.symbols if s not in local_symbols)
