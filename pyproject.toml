@@ -92,3 +92,11 @@ namespaces = false
 
 # Enable SCM versioning
 [tool.setuptools_scm]
+
+
+[pytest]
+addopts = ["-ra"]
+norecursedirs = [
+  "loki/tests/sources",
+  "*/tests/sources",
+]
