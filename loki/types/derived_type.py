@@ -36,7 +36,7 @@ class DerivedType(DataType):
 
     @property
     def name(self):
-        return self._name if self.typedef is BasicType.DEFERRED else self.typedef.name
+        return self._name if not self.typedef else self.typedef.name
 
     def __str__(self):
         return self.name

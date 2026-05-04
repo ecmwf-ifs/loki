@@ -17,9 +17,6 @@ from loki.module import Module
 from loki.subroutine import Subroutine
 from loki.sourcefile import Sourcefile
 from loki.tools import CaseInsensitiveDict, as_tuple
-from loki.types import BasicType
-
-
 __all__ = ['ItemFactory']
 
 
@@ -427,7 +424,7 @@ class ItemFactory:
         #     resolving one type at a time, e.g.
         #     my_var%member%procedure -> my_type%member%procedure -> member_type%procedure -> procedure
         dtype = proc_symbol.parents[0].type.dtype
-        if dtype is BasicType.DEFERRED:
+        if not dtype:
             msg = f'Missing type information for symbol {proc_symbol.parents[0]}'
             warning(msg)
             return None

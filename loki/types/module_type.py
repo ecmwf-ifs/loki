@@ -45,7 +45,7 @@ class ModuleType(DataType):
         This looks up the name in the linked :attr:`module` if available, otherwise
         returns the name stored during instantiation of the :any:`ModuleType` object.
         """
-        return self._name if self.module is BasicType.DEFERRED else self.module.name
+        return self._name if not self.module else self.module.name
 
     @property
     def module(self):
