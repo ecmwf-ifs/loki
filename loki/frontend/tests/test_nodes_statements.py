@@ -112,7 +112,7 @@ end module alloc_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not like intrinsic shading for member functions!')]
+    skip=[(OMNI, 'OMNI does not like intrinsic shading for member functions!')]
 ))
 def test_intrinsic_shadowing(tmp_path, frontend):
     """

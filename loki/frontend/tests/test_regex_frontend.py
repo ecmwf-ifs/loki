@@ -556,7 +556,7 @@ END SUBROUTINE driver
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Non-standard notation needs full preprocessing')]
+    skip=[(OMNI, 'Non-standard notation needs full preprocessing')]
 ))
 def test_make_complete_sanitize(frontend):
     """

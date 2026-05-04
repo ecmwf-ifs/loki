@@ -374,7 +374,7 @@ end subroutine routine_typedefs_simple
     assert fexprgen(vmap['item%matrix'].shape) == '(3, 3)'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
 def test_routine_variables_dimension_pragmas(frontend):
     """
     Test that `!$loki dimension` pragmas can be used to verride the

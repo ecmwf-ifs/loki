@@ -84,7 +84,7 @@ end subroutine test_type_declarations
     assert routine.symbol_attrs['e'].contiguous
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Segfault with pragmas in derived types')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Segfault with pragmas in derived types')]))
 def test_pragmas(frontend):
     """
     Test detection of `!$loki dimension` pragmas to indicate intended shapes.
@@ -183,7 +183,7 @@ end module test_type_derived_type_mod
     assert routine.symbol_attrs['c%b'].shape == (':',':')
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot deal with deferred type info')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI cannot deal with deferred type info')]))
 def test_type_module_imports(frontend):
     """
     Test the detection of known / unknown symbols types from module imports.

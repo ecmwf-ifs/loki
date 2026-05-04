@@ -94,10 +94,9 @@ def test_frontend_source_lineno(frontend):
     assert calls[0].source.lines[0] < calls[1].source.lines[0] < calls[2].source.lines[0]
 
 
-@pytest.mark.parametrize(
-    'frontend',
-    available_frontends(include_regex=True, xfail=[(OMNI, 'OMNI may segfault on empty files')])
-)
+@pytest.mark.parametrize('frontend', available_frontends(
+    include_regex=True, skip=[(OMNI, 'OMNI may segfault on empty files')]
+))
 @pytest.mark.parametrize('fcode', ['', '\n', '\n\n\n\n'])
 def test_frontend_empty_file(frontend, fcode):
     """Ensure that all frontends can handle empty source files correctly (#186)"""
@@ -251,7 +250,7 @@ end function function_d
         source.make_complete(frontend=frontend, xmods=[tmp_path])
     except CalledProcessError as ex:
         if frontend == OMNI and ex.returncode == -11:
-            pytest.xfail('F_Front segfault is a known issue on some platforms')
+            pytest.skip('F_Front segfault is a known issue on some platforms')
         raise
     assert not source._incomplete
 
