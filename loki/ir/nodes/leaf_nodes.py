@@ -198,7 +198,7 @@ class CallStatement(LeafNode, _CallStatementBase):
         return f'Call:: {self.name}'
 
     @property
-    def procedure_type(self):
+    def procedure_type(self) -> DataType:
         """
         The :any:`ProcedureType` of the :any:`Subroutine` object of the called routine
 
@@ -213,10 +213,16 @@ class CallStatement(LeafNode, _CallStatementBase):
             The type of the called procedure. If the symbol type of the called routine
             has not been identified correctly, this may yield :any:`BasicType.DEFERRED`.
         """
-        return self.name.type.dtype
+        procedure_type = self.name.type.dtype
+        if not isinstance(procedure_type, DataType):
+            raise TypeError(
+                f'CallStatement.name.type.dtype must be a DataType, got '
+                f'{type(procedure_type).__name__}'
+            )
+        return procedure_type
 
     @property
-    def routine(self):
+    def routine(self) -> Union['Function', 'Subroutine', 'StatementFunction', BasicType]:
         """
         The :any:`Subroutine` object of the called routine
 

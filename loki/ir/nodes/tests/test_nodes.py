@@ -14,8 +14,9 @@ from pydantic import ValidationError
 from loki.expression import symbols as sym, parse_expr
 from loki.function import Function
 from loki.ir import nodes as ir
+from loki.subroutine import Subroutine
 from loki.tools import as_tuple, flatten
-from loki.types import Scope
+from loki.types import BasicType, ProcedureType, Scope, SymbolAttributes
 
 
 @pytest.fixture(name='scope')
@@ -374,6 +375,39 @@ def test_callstatement(scope, one, i, n, a_i):
         )
 
     # TODO: Test pragmas, active and chevron
+
+
+def test_callstatement_routine_types(scope):
+    """Test type-checked access to call routine metadata."""
+
+    callee = Subroutine(name='callee')
+    cname = sym.ProcedureSymbol(
+        name='callee', scope=scope, type=SymbolAttributes(dtype=ProcedureType(procedure=callee))
+    )
+    call = ir.CallStatement(name=cname)
+
+    assert isinstance(call.procedure_type, ProcedureType)
+    assert call.routine is callee
+
+    unresolved = sym.ProcedureSymbol(name='unresolved')
+    unresolved.type = SymbolAttributes(dtype=BasicType.DEFERRED)
+    deferred_call = ir.CallStatement(name=unresolved)
+
+    assert deferred_call.procedure_type is BasicType.DEFERRED
+    assert deferred_call.routine is BasicType.DEFERRED
+    assert not deferred_call.routine
+
+
+def test_callstatement_invalid_routine_type():
+    """Test runtime failure for invalid call routine type metadata."""
+
+    cname = sym.ProcedureSymbol(name='broken')
+    cname.type = SymbolAttributes(dtype=BasicType.DEFERRED)
+    cname.type.dtype = object()
+    call = ir.CallStatement(name=cname)
+
+    with pytest.raises(TypeError, match=r'CallStatement\.name\.type\.dtype must be a DataType'):
+        _ = call.procedure_type
 
 
 def test_associate(scope, a_i):

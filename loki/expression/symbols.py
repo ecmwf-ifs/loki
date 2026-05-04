@@ -18,7 +18,7 @@ from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
+from loki.types import BasicType, DataType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
 from loki.expression.literals import (
@@ -965,12 +965,18 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
         return self.function.name
 
     @property
-    def procedure_type(self):
+    def procedure_type(self) -> DataType:
         """
         Returns the underpinning procedure type if the type is know,
         ``BasicType.DEFFERED`` otherwise.
         """
-        return self.function.type.dtype
+        procedure_type = self.function.type.dtype
+        if not isinstance(procedure_type, DataType):
+            raise TypeError(
+                f'InlineCall.function.type.dtype must be a DataType, got '
+                f'{type(procedure_type).__name__}'
+            )
+        return procedure_type
 
     @property
     def arguments(self):
