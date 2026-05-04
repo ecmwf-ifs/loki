@@ -285,7 +285,7 @@ end subroutine rename_variables
     assert 'rename_arg' not in routine.symbol_attrs
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_transform_utilites_rename_variables_extended(frontend):
     fcode = """

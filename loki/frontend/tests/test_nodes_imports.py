@@ -62,7 +62,7 @@ end module test_access_spec_mod
     assert new_module.private_access_spec == ('routine',)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Inlines access-spec as declaration attr')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Inlines access-spec as declaration attr')]))
 def test_module_access_spec_private(frontend, tmp_path):
     """
     Test correct parsing of access-spec statements with default private
@@ -111,7 +111,7 @@ end module test_access_spec_mod
     assert new_module.private_access_spec == ()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Inlines access-spec as declaration attr')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Inlines access-spec as declaration attr')]))
 def test_module_access_spec_public(frontend, tmp_path):
     """
     Test correct parsing of access-spec statements with default public

@@ -21,7 +21,7 @@ from loki.ir import nodes as ir, FindNodes
 from loki.frontend import available_frontends, OMNI
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI stores no source.string')]))
 def test_raw_source_loop(tmp_path, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for loops."""
@@ -88,7 +88,7 @@ end subroutine routine_raw_source_loop
     clean_test(filename)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI stores no source.string')]))
 def test_raw_source_conditional(tmp_path, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for conditionals."""
@@ -145,7 +145,7 @@ end subroutine routine_raw_source_cond
     clean_test(filename)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI stores no source.string')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI stores no source.string')]))
 def test_raw_source_multicond(tmp_path, frontend):
     """Verify that the raw_source property is correctly used to annotate
     AST nodes with source strings for multi conditionals."""
@@ -202,7 +202,7 @@ end subroutine routine_raw_source_multicond
     clean_test(filename)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'This is outright impossible')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'This is outright impossible')]))
 def test_subroutine_conservative(frontend):
     """
     Test that conservative output of fgen reproduces the original source string for
@@ -234,7 +234,7 @@ END SUBROUTINE CONSERVATIVE
     assert source == fcode
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'This is outright impossible')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'This is outright impossible')]))
 def test_subroutine_simple_fgen(frontend):
     """
     Test that non-conservative output produces the original source string for
@@ -274,7 +274,7 @@ END SUBROUTINE SIMPLE_FGEN
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does it for you BUT WITHOUT DELETING THE KEYWORD!!!')])
+    skip=[(OMNI, 'OMNI does it for you BUT WITHOUT DELETING THE KEYWORD!!!')])
 )
 def test_multiline_pragma(frontend):
     """

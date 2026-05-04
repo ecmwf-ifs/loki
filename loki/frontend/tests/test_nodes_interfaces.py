@@ -59,7 +59,7 @@ end subroutine interface_subroutine_integration
 
 
 @pytest.mark.parametrize(
-    'frontend', available_frontends(xfail=[(OMNI, 'OMNI separates generic interfaces differently')])
+    'frontend', available_frontends(skip=[(OMNI, 'OMNI separates generic interfaces differently')])
 )
 def test_interface_generic_spec(frontend, tmp_path):
     """

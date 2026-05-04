@@ -497,7 +497,7 @@ END FUNCTION FUNC
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-        xfail=[(OMNI, 'Renames index variable to omnitmp000')]
+        skip=[(OMNI, 'Renames index variable to omnitmp000')]
 ))
 def test_single_line_forall_stmt(tmp_path, frontend):
     fcode = """
@@ -554,7 +554,7 @@ end subroutine forall_stmt
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-        xfail=[(OMNI, 'Renames index variable to omnitmp000')]
+        skip=[(OMNI, 'Renames index variable to omnitmp000')]
 ))
 def test_single_line_forall_masked_stmt(tmp_path, frontend):
     fcode = """
@@ -607,7 +607,7 @@ end subroutine forall_masked_stmt
     assert expected_fcode in routine.to_fortran()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+@pytest.mark.parametrize('frontend', available_frontends(skip=[
     (OMNI, 'Renames index variable to omnitmp000'),
 ]))
 def test_multi_line_forall_construct(tmp_path, frontend):
@@ -678,7 +678,7 @@ end subroutine forall_construct
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'No support for Cray Pointers')]
+    skip=[(OMNI, 'No support for Cray Pointers')]
 ))
 def test_cray_pointers(frontend):
     fcode = """

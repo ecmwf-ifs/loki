@@ -516,7 +516,7 @@ end subroutine pygen_downcasing
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI strictly needs type definitions')])
+    skip=[(OMNI, 'OMNI strictly needs type definitions')])
 )
 def test_pygen_derived_type_members(tmp_path, frontend):
     """

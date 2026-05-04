@@ -126,7 +126,7 @@ end module rick_rolled
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+    skip=[(OMNI, 'Incomplete source tree impossible with OMNI')]
 ))
 def test_dr_hook_transformation(frontend, config, source, tmp_path):
     """Test DrHook transformation for a renamed Subroutine"""
@@ -159,7 +159,7 @@ def test_dr_hook_transformation(frontend, config, source, tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+    skip=[(OMNI, 'Incomplete source tree impossible with OMNI')]
 ))
 def test_dr_hook_transformation_remove(frontend, config, source, tmp_path):
     """Test DrHook transformation in remove mode"""
@@ -200,7 +200,7 @@ def test_dr_hook_transformation_remove(frontend, config, source, tmp_path):
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Incomplete source tree impossible with OMNI')]
+    skip=[(OMNI, 'Incomplete source tree impossible with OMNI')]
 ))
 def test_dr_hook_transformation_rename(frontend, config, source):
     """Test DrHook transformation in remove mode"""

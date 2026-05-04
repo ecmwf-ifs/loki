@@ -21,7 +21,9 @@ from loki.logging import log_levels
 from loki.transformations.build_system import FileWriteTransformation
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OMNI: 'Without parsing imports, OMNI does not have the xmod for imported modules'}
+))
 @pytest.mark.parametrize('enable_imports', [False, True])
 @pytest.mark.parametrize('import_level', ['module', 'subroutine'])
 @pytest.mark.parametrize('qualified_imports', [False, True])
@@ -147,7 +149,7 @@ end module d_mod
             # If not all header modules appear in the dependency graph, then these
             # will not be parsed by OMNI and therefore the required xmod files will
             # not be generated, thus making modules 'c' and 'd' fail at parsing
-            pytest.xfail('Without parsing imports, OMNI does not have the xmod for imported modules')
+            pytest.skip('Without parsing imports, OMNI does not have the xmod for imported modules')
         raise e
 
     # Check the dependency graph

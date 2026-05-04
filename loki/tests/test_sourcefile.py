@@ -20,7 +20,7 @@ def fixture_here():
     return Path(__file__).parent
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Files are preprocessed')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Files are preprocessed')]))
 def test_sourcefile_pp_macros(here, frontend):
     filepath = here/'sources/sourcefile_pp_macros.F90'
     routine = Sourcefile.from_file(filepath, frontend=frontend)['routine_pp_macros']
@@ -29,7 +29,7 @@ def test_sourcefile_pp_macros(here, frontend):
     assert all(node.text.startswith('#') for node in directives)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[
+@pytest.mark.parametrize('frontend', available_frontends(skip=[
     (OMNI, 'Files are preprocessed')
 ]))
 def test_sourcefile_pp_directives(here, frontend):

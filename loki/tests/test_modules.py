@@ -245,7 +245,7 @@ end module type_mod
     assert fexprgen(arr.shape) == exptected_array_shape
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotation break parser')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Loki annotation break parser')]))
 def test_dimension_pragmas(frontend, tmp_path):
     """
     Test that loki-specific dimension annotations are detected and
@@ -266,7 +266,7 @@ end module type_mod
     assert fexprgen(mytype.variables[0].shape) == '(size,)'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki annotation break parser')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Loki annotation break parser')]))
 def test_nested_types_dimension_pragmas(frontend, tmp_path):
     """
     Test that loki-specific dimension annotations are detected and
@@ -448,7 +448,7 @@ integer :: c
     assert module_vars == ['jprb', 'x', 'y', 'a', 'b(x)', 'c']
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parsing fails without dummy module provided')]))
 def test_module_rescope_symbols(frontend, tmp_path):
     """
     Test the rescoping of variables.
@@ -488,7 +488,7 @@ end module test_module_rescope
         fgen(other_module_copy)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parsing fails without dummy module provided')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parsing fails without dummy module provided')]))
 def test_module_rescope_clone(frontend, tmp_path):
     """
     Test the rescoping of variables in clone.
@@ -526,7 +526,7 @@ end module test_module_rescope_clone
         fgen(other_module_copy)
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'Parsing fails without dummy module provided')]
+    skip=[(OMNI, 'Parsing fails without dummy module provided')]
 ))
 def test_module_deep_clone(frontend, tmp_path):
     """
