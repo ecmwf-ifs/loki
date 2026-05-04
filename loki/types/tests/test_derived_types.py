@@ -1487,7 +1487,7 @@ end module derived_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle type-bound procedures')]
+    skip=[(OMNI, 'OMNI does not handle type-bound procedures')]
 ))
 def test_derived_type_type_bound_call_proctype(frontend):
     """

@@ -16,7 +16,7 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI fails to read without full module')]))
 def test_select_type(frontend, tmp_path):
     fcode = """
 module select_type_mod

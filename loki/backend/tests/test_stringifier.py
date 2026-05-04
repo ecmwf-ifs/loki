@@ -188,7 +188,7 @@ END MODULE some_mod
     ).visit(module).strip() == w_ref
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI fails to read without full module')]))
 def test_pprint_select_type(frontend, tmp_path):
     fcode = """
 subroutine select_type_routine(arg)

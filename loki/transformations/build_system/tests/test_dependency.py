@@ -326,7 +326,7 @@ END MODULE DRIVER_MOD
     assert 'some_const' in [str(s) for s in driver['driver_mod'].spec.body[1].symbols]
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 def test_dependency_transformation_header_includes(tmp_path, frontend):
     """
     Test injection of suffixed kernels into unchanged driver
@@ -387,7 +387,7 @@ END SUBROUTINE myfunc
     header_file.unlink()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'C-imports need pre-processing for OMNI')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'C-imports need pre-processing for OMNI')]))
 @pytest.mark.parametrize('use_scheduler', [False, True])
 @pytest.mark.parametrize('replace_ignore_items', [False, True])
 def test_dependency_transformation_module_wrap(frontend, use_scheduler, replace_ignore_items, tmp_path, config):

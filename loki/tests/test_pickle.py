@@ -179,7 +179,7 @@ end module my_type_mod
     assert module == loads(dumps(module))
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No external module available')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No external module available')]))
 def test_pickle_subroutine_with_member(frontend):
     """
     Ensure that :any:`Subroutine` and its components are picklable.

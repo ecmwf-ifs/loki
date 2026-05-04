@@ -542,7 +542,7 @@ end subroutine test
             assert assign.live_symbols == {'ia', 'ib', 'ic'}
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI fails to read without full module')]))
 def test_analyse_typeconditional(frontend):
     fcode = """
 subroutine test(arg)

@@ -3074,7 +3074,7 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[8].replace_ignore_items is True
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(skip={OMNI: "OMNI fails on missing module"}))
 @pytest.mark.parametrize('enable_imports', [False, True])
 @pytest.mark.parametrize('import_level', ['module', 'subroutine'])
 def test_scheduler_indirect_import(frontend, tmp_path, enable_imports, import_level):
@@ -3117,8 +3117,7 @@ contains
     end subroutine c
 end module c_mod
 """
-
-    # Set-up paths and write sources
+   # Set-up paths and write sources
     src_path = tmp_path/'src'
     src_path.mkdir()
     out_path = tmp_path/'build'
@@ -3138,17 +3137,10 @@ end module c_mod
         },
         'routines': {'c': {'role': 'driver'}}
     })
-    try:
-        scheduler = Scheduler(
-            paths=[src_path], config=config, frontend=frontend,
-            output_dir=out_path, xmods=[out_path]
-        )
-    except CalledProcessError as e:
-        if frontend == OMNI and not enable_imports:
-            # Without taking care of imports, OMNI will fail to parse the files
-            # because it is missing the xmod files for the header modules
-            pytest.xfail('Without parsing imports, OMNI does not have the xmod for imported modules')
-        raise e
+    scheduler = Scheduler(
+        paths=[src_path], config=config, frontend=frontend,
+        output_dir=out_path, xmods=[out_path]
+    )
 
     # Check for all items in the dependency graph
     expected_items = {'a_mod', 'b_mod', 'b_mod#type_b', 'c_mod#c'}

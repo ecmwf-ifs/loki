@@ -143,7 +143,7 @@ end subroutine data_stmt
         assert '31*0' in spec_code
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki likes only valid code')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Loki likes only valid code')]))
 def test_multiline_inline_conditional(frontend):
     """
     Test correct formatting of an inline :any:`Conditional` that
@@ -177,7 +177,7 @@ end subroutine test_fgen
             assert len(line.split('&')[1]) > 60
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Loki likes only valid code')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Loki likes only valid code')]))
 def test_multiline_inline_conditional_long(frontend):
     """
     Test correct formatting of an inline :any:`Conditional` that
@@ -320,7 +320,7 @@ END SUBROUTINE SPCMNEW
     assert 'procedure(real), pointer, intent(out) :: func' in source.to_fortran().lower()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'SELECT TYPE not implemented')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'SELECT TYPE not implemented')]))
 def test_fgen_select_type(frontend, tmp_path):
     fcode_module = """
 module select_type_mod

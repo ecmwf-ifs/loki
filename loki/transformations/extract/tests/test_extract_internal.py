@@ -175,7 +175,7 @@ def test_extract_internal_procedures_existing_call_args(frontend):
     assert kwargdict['x'] == 1
     assert kwargdict['y'] == 1
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing constants module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on missing constants module')]))
 def test_extract_internal_procedures_basic_import(frontend):
     """
     Tests that a global imported binding is correctly introduced to the contained subroutine.
@@ -205,7 +205,7 @@ def test_extract_internal_procedures_basic_import(frontend):
     assert "c1" not in inner.import_map
     assert 'c2' not in inner.arguments
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing type_mod module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on missing type_mod module')]))
 def test_extract_internal_procedures_recursive_definition(frontend):
     """
     Tests that whenever a global in the contained subroutine depends on another
@@ -273,7 +273,7 @@ def test_extract_internal_procedures_recursive_definition(frontend):
     assert klon.type.intent == "in"
     assert klev.type.intent == "in"
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing parkind1 module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on missing parkind1 module')]))
 def test_extract_internal_procedures_recursive_definition_import(frontend):
     """
     Tests that whenever globals in the contained subroutine depend on imported bindings,
@@ -323,7 +323,7 @@ def test_extract_internal_procedures_recursive_definition_import(frontend):
     assert "jpim" in symbols
     assert len(symbols) == 2
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing parkind1 module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on missing parkind1 module')]))
 def test_extract_internal_procedures_kind_resolution(frontend):
     """
     Tests that an unresolved kind parameter in inner scope is resolved from import in outer scope.
@@ -346,7 +346,7 @@ def test_extract_internal_procedures_kind_resolution(frontend):
     inner = routines[0]
     assert "jpim" in inner.import_map
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing stuff module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on missing stuff module')]))
 def test_extract_internal_procedures_derived_type_resolution(frontend):
     """
     Tests that an unresolved derived type in inner scope is resolved from import in outer scope.
@@ -369,7 +369,7 @@ def test_extract_internal_procedures_derived_type_resolution(frontend):
     inner = routines[0]
     assert "mytype" in inner.import_map
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on missing types module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on missing types module')]))
 def test_extract_internal_procedures_derived_type_field(frontend):
     """
     Test that when a derived type field, i.e 'a%b' is a global in the scope of the contained subroutine,
@@ -457,7 +457,7 @@ def test_extract_internal_procedures_intent(frontend):
     assert outer.variable_map['x'].type.intent is None
     assert outer.variable_map['p'].type.intent == "out"
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Parser fails on undefined symbols')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parser fails on undefined symbols')]))
 def test_extract_internal_procedures_undefined_in_parent(frontend):
     """
     This test is just to document current behaviour:
