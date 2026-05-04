@@ -11,6 +11,7 @@ section and to perform Dead Code Elimination.
 """
 
 import operator as op
+from itertools import chain
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
@@ -259,7 +260,8 @@ def do_remove_unused_call_args(routine, unused_args_map):
        utility.
     """
 
-    for call in FindNodes(ir.CallStatement).visit(routine.body):
+    inline_call_map = {}
+    for call in chain(FindNodes(ir.CallStatement).visit(routine.body), FindInlineCalls().visit(routine.body)):
         if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
             continue
 
@@ -269,21 +271,10 @@ def do_remove_unused_call_args(routine, unused_args_map):
         new_args = [arg for i, arg in enumerate(call.arguments) if i not in unused_positions]
         new_kwargs = [(kw, arg) for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs]
 
-        call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
-
-    # Handle inline function calls
-    inline_call_map = {}
-    for call in FindInlineCalls().visit(routine.body):
-        if call.routine is BasicType.DEFERRED or not unused_args_map.get(call.routine, None):
-            continue
-
-        unused_positions = {c for c in unused_args_map[call.routine].values() if c < len(call.arguments)}
-        unused_kwargs = [(kw, arg) for kw, arg in call.kwarguments if kw.lower() in unused_args_map[call.routine]]
-
-        new_args = tuple(arg for i, arg in enumerate(call.arguments) if i not in unused_positions)
-        new_kwargs = {kw: arg for kw, arg in call.kwarguments if not (kw, arg) in unused_kwargs}
-
-        inline_call_map[call] = call.clone(parameters=new_args, kw_parameters=new_kwargs)
+        if isinstance(call, ir.CallStatement):
+            call._update(arguments=as_tuple(new_args), kwarguments=as_tuple(new_kwargs))
+        else:
+            inline_call_map[call] = call.clone(parameters=as_tuple(new_args), kw_parameters=dict(new_kwargs))
 
     if inline_call_map:
         routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
