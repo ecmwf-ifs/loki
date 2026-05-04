@@ -10,9 +10,6 @@ from loki.ir import (
     FindNodes, Assignment, StatementFunction, SubstituteExpressions
 )
 from loki.logging import detail
-from loki.types import BasicType
-
-
 __all__ = ['InlineSubstitutionMapper']
 
 
@@ -58,7 +55,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         return expr.clone(parent=parent)
 
     def map_inline_call(self, expr, *args, **kwargs):
-        if expr.procedure_type in (None, BasicType.DEFERRED) or expr.procedure_type.is_intrinsic:
+        if not expr.procedure_type or expr.procedure_type.is_intrinsic:
             # Unkonw inline call, potentially an intrinsic
             # We still need to recurse and ensure re-scoping
             return super().map_inline_call(expr, *args, **kwargs)

@@ -13,9 +13,6 @@ from loki.ir import (
 )
 from loki.logging import warning, error
 from loki.tools import as_tuple
-from loki.types import BasicType
-
-
 __all__ = ['DataOffloadTransformation']
 
 
@@ -124,7 +121,7 @@ class DataOffloadTransformation(Transformation):
                 outargs = ()
 
                 for call in calls:
-                    if call.routine is BasicType.DEFERRED:
+                    if not call.routine:
                         warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched ' +
                                 f'in {str(call.name).lower()}')
 

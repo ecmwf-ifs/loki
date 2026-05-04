@@ -221,7 +221,7 @@ def find_offload_variables(driver, region, field_group_types):
 
     # Do some sanity checking and warning for enclosed calls
     for call in FindNodes(ir.CallStatement).visit(region):
-        if call.routine is BasicType.DEFERRED:
+        if not call.routine:
             warning(f'[Loki] Data offload: Routine {driver.name} has not been enriched ' +
                     f'in {str(call.name).lower()}')
             continue

@@ -93,7 +93,7 @@ class BaseStackTransformation(Transformation):
 
         # TODO: probably shouldn't happen here ...
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.routine is not BasicType.DEFERRED:
+            if call.routine:
                 call.convert_kwargs_to_args()
 
         if role == 'kernel':
@@ -172,7 +172,7 @@ class BaseStackTransformation(Transformation):
         """
         arg_map = {}
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.routine is not BasicType.DEFERRED:
+            if call.routine:
                 arg_map.update(dict(call.arg_iter()))
 
         var = Variable(name=self.horizontal.size, scope=routine, type=self.int_type)

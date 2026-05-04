@@ -14,7 +14,6 @@ from loki.ir import (
     NestedTransformer, is_loki_pragma, pragmas_attached,
 )
 from loki.tools import as_tuple, flatten
-from loki.types import BasicType
 from loki.expression import symbols as sym
 
 from loki.transformations.utilities import (
@@ -116,7 +115,7 @@ class SCCDevectorTransformation(Transformation):
         for call in calls:
 
             # check if calls have been enriched
-            if not call.routine is BasicType.DEFERRED:
+            if call.routine:
                 # check if called routine is marked as sequential
                 if check_routine_sequential(routine=call.routine):
                     continue

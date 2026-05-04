@@ -548,7 +548,7 @@ class LowerBlockIndexTransformation(Transformation):
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() not in targets:
                 continue
-            if call.routine is BasicType.DEFERRED:
+            if not call.routine:
                 warning('[LowerBlockIndexTransformation] Not processing routine ' \
                         f'{call.name}. Call statement not enriched')
                 continue
@@ -729,7 +729,7 @@ class LowerBlockLoopTransformation(Transformation):
                 for loop in loops:
                     target_calls = [call for call in FindNodes(ir.CallStatement).visit(loop.body)
                             if str(call.name).lower() in targets]
-                    target_calls = [call for call in target_calls if call.routine is not BasicType.DEFERRED]
+                    target_calls = [call for call in target_calls if call.routine]
                     if not target_calls:
                         continue
                     calls += tuple(target_calls)

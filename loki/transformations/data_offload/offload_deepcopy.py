@@ -130,7 +130,7 @@ class DeepcopyDataflowAnalysis(DataflowAnalysis):
         self.successor_map = successor_map
 
     def resolve_call_effects(self, call, *, attacher, **kwargs):
-        if call.routine is BasicType.DEFERRED:
+        if not call.routine:
             msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
             raise RuntimeError(msg)
 

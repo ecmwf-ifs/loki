@@ -922,7 +922,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 if call.name in [s for i in FindNodes(Interface).visit(routine.spec) for s in i.symbols]:
                     _ = self._get_stack_arg(call.routine)
 
-                if call.routine != BasicType.DEFERRED and stack_arg_name in call.routine.arguments:
+                if call.routine and stack_arg_name in call.routine.arguments:
                     call_map[call] = call.clone(
                         kwarguments=call.kwarguments + new_kwarguments
                     )

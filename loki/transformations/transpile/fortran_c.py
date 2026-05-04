@@ -75,7 +75,7 @@ class DeReferenceTrafo(Transformer):
 
     def visit_CallStatement(self, o, **kwargs):
         new_args = ()
-        if o.routine is BasicType.DEFERRED:
+        if not o.routine:
             debug(f'DeReferenceTrafo: Skipping call to {o.name!s} due to missing procedure enrichment')
             return o
         call_arg_map = dict((v,k) for k,v in o.arg_map.items())
@@ -193,7 +193,7 @@ class FortranCTransformation(Transformation):
         # inline calls (to functions)
         inline_call_map = {}
         for inline_call in as_tuple(FindInlineCalls().visit(routine.body)):
-            if str(inline_call.name).lower() in as_tuple(targets) and inline_call.routine is not BasicType.DEFERRED:
+            if str(inline_call.name).lower() in as_tuple(targets) and inline_call.routine:
                 inline_call_map[inline_call] = inline_call.clone_with_kwargs_as_args()
         if inline_call_map:
             routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
@@ -347,7 +347,7 @@ class FortranCTransformation(Transformation):
         # inline calls (to functions)
         callmap = {}
         for call in FindInlineCalls(unique=False).visit(routine.body):
-            if call.routine is not BasicType.DEFERRED and (targets is None or call.name in as_tuple(targets)):
+            if call.routine and (targets is None or call.name in as_tuple(targets)):
                 callmap[call.function] = call.function.clone(name=f'{call.name}_c')
         routine.body = SubstituteExpressions(callmap).visit(routine.body)
 

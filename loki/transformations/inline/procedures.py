@@ -13,7 +13,6 @@ from loki.ir import (
     pragmas_attached, is_loki_pragma, Interface, Pragma, AttachScopes
 )
 from loki.expression import symbols as sym, simplify
-from loki.types import BasicType
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.logging import error
 from loki.subroutine import Subroutine
@@ -45,7 +44,7 @@ def resolve_sequence_association_for_inlined_calls(routine, inline_internals, in
                 (inline_internals and call.routine in routine.routines)
             )
             if condition:
-                if call.routine == BasicType.DEFERRED:
+                if not call.routine:
                     # NOTE: Throwing error here instead of continuing, because the user has explicitly
                     # asked sequence assoc to happen with inlining, so source for routine should be
                     # found in calls to be inlined.
@@ -136,7 +135,7 @@ def map_call_to_procedure_body(call, caller, callee=None):
 
     # Get callee from the procedure type
     callee = callee or call.routine
-    if callee is BasicType.DEFERRED:
+    if not callee:
         error(
             '[Loki::TransformInline] Need procedure definition to resolve '
             f'call to {call.name} from {caller}'
@@ -354,7 +353,7 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
         call_sets = defaultdict(list)
         no_call_sets = defaultdict(list)
         for call in FindNodes(CallStatement).visit(routine.body):
-            if call.routine == BasicType.DEFERRED:
+            if not call.routine:
                 continue
 
             if is_loki_pragma(call.pragma, starts_with='inline'):
