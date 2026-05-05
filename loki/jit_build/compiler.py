@@ -120,7 +120,13 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
         return sys.modules[filepath.stem]
 
     # Import module
-    return import_module(filepath.stem)
+    mod = import_module(filepath.stem)
+
+    # Remove the source location to avoid aliasing with future JIT'ed modules
+    if moddir == sys.path[-1]:
+        del sys.path[-1]
+
+    return mod
 
 
 class Compiler:
