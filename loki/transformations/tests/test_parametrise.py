@@ -134,6 +134,7 @@ def check_arguments_and_parameter(scheduler, subroutine_arguments, call_argument
     assert [arg.name for arg in item.ir.arguments] == subroutine_arguments["device2"]
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_parametrise_source(tmp_path, testdir, frontend, config):
     """
@@ -183,6 +184,7 @@ def test_parametrise_source(tmp_path, testdir, frontend, config):
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_parametrise_simple(tmp_path, testdir, frontend, config):
     """
@@ -234,6 +236,7 @@ def test_parametrise_simple(tmp_path, testdir, frontend, config):
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_parametrise_simple_replace_by_value(tmp_path, testdir, frontend, config):
     """
@@ -310,6 +313,7 @@ def test_parametrise_simple_replace_by_value(tmp_path, testdir, frontend, config
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
     """
@@ -373,6 +377,7 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
         compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, config):
     """
@@ -427,6 +432,7 @@ def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, 
     compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=5, b=1, force_unload=True)
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_parametrise_non_driver_entry_points(tmp_path, testdir, frontend, config):
     """

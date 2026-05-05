@@ -35,3 +35,6 @@ def pytest_configure(config):
     This function is invoked after all command line options have been processed
     """
     loki_config['log-level'] = config.option.LOKI_LOG_LEVEL
+    config.addinivalue_line(
+        'markers', 'forked: run this test in a forked subprocess via pytest-forked'
+    )
