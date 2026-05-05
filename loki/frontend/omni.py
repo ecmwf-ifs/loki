@@ -317,7 +317,7 @@ class OMNI2IR(GenericVisitor):
         procedure = None
         if scope is not None and name in scope.symbol_attrs:
             proc_type = scope.symbol_attrs[name]  # Look-up only in current scope!
-            if proc_type and proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and proc_type.dtype.procedure:
                 procedure = proc_type.dtype.procedure
                 if not procedure._incomplete:
                     # We return the existing object right away, unless it exists from a
@@ -479,7 +479,7 @@ class OMNI2IR(GenericVisitor):
         # Check if the Module node has been created before by looking it up in the scope
         if scope is not None and name in scope.symbol_attrs:
             module_type = scope.symbol_attrs[name]  # Look-up only in current scope
-            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+            if module_type and module_type.dtype.module:
                 return module_type.dtype.module
 
         module = Module(name=name, parent=scope)
@@ -907,7 +907,7 @@ class OMNI2IR(GenericVisitor):
 
         # Check if we know that type already
         dtype = kwargs['scope'].symbol_attrs.lookup(name, recursive=True)
-        if dtype is None or dtype.dtype == BasicType.DEFERRED:
+        if dtype is None or not dtype.dtype:
             dtype = DerivedType(name=name, typedef=BasicType.DEFERRED)
         else:
             dtype = dtype.dtype

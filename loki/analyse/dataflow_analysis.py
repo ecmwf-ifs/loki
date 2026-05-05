@@ -16,7 +16,6 @@ from loki.analyse.abstract_dfa import AbstractDataflowAnalysis, dfa_attached
 from loki.expression import Array, ProcedureSymbol
 from loki.ir.expr_visitors import FindLiterals
 from loki.tools import as_tuple, flatten, OrderedSet
-from loki.types import BasicType
 from loki.ir import (
     Visitor, Transformer, FindVariables, FindInlineCalls, FindTypedSymbols
 )
@@ -279,7 +278,7 @@ class DataflowAnalysisAttacher(Transformer):
         return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
 
     def visit_CallStatement(self, o, **kwargs):
-        if o.routine is not BasicType.DEFERRED:
+        if o.routine:
             # With a call context provided we can determine which arguments
             # are potentially defined and which are definitely only used by
             # this call

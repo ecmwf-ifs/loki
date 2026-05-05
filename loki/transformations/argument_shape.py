@@ -59,7 +59,7 @@ class ArgumentArrayShapeAnalysis(Transformation):
         for call in FindNodes(CallStatement).visit(routine.body):
 
             # Skip if call-side info is not available or call is not active
-            if call.routine is BasicType.DEFERRED or call.not_active:
+            if not call.routine or call.not_active:
                 continue
 
             routine = call.routine
@@ -164,7 +164,7 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
         for call in FindNodes(CallStatement).visit(routine.body):
 
             # Skip if call-side info is not available or call is not active
-            if call.routine is BasicType.DEFERRED or call.not_active:
+            if not call.routine or call.not_active:
                 continue
 
             callee = call.routine

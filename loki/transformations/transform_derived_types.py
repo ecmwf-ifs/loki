@@ -28,7 +28,7 @@ from loki.ir import (
 from loki.logging import warning, debug
 from loki.module import Module
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict, OrderedSet
-from loki.types import BasicType, DerivedType, ProcedureType
+from loki.types import DerivedType, ProcedureType
 
 from loki.transformations.utilities import recursive_expression_map_update
 
@@ -482,7 +482,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
             type_ = arg.type
             if isinstance(type_.dtype, DerivedType) and type_.dtype.name not in symbol_map:
                 typedef = type_.dtype.typedef
-                if typedef is BasicType.DEFERRED:
+                if not typedef:
                     warning((
                         '[Loki::DerivedTypeArgumentsTransformation] '
                         f'Cannot insert import for derived type "{type_.dtype.name}" in {routine.name}. '
@@ -586,7 +586,7 @@ def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_na
         return proc_symbol.type.bind_names[0]
 
     parent = proc_symbol.parents[0]
-    if parent.type.dtype.typedef is not BasicType.DEFERRED:
+    if parent.type.dtype.typedef:
         # Fiddle our way through derived type nesting until we obtain the symbol corresponding
         # to the procedure-binding in the TypeDef
         local_parent = None

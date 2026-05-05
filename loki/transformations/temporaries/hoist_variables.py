@@ -91,7 +91,6 @@ from loki.ir import (
 from loki.tools.util import (
     is_iterable, as_tuple, CaseInsensitiveDict, flatten, OrderedSet
 )
-from loki.types import BasicType
 from loki.logging import warning
 
 from loki.transformations.utilities import single_variable_declaration
@@ -167,7 +166,7 @@ class HoistVariablesAnalysis(Transformation):
             if not isinstance(child, ProcedureItem):
                 continue
 
-            if call_map[child.local_name].routine is BasicType.DEFERRED:
+            if not call_map[child.local_name].routine:
                 warning((
                     '[Loki::HoistVariablesAnalysis] '
                     f''
@@ -292,7 +291,7 @@ class HoistVariablesTransformation(Transformation):
             if str(call.name) not in successor_map:
                 continue
 
-            if call.routine is BasicType.DEFERRED:
+            if not call.routine:
                 warning((
                     '[Loki::HoistVariablesTransformation] '
                     f''

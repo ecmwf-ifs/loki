@@ -17,7 +17,7 @@ from loki.ir import (
 )
 from loki.logging import debug
 from loki.tools import CaseInsensitiveDict, as_tuple, flatten
-from loki.types import BasicType, DerivedType, ProcedureType, Scope
+from loki.types import DerivedType, ProcedureType, Scope
 
 
 __all__ = ['ProgramUnit']
@@ -368,9 +368,9 @@ class ProgramUnit(Scope):
 
                 if attrs.imported and not attrs.module:
                     updated_symbol_attrs[name] = self.parent.symbol_attrs[name]
-                elif isinstance(attrs.dtype, ProcedureType) and attrs.dtype.procedure is BasicType.DEFERRED:
+                elif isinstance(attrs.dtype, ProcedureType) and not attrs.dtype.procedure:
                     updated_symbol_attrs[name] = self.parent.symbol_attrs[name]
-                elif isinstance(attrs.dtype, DerivedType) and attrs.dtype.typedef is BasicType.DEFERRED:
+                elif isinstance(attrs.dtype, DerivedType) and not attrs.dtype.typedef:
                     updated_symbol_attrs[name] = attrs.clone(dtype=self.parent.symbol_attrs[name].dtype)
             self.symbol_attrs.update(updated_symbol_attrs)
 

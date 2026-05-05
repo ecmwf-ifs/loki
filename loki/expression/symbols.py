@@ -18,7 +18,7 @@ from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
+from loki.types import BasicType, DataType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
 from loki.expression.literals import (
@@ -143,7 +143,7 @@ class TypedSymbol:
         ambiguous derived type components.
         """
         _type = scope.symbol_attrs.lookup(self.name)
-        if _type and _type.dtype is not BasicType.DEFERRED:
+        if _type and _type.dtype:
             # We have a clean entry in the symbol table which is not deferred
             return _type
 
@@ -248,7 +248,7 @@ class TypedSymbol:
         """
         _type = self.type
         if _type and isinstance(_type.dtype, DerivedType):
-            if _type.dtype.typedef is BasicType.DEFERRED:
+            if not _type.dtype.typedef:
                 return ()
             return tuple(
                 v.clone(name=f'{self.name}%{v.name}', scope=self.scope, type=v.type, parent=self)
@@ -326,7 +326,7 @@ class TypedSymbol:
         Resolve type-bound variables of arbitrary nested depth.
         """
         name_parts = name_str.split('%', maxsplit=1)
-        if self.type.dtype is not BasicType.DEFERRED and self.type.dtype.typedef is not BasicType.DEFERRED:
+        if self.type.dtype and self.type.dtype.typedef:
             assert self.type.dtype.typedef.variable_map[name_parts[0]]
         declared_var = Variable(name=f'{self.name}%{name_parts[0]}', scope=self.scope, parent=self)
         if len(name_parts) > 1:
@@ -863,7 +863,7 @@ class Variable:
 
         if kwargs.get('dimensions') is not None or (_type and _type.shape):
             return Array(**kwargs)
-        if _type and _type.dtype is not BasicType.DEFERRED:
+        if _type and _type.dtype:
             return Scalar(**kwargs)
         return DeferredTypeSymbol(**kwargs)
 
@@ -893,7 +893,7 @@ class Variable:
         stored_type = scope.symbol_attrs.lookup(name)
 
         # 2. For derived type members, we can try to find it via the parent instead
-        if '%' in name and (not stored_type or stored_type.dtype is BasicType.DEFERRED):
+        if '%' in name and (not stored_type or not stored_type.dtype):
             name_parts = name.split('%')
             if not parent:
                 # Build the parent if not given
@@ -965,12 +965,18 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
         return self.function.name
 
     @property
-    def procedure_type(self):
+    def procedure_type(self) -> DataType:
         """
         Returns the underpinning procedure type if the type is know,
         ``BasicType.DEFFERED`` otherwise.
         """
-        return self.function.type.dtype
+        procedure_type = self.function.type.dtype
+        if not isinstance(procedure_type, DataType):
+            raise TypeError(
+                f'InlineCall.function.type.dtype must be a DataType, got '
+                f'{type(procedure_type).__name__}'
+            )
+        return procedure_type
 
     @property
     def arguments(self):

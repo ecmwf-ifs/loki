@@ -9,9 +9,6 @@ from loki.batch import Transformation
 from loki.expression import Array, RangeIndex
 from loki.ir import Transformer
 from loki.tools import as_tuple
-from loki.types import BasicType
-
-
 __all__ = [
     'SequenceAssociationTransformation',
     'do_resolve_sequence_association',
@@ -102,7 +99,7 @@ class SequenceAssociationTransformer(Transformer):
         Resolve sequence association patterns in arguments and return
         new :any:`CallStatement` object if any were found.
         """
-        if call.procedure_type is BasicType.DEFERRED:
+        if not call.procedure_type:
             return call
 
         new_args = []

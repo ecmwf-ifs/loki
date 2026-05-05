@@ -77,7 +77,7 @@ class ProcedureType(DataType):
         This looks up the name in the linked :attr:`procedure` if available, otherwise
         returns the name stored during instanation of the :any:`ProcedureType` object.
         """
-        return self._name if self.procedure is BasicType.DEFERRED else self.procedure.name
+        return self._name if not self.procedure else self.procedure.name
 
     @property
     def procedure(self):
@@ -107,7 +107,7 @@ class ProcedureType(DataType):
         """
         Return `True` if the procedure is a function, otherwise `False`
         """
-        if self.procedure is BasicType.DEFERRED:
+        if not self.procedure:
             return self._is_function
         return self.procedure.is_function
 
@@ -116,7 +116,7 @@ class ProcedureType(DataType):
         """
         Return ``True`` if the procedure has the ``elemental`` prefix, otherwise ``False``
         """
-        if self.procedure is BasicType.DEFERRED:
+        if not self.procedure:
             return False
         if not hasattr(self.procedure, 'prefix'):
             # StatementFunction objects have no prefix!
@@ -131,7 +131,7 @@ class ProcedureType(DataType):
         """
         if not self.is_function:
             return None
-        if self.procedure is BasicType.DEFERRED:
+        if not self.procedure:
             return self._return_type
         return self.procedure.return_type
 

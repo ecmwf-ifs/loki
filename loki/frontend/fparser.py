@@ -762,7 +762,7 @@ class FParser2IR(GenericVisitor):
 
             # Look for a previous definition of this type
             _type = kwargs['scope'].symbol_attrs.lookup(dtype.name)
-            if _type is None or _type.dtype is BasicType.DEFERRED:
+            if _type is None or not _type.dtype:
                 _type = SymbolAttributes(dtype)
 
             if o.children[0].upper() == 'CLASS':
@@ -934,7 +934,7 @@ class FParser2IR(GenericVisitor):
         scope = kwargs['scope']
         for var in symbols:
             _type = scope.symbol_attrs.lookup(var.name) or SymbolAttributes(dtype=BasicType.DEFERRED)
-            if _type.dtype == BasicType.DEFERRED:
+            if not _type.dtype:
                 dtype = ProcedureType(var.name, is_function=False)
             else:
                 dtype = ProcedureType(var.name, is_function=True, return_type=_type)
@@ -1005,7 +1005,7 @@ class FParser2IR(GenericVisitor):
         if return_type is None:
             interface = self.visit(o.children[0], **kwargs)
             interface = AttachScopesMapper()(interface, scope=scope)
-            if interface.type.dtype is BasicType.DEFERRED:
+            if not interface.type.dtype:
                 # This is (presumably!) an external function with explicit interface that we
                 # don't know because the type information is not available, e.g., because it's been
                 # imported from another module or sits in an intfb.h header file.
@@ -1454,7 +1454,7 @@ class FParser2IR(GenericVisitor):
         types = [scope.symbol_attrs.lookup(name) for name in func_names]
         types = [
             SymbolAttributes(dtype=ProcedureType(name))
-            if not t or t.dtype == BasicType.DEFERRED else t
+            if not t or not t.dtype else t
             for t, name in zip(types, func_names)
         ]
 
@@ -1645,7 +1645,7 @@ class FParser2IR(GenericVisitor):
             # This has a generic specification (and we might need to update symbol table)
             scope = kwargs['scope']
             spec_type = scope.symbol_attrs.lookup(spec.name)
-            if not spec_type or spec_type.dtype == BasicType.DEFERRED:
+            if not spec_type or not spec_type.dtype:
                 scope.symbol_attrs[spec.name] = SymbolAttributes(
                     ProcedureType(name=spec.name, is_generic=True)
                 )
@@ -2012,8 +2012,7 @@ class FParser2IR(GenericVisitor):
             return None, None
 
         if proc_type := scope.symbol_attrs.get(name):  # Look-up only in current scope!
-            if proc_type and proc_type.dtype != BasicType.DEFERRED and \
-               proc_type.dtype.procedure != BasicType.DEFERRED:
+            if proc_type and proc_type.dtype and proc_type.dtype.procedure:
                 return proc_type.dtype.procedure, proc_type
         return None, None
 
@@ -2296,7 +2295,7 @@ class FParser2IR(GenericVisitor):
         # Check if the Module node has been created before by looking it up in the scope
         if kwargs['scope'] is not None and name in kwargs['scope'].symbol_attrs:
             module_type = kwargs['scope'].symbol_attrs[name]  # Look-up only in current scope!
-            if module_type and module_type.dtype.module != BasicType.DEFERRED:
+            if module_type and module_type.dtype.module:
                 return module_type.dtype.module
 
         module = Module(name=name, parent=kwargs['scope'])
@@ -2940,7 +2939,7 @@ class FParser2IR(GenericVisitor):
         # Update type information for symbols with deferred type
         # (applies to all constant that are defined without explicit value)
         symbols = tuple(
-            s.clone(type=SymbolAttributes(BasicType.INTEGER)) if s.type.dtype is BasicType.DEFERRED else s
+            s.clone(type=SymbolAttributes(BasicType.INTEGER)) if not s.type.dtype else s
             for s in symbols
         )
 

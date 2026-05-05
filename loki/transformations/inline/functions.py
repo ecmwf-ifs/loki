@@ -15,7 +15,6 @@ from loki.ir import (
     VariableDeclaration
 )
 from loki.subroutine import Subroutine
-from loki.types import BasicType
 from loki.tools import as_tuple, OrderedSet
 
 from loki.transformations.inline.mapper import InlineSubstitutionMapper
@@ -110,7 +109,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
         def map_inline_call(self, expr, *args, **kwargs):
             if not self.visit(expr, *args, **kwargs):
                 return
-            if not expr.procedure_type is BasicType.DEFERRED and expr.procedure_type.is_elemental:
+            if expr.procedure_type and expr.procedure_type.is_elemental:
                 if any(is_array(val) for val in expr.arg_map.values() if isinstance(val, sym.Array)):
                     warning(f"Call to elemental function '{expr.routine.name}' with array arguments."
                             f' There is currently no support to inline those calls!')
@@ -118,7 +117,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
             self.rec(expr.function, *args, **kwargs)
             # SKIP parameters/args/kwargs on purpose
             #  under certain circumstances
-            if expr.procedure_type is BasicType.DEFERRED or\
+            if not expr.procedure_type or\
                     (self.inline_elementals_only and\
                     not(expr.procedure_type.is_function and expr.procedure_type.is_elemental)) or\
                     (self.functions and expr.routine not in self.functions):
@@ -153,7 +152,7 @@ def _inline_functions(routine, inline_elementals_only=False, functions=None):
     # in the next call to this function.
     for node, calls in FindInlineCallsSkipInlineCallParameters(with_ir_node=True).visit(routine.body):
         for call in calls:
-            if call.procedure_type is BasicType.DEFERRED or isinstance(call.routine, StatementFunction):
+            if not call.procedure_type or isinstance(call.routine, StatementFunction):
                 continue
             if not call.procedure_type.is_function:
                 continue
@@ -212,7 +211,7 @@ def inline_statement_functions(routine):
     exprmap = {}
     for call in FindInlineCalls().visit(routine.body):
         proc_type = call.procedure_type
-        if proc_type is BasicType.DEFERRED:
+        if not proc_type:
             continue
         if proc_type.is_function and isinstance(call.routine, StatementFunction):
             exprmap[call] = InlineSubstitutionMapper()(call, scope=routine)

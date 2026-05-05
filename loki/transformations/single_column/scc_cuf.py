@@ -747,7 +747,7 @@ class SccLowLevelDataOffload(Transformation):
             # insert_index = routine.body.body.index(calls[-1])
             # insert_index = None
             for call in calls:
-                if call.routine is BasicType.DEFERRED:
+                if not call.routine:
                     # warning(f'[Loki] Data offload: Routine {routine.name} has not been enriched with ' +
                     #     f'in {str(call.name).lower()}')
                     continue

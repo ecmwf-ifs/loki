@@ -17,7 +17,7 @@ from loki.ir import (
 from loki.logging import debug
 from loki.program_unit import ProgramUnit
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, ProcedureType, SymbolAttributes
+from loki.types import ProcedureType, SymbolAttributes
 
 
 
@@ -385,16 +385,16 @@ class Subroutine(ProgramUnit):
 
                 if not routine and symbol.parent:
                     # Type-bound procedure: try to obtain procedure from typedef
-                    if (dtype := symbol.parent.type.dtype) is not BasicType.DEFERRED:
-                        if (typedef := dtype.typedef) is not BasicType.DEFERRED:
+                    if dtype := symbol.parent.type.dtype:
+                        if typedef := dtype.typedef:
                             if proc_symbol := typedef.variable_map.get(symbol.name_parts[-1]):
-                                if (dtype := proc_symbol.type.dtype) is not BasicType.DEFERRED:
-                                    if dtype.procedure is not BasicType.DEFERRED:
+                                if dtype := proc_symbol.type.dtype:
+                                    if dtype.procedure:
                                         routine = dtype.procedure
 
                 is_not_enriched = (
                     symbol.scope is None or                         # No scope attached
-                    symbol.type.dtype is BasicType.DEFERRED or      # Wrong datatype
+                    not symbol.type.dtype or                        # Wrong datatype
                     symbol.type.dtype.procedure is not routine      # ProcedureType not linked
                 )
 

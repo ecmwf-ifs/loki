@@ -18,8 +18,6 @@ from loki.ir import (
     SubstituteExpressions
 )
 from loki.tools import as_tuple, flatten
-from loki.types import BasicType
-
 __all__ = ['RemoveDuplicateArgs', 'remove_duplicate_args_from_calls',
            'modify_variable_declarations']
 
@@ -150,7 +148,7 @@ def remove_duplicate_args_from_calls(routine, rename_common=False):
     relevant_calls = []
     # adapt call statements (and remove duplicate args/kwargs)
     for call in calls:
-        if call.routine is BasicType.DEFERRED:
+        if not call.routine:
             continue
         call_arg_map[call.routine] = remove_duplicate_args_call(call)
         relevant_calls.append(call)
