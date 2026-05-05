@@ -53,7 +53,7 @@ def fixture_bundle_create(here, local_loki_bundle):
 ))
 def test_cloudsc(here, frontend):
     build_cmd = [
-        './cloudsc-bundle', 'build', '--retry-verbose', '--clean',
+        './cloudsc-bundle', 'build', '--retry-verbose', '--clean', '-j 4',
         '--with-loki=ON', '--loki-frontend=' + str(frontend), '--without-loki-install',
         '--with-double-precision=ON', '--with-single-precision=ON'
     ]
