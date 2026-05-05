@@ -28,6 +28,7 @@ def fixture_builder(tmp_path):
     Obj.clear_cache()
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('return_type_via_var', (True, False))
 def test_transform_inline_elemental_functions(tmp_path, builder, frontend, return_type_via_var):

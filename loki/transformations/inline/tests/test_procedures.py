@@ -23,6 +23,7 @@ from loki.transformations.inline import (
 from loki.transformations.sanitise import ResolveAssociatesTransformer
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_routines(tmp_path, frontend):
     """
@@ -93,6 +94,7 @@ end subroutine member_routines
     assert (b == [3., 3., 3.]).all()
 
 
+@pytest.mark.forked
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_inline_member_functions(tmp_path, frontend):
     """
