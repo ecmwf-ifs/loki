@@ -21,15 +21,15 @@ jobs:
       fail-fast: false  # false: try to complete all jobs
       matrix:
         name:
-          - linux gnu-13
+          - linux gnu-15
 
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
         include:
-          - name: linux gnu-13
+          - name: linux gnu-15
             os: ubuntu-24.04
             install-options: --with-omni --with-tests --without-dace
-            toolchain: {compiler: gcc, version: 13}
+            toolchain: {compiler: gcc, version: 15}
             pkg-dependencies: graphviz byacc flex cmake meson ninja-build libhdf5-dev libopenmpi-dev
             pip-dependencies: pyyaml fypp
 
