@@ -19,6 +19,39 @@ from ._test_scheduler_utils import VisGraphWrapper
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
+@pytest.fixture(name='driverA_dependencies')
+def fixture_drivera_dependencies():
+    return {
+        'driverA_mod#driverA': ('kernelA_mod#kernelA', 'header_mod', 'header_mod#header_type'),
+        'kernelA_mod#kernelA': ('compute_l1_mod#compute_l1', '#another_l1'),
+        'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
+        'compute_l2_mod#compute_l2': (),
+        '#another_l1': ('#another_l2', 'header_mod'),
+        '#another_l2': ('header_mod',),
+        'header_mod': (),
+        'header_mod#header_type': (),
+    }
+
+
+@pytest.fixture(name='driverB_dependencies')
+def fixture_driverb_dependencies():
+    return {
+        'driverB_mod#driverB': (
+            'kernelB_mod#kernelB',
+            'header_mod#header_type',
+            'header_mod'
+        ),
+        'kernelB_mod#kernelB': ('compute_l1_mod#compute_l1', 'ext_driver_mod#ext_driver'),
+        'compute_l1_mod#compute_l1': ('compute_l2_mod#compute_l2',),
+        'compute_l2_mod#compute_l2': (),
+        'ext_driver_mod#ext_driver': ('ext_kernel_mod', 'ext_kernel_mod#ext_kernel',),
+        'ext_kernel_mod': (),
+        'ext_kernel_mod#ext_kernel': (),
+        'header_mod#header_type': (),
+        'header_mod': (),
+    }
+
+
 def test_scheduler_empty_config(testdir, frontend, tmp_path):
     """
     Test that instantiating the Scheduler without config works (albeit it's not very useful)

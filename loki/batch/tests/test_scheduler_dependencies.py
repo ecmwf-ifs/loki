@@ -28,6 +28,70 @@ from ._test_scheduler_utils import VisGraphWrapper
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
+@pytest.fixture(name='proj_typebound_dependencies')
+def fixture_proj_typebound_dependencies():
+    return {
+        '#driver': (
+            'typebound_item',
+            'typebound_item#some_type%other_routine',
+            'typebound_item#some_type%some_routine',
+            'typebound_header',
+            'typebound_header#header_type%member_routine',
+            'typebound_header#header_type%routine',
+            'typebound_other#other_type',
+            'typebound_other#other_type%member',
+            'typebound_other#other_type%var%member_routine',
+        ),
+        'typebound_item': ('typebound_header',),
+        'typebound_item#some_type': (),
+        'typebound_item#some_type%some_routine': ('typebound_item#some_routine',),
+        'typebound_item#some_type%other_routine': ('typebound_item#other_routine',),
+        'typebound_item#some_type%routine': ('typebound_item#module_routine',),
+        'typebound_item#some_type%routine1': ('typebound_item#routine1',),
+        'typebound_item#some_type%routine2': ('typebound_item#routine',),
+        'typebound_item#routine': (
+            'typebound_item#some_type',
+            'typebound_item#some_type%some_routine',
+        ),
+        'typebound_item#routine1': (
+            'typebound_item#module_routine',
+            'typebound_item#some_type'
+        ),
+        'typebound_item#some_routine': (
+            'typebound_item#some_type',
+            'typebound_item#some_type%routine',
+        ),
+        'typebound_item#other_routine': (
+            'typebound_item#some_type',
+            'typebound_item#some_type%routine1',
+            'typebound_item#some_type%routine2',
+            'typebound_header#abor1'
+        ),
+        'typebound_item#module_routine': (),
+        'typebound_header': (),
+        'typebound_header#header_type': (),
+        'typebound_header#header_type%member_routine': ('typebound_header#header_member_routine',),
+        'typebound_header#header_member_routine': ('typebound_header#header_type',),
+        'typebound_header#header_type%routine': (
+            'typebound_header#header_type%routine_real',
+            'typebound_header#header_type%routine_integer'
+        ),
+        'typebound_header#header_type%routine_real': ('typebound_header#header_routine_real',),
+        'typebound_header#header_routine_real': ('typebound_header#header_type',),
+        'typebound_header#header_type%routine_integer': ('typebound_header#routine_integer',),
+        'typebound_header#routine_integer': ('typebound_header#header_type',),
+        'typebound_header#abor1': (),
+        'typebound_other#other_type': ('typebound_header#header_type',),
+        'typebound_other#other_type%member': ('typebound_other#other_member',),
+        'typebound_other#other_member': (
+            'typebound_header#header_member_routine',
+            'typebound_other#other_type',
+            'typebound_other#other_type%var%member_routine'
+        ),
+        'typebound_other#other_type%var%member_routine': ('typebound_header#header_type%member_routine',)
+    }
+
+
 @pytest.fixture(name='loki_69_dir')
 def fixture_loki_69_dir(testdir):
     """
