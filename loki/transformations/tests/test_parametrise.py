@@ -9,6 +9,7 @@
 A selection of tests for the parametrisation functionality.
 """
 from pathlib import Path
+from uuid import uuid4
 import pytest
 import numpy as np
 
@@ -65,8 +66,14 @@ def compile_and_test(scheduler, tmp_path, a=5, b=1):
     path_source_map = {item.source.path.stem: item.source for item in driver_path_map}
 
     # Compile each file only once
+    # Note, to avoid Python module caching artifacts in the Python
+    # module loader, we give each instance of this a unique ID. This
+    # avoids aliasing the `parametrise` Python module for different
+    # compiled `parametrise.f90` and `parametrise.cpython.*.so`.
     path_module_map = {
-        stem: jit_compile(source, filepath=tmp_path/f'{stem}.F90', objname=stem)
+        stem: jit_compile(
+            source, filepath=tmp_path/f'{stem}_{uuid4().hex}.F90', objname=stem
+        )
         for stem, source in path_source_map.items()
     }
 
