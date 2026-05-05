@@ -56,7 +56,7 @@ def fixture_config():
     }
 
 
-def compile_and_test(scheduler, tmp_path, a=5, b=1):
+def compile_and_test(scheduler, tmp_path, a=5, b=1, force_unload=True):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
     """
@@ -66,7 +66,10 @@ def compile_and_test(scheduler, tmp_path, a=5, b=1):
 
     # Compile each file only once
     path_module_map = {
-        stem: jit_compile(source, filepath=tmp_path/f'{stem}.F90', objname=stem)
+        stem: jit_compile(
+            source, filepath=tmp_path/f'{stem}.F90', objname=stem,
+            force_unload=force_unload
+        )
         for stem, source in path_source_map.items()
     }
 
@@ -177,7 +180,7 @@ def test_parametrise_source(tmp_path, testdir, frontend, config):
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
+    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -228,7 +231,7 @@ def test_parametrise_simple(tmp_path, testdir, frontend, config):
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
+    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -304,7 +307,7 @@ def test_parametrise_simple_replace_by_value(tmp_path, testdir, frontend, config
     assert f'z({b})' in routine_spec_str
     assert f'd2_tmp({b})' in routine_spec_str
 
-    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
+    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -367,7 +370,7 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
         check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                       call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-        compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
+        compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -421,7 +424,7 @@ def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, 
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=5, b=1)
+    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=5, b=1, force_unload=True)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -472,7 +475,7 @@ def test_parametrise_non_driver_entry_points(tmp_path, testdir, frontend, config
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b)
+    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=a, b=b, force_unload=True)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
