@@ -21,23 +21,23 @@ jobs:
       fail-fast: false  # false: try to complete all jobs
       matrix:
         name:
-          - linux gnu-14
+          - linux gnu-15
 
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
 
         include:
-          - name: linux gnu-14
+          - name: linux gnu-15
             os: ubuntu-24.04
               # Enable --with-dace as soon as DaCe supports 3.13 and Numpy>2.0
             install-options: --with-omni --with-examples --with-tests --without-dace
-            toolchain: {compiler: gcc, version: 14}
+            toolchain: {compiler: gcc, version: 15}
             pkg-dependencies: graphviz gfortran byacc flex cmake meson ninja-build
 
           - name: macos
-            os: macos-14
+            os: macos-15
             python-version: '3.13'
             install-options: --with-examples --with-tests --without-dace
-            toolchain: {compiler: gcc, version: 14}
+            toolchain: {compiler: gcc, version: 15}
             pkg-dependencies: graphviz ninja meson
 
     runs-on: ${{ matrix.os }}
