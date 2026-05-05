@@ -197,7 +197,7 @@ def clean_builddir(builddir):
 
 
 @pytest.fixture(scope='module', name='cmake_project')
-def fixture_cmake_project(here, config, srcdir):
+def fixture_cmake_project(tmp_dir, here, config, srcdir):
     """
     Create a CMake project and set-up paths
     """
@@ -223,19 +223,25 @@ loki_transform_plan(
         {proj_b}
 )
     """
-    filepath = srcdir/'CMakeLists.txt'
+    projdir = tmp_dir/'project'
+    projdir.mkdir()
+    filepath = projdir/'CMakeLists.txt'
     filepath.write_text(file_content)
 
-    # Create a symlink to loki
-    (srcdir/'loki').symlink_to(here.parent)
+    # Create a symlink to loki package and the source files
+    (projdir/'loki').symlink_to(here.parent)
+    shutil.copytree(srcdir/'projA', projdir/'projA')
+    shutil.copytree(srcdir/'projB', projdir/'projB')
 
-    yield filepath
+    yield projdir
 
     filepath.unlink()
-    (srcdir/'loki').unlink()
+    (projdir/'loki').unlink()
+    shutil.rmtree(projdir/'projA', ignore_errors=True)
+    shutil.rmtree(projdir/'projB', ignore_errors=True)
 
 
-def test_cmake_plan(srcdir, tmp_dir, config, cmake_project, loki_install, ecbuild, silent):
+def test_cmake_plan(tmp_dir, config, cmake_project, loki_install, ecbuild, silent):
     """
     Test the `loki_transform_plan` CMake function with a single task
     graph spanning two projects
@@ -247,12 +253,12 @@ def test_cmake_plan(srcdir, tmp_dir, config, cmake_project, loki_install, ecbuil
     plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
 
     assert config.exists()
-    assert cmake_project.exists()
+    assert (cmake_project/'CMakeLists.txt').exists()
 
     for loki_root in loki_install:
         with clean_builddir(tmp_dir/'test_cmake_plan') as builddir:
             execute(
-                [f'{ecbuild}/bin/ecbuild', str(srcdir), f'-Dloki_ROOT={loki_root}'],
+                [f'{ecbuild}/bin/ecbuild', str(cmake_project), f'-Dloki_ROOT={loki_root}'],
                 cwd=builddir, silent=silent
             )
 
