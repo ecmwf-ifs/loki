@@ -27,7 +27,7 @@ __all__ = ['jit_compile', 'jit_compile_lib', 'clean_test']
 _f90wrap_kind_map = Path(__file__).parent.parent/'tests/kind_map'
 
 
-def jit_compile(source, filepath=None, objname=None):
+def jit_compile(source, filepath=None, objname=None, force_unload=False):
     """
     Generate, Just-in-Time compile and load a given item
     for interactive execution.
@@ -40,6 +40,10 @@ def jit_compile(source, filepath=None, objname=None):
         Path of the source file to write (default: hashed name in :any:`gettempdir()`)
     objname : str, optional
         Return a specific object (module or subroutine) in :attr:`source`
+    force_unload : bool, optional
+        Remove previously imported modules with the same wrapper and extension
+        names from :data:`sys.modules` before importing the freshly built
+        module.
     """
     if isinstance(source, Sourcefile):
         filepath = source.path if filepath is None else Path(filepath)
@@ -54,7 +58,10 @@ def jit_compile(source, filepath=None, objname=None):
             filepath = Path(filepath)
         Sourcefile(filepath).write(source=source)
 
-    pymod = compile_and_load(filepath, cwd=str(filepath.parent), f90wrap_kind_map=_f90wrap_kind_map)
+    pymod = compile_and_load(
+        filepath, cwd=str(filepath.parent), f90wrap_kind_map=_f90wrap_kind_map,
+        force_unload=force_unload
+    )
 
     if objname:
         return getattr(pymod, objname)

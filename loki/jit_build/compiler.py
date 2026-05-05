@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from importlib import import_module, reload
+from importlib import import_module, invalidate_caches, reload
 import os
 from pathlib import Path
 import re
@@ -59,7 +59,7 @@ def clean(filename, pattern=None):
             delete(f)
 
 
-def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
+def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None, force_unload=False):
     """
     Just-in-time compile Fortran source code and load the respective
     module or class.
@@ -79,6 +79,10 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     compiler : :any:`Compiler`, optional
         Use the specified compiler to compile the Fortran source code. Defaults
         to :any:`_default_compiler`
+    force_unload : bool, optional
+        Remove previously imported modules with the same wrapper and extension
+        names from :data:`sys.modules` before importing the freshly built
+        module.
     """
     info(f'Compiling: {filename}')
     filepath = Path(filename)
@@ -113,6 +117,11 @@ def compile_and_load(filename, cwd=None, f90wrap_kind_map=None, compiler=None):
     moddir = str(filepath.parent)
     if moddir not in sys.path:
         sys.path.append(moddir)
+
+    if force_unload:
+        sys.modules.pop(filepath.stem, None)
+        sys.modules.pop(f'_{filepath.stem}', None)
+        invalidate_caches()
 
     if filepath.stem in sys.modules:
         # Reload module if already imported
