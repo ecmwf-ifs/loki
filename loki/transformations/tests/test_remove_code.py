@@ -11,7 +11,7 @@ import pytest
 from loki import Subroutine, Module, Sourcefile, gettempdir
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, FindInlineCalls
 
 from loki.transformations.remove_code import (
     do_remove_dead_code, do_remove_marked_regions, do_remove_calls,
@@ -149,18 +149,33 @@ subroutine driver(dims, StrUct)
     type(some_unused_type), intent(in) :: struct
     type(some_unused_type) :: structs(10)
     real, dimension(dims%klon) :: a, b, c, d
+    integer :: mask_len
 
 
-    call kernel(dims%kst, dims%kend, dIms, sTRucT, STRucts, a, b, c, d)
+    call kernel(dims%kst, dims%kend, dIms, sTRucT, STRucts, a, b, c, d, mask_len, 1)
 
 end subroutine driver
 """
 
-    fcode_kernel = """
-subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d)
-    use types_mod, only : dims_type, some_unused_type
+    fcode_inline_module = """
+module inline_mod
+contains
+function inline_func(kst, kend, D, E, F) result(res)
     implicit none
-    integer, intent(in) :: kst, kend
+    integer, intent(in) :: kst, kend, d, e, f
+    integer :: res
+
+    res = kst + kend + d
+end function inline_func
+end module inline_mod
+"""
+
+    fcode_kernel = """
+subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d, mask_len, masked)
+    use types_mod, only : dims_type, some_unused_type
+    use inline_mod, only : inline_func
+    implicit none
+    integer, intent(in) :: kst, kend, mask_len, masked
     type(dims_type), intent(in) :: dIms
     type(some_unused_type), intent(in) :: StrucT
     type(some_unused_type), intent(in) :: StrucTS(10)
@@ -183,16 +198,36 @@ subroutine kernel(kst, kend, diMs, stRUCt, sTructs, a, b, c, d)
     call an_unused_kernel(stRuCt)
     !$loki end remove
 
-    call another_kernel(kst, kend, d=C, e=D)
+    call another_kernel(kst, kend, c, c, f=d)
+    ji = inline_func(kst, kend, ji, ji, f=jrof)
+    call internal_kernel(ji, ji, gamma=jrof)
+    call shadowing_kernel()
+
+contains
+subroutine internal_kernel(alpha, beta, gamma)
+    implicit none
+    integer, intent(in) :: alpha, beta, gamma
+    real :: tmp(mask_len)
+
+    if (alpha > 0 .and. jrof > 0 .and. struct%a > 0.) return
+end subroutine internal_kernel
+
+subroutine shadowing_kernel()
+    implicit none
+    integer :: masked
+    type(some_unused_type) :: struct
+
+    struct%a = masked
+end subroutine shadowing_kernel
 
 end subroutine kernel
 """
 
     fcode_another_kernel = """
-subroutine another_kernel(kst, kend, D, E)
+subroutine another_kernel(kst, kend, D, E, F)
     implicit none
     integer, intent(in) :: kst, kend
-    real, intent(out) :: d(:), e(:)
+    real, intent(out) :: d(:), e(:), f(:)
     integer :: jrof
 
     do jrof = kst, kend
@@ -202,6 +237,7 @@ end subroutine another_kernel
 """
 
     (srcdir/'module.F90').write_text(fcode_module)
+    (srcdir/'inline_mod.F90').write_text(fcode_inline_module)
     (srcdir/'driver.F90').write_text(fcode_driver)
     (srcdir/'kernel.F90').write_text(fcode_kernel)
     (srcdir/'another_kernel.F90').write_text(fcode_another_kernel)
@@ -209,6 +245,7 @@ end subroutine another_kernel
     yield srcdir
 
     (srcdir/'module.F90').unlink()
+    (srcdir/'inline_mod.F90').unlink()
     (srcdir/'driver.F90').unlink()
     (srcdir/'kernel.F90').unlink()
     (srcdir/'another_kernel.F90').unlink()
@@ -688,26 +725,61 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     driver = scheduler['#driver'].ir
 
     kernel_calls = FindNodes(ir.CallStatement).visit(kernel.body)
+    kernel_inline_calls = list(FindInlineCalls().visit(kernel.body))
     driver_calls = FindNodes(ir.CallStatement).visit(driver.body)
 
-    assert len(kernel_calls) == 1
-    assert kernel_calls[0].name.name.lower() == 'another_kernel'
+    assert len(kernel_calls) == 3
+    kernel_calls = {call.name.name.lower(): call for call in kernel_calls}
+    assert set(kernel_calls) == {'another_kernel', 'internal_kernel', 'shadowing_kernel'}
     assert len(driver_calls) == 1
     assert driver_calls[0].name.name.lower() == 'kernel'
+
+    if kernel_override:
+        assert kernel_calls['another_kernel'].arguments == ('kst', 'kend', 'c', 'c')
+        assert kernel_calls['another_kernel'].kwarguments == (('f', 'd'),)
+        assert driver_calls[0].arguments == (
+            'dims%kst', 'dims%kend', 'dims', 'struct', 'structs', 'a', 'b', 'c', 'd', 'mask_len'
+        )
+    else:
+        assert kernel_calls['another_kernel'].arguments == ('kst', 'kend', 'c')
+        assert kernel_calls['another_kernel'].kwarguments == ()
+        assert driver_calls[0].arguments == (
+            'dims%kst', 'dims%kend', 'dims', 'struct', 'structs', 'a', 'b', 'c', 'mask_len'
+        )
+
+    assert kernel_calls['internal_kernel'].arguments == ('ji',)
+    assert kernel_calls['internal_kernel'].kwarguments == ()
+    assert kernel_calls['shadowing_kernel'].arguments == ()
+    assert kernel_calls['shadowing_kernel'].kwarguments == ()
+
+    assert len(kernel.members) == 2
+    assert kernel.members[0].name == 'internal_kernel'
+    assert kernel.members[0].arguments == ('alpha',)
+    assert kernel.members[1].name == 'shadowing_kernel'
+    assert kernel.members[1].arguments == ()
+
+    assert len(kernel_inline_calls) == 1
+    assert kernel_inline_calls[0].name == 'inline_func'
+    assert kernel_inline_calls[0].arguments == ('kst', 'kend', 'ji')
+    assert kernel_inline_calls[0].kwarguments == ()
 
     kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
 
     assert 'structs' in kernel_vars
     assert 'structs' in driver_calls[0].arguments
-    if kernel_override:
-        assert not 'struct' in kernel_vars
-        assert not 'struct' in driver_calls[0].arguments
+    assert 'struct' in kernel_vars
+    assert 'struct' in driver_calls[0].arguments
+    assert 'mask_len' in kernel_vars
+    assert 'mask_len' in driver_calls[0].arguments
+    assert 'masked' not in kernel_vars
+    assert 'masked' not in driver_calls[0].arguments
 
+    if kernel_override:
         assert 'd' in kernel_vars
         assert 'd' in driver_calls[0].arguments
     else:
-        assert not any(v in kernel_vars for v in ['d', 'struct'])
-        assert not any(v in driver_calls[0].arguments for v in ['d', 'struct'])
+        assert not 'd' in kernel_vars
+        assert not 'd' in driver_calls[0].arguments
 
     assert 'used_local' in kernel_vars
     assert 'unused_local' in kernel_vars
@@ -715,6 +787,7 @@ def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tm
     transformation = RemoveCodeTransformation(remove_unused_vars=True)
     scheduler.process(transformation=transformation)
 
+    kernel = scheduler['#kernel'].ir
     kernel_vars = [v.clone(dimensions=None) for v in kernel.variables]
     assert 'used_local' in kernel_vars
     assert 'unused_local' not in kernel_vars
