@@ -224,7 +224,7 @@ end subroutine member_routines_arg_dimensions
     assert loops[1].bounds == '1:3'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'No header information in test')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No header information in test')]))
 def test_inline_member_routines_derived_type_member(frontend):
     """
     Test inlining of member subroutines when the member routine
@@ -505,7 +505,7 @@ end subroutine acraneb_transt
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI does not handle missing type definitions')]
+    skip=[(OMNI, 'OMNI does not handle missing type definitions')]
 ))
 def test_inline_member_routines_with_optionals(frontend):
     """
@@ -840,7 +840,7 @@ end module util_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI has no sense of humour!')])
+    skip=[(OMNI, 'OMNI has no sense of humour!')])
 )
 def test_inline_marked_subroutines_with_associates(frontend):
     """ Test subroutine inlining via marker pragmas with nested associates. """
@@ -954,7 +954,7 @@ end module inline_declarations
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'No header information in test')]
+    skip=[(OMNI, 'No header information in test')]
 ))
 def test_inline_marked_subroutines_imports(frontend, tmp_path):
     """Test propagation of necessary imports to the parent function"""

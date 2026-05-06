@@ -246,7 +246,9 @@ end subroutine boz_literals
         assert stmts[5].rhs.parameters[0].value == 'z"babe"'
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OMNI: 'OMNI wrongfully assigns the same kind to real and imaginary part'}
+))
 def test_complex_literals(tmp_path, frontend):
     """
     Test complex literal values.
@@ -274,12 +276,7 @@ end subroutine complex_literals
     # Note: tmp_path, for inconsistency, FP converts the exponential letter 'e' to lower case...
     assert isinstance(stmts[1].rhs, sym.IntrinsicLiteral) and stmts[1].rhs.value.lower() == '(3, 2e8)'
     assert isinstance(stmts[2].rhs, sym.IntrinsicLiteral)
-    try:
-        assert stmts[2].rhs.value == '(21_2, 4._8)'
-    except AssertionError as excinfo:
-        if frontend == OMNI:
-            pytest.xfail('OMNI wrongfully assigns the same kind to real and imaginary part')
-        raise excinfo
+    assert stmts[2].rhs.value == '(21_2, 4._8)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -412,7 +409,7 @@ end subroutine array_constructor
     clean_test(filepath)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'Precedence not honoured')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Precedence not honoured')]))
 def test_parenthesis(frontend):
     """
     Test explicit parenthesis in provided source code.

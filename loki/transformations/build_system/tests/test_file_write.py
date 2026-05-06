@@ -11,7 +11,6 @@ Tests for build system interaction
 
 from pathlib import Path
 import re
-from subprocess import CalledProcessError
 
 import pytest
 
@@ -21,7 +20,9 @@ from loki.logging import log_levels
 from loki.transformations.build_system import FileWriteTransformation
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OMNI: 'Without parsing imports, OMNI does not have the xmod for imported modules'}
+))
 @pytest.mark.parametrize('enable_imports', [False, True])
 @pytest.mark.parametrize('import_level', ['module', 'subroutine'])
 @pytest.mark.parametrize('qualified_imports', [False, True])
@@ -136,19 +137,10 @@ end module d_mod
         },
         'routines': {'d': {'role': 'driver'}}
     })
-    try:
-        scheduler = Scheduler(
-            paths=[src_path], config=config, frontend=frontend,
-            output_dir=out_path, xmods=[tmp_path]
-        )
-    except CalledProcessError as e:
-        all_modules_expected = 'a_mod' in expected_items and (expected_items | {'b_mod', 'b_mod#type_b'})
-        if frontend == OMNI and not (enable_imports and all_modules_expected):
-            # If not all header modules appear in the dependency graph, then these
-            # will not be parsed by OMNI and therefore the required xmod files will
-            # not be generated, thus making modules 'c' and 'd' fail at parsing
-            pytest.xfail('Without parsing imports, OMNI does not have the xmod for imported modules')
-        raise e
+    scheduler = Scheduler(
+        paths=[src_path], config=config, frontend=frontend,
+        output_dir=out_path, xmods=[tmp_path]
+    )
 
     # Check the dependency graph
     assert expected_items == {item.name for item in scheduler.items}

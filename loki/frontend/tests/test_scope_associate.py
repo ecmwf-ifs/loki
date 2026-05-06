@@ -105,7 +105,7 @@ end module
     assert item.scalar == 17.0 and (item.vector == [1., 5., 10.]).all()
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI fails to read without full module')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI fails to read without full module')]))
 def test_associates_deferred(frontend):
     """
     Verify that reading in subroutines with deferred external type definitions

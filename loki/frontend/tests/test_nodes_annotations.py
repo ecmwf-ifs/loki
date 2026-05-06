@@ -137,7 +137,7 @@ end subroutine test_comment_block
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI strips comments during parse')]
+    skip=[(OMNI, 'OMNI strips comments during parse')]
 ))
 def test_inline_comments(frontend):
     """
@@ -184,7 +184,7 @@ end subroutine test_inline_comments
     assert comments[0].text == comments[2].text == comments[3].text == ''
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
 def test_routine_variables_dimension_pragmas(frontend):
     """
     Test that `!$loki dimension` pragmas can be used to override the
@@ -246,7 +246,7 @@ end subroutine routine_variables_dimensions
     assert isinstance(routine.variable_map['v6'].shape[2], sym.Quotient)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI does not like Loki pragmas, yet!')]))
 def test_module_variables_dimension_pragmas(frontend, tmp_path):
     """
     Test that `!$loki dimension` pragmas can be used to override the

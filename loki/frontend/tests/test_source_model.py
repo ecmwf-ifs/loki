@@ -10,7 +10,6 @@ Verify correct frontend behaviour for source-level model handling.
 """
 
 from pathlib import Path
-from subprocess import CalledProcessError
 
 import pytest
 
@@ -94,10 +93,9 @@ def test_frontend_source_lineno(frontend):
     assert calls[0].source.lines[0] < calls[1].source.lines[0] < calls[2].source.lines[0]
 
 
-@pytest.mark.parametrize(
-    'frontend',
-    available_frontends(include_regex=True, xfail=[(OMNI, 'OMNI may segfault on empty files')])
-)
+@pytest.mark.parametrize('frontend', available_frontends(
+    include_regex=True, skip=[(OMNI, 'OMNI may segfault on empty files')]
+))
 @pytest.mark.parametrize('fcode', ['', '\n', '\n\n\n\n'])
 def test_frontend_empty_file(frontend, fcode):
     """Ensure that all frontends can handle empty source files correctly (#186)"""
@@ -190,7 +188,9 @@ end function function_d
     assert all(comment.text.strip() in ['! Some comment', '! Other comment'] for comment in comments)
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip={OMNI, 'F_Front segfault is a known issue on some platforms'}
+))
 def test_sourcefile_lazy_construction(frontend, tmp_path):
     """
     Test delayed ("lazy") parsing of sourcefile content
@@ -247,12 +247,7 @@ end function function_d
     assert len(FindNodes(RawSource).visit(source['routine_a'].ir)) == 1
 
     # Trigger the full parse
-    try:
-        source.make_complete(frontend=frontend, xmods=[tmp_path])
-    except CalledProcessError as ex:
-        if frontend == OMNI and ex.returncode == -11:
-            pytest.xfail('F_Front segfault is a known issue on some platforms')
-        raise
+    source.make_complete(frontend=frontend, xmods=[tmp_path])
     assert not source._incomplete
 
     # Make sure no RawSource nodes are left
