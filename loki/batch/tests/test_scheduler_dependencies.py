@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 from xml.etree.ElementTree import ParseError
 from subprocess import CalledProcessError
 

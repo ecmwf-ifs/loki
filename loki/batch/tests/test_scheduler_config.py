@@ -24,6 +24,20 @@ from loki.transformations import (
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 
 
+def test_scheduler_empty_config(testdir, frontend, tmp_path):
+    """
+    Test that instantiating the Scheduler without config works (albeit it's not very useful)
+    This fixes #373
+    """
+    projA = testdir/'sources/projA'
+
+    scheduler = Scheduler(
+        paths=projA, includes=projA/'include',
+        seed_routines=['driverA'], frontend=frontend, xmods=[tmp_path]
+    )
+    assert scheduler.items == ('drivera_mod#drivera',)
+
+
 def test_scheduler_cmake_planner(tmp_path, testdir, frontend):
     """
     Test the plan generation feature over a call hierarchy spanning two

@@ -4,6 +4,44 @@
 # In applying this licence, ECMWF does not waive the privileges and immunities
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
+"""
+Utilities for Loki scheduler tests.
+
+The overall structure of the source projects for testing is:
+
+ - projA:
+   - include
+     - another_l1.intfb.h
+     - another_l2.intfb.h
+   - source
+     - another_l1
+     - another_l2
+   - module
+     - header_mod
+       * header_type
+     - driverA_mod
+     - kernelA_mod
+     - compute_l1_mod
+     - compute_l2_mod
+     - driverB_mod
+     - kernelB_mod
+     - driverC_mod
+     - kernelC_mod
+     - driverD_mod
+     - kernelD_mod
+
+ - projB:
+   - external
+     - ext_driver_mod
+   - module
+     - ext_kernel_mod
+
+ - projC:
+   - util
+     - proj_c_util_mod
+       * routine_one
+       * routine_two
+"""
 from pathlib import Path
 
 import pytest
