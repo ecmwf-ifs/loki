@@ -160,6 +160,103 @@ def get_item(cls, path, name, parser_classes, scheduler_config=None):
     return cls(name, source=source, config=config)
 
 
+def test_item_factory_import_items(testdir):
+    """
+    Test importing externally-created items into an ItemFactory.
+    """
+    proj = testdir/'sources/projBatch'
+    source = Sourcefile.from_file(
+        proj/'module/a_mod.F90', frontend=REGEX,
+        parser_classes=RegexParserClass.ProgramUnitClass
+    )
+    file_item = FileItem(str(source.path).lower(), source=source)
+    module_item = ModuleItem('a_mod', source=source)
+
+    item_factory = ItemFactory()
+    canonical = item_factory.import_items((module_item, file_item))
+
+    assert item_factory.item_cache[file_item.name] is file_item
+    assert item_factory.item_cache[module_item.name] is module_item
+    assert canonical[file_item] is file_item
+    assert canonical[module_item] is module_item
+    assert canonical[file_item.name] is file_item
+    assert canonical[module_item.name] is module_item
+
+
+def test_item_factory_import_items_reuses_existing(testdir):
+    """
+    Test that importing an existing item name returns the cached canonical item.
+    """
+    proj = testdir/'sources/projBatch'
+    source = Sourcefile.from_file(
+        proj/'module/a_mod.F90', frontend=REGEX,
+        parser_classes=RegexParserClass.ProgramUnitClass
+    )
+    cached_item = ModuleItem('a_mod', source=source)
+    imported_item = ModuleItem('a_mod', source=source)
+
+    item_factory = ItemFactory()
+    item_factory.item_cache[cached_item.name] = cached_item
+    canonical = item_factory.import_items((imported_item,))
+
+    assert item_factory.item_cache[cached_item.name] is cached_item
+    assert canonical[imported_item] is cached_item
+    assert canonical[imported_item.name] is cached_item
+
+
+def test_item_factory_import_items_conflict_type(testdir):
+    """
+    Test that importing the same item name with a different type fails.
+    """
+    proj = testdir/'sources/projBatch'
+    source = Sourcefile.from_file(
+        proj/'module/a_mod.F90', frontend=REGEX,
+        parser_classes=RegexParserClass.ProgramUnitClass
+    )
+    cached_item = ModuleItem('a_mod', source=source)
+    imported_item = ProcedureItem('a_mod', source=source)
+
+    item_factory = ItemFactory()
+    item_factory.item_cache[cached_item.name] = cached_item
+
+    with pytest.raises(RuntimeError, match='cached item has type ModuleItem'):
+        item_factory.import_items((imported_item,))
+
+
+def test_item_factory_import_items_conflict_path(testdir):
+    """
+    Test that importing the same item name from a different path fails.
+    """
+    proj = testdir/'sources/projBatch'
+    source_a = Sourcefile.from_file(
+        proj/'module/a_mod.F90', frontend=REGEX,
+        parser_classes=RegexParserClass.ProgramUnitClass
+    )
+    source_b = Sourcefile.from_file(
+        proj/'module/b_mod.F90', frontend=REGEX,
+        parser_classes=RegexParserClass.ProgramUnitClass
+    )
+    cached_item = ModuleItem('duplicate_mod', source=source_a)
+    imported_item = ModuleItem('duplicate_mod', source=source_b)
+
+    item_factory = ItemFactory()
+    item_factory.item_cache[cached_item.name] = cached_item
+
+    with pytest.raises(RuntimeError, match='source path'):
+        item_factory.import_items((imported_item,))
+
+
+def test_item_factory_import_items_conflict_policy(testdir):
+    """
+    Test that unsupported import conflict policies fail explicitly.
+    """
+    proj = testdir/'sources/projBatch'
+    item = get_item(ModuleItem, proj/'module/a_mod.F90', 'a_mod', RegexParserClass.ProgramUnitClass)
+
+    with pytest.raises(ValueError, match='Unsupported item import conflict policy'):
+        ItemFactory().import_items((item,), on_conflict='reuse')
+
+
 def test_file_item1(testdir, default_config):
     proj = testdir/'sources/projBatch'
 

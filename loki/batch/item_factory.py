@@ -44,6 +44,63 @@ class ItemFactory:
         """
         return key in self.item_cache
 
+    def import_items(self, items, on_conflict='error'):
+        """
+        Import externally-created :any:`Item` objects into :attr:`item_cache`.
+
+        This interns items by name and returns a mapping from each imported item
+        object and item name to the canonical item stored in this factory. If an
+        item with the same name already exists, the cached item is reused after a
+        conservative compatibility check.
+
+        Parameters
+        ----------
+        items : tuple of :any:`Item`
+            Items to import into this factory.
+        on_conflict : str, optional
+            Conflict handling policy. Currently only ``'error'`` is supported.
+        """
+        if on_conflict != 'error':
+            raise ValueError(f'Unsupported item import conflict policy: {on_conflict}')
+
+        canonical = {}
+        for item in sorted(as_tuple(items), key=lambda it: not isinstance(it, FileItem)):
+            cached = self.item_cache.get(item.name)
+            if cached is None:
+                self.item_cache[item.name] = item
+                cached = item
+            else:
+                self._check_import_item_compatible(cached, item)
+            canonical[item] = cached
+            canonical[item.name] = cached
+        return canonical
+
+    @staticmethod
+    def _check_import_item_compatible(cached, item):
+        """
+        Check that an imported item is compatible with an existing cache item.
+        """
+        if type(cached) is not type(item):  # pylint: disable=unidiomatic-typecheck
+            raise RuntimeError(
+                f'Cannot import item {item.name}: cached item has type {type(cached).__name__}, '
+                f'imported item has type {type(item).__name__}'
+            )
+
+        cached_source = getattr(cached, 'source', None)
+        item_source = getattr(item, 'source', None)
+        if cached_source is item_source:
+            return
+
+        cached_path = getattr(cached_source, 'path', None)
+        item_path = getattr(item_source, 'path', None)
+        if cached_path == item_path:
+            return
+
+        raise RuntimeError(
+            f'Cannot import item {item.name}: cached item has source path {cached_path}, '
+            f'imported item has source path {item_path}'
+        )
+
     def create_from_ir(self, node, scope_ir, config=None, ignore=None):
         """
         Helper method to create items for definitions or dependency
