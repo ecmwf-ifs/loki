@@ -51,7 +51,7 @@ def fixture_bundle_create(here, local_loki_bundle):
 def test_ecwam(here, mode, tmp_path):
     build_dir = tmp_path/'build'
     build_cmd = [
-        './package/bundle/ecwam-bundle', 'build', '--clean',
+        './package/bundle/ecwam-bundle', 'build', '--clean', '-j 4',
         '--with-loki', '--without-loki-install', '--loki-mode', mode,
         '--build-dir', str(build_dir)
     ]
