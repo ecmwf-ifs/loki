@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from copy import copy
+
 import networkx as nx
 
 from loki.batch.item_factory import ItemFactory
@@ -105,6 +107,19 @@ class CodeGraph:
         Iterate over the items in the definition graph.
         """
         return iter(self._graph)
+
+    def snapshot(self):
+        """
+        Return a shallow item snapshot of this graph.
+
+        This preserves item names and graph structure at the time the snapshot
+        is created, while still sharing the underlying source objects.
+        """
+        item_map = {item: copy(item) for item in self.items}
+        graph = type(self)()
+        graph.add_nodes(item_map.values())
+        graph.add_edges((item_map[parent], item_map[child]) for parent, child in self.definitions)
+        return graph
 
     @property
     def items(self):

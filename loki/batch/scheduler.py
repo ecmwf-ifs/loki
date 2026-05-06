@@ -12,6 +12,7 @@ from pathlib import Path
 from codetiming import Timer
 
 from loki.batch.configure import SchedulerConfig
+from loki.batch.cgraph import CodeGraph
 from loki.batch.item import (
     FileItem, ModuleItem, ProcedureItem, ProcedureBindingItem,
     InterfaceItem, TypeDefItem, ExternalItem
@@ -267,8 +268,8 @@ class Scheduler:
         for path in path_list:
             self.item_factory.get_or_create_file_item_from_path(path, self.config, frontend_args)
 
-        # Instantiate the basic list of items for files and top-level program units
-        #  in each file, i.e., modules and subroutines
+        # Build the original code graph from the discovered files. This populates
+        # the item cache with all visible definition items.
         #  Note that we do this separate from the FileItem instantiation above to enable discovery
         #  also for FileItems that have been created as part of a transformation
         file_items = [
@@ -276,15 +277,19 @@ class Scheduler:
             for file_item in self.item_factory.item_cache.values()
             if isinstance(file_item, FileItem)
         ]
-        for file_item in file_items:
-            definition_items = {
-                item.name: item
-                for item in file_item.create_definition_items(item_factory=self.item_factory, config=self.config)
-            }
-            self.item_factory.item_cache.update(definition_items)
+        cgraph = CodeGraph.from_file_items(file_items, self.item_factory, self.config)
+        if not hasattr(self, '_cgraph'):
+            self._cgraph = cgraph.snapshot()
 
         # (Re-)build the SGraph after discovery for later traversals
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
+
+    @property
+    def cgraph(self):
+        """
+        Original code-structure graph constructed during scheduler discovery.
+        """
+        return self._cgraph
 
     @property
     def sgraph(self):

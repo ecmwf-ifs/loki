@@ -10,7 +10,7 @@ from itertools import chain
 import pytest
 
 from loki import Subroutine, fexprgen, graphviz_present
-from loki.batch import Scheduler
+from loki.batch import Scheduler, TypeDefItem
 from loki.frontend import HAVE_FP
 from loki.ir import FindNodes, nodes as ir
 
@@ -50,6 +50,35 @@ def fixture_driverb_dependencies():
         'header_mod#header_type': (),
         'header_mod': (),
     }
+
+
+def test_scheduler_cgraph_original_code_state(testdir, config, frontend, tmp_path):
+    """
+    Create a code graph for all visible definitions while keeping the dependency graph seed-based.
+    """
+    projA = testdir/'sources/projA'
+    paths = [projA/'module', projA/'source/another_l1.F90', projA/'source/another_l2.F90']
+
+    scheduler = Scheduler(
+        paths=paths, includes=projA/'include', config=config,
+        seed_routines='driverA', frontend=frontend, xmods=[tmp_path]
+    )
+
+    expected_definition_edges = {
+        (str(projA/'module/driverA_mod.f90').lower(), 'drivera_mod'),
+        ('drivera_mod', 'drivera_mod#drivera'),
+        (str(projA/'module/kernelA_mod.F90').lower(), 'kernela_mod'),
+        ('kernela_mod', 'kernela_mod#kernela'),
+        (str(projA/'module/header_mod.f90').lower(), 'header_mod'),
+        ('header_mod', 'header_mod#header_type'),
+        (str(projA/'source/another_l1.F90').lower(), '#another_l1'),
+    }
+
+    assert expected_definition_edges <= set(scheduler.cgraph.definitions)
+    assert 'drivera_mod#drivera' in scheduler.sgraph.items
+    assert str(projA/'module/driverA_mod.f90').lower() not in scheduler.sgraph.items
+    assert str(projA/'module/driverA_mod.f90').lower() in scheduler.cgraph.items
+    assert isinstance(scheduler.item_factory.item_cache['header_mod#header_type'], TypeDefItem)
 
 
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')

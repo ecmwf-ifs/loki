@@ -753,6 +753,32 @@ end subroutine test_scheduler_filter_program_units_file_graph_driver
     scheduler.process(transformation=MyFileTrafo())
 
 
+def test_scheduler_cgraph_preserves_original_state_after_rename(tmp_path, config, frontend):
+    """
+    Ensure scheduler.cgraph keeps the original code state after item-renaming transformations.
+    """
+    fcode = """
+subroutine cgraph_original_kernel
+end subroutine cgraph_original_kernel
+    """.strip()
+    filepath = tmp_path/'cgraph_original_kernel.F90'
+    filepath.write_text(fcode)
+
+    config['default']['role'] = 'kernel'
+    scheduler = Scheduler(
+        paths=[tmp_path], config=config, seed_routines='cgraph_original_kernel',
+        frontend=frontend, xmods=[tmp_path]
+    )
+
+    assert '#cgraph_original_kernel' in scheduler.cgraph.items
+
+    scheduler.process(ModuleWrapTransformation(module_suffix='_mod'))
+
+    assert '#cgraph_original_kernel' in scheduler.cgraph.items
+    assert 'cgraph_original_kernel_mod#cgraph_original_kernel' not in scheduler.cgraph.items
+    assert 'cgraph_original_kernel_mod#cgraph_original_kernel' in scheduler.item_factory.item_cache
+
+
 @pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.PLAN, ProcessingStrategy.DEFAULT])
 @pytest.mark.parametrize('with_filegraph', [True, False])
 def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_strategy, with_filegraph):

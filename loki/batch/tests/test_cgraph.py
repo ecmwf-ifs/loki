@@ -51,6 +51,24 @@ def test_cgraph_add_nodes():
     assert not cgraph.definitions
 
 
+def test_cgraph_snapshot_preserves_item_names():
+    """
+    Test that CodeGraph snapshots preserve item names after original items are renamed.
+    """
+    parent = Item('parent', source=None)
+    child = Item('parent#child', source=None)
+
+    cgraph = CodeGraph()
+    cgraph.add_edge((parent, child))
+    snapshot = cgraph.snapshot()
+
+    parent.name = 'renamed_parent'
+    child.name = 'renamed_parent#child'
+
+    assert snapshot.items == ('parent', 'parent#child')
+    assert snapshot.definitions == (('parent', 'parent#child'),)
+
+
 @pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 def test_cgraph_from_file_item(tmp_path):
     """
