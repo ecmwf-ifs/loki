@@ -10,3 +10,4 @@
 from loki.ir.nodes.abstract_nodes import *  # noqaOA
 from loki.ir.nodes.internal_nodes import *  # noqa
 from loki.ir.nodes.leaf_nodes import *  # noqa
+from loki.ir.nodes.stmt_nodes import *  # noqa

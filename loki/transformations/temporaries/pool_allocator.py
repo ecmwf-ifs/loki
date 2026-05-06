@@ -16,7 +16,7 @@ from loki.expression import (
     DetachScopesMapper
 )
 from loki.ir import (
-    FindNodes, FindVariables, FindInlineCalls, Transformer, Intrinsic,
+    FindNodes, FindVariables, FindInlineCalls, Transformer, GenericStmt,
     Assignment, Conditional, CallStatement, Import, Allocation,
     Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
     SubstituteExpressions
@@ -660,7 +660,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if self.check_bounds:
             stack_size_check = Conditional(
                 condition=Comparison(stack_ptr, '>', stack_end), inline=True,
-                body=(Intrinsic('STOP'),), else_body=None
+                body=(GenericStmt('STOP'),), else_body=None
             )
             return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
         return ([ptr_assignment, ptr_increment], stack_size)
@@ -752,7 +752,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_end = self._get_stack_end(routine)
         for arr in temporary_arrays:
             ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
-            declarations += [Intrinsic(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
+            declarations += [GenericStmt(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
             allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr,
                     stack_size, stack_storage)
             allocations += allocation

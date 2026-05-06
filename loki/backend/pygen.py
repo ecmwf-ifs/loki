@@ -165,7 +165,7 @@ class PyCodegen(Stringifier):
 
     # Handler for IR nodes
 
-    def visit_Intrinsic(self, o, **kwargs):  # pylint: disable=unused-argument
+    def visit_GenericStmt(self, o, **kwargs):  # pylint: disable=unused-argument
         """
         Format intrinsic nodes.
         """

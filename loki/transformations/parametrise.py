@@ -175,7 +175,7 @@ class ParametriseTransformation(Transformation):
 
         def error_stop(**kwargs):
             msg = kwargs.get("msg")
-            return ir.Intrinsic(text=f'error stop "{msg}"'),
+            return ir.GenericStmt(text=f'error stop "{msg}"'),
 
         dic2p = {'a': 12, 'b': 11}
 
@@ -286,8 +286,8 @@ class ParametriseTransformation(Transformation):
                         parametrised_var = routine.variable_map[f'parametrised_{key}']
                         # use default abort mechanism
                         if self.abort_callback is None:
-                            abort = (ir.Intrinsic(text=f'PRINT *, "{error_msg}: ", {parametrised_var.name}'),
-                                     ir.Intrinsic(text="STOP 1"))
+                            abort = (ir.GenericStmt(text=f'PRINT *, "{error_msg}: ", {parametrised_var.name}'),
+                                     ir.GenericStmt(text="STOP 1"))
                         # use user define abort/warn mechanism
                         else:
                             kwargs = {"msg": error_msg, "routine": routine.name, "var": parametrised_var,

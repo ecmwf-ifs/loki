@@ -15,8 +15,7 @@ from loki.expression import (
     SubstituteExpressionsMapper
 )
 from loki.ir import (
-    Import, Intrinsic, Interface, CallStatement, Assignment,
-    Transformer, FindNodes, Comment, SubstituteExpressions,
+    nodes as ir, Transformer, FindNodes, SubstituteExpressions,
     FindInlineCalls
 )
 from loki.logging import debug
@@ -163,7 +162,7 @@ class FortranCTransformation(Transformation):
             c_kernel = self.generate_c_kernel(routine, targets=targets)
 
             for successor in successors:
-                c_kernel.spec.prepend(Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
+                c_kernel.spec.prepend(ir.Import(module=f'{successor.ir.name.lower()}_c.h', c_import=True))
 
             if depth == 1:
                 if self.language != 'c':
@@ -172,14 +171,14 @@ class FortranCTransformation(Transformation):
                     c_path = (path/c_kernel_launch.name.lower()).with_suffix('.h')
                     Sourcefile.to_file(source=self.codegen(c_kernel_launch, extern=True), path=c_path)
 
-            assignments = FindNodes(Assignment).visit(c_kernel.body)
+            assignments = FindNodes(ir.Assignment).visit(c_kernel.body)
             assignments2remove = ['griddim', 'blockdim']
             assignment_map = {assignment: None for assignment in assignments
                     if assignment.lhs.name.lower() in assignments2remove}
             c_kernel.body = Transformer(assignment_map).visit(c_kernel.body)
 
             if depth > 1:
-                c_kernel.spec.prepend(Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
+                c_kernel.spec.prepend(ir.Import(module=f'{c_kernel.name.lower()}.h', c_import=True))
             c_path = (path/c_kernel.name.lower()).with_suffix(self.file_suffix())
             Sourcefile.to_file(source=self.codegen(c_kernel, extern=self.language=='cpp'), path=c_path)
             header_path = (path/c_kernel.name.lower()).with_suffix('.h')
@@ -187,7 +186,7 @@ class FortranCTransformation(Transformation):
 
     def convert_kwargs_to_args(self, routine, targets):
         # calls (to subroutines)
-        for call in as_tuple(FindNodes(CallStatement).visit(routine.body)):
+        for call in as_tuple(FindNodes(ir.CallStatement).visit(routine.body)):
             if str(call.name).lower() in as_tuple(targets):
                 call.convert_kwargs_to_args()
         # inline calls (to functions)
@@ -202,10 +201,10 @@ class FortranCTransformation(Transformation):
         """
         Convert interface to import.
         """
-        for call in FindNodes(CallStatement).visit(routine.body):
+        for call in FindNodes(ir.CallStatement).visit(routine.body):
             if str(call.name).lower() in as_tuple(targets):
                 call.convert_kwargs_to_args()
-        intfs = FindNodes(Interface).visit(routine.spec)
+        intfs = FindNodes(ir.Interface).visit(routine.spec)
         removal_map = {}
         for i in intfs:
             for s in i.symbols:
@@ -213,7 +212,7 @@ class FortranCTransformation(Transformation):
                     # Create a new module import with explicitly qualified symbol
                     new_symbol = s.clone(name=f'{s.name}_FC', scope=routine)
                     modname = f'{new_symbol.name}_MOD'
-                    new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
+                    new_import = ir.Import(module=modname, c_import=False, symbols=(new_symbol,))
                     routine.spec.prepend(new_import)
                     # Mark current import for removal
                     removal_map[i] = None
@@ -279,7 +278,7 @@ class FortranCTransformation(Transformation):
             for module, variables in module_variables.items():
                 for var in variables:
                     getter = f'{module}__get__{var.name.lower()}'
-                    vget = Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
+                    vget = ir.Assignment(lhs=var, rhs=InlineCall(ProcedureSymbol(getter, scope=var.scope)))
                     getter_calls += [vget]
             kernel.body.prepend(getter_calls)
 
@@ -300,8 +299,7 @@ class FortranCTransformation(Transformation):
             kernel.spec = Transformer(import_map).visit(kernel.spec)
 
         # Remove intrinsics from spec (eg. implicit none)
-        intrinsic_map = {i: None for i in FindNodes(Intrinsic).visit(kernel.spec)
-                         if 'implicit' in i.text.lower()}
+        intrinsic_map = {i: None for i in FindNodes(ir.ImplicitStmt).visit(kernel.spec)}
         kernel.spec = Transformer(intrinsic_map).visit(kernel.spec)
 
         # Resolve implicit struct mappings through "associates"
@@ -339,7 +337,7 @@ class FortranCTransformation(Transformation):
 
     def convert_call_names(self, routine, targets):
         # calls (to subroutines)
-        calls = FindNodes(CallStatement).visit(routine.body)
+        calls = FindNodes(ir.CallStatement).visit(routine.body)
         for call in calls:
             if call.name not in as_tuple(targets):
                 continue
@@ -353,7 +351,7 @@ class FortranCTransformation(Transformation):
 
     def generate_c_kernel_launch(self, kernel_launch, kernel, **kwargs):
         import_map = {}
-        for im in FindNodes(Import).visit(kernel_launch.spec):
+        for im in FindNodes(ir.Import).visit(kernel_launch.spec):
             import_map[im] = None
         kernel_launch.spec = Transformer(import_map).visit(kernel_launch.spec)
 
@@ -368,7 +366,7 @@ class FortranCTransformation(Transformation):
             griddim = kernel_launch.variable_map['griddim']
         if 'blockdim' in kernel_launch.variable_map:
             blockdim = kernel_launch.variable_map['blockdim']
-        assignments = FindNodes(Assignment).visit(kernel_launch.body)
+        assignments = FindNodes(ir.Assignment).visit(kernel_launch.body)
         griddim_assignment = None
         blockdim_assignment = None
         for assignment in assignments:
@@ -376,7 +374,7 @@ class FortranCTransformation(Transformation):
                 griddim_assignment = assignment.clone()
             if assignment.lhs == blockdim:
                 blockdim_assignment = assignment.clone()
-        kernel_launch.body = (Comment(text="! here should be the launcher ...."),
-                griddim_assignment, blockdim_assignment, CallStatement(name=Variable(name=kernel.name),
+        kernel_launch.body = (ir.Comment(text="! here should be the launcher ...."),
+                griddim_assignment, blockdim_assignment, ir.CallStatement(name=Variable(name=kernel.name),
                     arguments=call_arguments, chevron=(sym.Variable(name="griddim"),
                         sym.Variable(name="blockdim"))))
