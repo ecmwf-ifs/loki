@@ -7,6 +7,8 @@
 
 import networkx as nx
 
+from loki.batch.item_factory import ItemFactory
+
 
 __all__ = ['CodeGraph']
 
@@ -28,6 +30,75 @@ class CodeGraph:
 
     def __init__(self, graph=None):
         self._graph = graph or nx.DiGraph()
+
+    @classmethod
+    def from_file_item(cls, file_item, config=None):
+        """
+        Create a file-local :any:`CodeGraph` from a :any:`FileItem`.
+
+        This uses a local :any:`ItemFactory` and returns both the graph and the
+        locally-created items. The caller is responsible for importing the local
+        items into the canonical scheduler-owned factory.
+
+        Parameters
+        ----------
+        file_item : :any:`FileItem`
+            File item from which to recursively discover definitions.
+        config : :any:`SchedulerConfig`, optional
+            Scheduler config to use when creating items.
+        """
+        item_factory = ItemFactory()
+        item_factory.import_items((file_item,))
+
+        cgraph = cls()
+        queue = [file_item]
+        visited = set()
+
+        while queue:
+            item = queue.pop(0)
+            if item in visited:
+                continue
+            visited.add(item)
+
+            cgraph.add_node(item)
+            for child in item.create_definition_items(item_factory=item_factory, config=config):
+                cgraph.add_node(child)
+                cgraph.add_edge((item, child))
+                queue.append(child)
+
+        return cgraph, tuple(item_factory.item_cache.values())
+
+    @classmethod
+    def from_file_items(cls, file_items, item_factory, config=None):
+        """
+        Create a :any:`CodeGraph` from a sequence of :any:`FileItem` objects.
+
+        Each file is discovered independently with :meth:`from_file_item`, then
+        merged into :data:`item_factory` using :meth:`ItemFactory.import_items`.
+        This preserves a serial implementation while keeping the per-file
+        discovery boundary suitable for later parallelization.
+
+        Parameters
+        ----------
+        file_items : tuple of :any:`FileItem`
+            File items from which to discover definition subtrees.
+        item_factory : :any:`ItemFactory`
+            Canonical item factory into which local file items are imported.
+        config : :any:`SchedulerConfig`, optional
+            Scheduler config to use when creating items.
+        """
+        cgraph = cls()
+
+        for file_item in file_items:
+            local_cgraph, local_items = cls.from_file_item(file_item, config=config)
+            canonical = item_factory.import_items(local_items)
+
+            for item in local_cgraph.items:
+                cgraph.add_node(canonical[item])
+            for parent, child in local_cgraph.definitions:
+                cgraph.add_edge((canonical[parent], canonical[child]))
+
+        return cgraph
 
     def __iter__(self):
         """
