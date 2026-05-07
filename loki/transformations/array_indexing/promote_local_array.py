@@ -27,9 +27,8 @@ class PromoteLocalArrayTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
-    def __init__(self, horizontal, promote_local_arrays=True):
+    def __init__(self, horizontal):
         self.horizontal = horizontal
-        self.promote_local_arrays = promote_local_arrays
 
     @classmethod
     def get_locals_to_promote(cls, routine, sections, horizontal):
@@ -197,6 +196,11 @@ class PromoteLocalArrayTransformation(Transformation):
         """
         Apply Promote utilities to a :any:`Subroutine`.
 
+        Notes
+        -----
+        Local array promotion is disabled by default. It can be enabled via
+        the item config key ``promote_locals``.
+
         Parameters
         ----------
         routine : :any:`Subroutine`
@@ -207,14 +211,15 @@ class PromoteLocalArrayTransformation(Transformation):
         role = kwargs['role']
         item = kwargs.get('item', None)
         if role == 'kernel':
-            promote_locals = self.promote_local_arrays
+            promote_locals = False
             preserve_arrays = []
             if item:
-                promote_locals = item.config.get('promote_locals', self.promote_local_arrays)
+                promote_locals = item.config.get('promote_locals', False)
                 preserve_arrays = item.config.get('preserve_arrays', [])
-            self.process_kernel(routine, promote_locals=promote_locals, preserve_arrays=preserve_arrays, item=item)
+            if promote_locals:
+                self.process_kernel(routine, preserve_arrays=preserve_arrays)
 
-    def process_kernel(self, routine, promote_locals=True, preserve_arrays=None, item=None):
+    def process_kernel(self, routine, preserve_arrays=None):
         """
         Applies the Promote utilities to a "kernel" and promotes all suitable local arrays.
 
@@ -230,16 +235,9 @@ class PromoteLocalArrayTransformation(Transformation):
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
-        promote_locals : bool, optional
-            Whether to promote local arrays; default: ``True``
         preserve_arrays : list of str, optional
             Names of arrays to exclude from promotion.
-        item : optional
-            Scheduler item for configuration overrides.
         """
-        if not promote_locals:
-            return
-
         # Find vector sections marked in the SCCDevectorTransformation
         sections = [
             s for s in FindNodes(ir.Section).visit(routine.body)
@@ -286,4 +284,3 @@ class PromoteLocalArrayTransformation(Transformation):
             routine, variable_names, pos=-1,
             index=horizontal_var, sections=sections
         )
-
