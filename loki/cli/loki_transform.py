@@ -40,9 +40,11 @@ from loki.transformations.build_system import FileWriteTransformation
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 @click.option('--multipipeline', '-z', is_flag=True, help="Multi-pipeline processing.")
+@click.option('--workers', '-j', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+              help='Number of worker processes to use for parallel processing steps.')
 def convert(
         frontend_opts, scheduler_opts, mode, config, plan_file, callgraph, root, log_level,
-        multipipeline
+        multipipeline, workers
 ):
     """
     Batch-processing mode for Fortran-to-Fortran transformations that
@@ -87,7 +89,8 @@ def convert(
     full_parse = processing_strategy == ProcessingStrategy.DEFAULT
     scheduler = Scheduler(
         paths=paths, config=config, full_parse=full_parse,
-        definitions=definitions, output_dir=scheduler_opts.build, **frontend_opts.asdict
+        definitions=definitions, output_dir=scheduler_opts.build,
+        workers=workers, **frontend_opts.asdict
     )
 
     if multipipeline:
@@ -140,6 +143,8 @@ def convert(
               type=click.Choice(['debug', 'detail', 'perf', 'info', 'warning', 'error']),
               help='Log level to output during batch processing')
 @click.option('--multipipeline', '-z', is_flag=True, help="Multi-pipeline processing.")
+@click.option('--workers', '-j', type=int, default=1, envvar='LOKI_NUM_WORKERS',
+              help='Number of worker processes to use for parallel processing steps.')
 @click.pass_context
 def plan(ctx, *_args, **_kwargs):
     """
