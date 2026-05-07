@@ -348,7 +348,7 @@ class Scheduler:
     def __iter__(self):
         return self.sgraph._graph.__iter__()
 
-    @Timer(logger=info, text='[Loki::Scheduler] Performed full source parse in {:.2f}s')
+    @Timer(logger=perf, text='[Loki::Scheduler] Performed full source parse in {:.2f}s')
     def _parse_items(self):
         """
         Prepare processing by triggering a full parse of the items in
