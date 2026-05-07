@@ -6,13 +6,42 @@
 # nor does it submit to any jurisdiction.
 
 from copy import copy
+from concurrent.futures import as_completed
 
 import networkx as nx
 
+from loki.batch.configure import SchedulerConfig
 from loki.batch.item_factory import ItemFactory
+from loki.jit_build.workqueue import workqueue
+from loki.logging import default_logger
+from loki.tools import as_tuple
 
 
-__all__ = ['CodeGraph']
+__all__ = ['CodeGraph', 'discover_file_codegraph']
+
+
+def discover_file_codegraph(path, config=None, frontend_args=None):
+    """
+    Discover a file-local :any:`CodeGraph` from a source path.
+
+    This function is intentionally module-level so it can be used as a worker
+    entry point for process-parallel discovery.
+
+    Parameters
+    ----------
+    path : str or :any:`pathlib.Path`
+        Source file path to discover.
+    config : :any:`SchedulerConfig` or dict, optional
+        Scheduler config to use when creating items.
+    frontend_args : dict, optional
+        Frontend arguments for creating the initial :any:`FileItem`.
+    """
+    if not isinstance(config, SchedulerConfig):
+        config = SchedulerConfig.from_dict(config or {})
+
+    item_factory = ItemFactory()
+    file_item = item_factory.get_or_create_file_item_from_path(path, config, frontend_args or {})
+    return CodeGraph.from_file_item(file_item, config=config)
 
 
 class CodeGraph:
@@ -93,6 +122,62 @@ class CodeGraph:
 
         for file_item in file_items:
             local_cgraph, local_items = cls.from_file_item(file_item, config=config)
+            canonical = item_factory.import_items(local_items)
+
+            for item in local_cgraph.items:
+                cgraph.add_node(canonical[item])
+            for parent, child in local_cgraph.definitions:
+                cgraph.add_edge((canonical[parent], canonical[child]))
+
+        return cgraph
+
+    @classmethod
+    def from_paths(cls, paths, item_factory, config=None, frontend_args=None, workers=1):
+        """
+        Create a :any:`CodeGraph` from source file paths.
+
+        Each file is discovered independently, optionally using process-parallel
+        workers, and the resulting file-local graphs are merged into the
+        canonical :data:`item_factory`.
+
+        Parameters
+        ----------
+        paths : tuple of str or :any:`pathlib.Path`
+            Source file paths from which to discover definition subtrees.
+        item_factory : :any:`ItemFactory`
+            Canonical item factory into which local file items are imported.
+        config : :any:`SchedulerConfig`, optional
+            Scheduler config to use when creating items.
+        frontend_args : dict, optional
+            Frontend arguments for creating initial :any:`FileItem` objects.
+        workers : int, optional
+            Number of worker processes to use for per-file discovery.
+        """
+        if not isinstance(config, SchedulerConfig):
+            config = SchedulerConfig.from_dict(config or {})
+
+        paths = tuple(sorted(as_tuple(paths), key=str))
+        frontend_args = frontend_args or {}
+
+        if workers == 1:
+            results = [
+                (path, discover_file_codegraph(path, config=config, frontend_args=frontend_args))
+                for path in paths
+            ]
+        else:
+            with workqueue(workers=workers, logger=default_logger) as queue:
+                log_queue = getattr(queue, 'log_queue', None)
+                tasks = {
+                    queue.call(
+                        discover_file_codegraph, path, config=config,
+                        frontend_args=frontend_args, log_queue=log_queue
+                    ): path
+                    for path in paths
+                }
+                results = [(tasks[task], task.result()) for task in as_completed(tasks)]
+
+        cgraph = cls()
+        for _, (local_cgraph, local_items) in sorted(results, key=lambda result: str(result[0])):
             canonical = item_factory.import_items(local_items)
 
             for item in local_cgraph.items:

@@ -156,6 +156,9 @@ class Scheduler:
         Frontend to use for full parse of source files (default :any:`FP`).
     output_dir : str or path
         Directory for the output to be written to
+    workers : int, optional
+        Number of worker processes to use for parallel scheduler operations.
+        Currently stored for future discovery parallelization.
     """
 
     # TODO: Should be user-definable!
@@ -163,7 +166,8 @@ class Scheduler:
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
                  includes=None, defines=None, definitions=None, xmods=None,
-                 omni_includes=None, full_parse=True, frontend=FP, output_dir=None):
+                 omni_includes=None, full_parse=True, frontend=FP, output_dir=None,
+                 workers=1):
         # Derive config from file or dict
         if isinstance(config, SchedulerConfig):
             self.config = config
@@ -173,6 +177,7 @@ class Scheduler:
             self.config = SchedulerConfig.from_dict(config or {})
 
         self.full_parse = full_parse
+        self.workers = workers
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
@@ -264,20 +269,12 @@ class Scheduler:
         ]
         path_list = list(set(flatten(path_list)))  # Filter duplicates and flatten
 
-        # Instantiate FileItem instances for all files in the search path
-        for path in path_list:
-            self.item_factory.get_or_create_file_item_from_path(path, self.config, frontend_args)
-
         # Build the original code graph from the discovered files. This populates
         # the item cache with all visible definition items.
-        #  Note that we do this separate from the FileItem instantiation above to enable discovery
-        #  also for FileItems that have been created as part of a transformation
-        file_items = [
-            file_item
-            for file_item in self.item_factory.item_cache.values()
-            if isinstance(file_item, FileItem)
-        ]
-        cgraph = CodeGraph.from_file_items(file_items, self.item_factory, self.config)
+        cgraph = CodeGraph.from_paths(
+            path_list, item_factory=self.item_factory, config=self.config,
+            frontend_args=frontend_args, workers=self.workers
+        )
         if not hasattr(self, '_cgraph'):
             self._cgraph = cgraph.snapshot()
 

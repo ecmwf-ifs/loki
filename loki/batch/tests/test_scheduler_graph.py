@@ -81,6 +81,28 @@ def test_scheduler_cgraph_original_code_state(testdir, config, frontend, tmp_pat
     assert isinstance(scheduler.item_factory.item_cache['header_mod#header_type'], TypeDefItem)
 
 
+def test_scheduler_cgraph_workers_equivalence(testdir, config, frontend, tmp_path):
+    """
+    Ensure serial and parallel code discovery produce equivalent scheduler graphs.
+    """
+    projA = testdir/'sources/projA'
+    paths = [projA/'module', projA/'source/another_l1.F90', projA/'source/another_l2.F90']
+
+    scheduler_serial = Scheduler(
+        paths=paths, includes=projA/'include', config=config,
+        seed_routines='driverA', frontend=frontend, xmods=[tmp_path], workers=1
+    )
+    scheduler_parallel = Scheduler(
+        paths=paths, includes=projA/'include', config=config,
+        seed_routines='driverA', frontend=frontend, xmods=[tmp_path], workers=2
+    )
+
+    assert set(scheduler_serial.cgraph.items) == set(scheduler_parallel.cgraph.items)
+    assert set(scheduler_serial.cgraph.definitions) == set(scheduler_parallel.cgraph.definitions)
+    assert set(scheduler_serial.sgraph.items) == set(scheduler_parallel.sgraph.items)
+    assert set(scheduler_serial.sgraph.dependencies) == set(scheduler_parallel.sgraph.dependencies)
+
+
 @pytest.mark.skipif(not graphviz_present(), reason='Graphviz is not installed')
 @pytest.mark.parametrize('with_file_graph', [True, False, 'filegraph_simple'])
 @pytest.mark.parametrize('with_legend', [True, False])
