@@ -8,11 +8,11 @@
 import pytest
 import numpy as np
 
-from loki import Subroutine
+from loki import Subroutine, fgen
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, FindVariables, Section, SubstituteExpressions
 
 from loki.transformations.array_indexing.promote import promote_variables, promote_variable_declarations
 from loki.transformations.array_indexing.promote_local_array import PromoteLocalArrayTransformation
@@ -247,7 +247,7 @@ end subroutine transform_promote_dim_attr
                    and any(s.name.lower() == 'vec2' for s in d.symbols)]
     assert len(shared_decl) == 1, "vec1 and vec2 should share a DIMENSION declaration"
 
-    # Promote only vec1 with a new dimension of size 10
+    # Promote only vec1 with a new trailing dimension of size 10
     promote_variables(routine, ['vec1'], pos=-1, index=routine.variable_map['jk'],
                       size=sym.Literal(10))
 
@@ -268,11 +268,6 @@ end subroutine transform_promote_dim_attr
     assert len(vec2_decls) == 1
     assert vec1_decls[0] is not vec2_decls[0], "Declarations should have been split"
 
-    # Verify the generated Fortran is syntactically reasonable
-    fcode_out = routine.to_fortran()
-    assert 'vec1' in fcode_out.lower()
-    assert 'vec2' in fcode_out.lower()
-
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_transform_promote_variable_scalar_with_size(frontend):
@@ -291,25 +286,20 @@ end subroutine transform_promote_scalar_size
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
+    # Promote a scalar with an explicit size only
     assert isinstance(routine.variable_map['tmp'], sym.Scalar)
 
-    # Promote scalar with size only (no index)
     promote_variables(routine, ['tmp'], pos=0, size=sym.Literal(10))
 
     assert isinstance(routine.variable_map['tmp'], sym.Array)
     assert routine.variable_map['tmp'].shape == (sym.Literal(10),)
 
-    # Verify declaration is correct
+    # After promoting a scalar (no original DIMENSION), the declaration should
+    # use inline dimensions on the variable itself
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     tmp_decl = [d for d in decls if any(s.name.lower() == 'tmp' for s in d.symbols)][0]
-    # After promoting a scalar (no original DIMENSION), the declaration should have
-    # inline dimensions on the variable (dimensions attribute is None on the decl)
     assert isinstance(tmp_decl.symbols[0], sym.Array)
     assert tmp_decl.symbols[0].shape == (sym.Literal(10),)
-
-    # Check Fortran output compiles
-    fcode_out = routine.to_fortran()
-    assert 'tmp' in fcode_out.lower()
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -339,7 +329,6 @@ end subroutine transform_promote_range_size
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Promote tmp with RangeIndex size (like PromoteLocalArrayTransformation does)
     lower = routine.variable_map['istart']
     upper = routine.variable_map['iend']
     jcol = routine.variable_map['jcol']
@@ -347,6 +336,7 @@ end subroutine transform_promote_range_size
     assert isinstance(routine.variable_map['tmp'], sym.Array)
     assert routine.variable_map['tmp'].shape == (routine.variable_map['n'],)
 
+    # Promote tmp with a RangeIndex size, like PromoteLocalArrayTransformation does
     promote_variables(routine, ['tmp'], pos=-1,
                       index=jcol, size=sym.RangeIndex((lower, upper)))
 
@@ -356,12 +346,12 @@ end subroutine transform_promote_range_size
     assert routine.variable_map['tmp'].shape[0] == routine.variable_map['n']
     assert isinstance(routine.variable_map['tmp'].shape[1], sym.RangeIndex)
 
-    # Verify the generated Fortran contains the promoted declaration
-    fcode_out = routine.to_fortran()
-    assert 'tmp' in fcode_out.lower()
-    # The declaration should contain both the original dimension and the range
-    assert 'istart' in fcode_out.lower()
-    assert 'iend' in fcode_out.lower()
+    # Verify the declaration uses the promoted horizontal range
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    tmp_decl = [d for d in decls if any(s.name.lower() == 'tmp' for s in d.symbols)][0]
+    assert isinstance(tmp_decl.symbols[0].shape[1], sym.RangeIndex)
+    assert tmp_decl.symbols[0].shape[1].lower == lower
+    assert tmp_decl.symbols[0].shape[1].upper == upper
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -386,24 +376,20 @@ end subroutine test_mismatched
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Verify the shared DIMENSION declaration
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     shared_decl = [d for d in decls if d.dimensions is not None
                    and any(s.name.lower() == 'a' for s in d.symbols)
                    and any(s.name.lower() == 'b' for s in d.symbols)]
     assert len(shared_decl) == 1
 
-    # Manually promote only 'a' via SubstituteExpressions (bypassing
-    # single_variable_declaration to create the mismatch scenario).
-    # This simulates: a's shape goes from (n,) to (n, 10), b stays (n,).
-    from loki.ir import SubstituteExpressions
+    # Manually promote only 'a' via SubstituteExpressions to create a shared
+    # declaration with mismatched symbol shapes
     a_var = routine.variable_map['a']
     new_shape = (routine.variable_map['n'], sym.Literal(10))
     new_a = a_var.clone(type=a_var.type.clone(shape=new_shape), dimensions=new_shape)
     routine.spec = SubstituteExpressions({a_var: new_a}).visit(routine.spec)
 
-    # Now a and b have different shapes but share a DIMENSION(n) declaration.
-    # update_variable_declarations should detect the mismatch and split.
+    # update_variable_declarations should detect the mismatch and split
     routine.spec = update_variable_declarations(routine.spec, [new_a])
 
     # Verify declarations were split
@@ -445,7 +431,7 @@ end subroutine test_promote_decl_only
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Promote only declarations — body should be unmodified
+    # Promote only declarations; body should be unmodified
     promote_variable_declarations(routine, ['a', 'b'], pos=-1, size=sym.Literal(10))
 
     # Check shapes updated
@@ -454,10 +440,12 @@ end subroutine test_promote_decl_only
         routine.variable_map['n'], routine.variable_map['n'], sym.Literal(10)
     )
 
-    # Check body still has original subscripts (no extra dimension appended)
-    fcode_out = routine.to_fortran()
-    assert 'a(jl)' in fcode_out.lower().replace(' ', '')
-    assert 'b(jl,1)' in fcode_out.lower().replace(' ', '')
+    # Check body still has original subscripts with no promoted dimension appended
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    a_assign = next(a for a in assigns if a.lhs.name == 'a')
+    b_assign = next(a for a in assigns if a.lhs.name == 'b')
+    assert a_assign.lhs.dimensions == (routine.variable_map['jl'],)
+    assert b_assign.lhs.dimensions == (routine.variable_map['jl'], 1)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -487,9 +475,12 @@ end subroutine test_promote_decl_range
     assert routine.variable_map['a'].shape[0] == routine.variable_map['n']
     assert isinstance(routine.variable_map['a'].shape[1], sym.RangeIndex)
 
-    fcode_out = routine.to_fortran()
-    assert 'istart' in fcode_out.lower()
-    assert 'iend' in fcode_out.lower()
+    # Verify the declaration keeps the promoted range bounds
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    a_decl = [d for d in decls if any(s.name.lower() == 'a' for s in d.symbols)][0]
+    assert isinstance(a_decl.symbols[0].shape[1], sym.RangeIndex)
+    assert a_decl.symbols[0].shape[1].lower == lower
+    assert a_decl.symbols[0].shape[1].upper == upper
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -505,8 +496,6 @@ def test_promote_local_array_transformation_scc_context(frontend):
     - Uses outside vector sections get ':'
     - Arrays not used in vector sections are NOT promoted
     """
-    from loki.ir import Section
-
     fcode = """
 subroutine test_scc_promote(ncol, nlev, istartcol, iendcol, x)
   implicit none
@@ -529,11 +518,11 @@ end subroutine test_scc_promote
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Manually wrap the vector computation in a vector_section label
-    # (simulating what SCCDevectorTransformation does)
+    # Manually wrap the vector computation in a vector_section label,
+    # as produced by SCCDevectorTransformation
     body_nodes = list(routine.body.body)
-
-    # The first two statements (tmp(:) = 0.0 and the do jlev loop) are the vector section
+    # The first two statements belong to the vector section; the trailing
+    # full-array assignment remains outside of it
     vector_body = tuple(body_nodes[:2])
     non_vector_body = tuple(body_nodes[2:])
     vector_section = Section(body=vector_body, label='vector_section')
@@ -547,23 +536,29 @@ end subroutine test_scc_promote
     trafo = PromoteLocalArrayTransformation(horizontal)
     trafo.process_kernel(routine)
 
-    # tmp should be promoted (used in vector section)
+    # tmp should be promoted because it is used inside the vector section
     assert len(routine.variable_map['tmp'].shape) == 2
     assert routine.variable_map['tmp'].shape[0] == routine.variable_map['nlev']
     assert isinstance(routine.variable_map['tmp'].shape[1], sym.RangeIndex)
-
-    # unused_arr should NOT be promoted (not used in vector section)
+    # unused_arr should not be promoted because it is only used outside it
     assert routine.variable_map['unused_arr'].shape == (routine.variable_map['nlev'],)
 
-    # Check generated Fortran
-    fcode_out = routine.to_fortran()
-
-    # Inside vector section: tmp references should have jcol index
-    assert 'jcol' in fcode_out.lower()
-
-    # Verify the declaration has the range
-    assert 'istartcol' in fcode_out.lower()
-    assert 'iendcol' in fcode_out.lower()
+    # Inside the vector section, the tmp definition should read x at jcol,
+    # while the tmp use in the x assignment still keeps the promoted slice
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    tmp_assign = next(
+        a for a in assigns
+        if a.lhs.name == 'tmp'
+        and any(v.name == 'x' for v in FindVariables(unique=False).visit(a.rhs) if isinstance(v, sym.Array))
+    )
+    x_assign = next(a for a in assigns if a.lhs.name == 'x')
+    tmp_rhs_arrays = [v for v in FindVariables(unique=False).visit(tmp_assign.rhs) if isinstance(v, sym.Array)]
+    x_rhs_arrays = [v for v in FindVariables(unique=False).visit(x_assign.rhs) if isinstance(v, sym.Array)]
+    assert tmp_assign.lhs.dimensions[0] == routine.variable_map['jlev']
+    assert isinstance(tmp_assign.lhs.dimensions[1], sym.RangeIndex)
+    assert tmp_rhs_arrays[0].dimensions == (routine.variable_map['jlev'], routine.variable_map['jcol'])
+    assert x_rhs_arrays[0].dimensions[0] == routine.variable_map['jlev']
+    assert isinstance(x_rhs_arrays[0].dimensions[1], sym.RangeIndex)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -580,8 +575,6 @@ def test_promote_local_array_implicit_notation_scc_context(frontend):
     This also covers the case of passing an array without subscripts to a
     call statement: ``CALL foo(a)`` should become ``CALL foo(a(:,:,jcol))``.
     """
-    from loki.ir import Section
-
     fcode = """
 subroutine test_scc_implicit(ncol, nlev, istartcol, iendcol, ngas, x)
   implicit none
@@ -602,7 +595,7 @@ end subroutine test_scc_implicit
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Wrap everything in a vector section (simulating SCCDevector)
+    # Wrap everything in a vector section, as produced by SCCDevector
     body_nodes = list(routine.body.body)
     vector_section = Section(body=tuple(body_nodes), label='vector_section')
     routine.body = routine.body.clone(body=(vector_section,))
@@ -615,21 +608,17 @@ end subroutine test_scc_implicit
     trafo = PromoteLocalArrayTransformation(horizontal)
     trafo.process_kernel(routine)
 
-    # tmp should be promoted to 3D
     assert len(routine.variable_map['tmp'].shape) == 3
     assert routine.variable_map['tmp'].shape[0] == routine.variable_map['ngas']
     assert routine.variable_map['tmp'].shape[1] == routine.variable_map['nlev']
     assert isinstance(routine.variable_map['tmp'].shape[2], sym.RangeIndex)
 
-    fcode_out = routine.to_fortran()
-    fcode_lower = fcode_out.lower().replace(' ', '')
-
-    # The implicit assignment "tmp = 0.0" should become "tmp(:,:,jcol) = 0.0"
-    # NOT "tmp(jcol) = 0.0"
-    assert 'tmp(:,:,jcol)=0.0' in fcode_lower
-
-    # Subscripted uses should also have jcol appended
-    assert 'tmp(jg,jlev,jcol)' in fcode_lower
+    # Check the generated form for implicit full-array notation
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    init_assign = next(a for a in assigns if a.lhs.name == 'tmp' and not FindVariables(unique=False).visit(a.rhs))
+    tmp_assign = next(a for a in assigns if a.lhs.name == 'tmp' and FindVariables(unique=False).visit(a.rhs))
+    assert fgen(init_assign).lower().replace(' ', '') == 'tmp(:,:,jcol)=0.0'
+    assert 'tmp(jg,jlev,jcol)' in fgen(tmp_assign).lower().replace(' ', '')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -659,18 +648,13 @@ end subroutine test_promote_implicit
                       index=routine.variable_map['jk'],
                       size=sym.Literal(10))
 
-    # Shape should be 2D
+    # Shape should now be 2D
     assert routine.variable_map['a'].shape == (routine.variable_map['n'], sym.Literal(10))
 
-    fcode_out = routine.to_fortran()
-    fcode_lower = fcode_out.lower().replace(' ', '')
-
-    # The implicit "a = 0" is outside the loop, so jk is not live there.
-    # promote_variables uses liveness, so it should get ':' for both dims.
-    assert 'a(:,:)=0' in fcode_lower
-
-    # The subscripted "a(jk)" should become "a(jk,jk)"
-    assert 'a(jk,jk)=jk' in fcode_lower
+    # Check the generated form for implicit full-array notation
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert fgen(assigns[0]).lower().replace(' ', '') == 'a(:,:)=0'
+    assert fgen(assigns[1]).lower().replace(' ', '') == 'a(jk,jk)=jk'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -700,34 +684,27 @@ end subroutine test_deferred_promote
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Promote both a (deferred) and b (explicit) with the same size
     promote_variable_declarations(routine, ['a', 'b'], pos=-1, size=sym.Literal(10))
 
-    # a: all original dims are deferred, so promoted dim must also be deferred
     a_shape = routine.variable_map['a'].shape
     assert len(a_shape) == 3
     for d in a_shape:
         assert isinstance(d, sym.RangeIndex) and d.lower is None and d.upper is None, \
             f"Expected deferred dimension (:), got {d}"
 
-    # b: original dims are explicit, so promoted dim should be the explicit size
     b_shape = routine.variable_map['b'].shape
     assert len(b_shape) == 3
     assert b_shape[0] == routine.variable_map['n']
     assert b_shape[1] == routine.variable_map['m']
     assert b_shape[2] == sym.Literal(10)
 
-    # Verify the generated Fortran
-    fcode_out = routine.to_fortran()
-    fcode_lower = fcode_out.lower().replace(' ', '')
-
-    # a must have all-deferred dimensions
-    assert 'a(:,:,:)' in fcode_lower
-    # a must NOT have the explicit size mixed with deferred dims
-    assert 'a(:,:,10)' not in fcode_lower
-
-    # b must have the explicit promoted size
-    assert 'b(n,m,10)' in fcode_lower
+    # Check that deferred dimensions are kept in the declaration output
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    a_decl = next(d for d in decls if any(s.name.lower() == 'a' for s in d.symbols))
+    b_decl = next(d for d in decls if any(s.name.lower() == 'b' for s in d.symbols))
+    assert 'a(:,:,:)' in fgen(a_decl).lower().replace(' ', '')
+    assert 'a(:,:,10)' not in fgen(a_decl).lower().replace(' ', '')
+    assert 'b(n,m,10)' in fgen(b_decl).lower().replace(' ', '')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -740,8 +717,6 @@ def test_get_locals_to_promote_skips_deferred_shape(frontend):
 
     Variables with explicit shapes should still be returned as candidates.
     """
-    from loki.ir import Section
-
     fcode = """
 subroutine test_skip_deferred(ncol, nlev, istartcol, iendcol)
   implicit none
@@ -763,7 +738,7 @@ end subroutine test_skip_deferred
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Wrap body in a vector section (simulating SCCDevector)
+    # Wrap body in a vector section, as produced by SCCDevector
     body_nodes = list(routine.body.body)
     vector_section = Section(body=tuple(body_nodes), label='vector_section')
     routine.body = routine.body.clone(body=(vector_section,))
@@ -804,8 +779,6 @@ def test_get_locals_to_promote_skips_constant_shape(frontend):
     Only arrays with at least one variable (non-constant) dimension
     should be returned as promotion candidates.
     """
-    from loki.ir import Section
-
     fcode = """
 subroutine test_skip_constant(ncol, nlev, istartcol, iendcol)
   implicit none
@@ -850,14 +823,14 @@ end subroutine test_skip_constant
 
     candidate_names = {c.name.lower() for c in candidates}
 
-    # variable_arr has a variable dimension (nlev) — should be promoted
+    # variable_arr has a variable dimension (nlev), so it should be promoted
     assert 'variable_arr' in candidate_names
 
-    # mixed_arr has one constant and one variable dimension — should be promoted
+    # mixed_arr has one constant and one variable dimension, so it should be promoted
     assert 'mixed_arr' in candidate_names
 
-    # literal_arr has only a literal constant dimension — should NOT be promoted
+    # literal_arr has only a literal constant dimension, so it should not be promoted
     assert 'literal_arr' not in candidate_names
 
-    # param_arr has only a PARAMETER constant dimension — should NOT be promoted
+    # param_arr has only a PARAMETER constant dimension, so it should not be promoted
     assert 'param_arr' not in candidate_names

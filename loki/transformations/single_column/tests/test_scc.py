@@ -29,6 +29,7 @@ from loki.transformations.single_column import (
     SCCAnnotateTransformation, SCCVectorPipeline,
     SCCVVectorPipeline, SCCSVectorPipeline, SCCSeqRevectorTransformation
 )
+from loki.transformations.array_indexing import PromoteLocalArrayTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
@@ -353,6 +354,96 @@ def test_scc_demote_transformation(frontend, horizontal):
     assert fgen(assigns[8]).lower() == 'd(jl, 2) = b(2)'
     assert fgen(assigns[9]).lower() == 'd(jl, 3) = b(3)'
     assert fgen(assigns[10]).lower() == 'q(jl, nz) = q(jl, nz)*c + b(3)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_promote_local_array_transformation_default_off(frontend, horizontal):
+    """
+    Test that local array promotion remains disabled by default when the
+    transformation is present in the SCC pipeline.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: tmp(nz)
+    INTEGER :: jl, jk
+
+    DO JL = START, END
+      tmp(:) = 0.
+      DO jk = 1, nz
+        tmp(jk) = q(jl, jk)
+        q(jl, jk) = tmp(jk)
+      END DO
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel_item = ProcedureItem(name='#compute_column', source=kernel_source, config={})
+    kernel = kernel_source.subroutines[0]
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (PromoteLocalArrayTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel', item=kernel_item)
+
+    assert isinstance(kernel.variable_map['tmp'], Array)
+    assert kernel.variable_map['tmp'].shape == ('nz',)
+
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert 'tmp(jk, jl)' not in fgen(kernel.spec).lower()
+    assert fgen(assigns[0]).lower() == 'tmp(:) = 0.'
+    assert fgen(assigns[1]).lower() == 'tmp(jk) = q(jl, jk)'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = tmp(jk)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_promote_local_array_transformation_config(frontend, horizontal):
+    """
+    Test that per-routine config key ``promote_locals = True`` enables local
+    array promotion in the SCC pipeline.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_column(start, end, nlon, nz, q)
+    INTEGER, INTENT(IN) :: start, end
+    INTEGER, INTENT(IN) :: nlon, nz
+    REAL, INTENT(INOUT) :: q(nlon,nz)
+    REAL :: tmp(nz)
+    INTEGER :: jl, jk
+
+    DO JL = START, END
+      tmp(:) = 0.
+      DO jk = 1, nz
+        tmp(jk) = q(jl, jk)
+        q(jl, jk) = tmp(jk)
+      END DO
+    END DO
+  END SUBROUTINE compute_column
+"""
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel_item = ProcedureItem(
+        name='#compute_column', source=kernel_source, config={'promote_locals': True}
+    )
+    kernel = kernel_source.subroutines[0]
+
+    scc_transform = (SCCDevectorTransformation(horizontal=horizontal),)
+    scc_transform += (PromoteLocalArrayTransformation(horizontal=horizontal),)
+    for transform in scc_transform:
+        transform.apply(kernel, role='kernel', item=kernel_item)
+
+    assert isinstance(kernel.variable_map['tmp'], Array)
+    assert len(kernel.variable_map['tmp'].shape) == 2
+    assert kernel.variable_map['tmp'].shape[0] == 'nz'
+    assert kernel.variable_map['tmp'].shape[1] == 'start:end'
+
+    assigns = FindNodes(Assignment).visit(kernel.body)
+    assert 'tmp(nz, start:end)' in fgen(kernel.spec).lower()
+    assert fgen(assigns[0]).lower() == 'tmp(:, jl) = 0.'
+    assert fgen(assigns[1]).lower() == 'tmp(jk, jl) = q(jl, jk)'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = tmp(jk, jl)'
 
 
 @pytest.mark.xfail(not HAVE_FP, reason="Identification of array reduction intrinsics requires fparser.")
