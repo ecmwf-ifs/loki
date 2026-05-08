@@ -14,7 +14,7 @@ from loki.batch import Scheduler
 from loki.frontend import HAVE_FP
 from loki.ir import FindNodes, nodes as ir
 
-from ._test_scheduler_utils import VisGraphWrapper
+from .conftest import VisGraphWrapper
 
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 

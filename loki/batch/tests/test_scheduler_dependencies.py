@@ -8,7 +8,6 @@
 # pylint: disable=too-many-lines
 
 from xml.etree.ElementTree import ParseError
-from subprocess import CalledProcessError
 
 import pytest
 
@@ -25,7 +24,7 @@ from loki.expression import ProcedureSymbol
 from loki.frontend import FP, HAVE_FP, OMNI, REGEX
 from loki.ir import FindInlineCalls, FindNodes, FindVariables, nodes as ir
 
-from ._test_scheduler_utils import VisGraphWrapper
+from .conftest import VisGraphWrapper
 
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
 

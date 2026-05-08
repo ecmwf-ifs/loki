@@ -43,6 +43,7 @@ The overall structure of the source projects for testing is:
        * routine_two
 """
 from pathlib import Path
+import re
 
 import pytest
 
@@ -87,3 +88,24 @@ def fixture_frontend():
     as not all tests have dependencies fully resolved.
     """
     return FP
+
+
+class VisGraphWrapper:
+    """
+    Testing utility to parse the generated callgraph visualisation.
+    """
+
+    _re_nodes = re.compile(r'\s*\"?(?P<node>[\w%#./-]+)\"? \[colo', re.IGNORECASE)
+    _re_edges = re.compile(r'\s*\"?(?P<parent>[\w%#./-]+)\"? -> \"?(?P<child>[\w%#./-]+)\"?', re.IGNORECASE)
+
+    def __init__(self, path):
+        with Path(path).open('r') as f:
+            self.text = f.read()
+
+    @property
+    def nodes(self):
+        return list(self._re_nodes.findall(self.text))
+
+    @property
+    def edges(self):
+        return list(self._re_edges.findall(self.text))
