@@ -643,6 +643,16 @@ class ItemFactory:
             The items matching :data:`name` in the modules given in :any:`module_names`.
             Ideally, only a single item will be found (or there would be a name conflict).
         """
+        if cached_items := self.item_cache.get(name):
+            if isinstance(cached_items, list):
+                if module_names:
+                    module_names = [module_name.lower() for module_name in module_names]
+                    cached_items = [item for item in cached_items if item.scope_name in module_names]
+                if only:
+                    cached_items = [item for item in cached_items if isinstance(item, only)]
+                if cached_items:
+                    return tuple(cached_items)
+
         if not module_names:
             module_names = [item.name for item in self.item_cache.values() if isinstance(item, ModuleItem)]
         items = []

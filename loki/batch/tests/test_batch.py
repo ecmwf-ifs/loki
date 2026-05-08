@@ -1756,3 +1756,70 @@ END MODULE TYPEBOUND_ITEM_TARGETS_MOD
 
     assert driver_item.create_definition_items(item_factory, scheduler_config) == ()
     assert driver_item.create_dependency_items(item_factory, scheduler_config) == ()
+
+
+def test_module_procedure_alias_candidates(default_config):
+    fcode = """
+module alias_mod_a
+contains
+  subroutine aliased_proc
+  end subroutine aliased_proc
+end module alias_mod_a
+
+module alias_mod_b
+contains
+  subroutine aliased_proc
+  end subroutine aliased_proc
+end module alias_mod_b
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    source.path = 'alias_candidates.F90'
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
+    file_item = item_factory.get_or_create_file_item_from_source(source, scheduler_config)
+    module_items = file_item.create_definition_items(item_factory, scheduler_config)
+    procedure_items = tuple(
+        item for module_item in module_items
+        for item in module_item.create_definition_items(item_factory, scheduler_config)
+    )
+
+    assert procedure_items == ('alias_mod_a#aliased_proc', 'alias_mod_b#aliased_proc')
+    assert item_factory.item_cache['aliased_proc'] == list(procedure_items)
+
+    candidates = item_factory.get_or_create_module_definitions_from_candidates(
+        'aliased_proc', scheduler_config, module_names=['alias_mod_b'], only=ProcedureItem
+    )
+    assert candidates == (item_factory.item_cache['alias_mod_b#aliased_proc'],)
+
+    candidates = item_factory.get_or_create_module_definitions_from_candidates(
+        'aliased_proc', scheduler_config, module_names=['alias_mod_a', 'alias_mod_b'], only=ProcedureItem
+    )
+    assert candidates == procedure_items
+
+
+def test_module_procedure_alias_retrieval_avoids_rescan(default_config):
+    fcode = """
+module alias_retrieval_mod
+contains
+  subroutine aliased_proc
+  end subroutine aliased_proc
+end module alias_retrieval_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    source.path = 'alias_retrieval.F90'
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
+    file_item = item_factory.get_or_create_file_item_from_source(source, scheduler_config)
+    module_item = file_item.create_definition_items(item_factory, scheduler_config)[0]
+    procedure_item = module_item.create_definition_items(item_factory, scheduler_config)[0]
+
+    del item_factory.item_cache['alias_retrieval_mod']
+    candidates = item_factory.get_or_create_module_definitions_from_candidates(
+        'aliased_proc', scheduler_config, module_names=['alias_retrieval_mod'], only=ProcedureItem
+    )
+
+    assert candidates == (procedure_item,)
