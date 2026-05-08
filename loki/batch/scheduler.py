@@ -457,6 +457,8 @@ class Scheduler:
             (item.name, item) for item in self.item_factory.item_cache.values()
             if item.name not in deleted_keys
         )
+        for item in tuple(self.item_factory.item_cache.values()):
+            self.item_factory._add_procedure_alias(item.__class__, item.name, item)
 
     def process(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT):
         """

@@ -219,7 +219,38 @@ class ItemFactory:
             source = scope_item.source
             item = item_cls(item_name, source=source, config=item_conf)
         self.item_cache[item_name] = item
+        self._add_procedure_alias(item_cls, item_name, item)
         return item
+
+    def _add_procedure_alias(self, item_cls, item_name, item):
+        """
+        Add an unqualified alias for module-contained procedure items.
+
+        This supports fast candidate retrieval for procedures imported via
+        unqualified module imports when the procedure name is unambiguous.
+        """
+        if item_cls is not ProcedureItem or item_name.count('#') != 1:
+            return
+
+        scope_name, local_name = item_name.split('#')
+        if not scope_name or '%' in local_name:
+            return
+
+        local_name = f'#{local_name}'
+        cached_item = self.item_cache.get(local_name)
+        if cached_item is None:
+            self.item_cache[local_name] = item
+            return
+
+        if cached_item == item:
+            return
+
+        if isinstance(cached_item, ProcedureItem) and cached_item.name.count('#') == 1:
+            warning(
+                f'Ambiguous module procedure name {local_name}; removing item cache alias. '
+                f'Found both {cached_item.name} and {item.name}.'
+            )
+            del self.item_cache[local_name]
 
     def get_or_create_item_from_item(self, name, item, config=None):
         """
