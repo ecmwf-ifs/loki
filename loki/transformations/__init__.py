@@ -38,3 +38,4 @@ from loki.transformations.parallel import * # noqa
 from loki.transformations.dependency import * # noqa
 from loki.transformations.pragma_model import * # noqa
 from loki.transformations.temporaries import * # noqa
+from loki.transformations.replace_kernel import * # noqa

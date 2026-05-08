@@ -1,0 +1,13 @@
+MODULE KERNEL_GEOM_EXPR_MOD
+  USE GEOMETRY_MOD, ONLY: GEOMETRY_TYPE
+  IMPLICIT NONE
+CONTAINS
+
+  SUBROUTINE kernel_geom_expr(ydgeometry, kst, kend, flag1)
+    TYPE(GEOMETRY_TYPE), INTENT(IN) :: ydgeometry
+    INTEGER, INTENT(IN) :: kst, kend
+    LOGICAL, INTENT(IN) :: flag1
+
+  END SUBROUTINE kernel_geom_expr
+
+END MODULE KERNEL_GEOM_EXPR_MOD

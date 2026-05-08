@@ -1,0 +1,11 @@
+MODULE KERNEL_GEOM_REPL_MOD
+  IMPLICIT NONE
+CONTAINS
+
+  SUBROUTINE kernel_geom_repl(kgpblks, flag1)
+    INTEGER, INTENT(IN) :: kgpblks
+    LOGICAL, INTENT(IN) :: flag1
+
+  END SUBROUTINE kernel_geom_repl
+
+END MODULE KERNEL_GEOM_REPL_MOD

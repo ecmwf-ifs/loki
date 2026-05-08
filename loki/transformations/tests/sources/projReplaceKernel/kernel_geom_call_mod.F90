@@ -1,0 +1,14 @@
+MODULE KERNEL_GEOM_CALL_MOD
+  USE GEOMETRY_MOD, ONLY: GEOMETRY_TYPE
+  USE KERNEL_GEOM_MOD, ONLY: KERNEL_GEOM
+  IMPLICIT NONE
+CONTAINS
+
+  SUBROUTINE kernel_geom_call(ydgeometry)
+    TYPE(GEOMETRY_TYPE), INTENT(IN) :: ydgeometry
+    LOGICAL :: flag1
+
+    CALL kernel_geom(ydgeometry, flag1=flag1)
+  END SUBROUTINE kernel_geom_call
+
+END MODULE KERNEL_GEOM_CALL_MOD
