@@ -31,28 +31,39 @@ class PromoteLocalArrayTransformation(Transformation):
         self.horizontal = horizontal
 
     @classmethod
-    def get_locals_to_promote(cls, routine, sections, horizontal):
+    def get_locals_to_promote(cls, routine, sections, horizontal, promote_constant_arrays=False):
         """
         Create a list of local arrays to promote.
 
         Local arrays get promoted if they:
         * Are used within at least one vector section
         * Do not already contain the horizontal dimension
-        * Have at least one non-constant dimension (i.e. are not
-          compile-time-constant-sized arrays)
+        * Have at least one non-constant dimension (unless
+          ``promote_constant_arrays`` is True)
         * Do not have an entirely deferred shape (all ``:`` dimensions),
           since the actual shape is not known at compile time for
           pointer/allocatable locals
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The subroutine in which to find local arrays.
+        sections : list of :any:`Section`
+            The vector-section IR nodes.
+        horizontal : :any:`Dimension`
+            The horizontal dimension descriptor.
+        promote_constant_arrays : bool, optional
+            If True, also promote arrays whose dimensions are all
+            compile-time constants; default: ``False``.
         """
         # Create a list of local temporary arrays to filter down
         candidates = get_local_arrays(routine, routine.spec)
 
-        # Filter out arrays that already have the horizontal dimension or
-        # are entirely compile-time-constant-sized
+        # Filter out arrays that already have the horizontal dimension
         candidates = [
             a for a in candidates if a.shape and
             all(s not in horizontal.size_expressions for s in a.shape) and
-            not all(is_dimension_constant(d) for d in a.shape)
+            (promote_constant_arrays or not all(is_dimension_constant(d) for d in a.shape))
         ]
 
         # Filter out arrays with entirely deferred shapes (all ':' dimensions).
@@ -213,13 +224,16 @@ class PromoteLocalArrayTransformation(Transformation):
         if role == 'kernel':
             promote_locals = False
             preserve_arrays = []
+            promote_constant_arrays = False
             if item:
                 promote_locals = item.config.get('promote_locals', False)
                 preserve_arrays = item.config.get('preserve_arrays', [])
+                promote_constant_arrays = item.config.get('promote_constant_arrays', False)
             if promote_locals:
-                self.process_kernel(routine, preserve_arrays=preserve_arrays)
+                self.process_kernel(routine, preserve_arrays=preserve_arrays,
+                                    promote_constant_arrays=promote_constant_arrays)
 
-    def process_kernel(self, routine, preserve_arrays=None):
+    def process_kernel(self, routine, preserve_arrays=None, promote_constant_arrays=False):
         """
         Applies the Promote utilities to a "kernel" and promotes all suitable local arrays.
 
@@ -237,6 +251,9 @@ class PromoteLocalArrayTransformation(Transformation):
             Subroutine to apply this transformation to.
         preserve_arrays : list of str, optional
             Names of arrays to exclude from promotion.
+        promote_constant_arrays : bool, optional
+            If True, also promote arrays whose dimensions are all
+            compile-time constants; default: ``False``.
         """
         # Find vector sections marked in the SCCDevectorTransformation
         sections = [
@@ -245,7 +262,8 @@ class PromoteLocalArrayTransformation(Transformation):
         ]
 
         # Determine which local arrays to promote
-        to_promote = self.get_locals_to_promote(routine, sections, self.horizontal)
+        to_promote = self.get_locals_to_promote(routine, sections, self.horizontal,
+                                                promote_constant_arrays=promote_constant_arrays)
 
         # Filter out arrays marked explicitly for preservation
         if preserve_arrays:
