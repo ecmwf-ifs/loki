@@ -227,7 +227,7 @@ class ItemFactory:
         Add an unqualified alias for module-contained procedure items.
 
         This supports fast candidate retrieval for procedures imported via
-        unqualified module imports while preserving all possible module matches.
+        unqualified module imports when the procedure name is unambiguous.
         """
         if item_cls is not ProcedureItem or item_name.count('#') != 1:
             return
@@ -236,18 +236,21 @@ class ItemFactory:
         if not scope_name or '%' in local_name:
             return
 
+        local_name = f'#{local_name}'
         cached_item = self.item_cache.get(local_name)
         if cached_item is None:
-            self.item_cache[local_name] = [item]
+            self.item_cache[local_name] = item
             return
 
-        if isinstance(cached_item, list):
-            if item not in cached_item:
-                cached_item.append(item)
+        if cached_item == item:
             return
 
-        if cached_item != item:
-            self.item_cache[local_name] = [cached_item, item]
+        if isinstance(cached_item, ProcedureItem) and cached_item.name.count('#') == 1:
+            warning(
+                f'Ambiguous module procedure name {local_name}; removing item cache alias. '
+                f'Found both {cached_item.name} and {item.name}.'
+            )
+            del self.item_cache[local_name]
 
     def get_or_create_item_from_item(self, name, item, config=None):
         """
@@ -643,16 +646,6 @@ class ItemFactory:
             The items matching :data:`name` in the modules given in :any:`module_names`.
             Ideally, only a single item will be found (or there would be a name conflict).
         """
-        if cached_items := self.item_cache.get(name):
-            if isinstance(cached_items, list):
-                if module_names:
-                    module_names = [module_name.lower() for module_name in module_names]
-                    cached_items = [item for item in cached_items if item.scope_name in module_names]
-                if only:
-                    cached_items = [item for item in cached_items if isinstance(item, only)]
-                if cached_items:
-                    return tuple(cached_items)
-
         if not module_names:
             module_names = [item.name for item in self.item_cache.values() if isinstance(item, ModuleItem)]
         items = []

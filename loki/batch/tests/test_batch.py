@@ -754,12 +754,12 @@ def test_procedure_item_from_item2(testdir, default_config):
     assert item.name == 'other_mod#mod_proc'
     assert isinstance(item, ProcedureItem)
 
-    expected_cache = {str(proj/'module/other_mod.F90').lower(), 'other_mod', 'other_mod#mod_proc'}
+    expected_cache = {str(proj/'module/other_mod.F90').lower(), 'other_mod', 'other_mod#mod_proc', 'mod_proc'}
     assert set(item_factory.item_cache) == expected_cache
 
     # Create a new item by duplicating the existing item
     new_item = item_factory.get_or_create_item_from_item('my_mod#new_proc', item, config=scheduler_config)[0]
-    expected_cache |= {str(proj/'module/my_mod.F90').lower(), 'my_mod', 'my_mod#new_proc'}
+    expected_cache |= {str(proj/'module/my_mod.F90').lower(), 'my_mod', 'my_mod#new_proc', 'new_proc'}
     assert set(item_factory.item_cache) == expected_cache
 
     # Assert the new item differs from the existing item in the name, with the original
@@ -1758,7 +1758,7 @@ END MODULE TYPEBOUND_ITEM_TARGETS_MOD
     assert driver_item.create_dependency_items(item_factory, scheduler_config) == ()
 
 
-def test_module_procedure_alias_candidates(default_config):
+def test_module_procedure_alias_ambiguity(default_config):
     fcode = """
 module alias_mod_a
 contains
@@ -1786,7 +1786,7 @@ end module alias_mod_b
     )
 
     assert procedure_items == ('alias_mod_a#aliased_proc', 'alias_mod_b#aliased_proc')
-    assert item_factory.item_cache['aliased_proc'] == list(procedure_items)
+    assert 'aliased_proc' not in item_factory.item_cache
 
     candidates = item_factory.get_or_create_module_definitions_from_candidates(
         'aliased_proc', scheduler_config, module_names=['alias_mod_b'], only=ProcedureItem
@@ -1817,6 +1817,8 @@ end module alias_retrieval_mod
     module_item = file_item.create_definition_items(item_factory, scheduler_config)[0]
     procedure_item = module_item.create_definition_items(item_factory, scheduler_config)[0]
 
+    assert item_factory.item_cache['aliased_proc'] is procedure_item
+
     del item_factory.item_cache['alias_retrieval_mod']
     candidates = item_factory.get_or_create_module_definitions_from_candidates(
         'aliased_proc', scheduler_config, module_names=['alias_retrieval_mod'], only=ProcedureItem
@@ -1843,7 +1845,7 @@ end module alias_rekey_mod
     module_item = file_item.create_definition_items(item_factory, scheduler_config)[0]
     procedure_item = module_item.create_definition_items(item_factory, scheduler_config)[0]
 
-    assert item_factory.item_cache['aliased_proc'] == [procedure_item]
+    assert item_factory.item_cache['aliased_proc'] is procedure_item
 
     module_item.ir.name = 'renamed_alias_rekey_mod'
     module_item.name = 'renamed_alias_rekey_mod'
@@ -1857,4 +1859,4 @@ end module alias_rekey_mod
     renamed_procedure = item_factory.item_cache['renamed_alias_rekey_mod#aliased_proc']
     assert renamed_procedure.name == 'renamed_alias_rekey_mod#aliased_proc'
     assert 'alias_rekey_mod#aliased_proc' not in item_factory.item_cache
-    assert item_factory.item_cache['aliased_proc'] == [renamed_procedure]
+    assert item_factory.item_cache['aliased_proc'] is renamed_procedure

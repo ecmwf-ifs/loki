@@ -395,14 +395,12 @@ class Scheduler:
         # Find invalid item cache entries
         renamed_keys = {
             key: item.name for key, item in self.item_factory.item_cache.items()
-            if not isinstance(item, list) and item.name != key
+            if item.name != key
         }
 
         # Find deleted item cache entries
         deleted_keys = set()
         for key, item in self.item_factory.item_cache.items():
-            if isinstance(item, list):
-                continue
             if isinstance(item, FileItem):
                 continue
             if isinstance(item, ModuleItem):
@@ -427,8 +425,6 @@ class Scheduler:
 
         # Rename item scopes where necessary
         for key, item in self.item_factory.item_cache.items():
-            if isinstance(item, list):
-                continue
             if item.scope_name in renamed_keys and key not in deleted_keys:
                 item.name = f'{renamed_keys[item.scope_name]}#{item.local_name}'
                 renamed_keys[key] = item.name
@@ -459,7 +455,7 @@ class Scheduler:
         # Rebuild item_cache to make keys match entries
         self.item_factory.item_cache = CaseInsensitiveDict(
             (item.name, item) for item in self.item_factory.item_cache.values()
-            if not isinstance(item, list) and item.name not in deleted_keys
+            if item.name not in deleted_keys
         )
         for item in tuple(self.item_factory.item_cache.values()):
             self.item_factory._add_procedure_alias(item.__class__, item.name, item)
