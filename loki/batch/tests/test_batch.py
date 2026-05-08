@@ -20,7 +20,7 @@ from loki import (
 from loki.batch import (
     FileItem, ModuleItem, ProcedureItem, TypeDefItem,
     ProcedureBindingItem, ExternalItem, InterfaceItem, SGraph,
-    SchedulerConfig, ItemFactory
+    Scheduler, SchedulerConfig, ItemFactory
 )
 from loki.frontend import HAVE_FP, REGEX, RegexParserClass
 from loki.ir import nodes as ir
@@ -1823,3 +1823,38 @@ end module alias_retrieval_mod
     )
 
     assert candidates == (procedure_item,)
+
+
+def test_scheduler_rekey_item_cache_with_procedure_aliases(default_config):
+    fcode = """
+module alias_rekey_mod
+contains
+  subroutine aliased_proc
+  end subroutine aliased_proc
+end module alias_rekey_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    source.path = 'alias_rekey.F90'
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
+    file_item = item_factory.get_or_create_file_item_from_source(source, scheduler_config)
+    module_item = file_item.create_definition_items(item_factory, scheduler_config)[0]
+    procedure_item = module_item.create_definition_items(item_factory, scheduler_config)[0]
+
+    assert item_factory.item_cache['aliased_proc'] == [procedure_item]
+
+    module_item.ir.name = 'renamed_alias_rekey_mod'
+    module_item.name = 'renamed_alias_rekey_mod'
+
+    scheduler = object.__new__(Scheduler)
+    scheduler.item_factory = item_factory
+    scheduler.config = scheduler_config
+    scheduler.seeds = ()
+    scheduler.rekey_item_cache()
+
+    renamed_procedure = item_factory.item_cache['renamed_alias_rekey_mod#aliased_proc']
+    assert renamed_procedure.name == 'renamed_alias_rekey_mod#aliased_proc'
+    assert 'alias_rekey_mod#aliased_proc' not in item_factory.item_cache
+    assert item_factory.item_cache['aliased_proc'] == [renamed_procedure]
