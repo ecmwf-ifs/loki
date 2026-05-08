@@ -22,6 +22,7 @@ from loki.transformations.field_api import * # noqa
 from loki.transformations.idempotence import * # noqa
 from loki.transformations.inline import * # noqa
 from loki.transformations.parametrise import * # noqa
+from loki.transformations.replace_kernel import * # noqa
 from loki.transformations.remove_code import * # noqa
 from loki.transformations.sanitise import * # noqa
 from loki.transformations.single_column import * # noqa
