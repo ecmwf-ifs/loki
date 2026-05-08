@@ -5,10 +5,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-"""
-Collection of utility routines that provide loop transformations.
+"""Collection of utility routines that provide loop transformations."""
 
-"""
+# pylint: disable=cyclic-import
 import functools
 from collections import defaultdict
 import operator as op
@@ -666,13 +665,27 @@ class LoopUnrollTransformer(Transformer):
                 warning(f"Unrolling loop over 32 iterations ({len(unroll_range)}), this may take a long time & "
                         f"provide few performance benefits.")
 
-            acc = functools.reduce(op.add,
-                                   [
-                                       # Create a copy of the loop body for every value of the iterator
-                                       SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body)
-                                       for i in unroll_range
-                                   ],
-                                   ())
+            neighbour_loops = len([child for child in o.body if isinstance(child, Loop)]) > 1
+            counter_in_bounds = o.variable in [
+                variable for loop in FindNodes(Loop).visit(o.body)
+                for variable in FindVariables().visit(loop.bounds)
+            ]
+
+            if not neighbour_loops and not counter_in_bounds:
+                if depth is None or depth >= 1:
+                    o = Loop(variable=o.variable, body=self.visit(o.body, depth=depth), bounds=o.bounds)
+                acc = functools.reduce(
+                    op.add,
+                    [SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body) for i in unroll_range],
+                    ()
+                )
+                return as_tuple(flatten(acc))
+
+            acc = functools.reduce(
+                op.add,
+                [SubstituteExpressions({o.variable: sym.IntLiteral(i)}).visit(o.body) for i in unroll_range],
+                ()
+            )
 
             if depth is None or depth >= 1:
                 acc = [self.visit(a, depth=depth) for a in acc]
