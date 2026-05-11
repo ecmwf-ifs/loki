@@ -628,7 +628,9 @@ class Scheduler:
             self.rekey_item_cache()
 
         if transformation.creates_items:
-            self._discover()
+            # Re-build the SGraph after internal changes to the dependency have been done
+            self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
+
             if self.full_parse:
                 self._parse_items()
 
