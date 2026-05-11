@@ -26,7 +26,7 @@ from loki.expression.symbols import (
 )
 
 __all__ = [
-    'ExpressionFinder', 'FindExpressions', 'FindVariables',
+    'ExpressionFinder', 'FindExpressions', 'FindVariables', 'FindUsedVariables',
     'FindTypedSymbols', 'FindInlineCalls', 'FindLiterals',
     'FindRealLiterals', 'ExpressionTransformer',
     'SubstituteExpressions', 'SubstituteStringExpressions',
@@ -182,6 +182,18 @@ class FindVariables(ExpressionFinder):
     See :class:`ExpressionFinder` for further details
     """
     retriever = ExpressionRetriever(lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)))
+
+
+class FindUsedVariables(ExpressionFinder):
+    """
+    A visitor to collect variables without recursing into parent components
+    of derived-type member accesses.
+
+    See :class:`ExpressionFinder` for further details.
+    """
+    retriever = ExpressionRetriever(
+        lambda e: isinstance(e, (Scalar, Array, DeferredTypeSymbol)), recurse_var_parent=False
+    )
 
 
 class FindInlineCalls(ExpressionFinder):
