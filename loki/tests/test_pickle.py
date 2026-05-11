@@ -180,6 +180,72 @@ end module my_type_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No external module available')]))
+def test_pickle_fparser_typedef_from_importing_module(frontend, tmp_path):
+    """
+    Ensure standalone typedefs from modules with imports preserve parent scope.
+    """
+
+    fcode = """
+module my_type_mod
+  use header_mod, only: header_type
+
+  type local_type
+    type(header_type) :: member
+  end type local_type
+
+end module my_type_mod
+"""
+    header = Module.from_source("""
+module header_mod
+  type header_type
+    integer :: value
+  end type header_type
+end module header_mod
+""", frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, definitions=(header,), xmods=[tmp_path])
+
+    typedef = module['local_type']
+    typedef_new = loads(dumps(typedef))
+
+    assert typedef_new == typedef
+    assert typedef_new.parent is module
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No external module available')]))
+def test_pickle_fparser_import_symbols_from_module(frontend, tmp_path):
+    """
+    Ensure imports from FParser modules keep symbol type metadata after unpickling.
+    """
+
+    fcode = """
+module kernel_mod
+  use header_mod, only: header_type
+  implicit none
+
+contains
+  subroutine kernel(arg)
+    type(header_type), intent(inout) :: arg
+  end subroutine kernel
+end module kernel_mod
+"""
+    header = Module.from_source("""
+module header_mod
+  type header_type
+    integer :: value
+  end type header_type
+end module header_mod
+""", frontend=frontend, xmods=[tmp_path])
+    module = Module.from_source(fcode, frontend=frontend, definitions=(header,), xmods=[tmp_path])
+
+    module_new = loads(dumps(module))
+    import_symbols = module_new.imports[0].symbols
+
+    assert import_symbols
+    assert all(symbol.type is not None for symbol in import_symbols)
+    assert all(symbol.type.use_name in (None, 'header_type') for symbol in import_symbols)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No external module available')]))
 def test_pickle_subroutine_with_member(frontend):
     """
     Ensure that :any:`Subroutine` and its components are picklable.
