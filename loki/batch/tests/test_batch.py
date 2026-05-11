@@ -1161,6 +1161,42 @@ def test_sgraph_from_seed(tmp_path, testdir, default_config, seed, dependencies_
     }
 
 
+def test_sgraph_from_seed_resolves_cached_procedure_item(testdir, default_config, monkeypatch):
+    """
+    Ensure unqualified module procedure seeds resolve to their fully-qualified cache key.
+    """
+    proj = testdir/'sources/projBatch'
+    suffixes = ['.f90', '.F90']
+    path_list = [f for ext in suffixes for f in proj.glob(f'**/*{ext}')]
+
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+    item_factory = ItemFactory()
+
+    for path in path_list:
+        relative_path = str(path.relative_to(proj))
+        file_item = get_item(
+            FileItem, path, relative_path, RegexParserClass.ProgramUnitClass,
+            scheduler_config
+        )
+        item_factory.item_cache[relative_path] = file_item
+        item_factory.item_cache.update(
+            (item.name, item)
+            for item in file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)
+        )
+
+    # Ensure the costly fallback lookup is not triggered for a cached seed item.
+    def fail_candidate_lookup(*_args, **_kwargs):
+        raise AssertionError('Seed lookup should use the existing fully-qualified cache key')
+
+    monkeypatch.setattr(
+        item_factory, 'get_or_create_module_definitions_from_candidates', fail_candidate_lookup
+    )
+
+    sgraph = SGraph.from_seed('mod_proc', item_factory, scheduler_config)
+
+    assert 'other_mod#mod_proc' in sgraph.items
+
+
 @pytest.mark.parametrize('seed,disable,active_nodes', [
     ('#comp1', ('comp2', 'a'), (
         '#comp1', 't_mod', 't_mod#t', 'header_mod', 't_mod#t%proc', 't_mod#t%no%way',
