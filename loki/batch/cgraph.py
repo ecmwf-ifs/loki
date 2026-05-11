@@ -7,13 +7,14 @@
 
 from copy import copy
 from concurrent.futures import as_completed
+from codetiming import Timer
 
 import networkx as nx
 
 from loki.batch.configure import SchedulerConfig
 from loki.batch.item_factory import ItemFactory
 from loki.jit_build.workqueue import workqueue
-from loki.logging import default_logger
+from loki.logging import default_logger, perf
 from loki.tools import as_tuple
 
 
@@ -132,6 +133,7 @@ class CodeGraph:
         return cgraph
 
     @classmethod
+    @Timer(logger=perf, text='[Loki::Scheduler] Built CGraph from source paths in {:.2f}s')
     def from_paths(cls, paths, item_factory, config=None, frontend_args=None, workers=1):
         """
         Create a :any:`CodeGraph` from source file paths.
