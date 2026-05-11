@@ -28,7 +28,18 @@ from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 
 from loki.logging import info, perf, warning, error
 
-__all__ = ['ProcessingStrategy', 'Scheduler']
+__all__ = ['ProcessingStrategy', 'Scheduler', 'parse_file_item']
+
+
+def parse_file_item(item, frontend_args):
+    """
+    Fully parse the source associated with a scheduler :any:`FileItem`.
+
+    This function is module-level so it can be used as a worker entry point
+    for process-parallel parsing.
+    """
+    item.source.make_complete(**frontend_args)
+    return item
 
 
 class ProcessingStrategy(Enum):
@@ -357,9 +368,14 @@ class Scheduler:
         # Force the parsing of the routines
         default_frontend_args = self.build_args.copy()
         default_frontend_args['definitions'] = as_tuple(default_frontend_args['definitions']) + self.definitions
-        for item in SFilter(self.file_graph, reverse=True):
-            frontend_args = self.config.create_frontend_args(item.name, default_frontend_args)
-            item.source.make_complete(**frontend_args)
+        parse_items = tuple(SFilter(self.file_graph, reverse=True))
+        parse_tasks = tuple(
+            (item, self.config.create_frontend_args(item.name, default_frontend_args))
+            for item in parse_items
+        )
+
+        for item, frontend_args in parse_tasks:
+            parse_file_item(item, frontend_args)
 
         # Re-build the SGraph after parsing to pick up all new connections
         self._sgraph = SGraph.from_seed(self.seeds, self.item_factory, self.config)
