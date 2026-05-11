@@ -407,6 +407,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         )
         return stack_type
 
+    def get_block_index(self, routine, variable_map):
+        """Resolve the configured block index, including derived-type forms."""
+        block_index = variable_map.get(self.block_dim.index, None)
+        if block_index is not None:
+            return block_index
+
+        block_indices = [
+            index for index in self.block_dim.indices
+            if index.split('%', maxsplit=1)[0].lower() in variable_map
+        ]
+        if block_indices:
+            return routine.resolve_typebound_var(block_indices[0], variable_map)
+        return None
+
     def _get_stack_storage_and_size_var(self, routine, stack_size):
         """
         Utility routine to obtain storage array and size variable for the pool allocator
@@ -855,7 +869,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                         function=Variable(name='LOC'),
                         parameters=(
                             stack_storage.clone(
-                                dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+                                dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
                             ),
                         ),
                         kw_parameters=None

@@ -24,7 +24,7 @@ from loki.frontend import (
     available_frontends, OMNI, HAVE_FP, parse_fparser_expression
 )
 from loki.ir import (
-    nodes as ir, FindNodes, FindVariables, FindExpressions,
+    nodes as ir, FindNodes, FindUsedVariables, FindVariables, FindExpressions,
     FindInlineCalls, SubstituteExpressions
 )
 from loki.tools import (
@@ -1376,6 +1376,28 @@ def test_nested_derived_type_substitution():
     new_expr = SubstituteExpressions({original:replace}).visit(expr)
 
     assert fgen(new_expr) == 'ydml_phy_mf%yrphy3%n_spband'
+
+
+def test_find_used_variables_skips_parent_components():
+    """Collect only the used member expression rather than its parent chain."""
+    expr = sym.Array(
+        name='field',
+        parent=sym.Scalar(name='geom', parent=sym.Scalar(name='state')),
+        dimensions=(sym.Scalar(name='jk'),)
+    )
+
+    all_variables = FindVariables(unique=False).visit(expr)
+    used_variables = FindUsedVariables(unique=False).visit(expr)
+
+    assert any(var == 'state%geom%field(jk)' for var in all_variables)
+    assert any(var == 'state%geom' for var in all_variables)
+    assert any(var == 'state' for var in all_variables)
+    assert any(var == 'jk' for var in all_variables)
+
+    assert any(var == 'state%geom%field(jk)' for var in used_variables)
+    assert any(var == 'jk' for var in used_variables)
+    assert not any(var == 'state%geom' for var in used_variables)
+    assert not any(var == 'state' for var in used_variables)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

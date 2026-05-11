@@ -8,7 +8,7 @@
 import pytest
 
 from loki.expression.parser import parse_expr
-from loki import Dimension
+from loki import Dimension, Subroutine
 from loki.batch import Scheduler, SchedulerConfig
 from loki.expression import (
         InlineCall, RangeIndex, simplify, Sum,
@@ -1429,3 +1429,24 @@ end module kernel_mod
 
     # check that array size was imported to the driver
     assert 'n' in driver.imported_symbols
+
+
+def test_pool_allocator_resolves_derived_type_block_index():
+    """Resolve a derived-type block index via the configured dimension aliases."""
+    fcode = """
+subroutine driver(geom)
+  implicit none
+  type dim_type
+    integer :: ib
+  end type dim_type
+  type geom_type
+    type(dim_type) :: blk_dim
+  end type geom_type
+  type(geom_type), intent(in) :: geom
+end subroutine driver
+    """.strip()
+    routine = Subroutine.from_source(fcode)
+    block_dim = Dimension(name='block', size='geom%blk_dim%nb', index=('missing%ib', 'geom%blk_dim%ib'))
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+
+    assert transformation.get_block_index(routine, routine.variable_map) == 'geom%blk_dim%ib'

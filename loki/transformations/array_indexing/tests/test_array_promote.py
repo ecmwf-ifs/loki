@@ -12,6 +12,7 @@ from loki import Subroutine
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
+from loki.ir import FindNodes, nodes as ir
 
 from loki.transformations.array_indexing.promote import promote_variables
 
@@ -140,3 +141,30 @@ end subroutine transform_promote_variables
     assert scalar == n*(n+1)//2
     assert np.all(vector[:-1] == np.array(list(range(n + 1, 2*n)), order='F', dtype=np.int32))
     assert vector[-1] == 3*n
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_promote_variables_keeps_explicit_index_when_requested(frontend):
+    """Keep an unresolved promotion index verbatim when requested by the caller."""
+    fcode = """
+subroutine promote_unknown_index(arr, n)
+  implicit none
+  integer, intent(in) :: n
+  integer, intent(inout) :: arr(n)
+  integer :: idx
+  integer :: tmp(n)
+
+  arr(:) = tmp(:)
+end subroutine promote_unknown_index
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    promote_variables(
+        routine, ['tmp'], pos=-1, index=routine.variable_map['idx'], size=routine.variable_map['n'],
+        ignore_index_undefined=True
+    )
+
+    assign = FindNodes(ir.Assignment).visit(routine.body)[0]
+
+    assert routine.variable_map['tmp'].shape == (routine.variable_map['n'], routine.variable_map['n'])
+    assert assign.rhs == 'tmp(:, idx)'

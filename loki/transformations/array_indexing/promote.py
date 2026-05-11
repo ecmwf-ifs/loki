@@ -27,7 +27,7 @@ __all__ = [
 ]
 
 
-def promote_variables(routine, variable_names, pos, index=None, size=None):
+def promote_variables(routine, variable_names, pos, index=None, size=None, ignore_index_undefined=False):
     """
     Promote a list of variables by inserting new array dimensions of given size
     and updating all uses of these variables with a given index expression.
@@ -56,6 +56,9 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
         The size of the dimension (or tuple for multi-dimension promotion) to
         insert at `pos`. When this is provided, the declaration of variables
         is updated accordingly.
+    ignore_index_undefined : bool, optional
+        When `True`, keep the provided index expression even if dataflow
+        analysis cannot prove it is live at a particular use site.
     """
     variable_names = {name.lower() for name in variable_names}
 
@@ -80,8 +83,11 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
 
                 # We use the given index expression in this node if all
                 # variables therein are defined, otherwise we use `:`
-                node_index = tuple(i if v <= node.live_symbols else sym.RangeIndex((None, None))
-                                   for i, v in zip(index, index_vars))
+                if not ignore_index_undefined:
+                    node_index = tuple(i if v <= node.live_symbols else sym.RangeIndex((None, None))
+                                       for i, v in zip(index, index_vars))
+                else:
+                    node_index = tuple(i for i, _ in zip(index, index_vars))
 
                 var_map = {}
                 for var in var_list:

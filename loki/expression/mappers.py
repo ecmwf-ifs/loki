@@ -226,10 +226,14 @@ class LokiWalkMapper(WalkMapper):
     """
     # pylint: disable=abstract-method
 
+    def __init__(self, recurse_var_parent=True, **kwargs):
+        super().__init__(**kwargs)
+        self.recurse_var_parent = recurse_var_parent
+
     def map_variable_symbol(self, expr, *args, **kwargs):
         if not self.visit(expr):
             return
-        if expr.parent:
+        if expr.parent and self.recurse_var_parent:
             self.rec(expr.parent, *args, **kwargs)
         self.post_visit(expr, *args, **kwargs)
 
@@ -745,8 +749,12 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
 
     def __init__(self, expr_map):
         super().__init__()
+        from loki.expression.symbols import MetaSymbol  # pylint: disable=import-outside-toplevel,cyclic-import
 
-        self.expr_map = expr_map
+        self.expr_map = dict(expr_map)
+        for expr, replacement in list(expr_map.items()):
+            if isinstance(expr, MetaSymbol) and expr._symbol not in self.expr_map:
+                self.expr_map[expr._symbol] = replacement
         for expr in self.expr_map.keys():
             setattr(self, expr.mapper_method, self.map_from_expr_map)
 
