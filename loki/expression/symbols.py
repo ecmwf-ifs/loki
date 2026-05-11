@@ -116,7 +116,7 @@ class TypedSymbol:
         symbol objects. We do not recurse here, since we own the
         "name" attribute, which pymbolic will otherwise replicate.
         """
-        return (self.name, None, self._parent, self._type, self.case_sensitive, )
+        return (self.name, None, self._parent, self.type, self.case_sensitive, )
 
     @property
     def scope(self):

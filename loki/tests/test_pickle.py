@@ -182,7 +182,7 @@ end module my_type_mod
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No external module available')]))
 def test_pickle_fparser_typedef_from_importing_module(frontend, tmp_path):
     """
-    Ensure standalone typedefs from modules with imports preserve parent scope.
+    Ensure typedefs from modules with imports preserve parent scope.
     """
 
     fcode = """
@@ -206,9 +206,12 @@ end module header_mod
 
     typedef = module['local_type']
     typedef_new = loads(dumps(typedef))
+    module_new = loads(dumps(module))
+    module_typedef_new = module_new['local_type']
 
     assert typedef_new == typedef
-    assert typedef_new.parent is module
+    assert module_typedef_new == typedef
+    assert module_typedef_new.parent is module_new
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'No external module available')]))

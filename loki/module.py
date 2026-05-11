@@ -265,6 +265,9 @@ class Module(ProgramUnit):
                 if isinstance(node, Scope):
                     node._reset_parent(self)
 
+        for node in self.typedefs:
+            node._reset_parent(self)
+
         # Ensure that we are attaching all symbols to the newly create ``self``.
         self.rescope_symbols()
 
