@@ -507,7 +507,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return True
         return False
 
-    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
+    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None, drv_loop=None):
         """
         Utility routine to determine the stack size required for the given :data:`routine`,
         including calls to subroutines
@@ -522,6 +522,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             The stack size required for temporaries in :data:`routine`
         item : :any:`Item`
             Scheduler work item corresponding to routine.
+        drv_loop : :any:`Loop`, optional
+            If provided, only consider calls within this specific loop when
+            collecting successor stack sizes. When ``None``, the entire
+            routine body is searched (original behaviour).
 
         Returns
         -------
@@ -548,8 +552,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
+        section = drv_loop.body if drv_loop is not None else routine.body
         stack_sizes = []
-        for call in FindNodes(CallStatement).visit(routine.body):
+        for call in FindNodes(CallStatement).visit(section):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
                 # Replace any occurence of routine arguments in the stack size expression
@@ -901,9 +906,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
 
-    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False):
+    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False, drv_loop=None):
         """
         Add the pool allocator argument into subroutine calls
+
+        Parameters
+        ----------
+        drv_loop : :any:`Loop`, optional
+            If provided, only inject into calls within this specific loop.
+            When ``None``, all calls in the routine body are considered
+            (original behaviour).
         """
         call_map = {}
 
@@ -928,7 +940,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             dimensions = as_tuple(stack_storage_var_dim)
             new_kwarguments += ((stack_storage_var.name, stack_storage_var.clone(dimensions=dimensions)),)
 
-        for call in FindNodes(CallStatement).visit(routine.body):
+        section = drv_loop.body if drv_loop is not None else routine.body
+        for call in FindNodes(CallStatement).visit(section):
             if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
