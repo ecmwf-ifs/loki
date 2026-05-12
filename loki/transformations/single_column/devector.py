@@ -14,6 +14,7 @@ from loki.ir import (
     NestedTransformer, is_loki_pragma, pragmas_attached,
 )
 from loki.tools import as_tuple, flatten
+from loki.types import BasicType
 from loki.expression import symbols as sym
 
 from loki.transformations.utilities import (
@@ -115,7 +116,7 @@ class SCCDevectorTransformation(Transformation):
         for call in calls:
 
             # check if calls have been enriched
-            if call.routine:
+            if call.routine is not BasicType.DEFERRED:
                 # check if called routine is marked as sequential
                 if check_routine_sequential(routine=call.routine):
                     continue
@@ -236,7 +237,8 @@ class SCCDevectorTransformation(Transformation):
         routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
 
         # Extract vector-level compute sections from the kernel
-        sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+        with pragmas_attached(routine, ir.CallStatement):
+            sections = self.extract_vector_sections(routine.body.body, self.horizontal)
 
         if self.trim_vector_sections:
             sections = self.get_trimmed_sections(routine, self.horizontal, sections)
@@ -268,7 +270,8 @@ class SCCDevectorTransformation(Transformation):
         for loop in driver_loops:
             new_driver_loop = RemoveLoopTransformer(dimension=self.horizontal).visit(loop.body)
             new_driver_loop = loop.clone(body=new_driver_loop)
-            sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
+            with pragmas_attached(routine, ir.CallStatement):
+                sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
             if self.trim_vector_sections:
                 sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
             section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}
