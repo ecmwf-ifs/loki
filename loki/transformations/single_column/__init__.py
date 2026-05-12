@@ -11,6 +11,7 @@ from loki.transformations.single_column.block import * # noqa
 from loki.transformations.single_column.demote import * # noqa
 from loki.transformations.single_column.devector import * # noqa
 from loki.transformations.single_column.hoist import * # noqa
+from loki.transformations.single_column.local_copies import * # noqa
 from loki.transformations.single_column.revector import * # noqa
 from loki.transformations.single_column.scc import * # noqa
 from loki.transformations.single_column.scc_cuf import * # noqa
