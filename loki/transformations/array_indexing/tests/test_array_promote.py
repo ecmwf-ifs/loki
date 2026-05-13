@@ -11,7 +11,7 @@ import numpy as np
 from loki import Subroutine, fgen
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables, Section, SubstituteExpressions
 
 from loki.transformations.array_indexing.promote import promote_variables, promote_variable_declarations
@@ -146,7 +146,8 @@ end subroutine transform_promote_variables
     assert vector[-1] == 3*n
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI makes variable declarations already unique')]))
 def test_update_variable_declarations(frontend):
     """
     Test that :any:`update_variable_declarations` updates DIMENSION(...)
@@ -205,7 +206,8 @@ end subroutine test_update_decl
     assert len(b_decl.dimensions) == 2
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI makes variable declarations already unique')]))
 def test_transform_promote_variable_dimension_attribute(frontend):
     """
     Test promotion when variables are declared with shared ``DIMENSION(...)``
@@ -354,7 +356,8 @@ end subroutine transform_promote_range_size
     assert tmp_decl.symbols[0].shape[1].upper == upper
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI makes variable declarations already unique')]))
 def test_update_variable_declarations_mismatched_shapes(frontend):
     """
     Test that :any:`update_variable_declarations` splits a ``DIMENSION(...)``
