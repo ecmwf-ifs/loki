@@ -146,8 +146,7 @@ end subroutine transform_promote_variables
     assert vector[-1] == 3*n
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI makes variable declarations already unique')]))
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_update_variable_declarations(frontend):
     """
     Test that :any:`update_variable_declarations` updates DIMENSION(...)
@@ -178,11 +177,13 @@ end subroutine test_update_decl
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     ac_decl = [d for d in decls if any(s.name.lower() == 'a' for s in d.symbols)][0]
     b_decl = [d for d in decls if any(s.name.lower() == 'b' for s in d.symbols)][0]
-    assert ac_decl.dimensions is not None
-    assert len(ac_decl.dimensions) == 1
-    assert any(s.name.lower() == 'c' for s in ac_decl.symbols)
-    assert b_decl.dimensions is not None
-    assert len(b_decl.dimensions) == 2
+    if frontend != OMNI:
+      # OMNI moves the dimensions attribute from the declaration to the symbols
+      assert ac_decl.dimensions is not None
+      assert len(ac_decl.dimensions) == 1
+      assert any(s.name.lower() == 'c' for s in ac_decl.symbols)
+      assert b_decl.dimensions is not None
+      assert len(b_decl.dimensions) == 2
 
     # Promote both 'a' and 'c' (all variables in that DIMENSION decl)
     promote_variables(routine, ['a', 'c'], pos=-1, size=sym.Literal(10))
@@ -202,8 +203,10 @@ end subroutine test_update_decl
 
     # Verify b is unchanged
     b_decl = [d for d in decls if any(s.name.lower() == 'b' for s in d.symbols)][0]
-    assert b_decl.dimensions is not None
-    assert len(b_decl.dimensions) == 2
+    if frontend != OMNI:
+      # OMNI moves the dimensions attribute from the declaration to the symbols
+      assert b_decl.dimensions is not None
+      assert len(b_decl.dimensions) == 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
