@@ -178,12 +178,12 @@ end subroutine test_update_decl
     ac_decl = [d for d in decls if any(s.name.lower() == 'a' for s in d.symbols)][0]
     b_decl = [d for d in decls if any(s.name.lower() == 'b' for s in d.symbols)][0]
     if frontend != OMNI:
-      # OMNI moves the dimensions attribute from the declaration to the symbols
-      assert ac_decl.dimensions is not None
-      assert len(ac_decl.dimensions) == 1
-      assert any(s.name.lower() == 'c' for s in ac_decl.symbols)
-      assert b_decl.dimensions is not None
-      assert len(b_decl.dimensions) == 2
+        # OMNI moves the dimensions attribute from the declaration to the symbols
+        assert ac_decl.dimensions is not None
+        assert len(ac_decl.dimensions) == 1
+        assert any(s.name.lower() == 'c' for s in ac_decl.symbols)
+        assert b_decl.dimensions is not None
+        assert len(b_decl.dimensions) == 2
 
     # Promote both 'a' and 'c' (all variables in that DIMENSION decl)
     promote_variables(routine, ['a', 'c'], pos=-1, size=sym.Literal(10))
@@ -204,9 +204,9 @@ end subroutine test_update_decl
     # Verify b is unchanged
     b_decl = [d for d in decls if any(s.name.lower() == 'b' for s in d.symbols)][0]
     if frontend != OMNI:
-      # OMNI moves the dimensions attribute from the declaration to the symbols
-      assert b_decl.dimensions is not None
-      assert len(b_decl.dimensions) == 2
+        # OMNI moves the dimensions attribute from the declaration to the symbols
+        assert b_decl.dimensions is not None
+        assert len(b_decl.dimensions) == 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
