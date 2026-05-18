@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
 from functools import partial
 import re
 from pathlib import Path
@@ -693,12 +694,9 @@ def test_pipeline_config_compose(config):
     assert pipeline.transformations[3].trim_vector_sections is True
     assert pipeline.transformations[8].replace_ignore_items is True
 
-
-@pytest.mark.parametrize('as_modules', [False, True])
-@pytest.mark.parametrize('reinit_scheduler', [True, False])
-@pytest.mark.parametrize('wrong_pipeline_name', [True, False])
-def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, wrong_pipeline_name):
-    config = SchedulerConfig.from_dict({
+@pytest.fixture(name='multi_modes_config')
+def fixture_multi_modes_config():
+    return {
         'default': {'role': 'kernel', 'expand': True, 'strict': False, 'mode': 'm1', 'replicate': True},
         'routines': {
             'driver_0': {'role': 'driver', 'mode': 'm1', 'replicate': False},
@@ -714,11 +712,34 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
             'Idem3': {'classname': 'IdemTransformation', 'module': 'loki.transformations'}
         },
         'pipelines': {
-            f'{"m1x" if wrong_pipeline_name else "m1"}': {'transformations': {'Idem1'}},
+            # NB: The pipeline name is important here since it determines the mode of the items
+            #     that don't have an explicit mode set in the config (e.g. nested_subroutine_3)
+            'm1': {'transformations': {'Idem1'}},
             'm2': {'transformations': {'Idem2'}},
             'm3': {'transformations': {'Idem3'}}
         },
-    })
+    }
+
+def test_scheduler_multi_modes_invalid_pipeline(testdir, tmp_path, multi_modes_config):
+    """
+    Test that the scheduler raises an error when a pipeline is missing for a mode
+    """
+    config = SchedulerConfig.from_dict(multi_modes_config)
+    config.pipelines.pop('m1')
+
+    proj_multi_mode = testdir/'sources/projMultiMode'
+    builddir = tmp_path/'scheduler_multi_driver_modes_dir'
+    builddir.mkdir(exist_ok=True)
+
+    scheduler = Scheduler(paths=proj_multi_mode, config=config, xmods=[tmp_path], output_dir=builddir)
+    with pytest.raises(RuntimeError):
+        scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
+
+
+@pytest.mark.parametrize('as_modules', [False, True])
+@pytest.mark.parametrize('reinit_scheduler', [True, False])
+def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_scheduler, as_modules):
+    config = SchedulerConfig.from_dict(multi_modes_config)
 
     if as_modules:
         proj_multi_mode = testdir/'sources/projMultiModeModules'
@@ -729,50 +750,79 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
     builddir.mkdir(exist_ok=True)
 
     scheduler = Scheduler(paths=proj_multi_mode, config=config, xmods=[tmp_path], output_dir=builddir)
-    if wrong_pipeline_name:
-        # check failure since pipeline 'm1' can't be found
-        with pytest.raises(RuntimeError):
-            scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
-        return
+
+    # We manually invoke the mode propagation to check that the correct modes are assigned
+    scheduler._propagate_modes()
+    expected_modes_per_item = {
+        'driver_0_mod#driver_0': {'m1'},
+        'driver_1_mod#driver_1': {'m1'},
+        'driver_2_mod#driver_2': {'m2'},
+        'driver_3_mod#driver_3': {'m3'},
+        'driver_4_mod#driver_4': {'m3'},
+        'subroutine_1_mod#subroutine_1': {'m1'},
+        'subroutine_2_mod#subroutine_2': {'m2'},
+        'subroutine_3_mod#subroutine_3': {'m1', 'm3'},
+        'nested_subroutine_1_mod#nested_subroutine_1': {'m1', 'm3'},
+        'nested_subroutine_2_mod#nested_subroutine_2': {'m2'},
+        'nested_subroutine_3_mod#nested_subroutine_3': {'m1', 'm2', 'm3'}
+    }
+
+    if not as_modules:
+        # strip scope prefixes for non-module items
+        expected_modes_per_item = {
+            (item[item.find('#'):] if 'driver' not in item else item): modes
+            for item, modes in expected_modes_per_item.items()
+        }
+
+    assert {
+        item.name: {item.mode} if 'driver' in item.name else item.trafo_data['inherited_mode']
+        for item in scheduler.items
+    } == expected_modes_per_item
+
+    # Manually invoke the pipeline separation several times to ensure it is idempotent
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+
     scheduler.process(config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
 
-    _expected_item_mode_dic = {
+    expected_items_per_mode = {
         'm1': {
-            'nested_subroutine_3_lokim1_mod#nested_subroutine_3_lokim1',
             'driver_0_mod#driver_0',
-            'nested_subroutine_1_lokim1_mod#nested_subroutine_1_lokim1',
-            'subroutine_3_lokim1_mod#subroutine_3_lokim1',
             'driver_1_mod#driver_1',
-            'subroutine_1_mod#subroutine_1'
+            'subroutine_1_loki_m1_mod#subroutine_1_loki_m1',
+            'subroutine_3_loki_m1_mod#subroutine_3_loki_m1',
+            'nested_subroutine_1_loki_m1_mod#nested_subroutine_1_loki_m1',
+            'nested_subroutine_3_loki_m1_mod#nested_subroutine_3_loki_m1',
+            'nested_subroutine_3_mod#nested_subroutine_3',
         },
         'm2': {
-            'subroutine_2_mod#subroutine_2',
             'driver_2_mod#driver_2',
-            'nested_subroutine_3_lokim2_mod#nested_subroutine_3_lokim2',
-            'nested_subroutine_2_mod#nested_subroutine_2'
+            'subroutine_2_loki_m2_mod#subroutine_2_loki_m2',
+            'nested_subroutine_2_loki_m2_mod#nested_subroutine_2_loki_m2',
+            'nested_subroutine_3_loki_m2_mod#nested_subroutine_3_loki_m2',
         },
         'm3': {
-            'nested_subroutine_3_mod#nested_subroutine_3',
             'driver_3_mod#driver_3',
             'driver_4_mod#driver_4',
-            'nested_subroutine_1_mod#nested_subroutine_1',
-            'subroutine_3_mod#subroutine_3'
+            'subroutine_3_loki_m3_mod#subroutine_3_loki_m3',
+            'nested_subroutine_1_loki_m3_mod#nested_subroutine_1_loki_m3',
+            'nested_subroutine_3_loki_m3_mod#nested_subroutine_3_loki_m3',
         }
     }
-    if as_modules:
-        expected_item_mode_dic = _expected_item_mode_dic
-    else:
-        expected_item_mode_dic = {k: {f"#{v.split('#')[-1]}" if 'routine' in v else v for v in vals}
-                                  for k, vals in _expected_item_mode_dic.items()}
+    if not as_modules:
+        expected_items_per_mode = {
+            mod: {item[item.find('#'):] if 'driver' not in item else item for item in items}
+            for mod, items in expected_items_per_mode.items()
+        }
 
-    items = scheduler.items
-    item_mode_dic = {}
-    for item in items:
-        item_mode_dic.setdefault(item.mode, set()).add(item.name)
+    items_per_mode = defaultdict(set)
+    for item in scheduler.items:
+        items_per_mode[item.mode].add(item.name)
 
-    assert set(item_mode_dic.keys()) == set(expected_item_mode_dic.keys())
-    for _mode, _val in item_mode_dic.items():
-        assert expected_item_mode_dic[_mode] == _val
+    assert set(items_per_mode) == set(expected_items_per_mode)
+    for _mode, _val in items_per_mode.items():
+        assert expected_items_per_mode[_mode] == _val
 
     transformations = (
         ModuleWrapTransformation(module_suffix='_mod'),
@@ -808,10 +858,12 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
                                        for v in _expected_files_to_transform}
     _expected_files_to_append = {
         'driver_0_mod.m1', 'driver_1_mod.m1', 'driver_2_mod.m2', 'driver_3_mod.m3',
-        'driver_4_mod.m3', 'nested_subroutine_1_mod.m3', 'nested_subroutine_1_lokim1_mod.m1',
-        'nested_subroutine_2_mod.m2', 'nested_subroutine_3_mod.m3', 'nested_subroutine_3_lokim1_mod.m1',
-        'nested_subroutine_3_lokim2_mod.m2', 'subroutine_1_mod.m1', 'subroutine_2_mod.m2',
-        'subroutine_3_mod.m3', 'subroutine_3_lokim1_mod.m1'
+        'driver_4_mod.m3', 'nested_subroutine_1_loki_m1_mod.m1',
+        'nested_subroutine_1_loki_m3_mod.m3', 'nested_subroutine_2_loki_m2_mod.m2',
+        'nested_subroutine_3_mod.m1', 'nested_subroutine_3_loki_m1_mod.m1',
+        'nested_subroutine_3_loki_m2_mod.m2', 'nested_subroutine_3_loki_m3_mod.m3',
+        'subroutine_1_loki_m1_mod.m1', 'subroutine_2_loki_m2_mod.m2',
+        'subroutine_3_loki_m1_mod.m1', 'subroutine_3_loki_m3_mod.m3'
     }
     if as_modules:
         expected_files_to_append = _expected_files_to_append
@@ -834,39 +886,39 @@ def test_scheduler_multi_modes(testdir, tmp_path, reinit_scheduler, as_modules, 
 
     expected_callgraph = {
         'driver_0_mod#driver_0': {
-            'subroutine_1_test_mod#subroutine_1_test': {
-                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
+            'subroutine_1_loki_m1_test_mod#subroutine_1_loki_m1_test': {
+                'nested_subroutine_1_loki_m1_test_mod#nested_subroutine_1_loki_m1_test',
             },
-            'subroutine_3_lokim1_test_mod#subroutine_3_lokim1_test': {
-                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
-                'nested_subroutine_3_lokim1_test_mod#nested_subroutine_3_lokim1_test',
+            'subroutine_3_loki_m1_test_mod#subroutine_3_loki_m1_test': {
+                'nested_subroutine_1_loki_m1_test_mod#nested_subroutine_1_loki_m1_test',
+                'nested_subroutine_3_loki_m1_test_mod#nested_subroutine_3_loki_m1_test',
             },
         },
         'driver_1_mod#driver_1': {
-            'subroutine_1_test_mod#subroutine_1_test': {
-                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
+            'subroutine_1_loki_m1_test_mod#subroutine_1_loki_m1_test': {
+                'nested_subroutine_1_loki_m1_test_mod#nested_subroutine_1_loki_m1_test',
             },
-            'subroutine_3_lokim1_test_mod#subroutine_3_lokim1_test': {
-                'nested_subroutine_1_lokim1_test_mod#nested_subroutine_1_lokim1_test',
-                'nested_subroutine_3_lokim1_test_mod#nested_subroutine_3_lokim1_test',
+            'subroutine_3_loki_m1_test_mod#subroutine_3_loki_m1_test': {
+                'nested_subroutine_1_loki_m1_test_mod#nested_subroutine_1_loki_m1_test',
+                'nested_subroutine_3_loki_m1_test_mod#nested_subroutine_3_loki_m1_test',
             }
         },
         'driver_2_mod#driver_2': {
-            'subroutine_2_test_mod#subroutine_2_test': {
-                'nested_subroutine_2_test_mod#nested_subroutine_2_test',
-                'nested_subroutine_3_lokim2_test_mod#nested_subroutine_3_lokim2_test'
+            'subroutine_2_loki_m2_test_mod#subroutine_2_loki_m2_test': {
+                'nested_subroutine_2_loki_m2_test_mod#nested_subroutine_2_loki_m2_test',
+                'nested_subroutine_3_loki_m2_test_mod#nested_subroutine_3_loki_m2_test'
             }
         },
         'driver_3_mod#driver_3': {
-            'subroutine_3_test_mod#subroutine_3_test': {
-                'nested_subroutine_1_test_mod#nested_subroutine_1_test',
-                'nested_subroutine_3_test_mod#nested_subroutine_3_test',
+            'subroutine_3_loki_m3_test_mod#subroutine_3_loki_m3_test': {
+                'nested_subroutine_1_loki_m3_test_mod#nested_subroutine_1_loki_m3_test',
+                'nested_subroutine_3_loki_m3_test_mod#nested_subroutine_3_loki_m3_test',
             }
         },
         'driver_4_mod#driver_4': {
-            'subroutine_3_test_mod#subroutine_3_test': {
-                'nested_subroutine_1_test_mod#nested_subroutine_1_test',
-                'nested_subroutine_3_test_mod#nested_subroutine_3_test',
+            'subroutine_3_loki_m3_test_mod#subroutine_3_loki_m3_test': {
+                'nested_subroutine_1_loki_m3_test_mod#nested_subroutine_1_loki_m3_test',
+                'nested_subroutine_3_loki_m3_test_mod#nested_subroutine_3_loki_m3_test',
             }
         }
     }
