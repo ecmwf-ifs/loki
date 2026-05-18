@@ -12,7 +12,7 @@ import networkx as nx
 
 from loki.batch.configure import SchedulerConfig
 from loki.batch.item import (
-    InterfaceItem, ProcedureItem, ProcedureBindingItem, TypeDefItem
+    InterfaceItem, ModuleItem, ProcedureItem, ProcedureBindingItem, TypeDefItem
 )
 from loki.batch.sfilter import SFilter
 from loki.logging import debug, perf, warning
@@ -143,6 +143,39 @@ class SGraph:
 
         return item
 
+    @staticmethod
+    def _get_seed_name(name, item_factory):
+        """
+        Return the cache key to use for a seed item.
+
+        Unqualified module procedure seeds are resolved against already-known
+        items before calling :meth:`_create_item`, so the regular cache lookup
+        path can be used without falling back to a module-wide candidate scan.
+        """
+        if '#' in name:
+            return name
+
+        name = name.lower()
+        procedure_name = f'#{name}'
+        if procedure_name in item_factory.item_cache:
+            return procedure_name
+
+        candidates = tuple(
+            item.name for item in item_factory.item_cache.values()
+            if isinstance(item, ProcedureItem) and item.local_name.lower() == name
+        )
+        if len(candidates) == 1:
+            return candidates[0]
+
+        candidates = tuple(
+            f'{item.name}#{name}' for item in item_factory.item_cache.values()
+            if isinstance(item, ModuleItem) and name in item.ir.subroutine_map
+        )
+        if len(candidates) == 1:
+            return candidates[0]
+
+        return name
+
     def _add_children(self, item, item_factory, config, dependencies=None):
         """
         Create items for dependencies of the :data:`item` and add them to
@@ -203,6 +236,7 @@ class SGraph:
 
         # Insert the seed objects
         for name in as_tuple(seed):
+            name = self._get_seed_name(name, item_factory)
             item = as_tuple(self._create_item(name, item_factory, config))
             if item:
                 self.add_nodes(item)
