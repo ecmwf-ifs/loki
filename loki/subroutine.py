@@ -213,8 +213,8 @@ class Subroutine(ProgramUnit):
             The cloned subroutine object.
         """
         # Collect all properties bespoke to Subroutine
-        if self.argnames and 'args' not in kwargs:
-            kwargs['args'] = self.argnames
+        if self.arguments and 'args' not in kwargs:
+            kwargs['args'] = tuple(a.name for a in self.arguments)
         if self.body and 'body' not in kwargs:
             kwargs['body'] = self.body
         if self.prefix and 'prefix' not in kwargs:
