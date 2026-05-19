@@ -282,7 +282,7 @@ def get_used_or_defined_symbols(routine):
     Collect symbols used or defined in a routine, including array-shape references.
     """
     variable_map = routine.symbol_map
-    routine_arg_names = [arg.name.lower() for arg in routine.arguments]
+    routine_arg_names = routine.argnames
     with dataflow_analysis_attached(routine):
         used_or_defined_symbols = routine.body.uses_symbols | routine.body.defines_symbols
 
@@ -328,7 +328,7 @@ def find_unused_dummy_args_and_vars(routine, used_or_defined_symbols=None):
 
     unused_args = {a.clone(dimensions=None): c for c, a in enumerate(routine.arguments)
                    if not a.name.lower() in used_or_defined_symbols}
-    routine_arg_names = [arg.name.lower() for arg in routine.arguments]
+    routine_arg_names = routine.argnames
     local_vars = [var for var in routine.variables if var.name.lower() not in routine_arg_names]
     unused_vars = [var.clone(dimensions=None) for var in local_vars
             if not var.name.lower() in used_or_defined_symbols]

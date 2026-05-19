@@ -351,7 +351,7 @@ def test_scc_cuf_hoist(here, frontend, config, horizontal, vertical, blocking, h
         assert 'kernel_local_z' in argnames
         assert 'device_local_x' in argnames
     # check kernel
-    argnames = [arg.name.lower() for arg in scheduler["kernel_mod#kernel"].ir.arguments]
+    argnames = scheduler["kernel_mod#kernel"].ir.argnames
     assert 'local_z' in argnames
     assert 'device_local_x' in argnames
     calls = [call for call in FindNodes(CallStatement).visit(scheduler["kernel_mod#kernel"].ir.body)

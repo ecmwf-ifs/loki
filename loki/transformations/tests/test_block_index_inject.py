@@ -584,7 +584,7 @@ end module compute_mod
 
     arrays = [var for var in FindVariables().visit(kernel_mod['kernel'].body) if isinstance(var, sym.Array)]
     for array in arrays:
-        if array.name.lower() in [arg.name.lower() for arg in kernel_mod['kernel'].arguments]:
+        if array.name.lower() in kernel_mod['kernel'].argnames:
             assert blocking.size in array.shape
             assert blocking.index not in array.dimensions
 
@@ -594,7 +594,7 @@ end module compute_mod
 
     arrays = [var for var in FindVariables().visit(kernel_mod['kernel'].body) if isinstance(var, sym.Array)]
     for array in arrays:
-        if array.name.lower() in [arg.name.lower() for arg in kernel_mod['kernel'].arguments]:
+        if array.name.lower() in kernel_mod['kernel'].argnames:
             assert blocking.size in array.shape
             assert not array.dimensions or blocking.index in array.dimensions
 

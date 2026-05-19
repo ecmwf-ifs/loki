@@ -354,9 +354,9 @@ end module kernel3_mod
                                 'used': 'jd_p_selected_real_kind_13_300_stack_used'}
     l_stack = {'size': 'k_ld_stack_size', 'stack': 'ld_stack', 'used': 'jd_ld_stack_used'}
 
-    kernel1_args = [arg.name.lower() for arg in kernel1.arguments]
-    kernel2_args = [arg.name.lower() for arg in kernel2.arguments]
-    kernel3_args = [arg.name.lower() for arg in kernel3.arguments]
+    kernel1_args = kernel1.argnames
+    kernel2_args = kernel2.argnames
+    kernel3_args = kernel3.argnames
     for var in list(jprb_stack.values()) + list(selected_real_kind_stack.values()) + list(l_stack.values()):
         assert var in kernel1_args
     for var in jprb_stack.values():

@@ -242,7 +242,7 @@ end subroutine kernel
     assert all(s.name == d for s, d in zip(routine.variable_map['var4'].shape, shape))
 
     arg_names = ['klon', 'klev', 'nblk', 'var0', 'var1', 'var2', 'var3', 'var4']
-    assert [arg.name.lower() for arg in routine.arguments] == arg_names
+    assert routine.argnames == arg_names
 
     # check that variable declarations have not been duplicated
     declarations = FindNodes(VariableDeclaration).visit(routine.spec)
