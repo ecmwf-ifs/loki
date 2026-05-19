@@ -320,7 +320,7 @@ END SUBROUTINE CLOUDSC
     routine.make_complete(frontend=frontend)
     assert not routine._incomplete
     assert routine.arguments == argnames_with_dim
-    assert [arg.upper() for arg in routine.argnames] == [arg.upper() for arg in argnames]
+    assert tuple(routine.argnames) == argnames
     assert routine._dummies == argnames
     assert all(isinstance(arg, sym.Scalar) for arg in routine.arguments[:4])
     assert all(isinstance(arg, sym.Array) for arg in routine.arguments[4:])

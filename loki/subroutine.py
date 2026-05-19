@@ -323,7 +323,7 @@ class Subroutine(ProgramUnit):
         """
         Return names of arguments in order of the defined signature (dummy list)
         """
-        return [a.name for a in self.arguments]
+        return [a.name.lower() for a in self.arguments]
 
     members = ProgramUnit.subroutines
 
