@@ -224,14 +224,14 @@ end subroutine my_routine
     routine = Subroutine.from_source(fcode, frontend=REGEX)
     assert routine._incomplete
     assert routine.arguments == ()
-    assert routine.argnames == []
+    assert routine.argnames == ()
     assert routine._dummies == ()
     assert all(isinstance(arg, sym.DeferredTypeSymbol) for arg in routine.arguments)
 
     routine.make_complete(frontend=frontend)
     assert not routine._incomplete
     assert routine.arguments == ('n', 'a(n)', 'b(n)', 'd(n)')
-    assert routine.argnames == ['n', 'a', 'b', 'd']
+    assert routine.argnames == ('n', 'a', 'b', 'd')
     assert routine._dummies == ('n', 'a', 'b', 'd')
     assert isinstance(routine.arguments[0], sym.Scalar)
     assert all(isinstance(arg, sym.Array) for arg in routine.arguments[1:])
@@ -313,14 +313,14 @@ END SUBROUTINE CLOUDSC
     # suddenly fails because the argument list happens to be captured correctly:
     # Nice one! Go ahead and change the test.
     assert routine.arguments == ()
-    assert routine.argnames == []
+    assert routine.argnames == ()
     assert routine._dummies == ()
     assert all(isinstance(arg, sym.DeferredTypeSymbol) for arg in routine.arguments)
 
     routine.make_complete(frontend=frontend)
     assert not routine._incomplete
     assert routine.arguments == argnames_with_dim
-    assert tuple(routine.argnames) == argnames
+    assert routine.argnames == argnames
     assert routine._dummies == argnames
     assert all(isinstance(arg, sym.Scalar) for arg in routine.arguments[:4])
     assert all(isinstance(arg, sym.Array) for arg in routine.arguments[4:])
