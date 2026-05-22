@@ -797,18 +797,28 @@ end subroutine test_ifs_patterns
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_early_exits(frontend):
+def test_resolve_vector_notation_early_exits(frontend, caplog):
     """
     Test that certain patterns are correctly skipped by the resolver:
-    literal list assignments, SUM intrinsic, and scalar assignments.
+    literal list assignments, SUM intrinsic, scalar assignments, and
+    assumed-shape arrays whose LHS ``:`` cannot be qualified.
+
+    Also check that the literal-list and unqualified-':' bailouts
+    each emit a warning naming the offending statement and routine,
+    matching the production messages
+    ``[ResolveVectorNotationTransformer] Literal list on RHS of ...``
+    and
+    ``[ResolveVectorNotationTransformer] Unqualified ":" on LHS of ...``.
     """
+    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
 
     fcode = """
-subroutine test_early_exits(n, arr, arr2, scalar)
+subroutine test_early_exits(n, arr, arr2, scalar, arr_assumed)
   implicit none
   integer, intent(in) :: n
   real, intent(inout) :: arr(n), arr2(n)
   real, intent(inout) :: scalar
+  real, intent(inout) :: arr_assumed(:,:)
   real :: total
 
   ! Skip: literal list assignment
@@ -820,13 +830,32 @@ subroutine test_early_exits(n, arr, arr2, scalar)
   ! Skip: non-array LHS (scalar assignment)
   scalar = arr(1) + arr(2)
 
+  ! Skip: assumed-shape LHS ':' cannot be qualified
+  arr_assumed(1, :) = 0.0
+
   ! Should resolve: normal vector notation
   arr(1:n) = arr2(1:n) + 1.0
 
 end subroutine test_early_exits
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
+    caplog.set_level(WARNING)
     resolve_vector_notation(routine)
+
+    # The literal-list bailout should have emitted a warning identifying
+    # the offending statement.
+    literal_warnings = [r for r in caplog.records
+                        if 'Literal list on RHS' in r.message
+                        and 'ResolveVectorNotationTransformer' in r.message]
+    assert literal_warnings
+    assert any('test_early_exits' in r.message for r in literal_warnings)
+
+    # The unqualified-':' bailout should have emitted a warning too.
+    unqualified_warnings = [r for r in caplog.records
+                            if 'Unqualified ":"' in r.message
+                            and 'ResolveVectorNotationTransformer' in r.message]
+    assert unqualified_warnings
+    assert any('test_early_exits' in r.message for r in unqualified_warnings)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
@@ -854,6 +883,17 @@ end subroutine test_early_exits
     for l in loops:
         assert scalar_assigns[0] not in FindNodes(ir.Assignment).visit(l.body), \
             "Scalar assignment should not be inside a generated loop"
+
+    # Assumed-shape LHS with unqualifiable ':' should remain unchanged:
+    # a RangeIndex still appears in its dimensions, and it is not wrapped
+    # in any generated loop.
+    assumed_assigns = [a for a in assigns
+                       if isinstance(a.lhs, sym.Array)
+                       and a.lhs.name.lower() == 'arr_assumed']
+    assert len(assumed_assigns) == 1, "Assumed-shape assignment should still exist"
+    assert any(isinstance(d, sym.RangeIndex) for d in assumed_assigns[0].lhs.dimensions)
+    for l in loops:
+        assert assumed_assigns[0] not in FindNodes(ir.Assignment).visit(l.body)
 
     # Normal vector notation should be resolved
     resolved_loops = [l for l in loops if l.variable.name.startswith('i_arr_')]

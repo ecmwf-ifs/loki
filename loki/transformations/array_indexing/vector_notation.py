@@ -621,6 +621,11 @@ class ResolveVectorNotationTransformer(Transformer):
 
         # RHS contains a literal list (e.g., (/ 1.0, 2.0 /))
         if FindLiteralLists().visit(stmt.rhs):
+            scope_str = f' in routine "{self.scope.name}"' if self.scope is not None else ''
+            warning(
+                f'[ResolveVectorNotationTransformer] Literal list on RHS of '
+                f'"{stmt}"{scope_str} prevents vector notation resolution. '
+            )
             return stmt
 
         create_loops = kwargs.get('create_loops', True)
@@ -680,6 +685,12 @@ class ResolveVectorNotationTransformer(Transformer):
 
         # Nothing to resolve
         if not resolvable_dim_indices:
+            if lhs_range_positions:
+                scope_str = f' in routine "{self.scope.name}"' if self.scope is not None else ''
+                warning(
+                    f'[ResolveVectorNotationTransformer] Unqualified ":" on LHS of '
+                    f'"{stmt}"{scope_str} could not be resolved (shape unknown). '
+                )
             return stmt
 
         # --- Step 5: Map LHS ranges to loop index variables ---
