@@ -261,6 +261,24 @@ def test_simplify(source,ref):
     assert str(expr) == ref
 
 
+def test_simplify_string_concat():
+    a = sym.Variable(name='a')
+
+    expr = sym.StringConcat((sym.StringLiteral('Hel'), sym.StringLiteral('lo')))
+    assert expr == "'Hel'//'lo'"
+    assert simplify(expr) == 'Hello'
+
+    expr = sym.StringConcat((sym.StringLiteral('Hel'), sym.StringLiteral('lo'), a, sym.StringLiteral('!')))
+    assert expr == "'Hel'//'lo'//a//'!'"
+    assert simplify(expr) == "'Hello'//a//'!'"
+
+    expr = sym.StringConcat((
+        sym.StringLiteral('Hel'), sym.StringConcat((sym.StringLiteral('l'), sym.StringLiteral('o')))
+    ))
+    assert expr == "'Hel'//'l'//'o'"
+    assert simplify(expr) == 'Hello'
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_is_dimension_constant(frontend):
     fcode = """

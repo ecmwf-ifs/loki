@@ -647,6 +647,25 @@ class SimplifyMapper(LokiIdentityMapper):
 
         return sym.LogicalNot(child)
 
+    def map_string_concat(self, expr, *args, **kwargs):
+        children = tuple(self.rec(child, *args, **kwargs) for child in expr.children)
+
+        new_children = []
+        string_parts = []
+        for child in children:
+            if isinstance(child, sym.StringLiteral):
+                string_parts.append(child.value)
+            else:
+                if string_parts:
+                    new_children.append(sym.StringLiteral(''.join(string_parts)))
+                    string_parts = []
+                new_children.append(child)
+
+        if string_parts:
+            new_children.append(sym.StringLiteral(''.join(string_parts)))
+
+        return new_children[0] if len(new_children) == 1 else sym.StringConcat(tuple(new_children))
+
 
 def simplify(expr, enabled_simplifications=Simplification.ALL):
     """
