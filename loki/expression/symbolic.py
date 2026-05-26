@@ -614,6 +614,16 @@ class SimplifyMapper(LokiIdentityMapper):
 
         return sym.LogicalOr(children) if len(children) > 0 else sym.LogicLiteral('False')
 
+    def map_logical_not(self, expr, *args, **kwargs):
+        child = self.rec(expr.child, *args, **kwargs)
+        if self.enabled_simplifications & Simplification.LogicEvaluation:
+            if child == 'True':
+                return sym.LogicLiteral(False)
+            if child == 'False':
+                return sym.LogicLiteral(True)
+
+        return sym.LogicalNot(child)
+
 
 def simplify(expr, enabled_simplifications=Simplification.ALL):
     """
