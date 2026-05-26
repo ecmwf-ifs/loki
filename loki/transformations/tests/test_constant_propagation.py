@@ -19,7 +19,7 @@ def test_constant_propagation_transformer_export():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_literals_expected_future(tmp_path, frontend):
+def test_constant_propagation_literals_expected_future(tmp_path, frontend):
     fcode = """
 subroutine const_prop_literals
   integer :: a, a1
@@ -57,7 +57,7 @@ end subroutine const_prop_literals
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_ops_int_expected_future(tmp_path, frontend):
+def test_constant_propagation_ops_int_expected_future(tmp_path, frontend):
     fcode = """
 subroutine const_prop_ops_int(a_add, a_sub, a_mul, a_pow, a_div, a_lt, a_leq, a_eq, a_neq, a_geq, a_gt)
   integer :: a = 1
@@ -108,9 +108,9 @@ end subroutine const_prop_ops_int
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_ops_bool_short_circuiting_expected_future(tmp_path, frontend):
+def test_constant_propagation_ops_bool_short_circuiting_expected_future(tmp_path, frontend):
     fcode = """
-subroutine test_transform_region_const_prop_ops_bool_short_circuiting(a_and, a_or)
+subroutine test_constant_propagation_ops_bool_short_circuiting(a_and, a_or)
   logical :: a = .true.
   logical :: b
   logical, intent(out) :: a_and, a_or
@@ -130,7 +130,7 @@ subroutine test_transform_region_const_prop_ops_bool_short_circuiting(a_and, a_o
   a_and = .not. a .and. b
   a_or = a .or. b
 
-end subroutine test_transform_region_const_prop_ops_bool_short_circuiting
+end subroutine test_constant_propagation_ops_bool_short_circuiting
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -149,9 +149,9 @@ end subroutine test_transform_region_const_prop_ops_bool_short_circuiting
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_conditional_basic(frontend):
+def test_constant_propagation_conditional_basic(frontend):
     fcode = """
-subroutine test_transform_region_const_prop_conditional_basic(c)
+subroutine test_constant_propagation_conditional_basic(c)
   integer :: a = 5
   integer :: b = 3
   logical :: cond = .true.
@@ -164,7 +164,7 @@ subroutine test_transform_region_const_prop_conditional_basic(c)
   endif
 
   c = c
-end subroutine test_transform_region_const_prop_conditional_basic
+end subroutine test_constant_propagation_conditional_basic
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -177,9 +177,9 @@ end subroutine test_transform_region_const_prop_conditional_basic
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_for_loop_basic(frontend):
+def test_constant_propagation_for_loop_basic(frontend):
     fcode = """
-subroutine test_transform_region_const_prop_for_loop_basic(c)
+subroutine test_constant_propagation_for_loop_basic(c)
   integer :: a = 5
   integer :: b = 3
   integer :: i
@@ -189,7 +189,7 @@ subroutine test_transform_region_const_prop_for_loop_basic(c)
   do i = 1, a
     c = c + b
   end do
-end subroutine test_transform_region_const_prop_for_loop_basic
+end subroutine test_constant_propagation_for_loop_basic
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -202,9 +202,9 @@ end subroutine test_transform_region_const_prop_for_loop_basic
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_for_loop_basic_no_unroll(frontend):
+def test_constant_propagation_for_loop_basic_no_unroll(frontend):
     fcode = """
-subroutine test_transform_region_const_prop_for_loop_basic_no_unroll(c)
+subroutine test_constant_propagation_for_loop_basic_no_unroll(c)
   integer :: a = 5
   integer :: b = 3
   integer :: i, d
@@ -218,7 +218,7 @@ subroutine test_transform_region_const_prop_for_loop_basic_no_unroll(c)
   end do
   c = c * 2
   d = d * 2
-end subroutine test_transform_region_const_prop_for_loop_basic_no_unroll
+end subroutine test_constant_propagation_for_loop_basic_no_unroll
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
     transformed = ConstantPropagationTransformer(unroll_loops=False).visit(routine)
@@ -230,9 +230,9 @@ end subroutine test_transform_region_const_prop_for_loop_basic_no_unroll
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_transform_region_const_prop_for_loop_nested_siblings_no_unroll(frontend):
+def test_constant_propagation_for_loop_nested_siblings_no_unroll(frontend):
     fcode = """
-subroutine test_transform_region_const_prop_loop_nested_siblings_no_unroll(c)
+subroutine test_constant_propagation_loop_nested_siblings_no_unroll(c)
   integer :: a = 5
   integer :: b = 3
   integer :: i, j ,k
@@ -250,7 +250,7 @@ subroutine test_transform_region_const_prop_loop_nested_siblings_no_unroll(c)
       c = c
   end do
   c = c
-end subroutine test_transform_region_const_prop_loop_nested_siblings_no_unroll
+end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
     transformed = ConstantPropagationTransformer(unroll_loops=False).visit(routine)
