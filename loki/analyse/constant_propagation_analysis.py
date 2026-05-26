@@ -17,12 +17,33 @@ from loki.expression import (
     Array, DeferredTypeSymbol, FloatLiteral, IntLiteral, LogicLiteral,
     LokiIdentityMapper, LoopRange, Product, RangeIndex, StringLiteral
 )
-from loki.expression.symbolic import get_pyrange, is_constant
+from loki.expression.symbolic import get_pyrange, is_constant, SimplifyMapper
 from loki.expression.symbols import _Literal
 from loki.ir import FindNodes, Assignment, FindVariables, Loop, Transformer
 from loki.tools import as_tuple
 
-__all__ = ['ConstantPropagationAnalysis']
+__all__ = ['ConstantPropagationMapper', 'ConstantPropagationAnalysis']
+
+
+class ConstantPropagationMapper(SimplifyMapper):
+    """ Mapper for expression-level constant replacement and folding. """
+
+    def __init__(self, fold_floats=True):
+        self.fold_floats = fold_floats
+        super().__init__()
+
+    def map_array(self, expr, *args, **kwargs):
+        constants_map = kwargs.get('constants_map', {})
+        return constants_map.get((expr.basename, getattr(expr, 'dimensions', ())), expr)
+
+    def map_quotient(self, expr, *args, **kwargs):
+        """ Always force-evaluate integer-division """
+        if isinstance(expr.numerator, IntLiteral) and isinstance(expr.denominator, IntLiteral):
+            return IntLiteral(float(expr.numerator.value) / float(expr.denominator.value))
+        return super().map_quotient(expr, *args, **kwargs)
+
+    map_scalar = map_array
+    map_deferred_type_symbol = map_array
 
 
 class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
@@ -33,7 +54,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def _pop_array_accesses(self, lhs, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            new_shape = ConstantPropagationAnalysis.ConstPropMapper(self.parent.fold_floats)(
+            new_shape = ConstantPropagationMapper(self.parent.fold_floats)(
                 lhs.shape, constants_map=constants_map
             )
 
@@ -79,7 +100,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def visit_Assignment(self, o, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            mapper = self.parent.ConstPropMapper(self.parent.fold_floats)
+            mapper = ConstantPropagationMapper(self.parent.fold_floats)
             mapper_kwargs = dict(kwargs)
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
@@ -108,7 +129,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def visit_Conditional(self, o, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            mapper = self.parent.ConstPropMapper(self.parent.fold_floats)
+            mapper = ConstantPropagationMapper(self.parent.fold_floats)
             mapper_kwargs = dict(kwargs)
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
@@ -148,7 +169,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def visit_Loop(self, o, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            mapper = self.parent.ConstPropMapper(self.parent.fold_floats)
+            mapper = ConstantPropagationMapper(self.parent.fold_floats)
             mapper_kwargs = dict(kwargs)
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
@@ -219,134 +240,6 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
         def visit_Node(self, o, **kwargs):
             o._update(_constants_map=None)
             return super().visit_Node(o, **kwargs)
-
-    class ConstPropMapper(LokiIdentityMapper):
-        """Mapper for expression-level constant replacement and folding."""
-
-        def __init__(self, fold_floats=True):
-            self.fold_floats = fold_floats
-            super().__init__()
-
-        def map_array(self, expr, *args, **kwargs):
-            constants_map = kwargs.get('constants_map', {})
-            return constants_map.get((expr.basename, getattr(expr, 'dimensions', ())), expr)
-
-        map_scalar = map_array
-        map_deferred_type_symbol = map_array
-
-        def map_constant(self, expr, *args, **kwargs):
-            if isinstance(expr, int):
-                return IntLiteral(expr)
-            if isinstance(expr, float):
-                return FloatLiteral(str(expr))
-            if isinstance(expr, bool):
-                return LogicLiteral(expr)
-            return expr
-
-        def map_sum(self, expr, *args, **kwargs):
-            return self.binary_num_op_helper(expr, sum, math.fsum, *args, **kwargs)
-
-        def map_product(self, expr, *args, **kwargs):
-            mapped_product = self.binary_num_op_helper(expr, math.prod, math.prod, *args, **kwargs)
-            children = getattr(mapped_product, 'children', None)
-            if children and children[0] == IntLiteral(-1):
-                mapped_product = Product((-1, children[1]))
-            return mapped_product
-
-        def map_quotient(self, expr, *args, **kwargs):
-            return self.binary_num_op_helper(
-                expr, operator.floordiv, operator.truediv,
-                left_attr='numerator', right_attr='denominator', *args, **kwargs
-            )
-
-        def map_power(self, expr, *args, **kwargs):
-            return self.binary_num_op_helper(
-                expr, operator.pow, operator.pow,
-                left_attr='base', right_attr='exponent', *args, **kwargs
-            )
-
-        def binary_num_op_helper(self, expr, int_op, float_op, *args, left_attr=None, right_attr=None, **kwargs):
-            left = right = None
-            lr_fields = not (left_attr is None and right_attr is None)
-            if lr_fields:
-                left = self.rec(getattr(expr, left_attr), *args, **kwargs)
-                right = self.rec(getattr(expr, right_attr), *args, **kwargs)
-                children = (left, right)
-            else:
-                children = self.rec(expr.children, *args, **kwargs)
-
-            literals, non_literals = ConstantPropagationAnalysis._separate_literals(children)
-            if not non_literals:
-                if any(isinstance(v, FloatLiteral) for v in literals):
-                    if self.fold_floats:
-                        if lr_fields:
-                            return FloatLiteral(str(float_op(float(left.value), float(right.value))))
-                        return FloatLiteral(str(float_op([float(c.value) for c in children])))
-                    return expr
-                if lr_fields:
-                    return IntLiteral(int_op(left.value, right.value))
-                return IntLiteral(int_op([c.value for c in children]))
-
-            if lr_fields:
-                return expr.__class__(left, right)
-            return expr.__class__(children)
-
-        def map_logical_and(self, expr, *args, **kwargs):
-            return self.binary_bool_op_helper(expr, lambda x, y: x and y, True, *args, **kwargs)
-
-        def map_logical_or(self, expr, *args, **kwargs):
-            return self.binary_bool_op_helper(expr, lambda x, y: x or y, False, *args, **kwargs)
-
-        def binary_bool_op_helper(self, expr, bool_op, initial, *args, **kwargs):
-            if LogicLiteral(not initial) in expr.children:
-                return LogicLiteral(not initial)
-
-            children = tuple(self.rec(c, *args, **kwargs) for c in expr.children)
-            if LogicLiteral(not initial) in children:
-                return LogicLiteral(not initial)
-
-            _, non_literals = ConstantPropagationAnalysis._separate_literals(children)
-            if not non_literals:
-                return LogicLiteral(functools.reduce(bool_op, [c.value for c in children], initial))
-
-            return expr.__class__(children)
-
-        def map_logical_not(self, expr, *args, **kwargs):
-            child = self.rec(expr.child, *args, **kwargs)
-            _, non_literals = ConstantPropagationAnalysis._separate_literals([child])
-            if not non_literals:
-                return LogicLiteral(not child.value)
-            return expr.__class__(child)
-
-        def map_comparison(self, expr, *args, **kwargs):
-            left = self.rec(expr.left, *args, **kwargs)
-            right = self.rec(expr.right, *args, **kwargs)
-            _, non_literals = ConstantPropagationAnalysis._separate_literals([left, right])
-            if not non_literals:
-                operators_map = {
-                    'lt': operator.lt,
-                    'le': operator.le,
-                    'eq': operator.eq,
-                    'ne': operator.ne,
-                    'ge': operator.ge,
-                    'gt': operator.gt,
-                }
-                operator_str = expr.operator if expr.operator in operators_map else expr.operator_to_name[expr.operator]
-                return LogicLiteral(operators_map[operator_str](left.value, right.value))
-            return expr.__class__(left, expr.operator, right)
-
-        def map_loop_range(self, expr, *args, **kwargs):
-            start = self.rec(expr.start, *args, **kwargs)
-            stop = self.rec(expr.stop, *args, **kwargs)
-            step = self.rec(expr.step, *args, **kwargs)
-            return expr.__class__((start, stop, step))
-
-        def map_string_concat(self, expr, *args, **kwargs):
-            children = tuple(self.rec(c, *args, **kwargs) for c in expr.children)
-            _, non_literals = ConstantPropagationAnalysis._separate_literals(children)
-            if not non_literals:
-                return StringLiteral(''.join(c.value for c in children))
-            return expr.__class__(children)
 
     def __init__(self, fold_floats=True, unroll_loops=True, apply_transform=False):
         self.fold_floats = fold_floats

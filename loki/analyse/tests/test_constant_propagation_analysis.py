@@ -8,7 +8,7 @@
 import pytest
 
 from loki import FindNodes, Subroutine
-from loki.analyse import ConstantPropagationAnalysis
+from loki.analyse import ConstantPropagationAnalysis, ConstantPropagationMapper
 from loki.expression import FloatLiteral, IntLiteral, LogicLiteral, StringLiteral
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
@@ -34,7 +34,7 @@ end subroutine const_prop_decls
 
 
 def test_constant_propagation_mapper_folds_expressions():
-    mapper = ConstantPropagationAnalysis.ConstPropMapper()
+    mapper = ConstantPropagationMapper()
 
     assert mapper(sym.Sum((IntLiteral(1), IntLiteral(2)))) == IntLiteral(3)
     assert mapper(sym.Quotient(IntLiteral(7), IntLiteral(2))) == IntLiteral(3)
@@ -45,7 +45,7 @@ def test_constant_propagation_mapper_folds_expressions():
 
 
 def test_constant_propagation_mapper_short_circuits_boolean_ops():
-    mapper = ConstantPropagationAnalysis.ConstPropMapper()
+    mapper = ConstantPropagationMapper()
     dyn = sym.Variable(name='dyn')
 
     assert mapper(sym.LogicalOr((LogicLiteral(True), dyn))) == LogicLiteral(True)
