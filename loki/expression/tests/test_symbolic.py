@@ -166,6 +166,41 @@ def test_simplify_integer_arithmetic(source, ref):
 
 
 @pytest.mark.parametrize('source, ref', [
+    ('1.5 + 2.5', '1.5 + 2.5'),
+    ('1 + 2.5', '1 + 2.5'),
+    ('1.5*2.0', '1.5*2.0'),
+    ('1.0/2', '1.0 / 2'),
+])
+def test_simplify_integer_arithmetic_skips_floats(source, ref):
+    scope = Scope()
+    expr = parse_expr(source, scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
+    assert str(expr) == ref
+
+
+@pytest.mark.parametrize('source, ref', [
+    ('1 + 1', '1 + 1'),
+    ('1.5 + 2.5', '4.0'),
+    ('1 + 2.5', '3.5'),
+    ('1.5 + 2', '3.5'),
+    ('2.5 - 1.0', '1.5'),
+    ('1.0 - 1.0', '0.0'),
+    ('1.5*2.0', '3.0'),
+    ('2*1.5', '3.0'),
+    ('-3.0*7', '-21.0'),
+    ('3.0*7*0*10', '3.0*7*0*10'),
+    ('1.0/2.0', '0.5'),
+    ('1/2.0', '0.5'),
+    ('1.0/2', '0.5'),
+])
+def test_simplify_floating_point_arithmetic(source, ref):
+    scope = Scope()
+    expr = parse_expr(source, scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.FloatingPointArithmetic)
+    assert str(expr) == ref
+
+
+@pytest.mark.parametrize('source, ref', [
     ('a + a + a', '3*a'),
     ('2*a + 1*a + a*3', '6*a'),
     ('(a + a)*(b + b)', '2*a*2*b'),
@@ -253,6 +288,7 @@ def test_simplify_logic_evaluation(source, ref):
     ('n**0.0', '1'),
     ('n**1.0', 'n'),
     ('2.0**3', '8.0'),
+    ('3.0*7*0*10', '0'),
 ])
 def test_simplify(source,ref):
     scope = Scope()
