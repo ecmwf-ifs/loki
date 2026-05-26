@@ -567,6 +567,29 @@ class SimplifyMapper(LokiIdentityMapper):
             return self.rec(new_expr, *args, **kwargs)
         return expr
 
+    def map_power(self, expr, *args, **kwargs):
+        base = self.rec(expr.base, *args, **kwargs)
+        exponent = self.rec(expr.exponent, *args, **kwargs)
+
+        if self.enabled_simplifications & Simplification.IntegerArithmetic:
+            literal_types = (sym.IntLiteral, sym.FloatLiteral)
+            base_value = float(base.value) if isinstance(base, sym.FloatLiteral) else getattr(base, 'value', None)
+            exponent_value = (
+                float(exponent.value) if isinstance(exponent, sym.FloatLiteral) else getattr(exponent, 'value', None)
+            )
+
+            if isinstance(base, literal_types) and base_value == 1:
+                return base
+            if isinstance(exponent, literal_types):
+                if exponent_value == 0:
+                    return sym.IntLiteral(1)
+                if exponent_value == 1:
+                    return base
+                if isinstance(base, literal_types) and exponent_value > 0 and float(exponent_value).is_integer():
+                    return sym.Literal(base_value ** int(exponent_value))
+
+        return sym.Power(base, exponent)
+
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_div = map_quotient

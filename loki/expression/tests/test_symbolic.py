@@ -245,6 +245,14 @@ def test_simplify_logic_evaluation(source, ref):
     ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '6*a'),
     ('(5 + 3) == 8', 'True'),
     ('42 == 666', 'False'),
+    ('1**n', '1'),
+    ('n**0', '1'),
+    ('n**1', 'n'),
+    ('2**3', '8'),
+    ('1.0**n', '1.0'),
+    ('n**0.0', '1'),
+    ('n**1.0', 'n'),
+    ('2.0**3', '8.0'),
 ])
 def test_simplify(source,ref):
     scope = Scope()
