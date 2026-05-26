@@ -28,10 +28,6 @@ __all__ = ['ConstantPropagationMapper', 'ConstantPropagationAnalysis']
 class ConstantPropagationMapper(SimplifyMapper):
     """ Mapper for expression-level constant replacement and folding. """
 
-    def __init__(self, fold_floats=True):
-        self.fold_floats = fold_floats
-        super().__init__()
-
     def map_array(self, expr, *args, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         return constants_map.get((expr.basename, getattr(expr, 'dimensions', ())), expr)
@@ -54,9 +50,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def _pop_array_accesses(self, lhs, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            new_shape = ConstantPropagationMapper(self.parent.fold_floats)(
-                lhs.shape, constants_map=constants_map
-            )
+            new_shape = ConstantPropagationMapper()(lhs.shape, constants_map=constants_map)
 
             literal_mask = [is_constant(dimension) for dimension in lhs.dimensions]
             computable_dimension_mask = [is_constant(extent) for extent in new_shape]
@@ -100,7 +94,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def visit_Assignment(self, o, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            mapper = ConstantPropagationMapper(self.parent.fold_floats)
+            mapper = ConstantPropagationMapper()
             mapper_kwargs = dict(kwargs)
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
@@ -129,7 +123,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def visit_Conditional(self, o, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            mapper = ConstantPropagationMapper(self.parent.fold_floats)
+            mapper = ConstantPropagationMapper()
             mapper_kwargs = dict(kwargs)
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
@@ -169,7 +163,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
 
         def visit_Loop(self, o, **kwargs):
             constants_map = kwargs.get('constants_map', {})
-            mapper = ConstantPropagationMapper(self.parent.fold_floats)
+            mapper = ConstantPropagationMapper()
             mapper_kwargs = dict(kwargs)
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
@@ -241,8 +235,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             o._update(_constants_map=None)
             return super().visit_Node(o, **kwargs)
 
-    def __init__(self, fold_floats=True, unroll_loops=True, apply_transform=False):
-        self.fold_floats = fold_floats
+    def __init__(self, unroll_loops=True, apply_transform=False):
         self.unroll_loops = unroll_loops
         self.apply_transform = apply_transform
 
