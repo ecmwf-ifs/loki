@@ -11,8 +11,9 @@ from loki import Subroutine, available_frontends, jit_compile
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir, FindNodes
 
-from loki.analyse import ConstantPropagationAnalysis, ConstantPropagationMapper
-from loki.transformations.constant_propagation import ConstantPropagationTransformer
+from loki.transformations.constant_propagation import (
+    ConstantPropagationTransformer, ConstantPropagationMapper
+)
 from loki.transformations.transform_loop import LoopUnrollTransformer
 
 
@@ -26,7 +27,7 @@ end subroutine const_prop_decls
     """.strip()
     routine = Subroutine.from_source(fcode)
 
-    declarations_map = ConstantPropagationAnalysis().generate_declarations_map(routine)
+    declarations_map = ConstantPropagationTransformer().generate_declarations_map(routine)
 
     assert declarations_map[('a', ())] == sym.IntLiteral(1)
     assert declarations_map[('l', ())] == sym.LogicLiteral(True)
@@ -65,7 +66,7 @@ end subroutine const_prop_attach
     routine = Subroutine.from_source(fcode, frontend=frontend)
     assignments = FindNodes(ir.Assignment).visit(routine.body)
 
-    analysis = ConstantPropagationAnalysis()
+    analysis = ConstantPropagationTransformer()
     analysis.attach_dataflow_analysis(routine)
 
     assert assignments[0]._constants_map == {('a', ()): sym.IntLiteral(1)}
@@ -87,7 +88,7 @@ end subroutine const_prop_dynamic_array
     routine = Subroutine.from_source(fcode)
     assignments = FindNodes(ir.Assignment).visit(routine.body)
 
-    analysis = ConstantPropagationAnalysis()
+    analysis = ConstantPropagationTransformer()
     constants_map = {
         ('a', (sym.IntLiteral(1),)): sym.IntLiteral(1),
         ('a', (sym.IntLiteral(2),)): sym.IntLiteral(2),

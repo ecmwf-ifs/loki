@@ -7,11 +7,114 @@
 
 from copy import deepcopy
 
-from loki.analyse.constant_propagation_analysis import ConstantPropagationAnalysis
-from loki.ir import Transformer
-from loki.subroutine import Subroutine
+import functools
+import itertools
+from typing import Any
 
-__all__ = ['ConstantPropagationTransformer']
+from loki.analyse.abstract_dfa import AbstractDataflowAnalysis
+from loki.expression import (
+    symbols as sym, get_pyrange, is_constant, SimplifyMapper
+)
+from loki.ir import nodes as ir, FindNodes, FindVariables, Transformer
+from loki.subroutine import Subroutine
+from loki.tools import dict_override
+
+
+__all__ = [
+    'ConstantPropagationMapper', 'ConstantPropagationTransformer'
+]
+
+
+def _pop_array_accesses(lhs, **kwargs):
+    constants_map = kwargs.get('constants_map', {})
+    new_shape = ConstantPropagationMapper()(lhs.shape, constants_map=constants_map)
+
+    literal_mask = [is_constant(dimension) for dimension in lhs.dimensions]
+    computable_dimension_mask = [is_constant(extent) for extent in new_shape]
+
+    masked_indices = []
+    ignore_mask = []
+    partial = False
+    for literal, computable, dimension in zip(literal_mask, computable_dimension_mask, lhs.dimensions):
+        if literal:
+            masked_indices.append(dimension)
+            ignore_mask.append(False)
+        elif computable:
+            masked_indices.append(sym.RangeIndex((None, None, None)))
+            ignore_mask.append(False)
+        else:
+            partial = True
+            masked_indices.append(-1)
+            ignore_mask.append(True)
+
+    possible_accesses = _array_indices_to_accesses(masked_indices, new_shape)
+    keys = tuple(constants_map.keys())
+    for access in possible_accesses:
+        if partial:
+            for key in keys:
+                if key[0] == lhs.name and all(
+                        current == candidate or ignore
+                        for current, candidate, ignore in zip(key[1], access, ignore_mask)
+                ):
+                    constants_map.pop(key, None)
+        else:
+            constants_map.pop((lhs.basename, access), None)
+
+
+def update_constants_map(lhs, value, constants_map):
+    constants_map[(lhs.basename, ())] = value
+
+
+def invalidate_constants_map(lhs, constants_map):
+    if isinstance(lhs, sym.Array):
+        for access in tuple(key for key in constants_map if key[0] == lhs.basename):
+            constants_map.pop((lhs.basename, access), None)
+        return
+
+    constants_map.pop((lhs.basename, ()), None)
+
+
+def _separate_literals(children):
+    separated = ([], [])
+    for child in children:
+        if isinstance(child, sym._Literal):
+            separated[0].append(child)
+        else:
+            separated[1].append(child)
+    return separated
+
+
+
+def _array_indices_to_accesses(dimensions, shape):
+    accesses = functools.partial(itertools.product)
+    for count, dimension in enumerate(dimensions):
+        if isinstance(dimension, sym.RangeIndex):
+            start = dimension.start if dimension.start is not None else sym.IntLiteral(1)
+            stop = dimension.stop if dimension.stop is not None else shape[count]
+            accesses = functools.partial(
+                accesses,
+                [sym.IntLiteral(value) for value in get_pyrange(sym.LoopRange((start, stop, dimension.step)))]
+            )
+        else:
+            accesses = functools.partial(accesses, [dimension])
+    return accesses()
+
+
+class ConstantPropagationMapper(SimplifyMapper):
+    """ Mapper for expression-level constant replacement and folding. """
+
+    def map_array(self, expr, *args, **kwargs):
+        constants_map = kwargs.get('constants_map', {})
+        return constants_map.get((expr.basename, getattr(expr, 'dimensions', ())), expr)
+
+    def map_quotient(self, expr, *args, **kwargs):
+        """ Always force-evaluate integer-division """
+        if isinstance(expr.numerator, sym.IntLiteral) and isinstance(expr.denominator, sym.IntLiteral):
+            return sym.IntLiteral(float(expr.numerator.value) / float(expr.denominator.value))
+        return super().map_quotient(expr, *args, **kwargs)
+
+    map_scalar = map_array
+    map_deferred_type_symbol = map_array
 
 
 class ConstantPropagationTransformer(Transformer):
@@ -19,13 +122,12 @@ class ConstantPropagationTransformer(Transformer):
 
     def visit(self, o, *args, **kwargs):
         constants_map = deepcopy(kwargs.pop('constants_map', {}))
-        const_prop = ConstantPropagationAnalysis(apply_transform=True)
 
         if isinstance(o, Subroutine):
-            declarations_map = const_prop.generate_declarations_map(o)
+            declarations_map = self.generate_declarations_map(o)
             declarations_map.update(constants_map)
-            attacher = const_prop.get_attacher()
-            detacher = const_prop.get_detacher()
+            attacher = self.get_attacher()
+            detacher = self.get_detacher()
             if o.spec:
                 o.spec = attacher.visit(o.spec, *args, constants_map=declarations_map, **kwargs)
                 detacher.visit(o.spec)
@@ -34,6 +136,210 @@ class ConstantPropagationTransformer(Transformer):
                 detacher.visit(o.body)
             return o
 
-        target = const_prop.get_attacher().visit(o, *args, constants_map=constants_map, **kwargs)
-        target = const_prop.get_detacher().visit(target)
+        target = self.get_attacher().visit(o, *args, constants_map=constants_map, **kwargs)
+        target = self.get_detacher().visit(target)
         return target
+
+    class Attacher(Transformer):
+        """Attach placeholder constant maps without mutating the IR."""
+
+        def __init__(self, **kwargs):
+            super().__init__(inplace=True, invalidate_source=False, **kwargs)
+
+            self.constants_map = {}
+
+        def visit_Node(self, o, **kwargs):
+            # constants_map = deepcopy(kwargs.get('constants_map', {}))
+            constants_map = self.constants_map
+            o._update(_constants_map=constants_map)
+            return super().visit_Node(o, **kwargs)
+
+        def visit_Assignment(self, o, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            mapper = ConstantPropagationMapper()
+            mapper_kwargs = dict(kwargs)
+            mapper_kwargs['constants_map'] = constants_map
+            incoming_constants_map = deepcopy(constants_map)
+
+            rhs_symbols = FindVariables().visit(o.rhs)
+            if kwargs.get('within_loop', False) and o.lhs in rhs_symbols:
+                # In loop bodies, skip "increment" updates to the LHS value
+                return o
+
+            new_rhs = mapper(o.rhs, **mapper_kwargs)
+            new_lhs = o.lhs
+
+            if isinstance(o.lhs, sym.Array):
+                new_dimensions = tuple(mapper(d, **mapper_kwargs) for d in o.lhs.dimensions)
+                new_lhs = o.lhs.clone(dimensions=new_dimensions)
+
+                _, non_literal_dimensions = _separate_literals(new_dimensions)
+                if non_literal_dimensions:
+                    _pop_array_accesses(new_lhs, constants_map=constants_map)
+                    o._update(lhs=new_lhs, rhs=new_rhs, _constants_map=incoming_constants_map)
+                    return o
+
+            _, non_literals = _separate_literals((new_rhs,))
+            if not non_literals and not isinstance(new_lhs, sym.Array):
+                update_constants_map(new_lhs, new_rhs, constants_map)
+            else:
+                invalidate_constants_map(new_lhs, constants_map)
+
+            o._update(lhs=new_lhs, rhs=new_rhs, _constants_map=incoming_constants_map)
+            return o
+
+        def visit_Conditional(self, o, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            mapper = ConstantPropagationMapper()
+            mapper_kwargs = dict(kwargs)
+            mapper_kwargs['constants_map'] = constants_map
+            incoming_constants_map = deepcopy(constants_map)
+            body_kwargs = dict(kwargs)
+            body_kwargs['constants_map'] = deepcopy(constants_map)
+            else_kwargs = dict(kwargs)
+            else_kwargs['constants_map'] = deepcopy(constants_map)
+
+            new_condition = mapper(o.condition, **mapper_kwargs)
+
+            new_body = self.visit(o.body, **body_kwargs)
+            new_else_body = self.visit(o.else_body, **else_kwargs)
+            body_constants_map = body_kwargs['constants_map']
+            else_constants_map = else_kwargs['constants_map']
+
+            merged_constants_map = deepcopy(incoming_constants_map)
+            all_keys = set(body_constants_map) | set(else_constants_map)
+            for key in all_keys:
+                if (
+                        key in body_constants_map and key in else_constants_map
+                        and body_constants_map[key] == else_constants_map[key]
+                ):
+                    merged_constants_map[key] = body_constants_map[key]
+                else:
+                    merged_constants_map.pop(key, None)
+
+            constants_map.clear()
+            constants_map.update(merged_constants_map)
+
+            o._update(
+                condition=new_condition,
+                body=new_body,
+                else_body=new_else_body,
+                _constants_map=incoming_constants_map,
+            )
+            return o
+
+        def visit_Loop(self, o, **kwargs):
+            constants_map = kwargs.get('constants_map', {})
+            mapper = ConstantPropagationMapper()
+            mapper_kwargs = dict(kwargs)
+            mapper_kwargs['constants_map'] = constants_map
+            incoming_constants_map = deepcopy(constants_map)
+
+            new_bounds = mapper(o.bounds, **mapper_kwargs)
+
+            body_kwargs = dict(kwargs)
+            body_kwargs['constants_map'] = deepcopy(constants_map)
+            body_kwargs['constants_map'].pop((o.variable.basename, ()), None)
+
+            # When recursing into loops, send a flag down to trigger detection
+            # of loop-variant assignments ("increment" updates to variables).
+            with dict_override(body_kwargs, {'within_loop': True}):
+                new_body = self.visit(o.body, **body_kwargs)
+
+            lhs_vars = {o.variable}
+            lhs_vars.update(loop.variable for loop in FindNodes(ir.Loop).visit(o.body))
+
+            assignments = FindNodes(ir.Assignment).visit(new_body)
+            for assign in assignments:
+                lhs_vars.add(assign.lhs)
+
+            bounds_are_const = (
+                is_constant(new_bounds.start)
+                and is_constant(new_bounds.stop)
+                and (is_constant(new_bounds.step) or new_bounds.step is None)
+            )
+            bounds_has_steps = bounds_are_const and len(
+                get_pyrange(sym.LoopRange((new_bounds.start, new_bounds.stop, new_bounds.step)))
+            ) > 0
+
+            if bounds_are_const:
+                if bounds_has_steps:
+                    loop_constants_map = constants_map
+                else:
+                    loop_constants_map = deepcopy(constants_map)
+
+                for assign in assignments:
+                    if not set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
+                        assign_kwargs = dict(kwargs)
+                        assign_kwargs['constants_map'] = loop_constants_map
+                        self.visit_Assignment(assign, **assign_kwargs)
+            else:
+                for assign in assignments:
+                    invalidate_constants_map(assign.lhs, constants_map)
+
+            invalidate_constants_map(o.variable, constants_map)
+
+            o._update(bounds=new_bounds, body=new_body, _constants_map=incoming_constants_map)
+            return o
+
+    class Detacher(Transformer):
+        """Remove transient constant-propagation metadata from IR nodes."""
+
+        def __init__(self, **kwargs):
+            super().__init__(inplace=True, invalidate_source=False, **kwargs)
+
+        def visit_Node(self, o, **kwargs):
+            o._update(_constants_map=None)
+            return super().visit_Node(o, **kwargs)
+
+    def __init__(self, apply_transform=False):
+        self.apply_transform = apply_transform
+
+    def get_attacher(self) -> Any:
+        return self.Attacher()
+
+    def get_detacher(self) -> Any:
+        return self.Detacher()
+
+    def attach_dataflow_analysis(self, module_or_routine):
+        constants_map = self.generate_declarations_map(module_or_routine)
+        attacher = self.get_attacher()
+        if hasattr(module_or_routine, 'spec'):
+            attacher.visit(module_or_routine.spec, constants_map=deepcopy(constants_map))
+        if hasattr(module_or_routine, 'body'):
+            attacher.visit(module_or_routine.body, constants_map=deepcopy(constants_map))
+        elif not hasattr(module_or_routine, 'spec'):
+            attacher.visit(module_or_routine, constants_map=deepcopy(constants_map))
+
+    def detach_dataflow_analysis(self, module_or_routine):
+        detacher = self.get_detacher()
+        if hasattr(module_or_routine, 'spec'):
+            detacher.visit(module_or_routine.spec)
+        if hasattr(module_or_routine, 'body'):
+            detacher.visit(module_or_routine.body)
+        elif not hasattr(module_or_routine, 'spec'):
+            detacher.visit(module_or_routine)
+
+    def generate_declarations_map(self, routine):
+        """Build the initial constant map from declaration-time initializers."""
+
+        def index_initial_elements(indices, element):
+            if len(indices) == 1:
+                return element.elements[indices[0].value - 1]
+            return index_initial_elements(indices[1:], element.elements[indices[0].value - 1])
+
+        declarations_map = {}
+        for symbol in getattr(routine, 'symbols', ()):
+            if isinstance(symbol, sym.DeferredTypeSymbol) or symbol.initial is None:
+                continue
+
+            if isinstance(symbol, sym.Array):
+                declarations_map.update({
+                    (symbol.basename, indices): index_initial_elements(indices, symbol.initial)
+                    for indices in _array_indices_to_accesses(
+                        [sym.RangeIndex((None, None, None))] * len(symbol.shape), symbol.shape
+                    )
+                })
+            else:
+                declarations_map[(symbol.basename, ())] = symbol.initial
+        return declarations_map
