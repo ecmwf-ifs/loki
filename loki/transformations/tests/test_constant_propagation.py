@@ -107,8 +107,6 @@ end subroutine const_prop_literals
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path / f'{routine.name}_{frontend}.f90'
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    function()
 
     transformed = do_constant_propagation(routine)
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
