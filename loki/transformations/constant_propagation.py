@@ -21,7 +21,8 @@ from loki.tools import dict_override
 
 
 __all__ = [
-    'ConstantPropagationMapper', 'ConstantPropagationTransformer'
+    'do_constant_propagation', 'ConstantPropagationMapper',
+    'ConstantPropagationTransformer'
 ]
 
 
@@ -122,20 +123,6 @@ class ConstantPropagationTransformer(Transformer):
 
     def visit(self, o, *args, **kwargs):
         constants_map = deepcopy(kwargs.pop('constants_map', {}))
-
-        if isinstance(o, Subroutine):
-            declarations_map = self.generate_declarations_map(o)
-            declarations_map.update(constants_map)
-            attacher = self.get_attacher()
-            detacher = self.get_detacher()
-            if o.spec:
-                o.spec = attacher.visit(o.spec, *args, constants_map=declarations_map, **kwargs)
-                detacher.visit(o.spec)
-            if o.body:
-                o.body = attacher.visit(o.body, *args, constants_map=declarations_map, **kwargs)
-                detacher.visit(o.body)
-            return o
-
         target = self.get_attacher().visit(o, *args, constants_map=constants_map, **kwargs)
         target = self.get_detacher().visit(target)
         return target
@@ -343,3 +330,24 @@ class ConstantPropagationTransformer(Transformer):
             else:
                 declarations_map[(symbol.basename, ())] = symbol.initial
         return declarations_map
+
+def do_constant_propagation(routine):
+    """ Apply constant-propagation gover the body of a :any:`Subroutine`. """
+
+    assert isinstance(routine, Subroutine), \
+        f'[Loki] Constant propagation can only be applied to Subroutine, but found {routine}'
+
+    const_prop = ConstantPropagationTransformer()
+
+    declarations_map = const_prop.generate_declarations_map(routine)
+
+    attacher = const_prop.get_attacher()
+    detacher = const_prop.get_detacher()
+    if routine.spec:
+        routine.spec = attacher.visit(routine.spec, constants_map=declarations_map)
+        detacher.visit(routine.spec)
+    if routine.body:
+        routine.body = attacher.visit(routine.body, constants_map=declarations_map)
+        detacher.visit(routine.body)
+
+    return routine
