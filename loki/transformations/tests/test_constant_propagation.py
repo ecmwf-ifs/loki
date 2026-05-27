@@ -54,27 +54,6 @@ def test_constant_propagation_mapper_short_circuits_boolean_ops():
     assert mapper(sym.LogicalAnd((sym.LogicLiteral(False), dyn))) == sym.LogicLiteral(False)
 
 
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_constant_propagation_analysis_attaches_maps(frontend):
-    fcode = """
-subroutine const_prop_attach
-  integer :: a = 1
-  integer :: b
-  b = a
-end subroutine const_prop_attach
-    """.strip()
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-    assignments = FindNodes(ir.Assignment).visit(routine.body)
-
-    analysis = ConstantPropagationTransformer()
-    analysis.attach_dataflow_analysis(routine)
-
-    assert assignments[0]._constants_map == {('a', ()): sym.IntLiteral(1)}
-
-    analysis.detach_dataflow_analysis(routine)
-    assert assignments[0]._constants_map is None
-
-
 def test_constant_propagation_analysis_dynamic_array_invalidation():
     fcode = """
 subroutine const_prop_dynamic_array(a, i)
@@ -95,15 +74,11 @@ end subroutine const_prop_dynamic_array
         ('a', (sym.IntLiteral(3),)): sym.IntLiteral(3),
     }
 
-    analysis.get_attacher().visit(assignments[-1], constants_map=constants_map)
+    analysis.visit(assignments[-1], constants_map=constants_map)
 
     assert ('a', (sym.IntLiteral(1),)) not in constants_map
     assert ('a', (sym.IntLiteral(2),)) not in constants_map
     assert ('a', (sym.IntLiteral(3),)) not in constants_map
-
-
-def test_constant_propagation_transformer_export():
-    assert ConstantPropagationTransformer is not None
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
