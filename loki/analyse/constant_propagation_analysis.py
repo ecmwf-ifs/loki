@@ -20,7 +20,7 @@ from loki.expression import (
 from loki.expression.symbolic import get_pyrange, is_constant, SimplifyMapper
 from loki.expression.symbols import _Literal
 from loki.ir import FindNodes, Assignment, FindVariables, Loop, Transformer
-from loki.tools import as_tuple
+from loki.tools import as_tuple, dict_override
 
 __all__ = ['ConstantPropagationMapper', 'ConstantPropagationAnalysis']
 
@@ -99,6 +99,11 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             mapper_kwargs['constants_map'] = constants_map
             incoming_constants_map = deepcopy(constants_map)
 
+            rhs_symbols = FindVariables().visit(o.rhs)
+            if kwargs.get('within_loop', False) and o.lhs in rhs_symbols:
+                # In loop bodies, skip "increment" updates to the LHS value
+                return o
+
             new_rhs = mapper(o.rhs, **mapper_kwargs)
             new_lhs = o.lhs
 
@@ -172,22 +177,15 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             new_loop = o.clone(bounds=new_bounds)
 
             step = new_bounds.step if new_bounds.step is not None else IntLiteral(1)
-            can_unroll = self.parent.apply_transform and self.parent.unroll_loops
-            can_unroll = can_unroll and all(is_constant(expr) for expr in (new_bounds.start, new_bounds.stop, step))
-
-            if can_unroll:
-                from loki.transformations.transform_loop import LoopUnrollTransformer  # pylint: disable=import-outside-toplevel
-                unrolled = LoopUnrollTransformer(warn_iterations_length=False).visit(new_loop)
-                if not isinstance(unrolled, type(o)):
-                    unrolled_body = self.visit(as_tuple(unrolled), **kwargs)
-                    if not unrolled_body:
-                        return None
-                    return as_tuple(unrolled_body)
 
             body_kwargs = dict(kwargs)
             body_kwargs['constants_map'] = deepcopy(constants_map)
             body_kwargs['constants_map'].pop((o.variable.basename, ()), None)
-            new_body = self.visit(o.body, **body_kwargs)
+
+            # When recursing into loops, send a flag down to trigger detection
+            # of loop-variant assignments ("increment" updates to variables).
+            with dict_override(body_kwargs, {'within_loop': True}):
+                new_body = self.visit(o.body, **body_kwargs)
 
             lhs_vars = {o.variable}
             lhs_vars.update(loop.variable for loop in FindNodes(Loop).visit(o.body))
@@ -235,8 +233,7 @@ class ConstantPropagationAnalysis(AbstractDataflowAnalysis):
             o._update(_constants_map=None)
             return super().visit_Node(o, **kwargs)
 
-    def __init__(self, unroll_loops=True, apply_transform=False):
-        self.unroll_loops = unroll_loops
+    def __init__(self, apply_transform=False):
         self.apply_transform = apply_transform
 
     def get_attacher(self) -> Any:

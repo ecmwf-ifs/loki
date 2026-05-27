@@ -17,15 +17,9 @@ __all__ = ['ConstantPropagationTransformer']
 class ConstantPropagationTransformer(Transformer):
     """Apply constant-propagation analysis as a transformation driver."""
 
-    def __init__(self, unroll_loops=True):
-        self.unroll_loops = unroll_loops
-        super().__init__()
-
     def visit(self, o, *args, **kwargs):
         constants_map = deepcopy(kwargs.pop('constants_map', {}))
-        const_prop = ConstantPropagationAnalysis(
-            unroll_loops=self.unroll_loops, apply_transform=True,
-        )
+        const_prop = ConstantPropagationAnalysis(apply_transform=True)
 
         if isinstance(o, Subroutine):
             declarations_map = const_prop.generate_declarations_map(o)

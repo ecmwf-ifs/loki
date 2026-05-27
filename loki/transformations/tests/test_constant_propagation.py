@@ -11,7 +11,9 @@ from loki import FindNodes, Subroutine
 from loki.frontend import available_frontends
 from loki.ir import Assignment, Conditional, Loop
 from loki.jit_build import jit_compile
-from loki.transformations import ConstantPropagationTransformer
+
+from loki.transformations.constant_propagation import ConstantPropagationTransformer
+from loki.transformations.transform_loop import LoopUnrollTransformer
 
 
 def test_constant_propagation_transformer_export():
@@ -168,7 +170,7 @@ end subroutine test_constant_propagation_conditional_basic
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    transformed = ConstantPropagationTransformer(unroll_loops=False).visit(routine)
+    transformed = ConstantPropagationTransformer().visit(routine)
 
     assert len(FindNodes(Conditional).visit(transformed.body)) == 1
     assignments = [str(a) for a in FindNodes(Assignment).visit(transformed.body)]
@@ -193,7 +195,12 @@ end subroutine test_constant_propagation_for_loop_basic
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
+    # First, propagate the initial constatns, then resolve the loop
     transformed = ConstantPropagationTransformer().visit(routine)
+    transformed.body = LoopUnrollTransformer().visit(transformed.body)
+
+    # TODO: This should be internalised to auto-propagate on-demand
+    transformed = ConstantPropagationTransformer().visit(transformed)
 
     assert len(FindNodes(Loop).visit(transformed.body)) == 0
     assignments = [str(a) for a in FindNodes(Assignment).visit(transformed.body)]
@@ -221,7 +228,7 @@ subroutine test_constant_propagation_for_loop_basic_no_unroll(c)
 end subroutine test_constant_propagation_for_loop_basic_no_unroll
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    transformed = ConstantPropagationTransformer(unroll_loops=False).visit(routine)
+    transformed = ConstantPropagationTransformer().visit(routine)
 
     assignments = [str(a) for a in FindNodes(Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 15' in assignments
@@ -253,7 +260,7 @@ subroutine test_constant_propagation_loop_nested_siblings_no_unroll(c)
 end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    transformed = ConstantPropagationTransformer(unroll_loops=False).visit(routine)
+    transformed = ConstantPropagationTransformer().visit(routine)
 
     assignments = [str(a) for a in FindNodes(Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 5' in assignments
