@@ -129,20 +129,18 @@ class ConstantPropagationTransformer(Transformer):
     def visit_Assignment(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
-        mapper_kwargs = dict(kwargs)
-        mapper_kwargs['constants_map'] = constants_map
-        incoming_constants_map = deepcopy(constants_map)
 
         rhs_symbols = FindVariables().visit(o.rhs)
         if kwargs.get('within_loop', False) and o.lhs in rhs_symbols:
             # In loop bodies, skip "increment" updates to the LHS value
             return o
 
-        new_rhs = mapper(o.rhs, **mapper_kwargs)
+        # Resolve known constants on the RHS
+        new_rhs = mapper(o.rhs, constants_map=constants_map)
         new_lhs = o.lhs
 
         if isinstance(o.lhs, sym.Array):
-            new_dimensions = tuple(mapper(d, **mapper_kwargs) for d in o.lhs.dimensions)
+            new_dimensions = tuple(mapper(d, constants_map=constants_map) for d in o.lhs.dimensions)
             new_lhs = o.lhs.clone(dimensions=new_dimensions)
 
             _, non_literal_dimensions = _separate_literals(new_dimensions)
@@ -161,22 +159,19 @@ class ConstantPropagationTransformer(Transformer):
     def visit_Conditional(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
-        mapper_kwargs = dict(kwargs)
-        mapper_kwargs['constants_map'] = constants_map
-        incoming_constants_map = deepcopy(constants_map)
-        body_kwargs = dict(kwargs)
-        body_kwargs['constants_map'] = deepcopy(constants_map)
-        else_kwargs = dict(kwargs)
-        else_kwargs['constants_map'] = deepcopy(constants_map)
 
-        new_condition = mapper(o.condition, **mapper_kwargs)
+        new_condition = mapper(o.condition, constants_map=constants_map)
 
-        new_body = self.visit(o.body, **body_kwargs)
-        new_else_body = self.visit(o.else_body, **else_kwargs)
-        body_constants_map = body_kwargs['constants_map']
-        else_constants_map = else_kwargs['constants_map']
+        # Pass two copies of the constants map forward ...
+        with dict_override(kwargs, {'constants_map': deepcopy(constants_map)}):
+            new_body = self.visit(o.body, **kwargs)
+            body_constants_map = kwargs['constants_map']
+        with dict_override(kwargs, {'constants_map': deepcopy(constants_map)}):
+            new_else_body = self.visit(o.else_body, **kwargs)
+            else_constants_map = kwargs['constants_map']
 
-        merged_constants_map = deepcopy(incoming_constants_map)
+        # ... then merge the maps, removing all non-shared entries
+        merged_constants_map = {}
         all_keys = set(body_constants_map) | set(else_constants_map)
         for key in all_keys:
             if (
@@ -187,6 +182,7 @@ class ConstantPropagationTransformer(Transformer):
             else:
                 merged_constants_map.pop(key, None)
 
+        # Update the shared constants map with the merged result
         constants_map.clear()
         constants_map.update(merged_constants_map)
 
@@ -195,20 +191,16 @@ class ConstantPropagationTransformer(Transformer):
     def visit_Loop(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
-        mapper_kwargs = dict(kwargs)
-        mapper_kwargs['constants_map'] = constants_map
-        incoming_constants_map = deepcopy(constants_map)
 
-        new_bounds = mapper(o.bounds, **mapper_kwargs)
-
-        body_kwargs = dict(kwargs)
-        body_kwargs['constants_map'] = deepcopy(constants_map)
-        body_kwargs['constants_map'].pop((o.variable.basename, ()), None)
+        new_bounds = mapper(o.bounds, constants_map=constants_map)
 
         # When recursing into loops, send a flag down to trigger detection
         # of loop-variant assignments ("increment" updates to variables).
-        with dict_override(body_kwargs, {'within_loop': True}):
-            new_body = self.visit(o.body, **body_kwargs)
+        with dict_override(kwargs, {
+                'within_loop': True, 'constants_map': deepcopy(constants_map)
+        }):
+            kwargs['constants_map'].pop((o.variable.basename, ()), None)
+            new_body = self.visit(o.body, **kwargs)
 
         lhs_vars = {o.variable}
         lhs_vars.update(loop.variable for loop in FindNodes(ir.Loop).visit(o.body))

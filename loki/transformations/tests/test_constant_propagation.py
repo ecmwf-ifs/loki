@@ -81,7 +81,7 @@ end subroutine const_prop_dynamic_array
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_constant_propagation_literals_expected_future(tmp_path, frontend):
+def test_constant_propagation_literals_expected_future(frontend):
     fcode = """
 subroutine const_prop_literals
   integer :: a, a1
@@ -105,7 +105,6 @@ end subroutine const_prop_literals
 """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    filepath = tmp_path / f'{routine.name}_{frontend}.f90'
 
     transformed = do_constant_propagation(routine)
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
@@ -234,6 +233,7 @@ end subroutine test_constant_propagation_conditional_basic
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 5' in assignments
     assert 'Assignment:: c = 3' in assignments
+    assert 'Assignment:: c = c' in assignments
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
