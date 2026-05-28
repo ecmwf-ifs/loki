@@ -299,12 +299,12 @@ class PromoteLocalArrayTransformation(Transformation):
 
         # Step 1: Promote declarations
         promote_variable_declarations(
-            routine, variable_names, pos=-1,
+            routine, variable_names, pos=0,
             size=RangeIndex((lower, upper))
         )
 
         # Step 2: Insert horizontal index into variable uses
         self.promote_variables_vector_sections(
-            routine, variable_names, pos=-1,
+            routine, variable_names, pos=0,
             index=horizontal_var, sections=sections
         )

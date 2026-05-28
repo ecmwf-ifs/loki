@@ -393,7 +393,7 @@ def test_scc_promote_local_array_transformation_default_off(frontend, horizontal
     assert kernel.variable_map['tmp'].shape == ('nz',)
 
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert 'tmp(jk, jl)' not in fgen(kernel.spec).lower()
+    assert 'tmp(start:end, nz)' not in fgen(kernel.spec).lower()
     assert fgen(assigns[0]).lower() == 'tmp(:) = 0.'
     assert fgen(assigns[1]).lower() == 'tmp(jk) = q(jl, jk)'
     assert fgen(assigns[2]).lower() == 'q(jl, jk) = tmp(jk)'
@@ -436,14 +436,14 @@ def test_scc_promote_local_array_transformation_config(frontend, horizontal):
 
     assert isinstance(kernel.variable_map['tmp'], Array)
     assert len(kernel.variable_map['tmp'].shape) == 2
-    assert kernel.variable_map['tmp'].shape[0] == 'nz'
-    assert kernel.variable_map['tmp'].shape[1] == 'start:end'
+    assert kernel.variable_map['tmp'].shape[0] == 'start:end'
+    assert kernel.variable_map['tmp'].shape[1] == 'nz'
 
     assigns = FindNodes(Assignment).visit(kernel.body)
-    assert 'tmp(nz, start:end)' in fgen(kernel.spec).lower()
-    assert fgen(assigns[0]).lower() == 'tmp(:, jl) = 0.'
-    assert fgen(assigns[1]).lower() == 'tmp(jk, jl) = q(jl, jk)'
-    assert fgen(assigns[2]).lower() == 'q(jl, jk) = tmp(jk, jl)'
+    assert 'tmp(start:end, nz)' in fgen(kernel.spec).lower()
+    assert fgen(assigns[0]).lower() == 'tmp(jl, :) = 0.'
+    assert fgen(assigns[1]).lower() == 'tmp(jl, jk) = q(jl, jk)'
+    assert fgen(assigns[2]).lower() == 'q(jl, jk) = tmp(jl, jk)'
 
 
 @pytest.mark.xfail(not HAVE_FP, reason="Identification of array reduction intrinsics requires fparser.")

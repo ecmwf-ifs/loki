@@ -525,10 +525,10 @@ end subroutine test_scc_promote
     # Manually wrap the vector computation in a vector_section label,
     # as produced by SCCDevectorTransformation
     body_nodes = list(routine.body.body)
-    # The first two statements belong to the vector section; the trailing
-    # full-array assignment remains outside of it
-    vector_body = tuple(body_nodes[:2])
-    non_vector_body = tuple(body_nodes[2:])
+    # The leading comment block, initialization assignment and loop belong to
+    # the vector section; the trailing full-array assignment remains outside it
+    vector_body = tuple(body_nodes[:3])
+    non_vector_body = tuple(body_nodes[3:])
     vector_section = Section(body=vector_body, label='vector_section')
     routine.body = routine.body.clone(body=(vector_section,) + non_vector_body)
 
@@ -542,8 +542,8 @@ end subroutine test_scc_promote
 
     # tmp should be promoted because it is used inside the vector section
     assert len(routine.variable_map['tmp'].shape) == 2
-    assert routine.variable_map['tmp'].shape[0] == routine.variable_map['nlev']
-    assert isinstance(routine.variable_map['tmp'].shape[1], sym.RangeIndex)
+    assert isinstance(routine.variable_map['tmp'].shape[0], sym.RangeIndex)
+    assert routine.variable_map['tmp'].shape[1] == routine.variable_map['nlev']
     # unused_arr should not be promoted because it is only used outside it
     assert routine.variable_map['unused_arr'].shape == (routine.variable_map['nlev'],)
 
@@ -558,11 +558,10 @@ end subroutine test_scc_promote
     x_assign = next(a for a in assigns if a.lhs.name == 'x')
     tmp_rhs_arrays = [v for v in FindVariables(unique=False).visit(tmp_assign.rhs) if isinstance(v, sym.Array)]
     x_rhs_arrays = [v for v in FindVariables(unique=False).visit(x_assign.rhs) if isinstance(v, sym.Array)]
-    assert tmp_assign.lhs.dimensions[0] == routine.variable_map['jlev']
-    assert isinstance(tmp_assign.lhs.dimensions[1], sym.RangeIndex)
+    assert tmp_assign.lhs.dimensions[0] == routine.variable_map['jcol']
+    assert tmp_assign.lhs.dimensions[1] == routine.variable_map['jlev']
     assert tmp_rhs_arrays[0].dimensions == (routine.variable_map['jlev'], routine.variable_map['jcol'])
-    assert x_rhs_arrays[0].dimensions[0] == routine.variable_map['jlev']
-    assert isinstance(x_rhs_arrays[0].dimensions[1], sym.RangeIndex)
+    assert x_rhs_arrays[0].dimensions == (routine.variable_map['jcol'], routine.variable_map['jlev'])
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_promote_local_array_transformation_config_defaults(frontend):
@@ -623,11 +622,11 @@ def test_promote_local_array_implicit_notation_scc_context(frontend):
 
     In Fortran, ``a = 0.0`` where ``a`` is declared as ``a(m,n)`` means
     "assign to the entire array". After promotion adds a new dimension,
-    the result should be ``a(:,:,jcol)`` inside vector sections (not just
+    the result should be ``a(jcol,:,:)`` inside vector sections (not just
     ``a(jcol)``), and ``a(:,:,:)`` outside vector sections.
 
     This also covers the case of passing an array without subscripts to a
-    call statement: ``CALL foo(a)`` should become ``CALL foo(a(:,:,jcol))``.
+    call statement: ``CALL foo(a)`` should become ``CALL foo(a(jcol,:,:))``.
     """
     fcode = """
 subroutine test_scc_implicit(ncol, nlev, istartcol, iendcol, ngas, x)
@@ -663,16 +662,16 @@ end subroutine test_scc_implicit
     trafo.process_kernel(routine)
 
     assert len(routine.variable_map['tmp'].shape) == 3
-    assert routine.variable_map['tmp'].shape[0] == routine.variable_map['ngas']
-    assert routine.variable_map['tmp'].shape[1] == routine.variable_map['nlev']
-    assert isinstance(routine.variable_map['tmp'].shape[2], sym.RangeIndex)
+    assert isinstance(routine.variable_map['tmp'].shape[0], sym.RangeIndex)
+    assert routine.variable_map['tmp'].shape[1] == routine.variable_map['ngas']
+    assert routine.variable_map['tmp'].shape[2] == routine.variable_map['nlev']
 
     # Check the generated form for implicit full-array notation
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     init_assign = next(a for a in assigns if a.lhs.name == 'tmp' and not FindVariables(unique=False).visit(a.rhs))
     tmp_assign = next(a for a in assigns if a.lhs.name == 'tmp' and FindVariables(unique=False).visit(a.rhs))
-    assert fgen(init_assign).lower().replace(' ', '') == 'tmp(:,:,jcol)=0.0'
-    assert 'tmp(jg,jlev,jcol)' in fgen(tmp_assign).lower().replace(' ', '')
+    assert fgen(init_assign).lower().replace(' ', '') == 'tmp(jcol,:,:)=0.0'
+    assert 'tmp(jcol,jg,jlev)' in fgen(tmp_assign).lower().replace(' ', '')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
