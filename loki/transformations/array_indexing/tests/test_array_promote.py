@@ -564,7 +564,6 @@ end subroutine test_scc_promote
     assert x_rhs_arrays[0].dimensions[0] == routine.variable_map['jlev']
     assert isinstance(x_rhs_arrays[0].dimensions[1], sym.RangeIndex)
 
-
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_promote_local_array_transformation_config_defaults(frontend):
     """
@@ -577,10 +576,14 @@ subroutine test_scc_promote_config(ncol, nlev, istartcol, iendcol, x)
   integer, intent(in) :: ncol, nlev, istartcol, iendcol
   real, intent(inout) :: x(nlev, istartcol:iendcol)
   real :: tmp(nlev)
+  real :: tmp_preserve(nlev)
+  real :: tmp_preserve_case(nlev)
   integer :: jlev, jcol
 
   do jlev = 1, nlev
     tmp(jlev) = x(jlev, jcol) * 2.0
+    tmp_preserve(jlev) = x(jlev, jcol)
+    tmp_preserve_case(jlev) = x(jlev, jcol)
   end do
 end subroutine test_scc_promote_config
     """.strip()
@@ -593,9 +596,15 @@ end subroutine test_scc_promote_config
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source.subroutines[0]
     routine.body = routine.body.clone(body=(Section(body=tuple(routine.body.body), label='vector_section'),))
-    trafo = PromoteLocalArrayTransformation(horizontal, promote_locals=True)
+    trafo = PromoteLocalArrayTransformation(
+        horizontal, promote_locals=True,
+        preserve_arrays=['tmp_preserve', 'TMP_PRESERVE_CASE']
+    )
     trafo.apply(routine, role='kernel')
     assert len(routine.variable_map['tmp'].shape) == 2
+    assert routine.variable_map['tmp_preserve'].shape == (routine.variable_map['nlev'],)
+    assert routine.variable_map['tmp_preserve_case'].shape == (routine.variable_map['nlev'],), \
+        'preserve_arrays matching must be case-insensitive'
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source.subroutines[0]

@@ -272,7 +272,8 @@ class PromoteLocalArrayTransformation(Transformation):
 
         # Filter out arrays marked explicitly for preservation
         if preserve_arrays:
-            to_promote = [v for v in to_promote if v.name not in preserve_arrays]
+            preserve_arrays = {name.lower() for name in preserve_arrays}
+            to_promote = [v for v in to_promote if v.name.lower() not in preserve_arrays]
 
         if not to_promote:
             return
