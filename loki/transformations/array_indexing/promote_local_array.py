@@ -27,8 +27,11 @@ class PromoteLocalArrayTransformation(Transformation):
         to define the horizontal data dimension and iteration space.
     """
 
-    def __init__(self, horizontal):
+    def __init__(self, horizontal, promote_locals=False, preserve_arrays=None, promote_constant_arrays=False):
         self.horizontal = horizontal
+        self.promote_locals = promote_locals
+        self.preserve_arrays = as_tuple(preserve_arrays)
+        self.promote_constant_arrays = promote_constant_arrays
 
     @classmethod
     def get_locals_to_promote(cls, routine, sections, horizontal, promote_constant_arrays=False):
@@ -222,13 +225,15 @@ class PromoteLocalArrayTransformation(Transformation):
         role = kwargs['role']
         item = kwargs.get('item', None)
         if role == 'kernel':
-            promote_locals = False
-            preserve_arrays = []
-            promote_constant_arrays = False
+            promote_locals = self.promote_locals
+            preserve_arrays = self.preserve_arrays
+            promote_constant_arrays = self.promote_constant_arrays
             if item:
-                promote_locals = item.config.get('promote_locals', False)
-                preserve_arrays = item.config.get('preserve_arrays', [])
-                promote_constant_arrays = item.config.get('promote_constant_arrays', False)
+                promote_locals = item.config.get('promote_locals', self.promote_locals)
+                preserve_arrays = item.config.get('preserve_arrays', self.preserve_arrays)
+                promote_constant_arrays = item.config.get(
+                    'promote_constant_arrays', self.promote_constant_arrays
+                )
             if promote_locals:
                 self.process_kernel(routine, preserve_arrays=preserve_arrays,
                                     promote_constant_arrays=promote_constant_arrays)

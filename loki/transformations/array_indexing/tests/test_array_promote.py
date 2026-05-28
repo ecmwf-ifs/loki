@@ -8,7 +8,8 @@
 import pytest
 import numpy as np
 
-from loki import Subroutine, fgen
+from loki import Subroutine, Sourcefile, fgen
+from loki.batch import ProcedureItem
 from loki.jit_build import jit_compile
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
@@ -562,6 +563,47 @@ end subroutine test_scc_promote
     assert tmp_rhs_arrays[0].dimensions == (routine.variable_map['jlev'], routine.variable_map['jcol'])
     assert x_rhs_arrays[0].dimensions[0] == routine.variable_map['jlev']
     assert isinstance(x_rhs_arrays[0].dimensions[1], sym.RangeIndex)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_promote_local_array_transformation_config_defaults(frontend):
+    """
+    Test constructor-level defaults and per-item overrides for
+    :any:`PromoteLocalArrayTransformation`.
+    """
+    fcode = """
+subroutine test_scc_promote_config(ncol, nlev, istartcol, iendcol, x)
+  implicit none
+  integer, intent(in) :: ncol, nlev, istartcol, iendcol
+  real, intent(inout) :: x(nlev, istartcol:iendcol)
+  real :: tmp(nlev)
+  integer :: jlev, jcol
+
+  do jlev = 1, nlev
+    tmp(jlev) = x(jlev, jcol) * 2.0
+  end do
+end subroutine test_scc_promote_config
+    """.strip()
+
+    horizontal = Dimension(
+        name='horizontal', size=['ncol'], index='jcol',
+        lower=['istartcol'], upper=['iendcol']
+    )
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source.subroutines[0]
+    routine.body = routine.body.clone(body=(Section(body=tuple(routine.body.body), label='vector_section'),))
+    trafo = PromoteLocalArrayTransformation(horizontal, promote_locals=True)
+    trafo.apply(routine, role='kernel')
+    assert len(routine.variable_map['tmp'].shape) == 2
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source.subroutines[0]
+    routine.body = routine.body.clone(body=(Section(body=tuple(routine.body.body), label='vector_section'),))
+    item = ProcedureItem(name='#test_scc_promote_config', source=source, config={'promote_locals': False})
+    trafo = PromoteLocalArrayTransformation(horizontal, promote_locals=True)
+    trafo.apply(routine, role='kernel', item=item)
+    assert routine.variable_map['tmp'].shape == (routine.variable_map['nlev'],)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
