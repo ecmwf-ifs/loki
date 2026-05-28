@@ -620,13 +620,9 @@ def test_promote_local_array_implicit_notation_scc_context(frontend):
     Test :any:`PromoteLocalArrayTransformation` when arrays are used without
     explicit subscripts (implicit full-array notation).
 
-    In Fortran, ``a = 0.0`` where ``a`` is declared as ``a(m,n)`` means
-    "assign to the entire array". After promotion adds a new dimension,
-    the result should be ``a(jcol,:,:)`` inside vector sections (not just
-    ``a(jcol)``), and ``a(:,:,:)`` outside vector sections.
-
-    This also covers the case of passing an array without subscripts to a
-    call statement: ``CALL foo(a)`` should become ``CALL foo(a(jcol,:,:))``.
+    After promotion adds a new dimension, ``a = 0.0`` should become
+    ``a(jcol,:,:) = 0.0`` inside vector sections and ``a(:,:,:) = 1.0``
+    outside vector sections.
     """
     fcode = """
 subroutine test_scc_implicit(ncol, nlev, istartcol, iendcol, ngas, x)
@@ -644,14 +640,16 @@ subroutine test_scc_implicit(ncol, nlev, istartcol, iendcol, ngas, x)
       x(jg, jlev, jcol) = tmp(jg, jlev)
     end do
   end do
+
+  tmp = 1.0
 end subroutine test_scc_implicit
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    # Wrap everything in a vector section, as produced by SCCDevector
+    # Leave the trailing full-array assignment outside the vector section
     body_nodes = list(routine.body.body)
-    vector_section = Section(body=tuple(body_nodes), label='vector_section')
-    routine.body = routine.body.clone(body=(vector_section,))
+    vector_section = Section(body=tuple(body_nodes[:-1]), label='vector_section')
+    routine.body = routine.body.clone(body=(vector_section, body_nodes[-1]))
 
     horizontal = Dimension(
         name='horizontal', size=['ncol'], index='jcol',
@@ -666,12 +664,24 @@ end subroutine test_scc_implicit
     assert routine.variable_map['tmp'].shape[1] == routine.variable_map['ngas']
     assert routine.variable_map['tmp'].shape[2] == routine.variable_map['nlev']
 
-    # Check the generated form for implicit full-array notation
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-    init_assign = next(a for a in assigns if a.lhs.name == 'tmp' and not FindVariables(unique=False).visit(a.rhs))
+    init_assign = next(
+        a for a in assigns
+        if a.lhs.name == 'tmp' and a.rhs == 0.0
+    )
     tmp_assign = next(a for a in assigns if a.lhs.name == 'tmp' and FindVariables(unique=False).visit(a.rhs))
+    outside_assign = next(
+        a for a in assigns
+        if a.lhs.name == 'tmp' and a.rhs == 1.0
+    )
+
+    assert init_assign.lhs.dimensions[0] == routine.variable_map['jcol']
+    assert all(isinstance(d, sym.RangeIndex) for d in init_assign.lhs.dimensions[1:])
+    assert all(isinstance(d, sym.RangeIndex) for d in outside_assign.lhs.dimensions)
+
     assert fgen(init_assign).lower().replace(' ', '') == 'tmp(jcol,:,:)=0.0'
     assert 'tmp(jcol,jg,jlev)' in fgen(tmp_assign).lower().replace(' ', '')
+    assert fgen(outside_assign).lower().replace(' ', '') == 'tmp(:,:,:)=1.0'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
