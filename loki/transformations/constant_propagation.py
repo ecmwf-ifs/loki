@@ -17,6 +17,8 @@ from loki.ir import nodes as ir, FindNodes, FindVariables, Transformer
 from loki.subroutine import Subroutine
 from loki.tools import dict_override
 
+from loki.transformations.transform_loop import LoopUnrollTransformer
+
 
 __all__ = [
     'do_constant_propagation', 'ConstantPropagationMapper',
@@ -268,7 +270,7 @@ class ConstantPropagationTransformer(Transformer):
         return declarations_map
 
 
-def do_constant_propagation(routine):
+def do_constant_propagation(routine, unroll_loops=False):
     """ Apply constant-propagation gover the body of a :any:`Subroutine`. """
 
     assert isinstance(routine, Subroutine), \
@@ -280,6 +282,12 @@ def do_constant_propagation(routine):
     if routine.spec:
         routine.spec = const_prop.visit(routine.spec, constants_map=declarations_map)
     if routine.body:
+        routine.body = const_prop.visit(routine.body, constants_map=declarations_map)
+
+    if unroll_loops:
+        routine.body = LoopUnrollTransformer().visit(routine.body)
+
+        # If loop unrolling is requested, do another forward propagation pass
         routine.body = const_prop.visit(routine.body, constants_map=declarations_map)
 
     return routine

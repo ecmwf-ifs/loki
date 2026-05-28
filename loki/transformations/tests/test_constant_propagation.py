@@ -14,7 +14,6 @@ from loki.ir import nodes as ir, FindNodes
 from loki.transformations.constant_propagation import (
     ConstantPropagationTransformer, ConstantPropagationMapper, do_constant_propagation
 )
-from loki.transformations.transform_loop import LoopUnrollTransformer
 
 
 def test_constant_propagation_analysis_declarations_map():
@@ -255,11 +254,7 @@ end subroutine test_constant_propagation_for_loop_basic
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     # First, propagate the initial constatns, then resolve the loop
-    transformed = do_constant_propagation(routine)
-    transformed.body = LoopUnrollTransformer().visit(transformed.body)
-
-    # TODO: This should be internalised to auto-propagate on-demand
-    transformed = do_constant_propagation(transformed)
+    transformed = do_constant_propagation(routine, unroll_loops=True)
 
     assert len(FindNodes(ir.Loop).visit(transformed.body)) == 0
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
@@ -287,7 +282,7 @@ subroutine test_constant_propagation_for_loop_basic_no_unroll(c)
 end subroutine test_constant_propagation_for_loop_basic_no_unroll
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    transformed = do_constant_propagation(routine)
+    transformed = do_constant_propagation(routine, unroll_loops=False)
 
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 15' in assignments
@@ -319,7 +314,7 @@ subroutine test_constant_propagation_loop_nested_siblings_no_unroll(c)
 end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    transformed = do_constant_propagation(routine)
+    transformed = do_constant_propagation(routine, unroll_loops=False)
 
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 5' in assignments
