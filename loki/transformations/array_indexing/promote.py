@@ -19,7 +19,7 @@ from loki.ir import (
 )
 from loki.logging import info
 from loki.tools import as_tuple, OrderedSet
-from loki.transformations.utilities import single_variable_declaration, update_variable_declarations, _is_deferred_shape
+from loki.transformations.utilities import update_variable_declaration_dimensions, _is_deferred_shape
 
 __all__ = [
     'promote_variables', 'promote_variable_declarations',
@@ -55,9 +55,6 @@ def promote_variable_declarations(routine, variable_names, pos, size):
     if not variable_names:
         return
 
-    # Ensure that all variables to promote are in single variable decls
-    single_variable_declaration(routine, variable_names)
-
     size = as_tuple(size)
 
     var_list = [var for decl in FindNodes(ir.VariableDeclaration).visit(routine.spec)
@@ -80,7 +77,7 @@ def promote_variable_declarations(routine, variable_names, pos, size):
     routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
     # Update variable declarations with updated dimensions
-    routine.spec = update_variable_declarations(routine.spec, var_map.values())
+    routine.spec = update_variable_declaration_dimensions(routine.spec, var_map.values())
 
 
 def promote_variables(routine, variable_names, pos, index=None, size=None):

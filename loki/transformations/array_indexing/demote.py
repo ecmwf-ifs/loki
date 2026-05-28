@@ -10,7 +10,7 @@
 from loki.ir import FindVariables, SubstituteExpressions
 from loki.logging import info
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.transformations.utilities import update_variable_declarations
+from loki.transformations.utilities import update_variable_declaration_dimensions
 
 
 __all__ = ['demote_variables']
@@ -62,6 +62,6 @@ def demote_variables(routine, variable_names, dimensions):
     routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
 
     # Ensure all declarations with `DIMENSION` keywords are modified too!
-    routine.spec = update_variable_declarations(routine.spec, vmap.values())
+    routine.spec = update_variable_declaration_dimensions(routine.spec, vmap.values())
 
     info(f'[Loki::Transform] Demoted variables in {routine.name}: {", ".join(variable_names)}')

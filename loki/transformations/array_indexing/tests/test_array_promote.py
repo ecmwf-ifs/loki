@@ -16,7 +16,7 @@ from loki.ir import nodes as ir, FindNodes, FindVariables, Section, SubstituteEx
 
 from loki.transformations.array_indexing.promote import promote_variables, promote_variable_declarations
 from loki.transformations.array_indexing.promote_local_array import PromoteLocalArrayTransformation
-from loki.transformations.utilities import update_variable_declarations
+from loki.transformations.utilities import update_variable_declaration_dimensions
 from loki.dimension import Dimension
 
 
@@ -147,17 +147,14 @@ end subroutine transform_promote_variables
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_update_variable_declarations(frontend):
+def test_update_variable_declaration_dimensions(frontend):
     """
-    Test that :any:`update_variable_declarations` updates DIMENSION(...)
+    Test that :any:`update_variable_declaration_dimensions` updates DIMENSION(...)
     attributes on declarations that still retain the DIMENSION keyword
     after promotion.
 
-    When a variable is the sole symbol in a ``DIMENSION(...)`` declaration,
-    ``single_variable_declaration`` (called by ``promote_variables``) converts
-    it to inline dimensions (``dimensions=None`` on the decl). When multiple
-    variables share a ``DIMENSION(...)`` declaration and all are promoted,
-    the DIMENSION attribute is updated to reflect the new shape.
+    When multiple variables share a ``DIMENSION(...)`` declaration and all
+    are promoted, the DIMENSION attribute is updated to reflect the new shape.
     """
     fcode = """
 subroutine test_update_decl(n, m)
@@ -188,8 +185,6 @@ end subroutine test_update_decl
     # Promote both 'a' and 'c' (all variables in that DIMENSION decl)
     promote_variables(routine, ['a', 'c'], pos=-1, size=sym.Literal(10))
 
-    # After promotion, single_variable_declaration splits the shared decl
-    # into individual ones with dimensions=None (inline dims on each symbol).
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     a_decl = [d for d in decls if any(s.name.lower() == 'a' for s in d.symbols)][0]
     c_decl = [d for d in decls if any(s.name.lower() == 'c' for s in d.symbols)][0]
@@ -198,8 +193,10 @@ end subroutine test_update_decl
     assert routine.variable_map['a'].shape == (routine.variable_map['n'], sym.Literal(10))
     assert routine.variable_map['c'].shape == (routine.variable_map['n'], sym.Literal(10))
 
-    # Verify a and c are in separate declarations (split by single_variable_declaration)
-    assert a_decl is not c_decl
+    # Verify a and c remain in the shared declaration when their shapes match
+    if frontend != OMNI:
+        assert a_decl is c_decl
+        assert len(a_decl.dimensions) == 2
 
     # Verify b is unchanged
     b_decl = [d for d in decls if any(s.name.lower() == 'b' for s in d.symbols)][0]
@@ -361,9 +358,9 @@ end subroutine transform_promote_range_size
 
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI makes variable declarations already unique')]))
-def test_update_variable_declarations_mismatched_shapes(frontend):
+def test_update_variable_declaration_dimensions_mismatched_shapes(frontend):
     """
-    Test that :any:`update_variable_declarations` splits a ``DIMENSION(...)``
+    Test that :any:`update_variable_declaration_dimensions` splits a ``DIMENSION(...)``
     declaration into separate declarations when the symbols have different
     shapes (e.g., only one variable in a shared declaration was promoted).
 
@@ -395,8 +392,8 @@ end subroutine test_mismatched
     new_a = a_var.clone(type=a_var.type.clone(shape=new_shape), dimensions=new_shape)
     routine.spec = SubstituteExpressions({a_var: new_a}).visit(routine.spec)
 
-    # update_variable_declarations should detect the mismatch and split
-    routine.spec = update_variable_declarations(routine.spec, [new_a])
+    # update_variable_declaration_dimensions should detect the mismatch and split
+    routine.spec = update_variable_declaration_dimensions(routine.spec, [new_a])
 
     # Verify declarations were split
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
@@ -708,8 +705,8 @@ end subroutine test_deferred_promote
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     a_decl = next(d for d in decls if any(s.name.lower() == 'a' for s in d.symbols))
     b_decl = next(d for d in decls if any(s.name.lower() == 'b' for s in d.symbols))
-    assert 'a(:,:,:)' in fgen(a_decl).lower().replace(' ', '')
-    assert 'a(:,:,10)' not in fgen(a_decl).lower().replace(' ', '')
+    assert '(:,:,:)' in fgen(a_decl).lower().replace(' ', '')
+    assert '(:,:,10)' not in fgen(a_decl).lower().replace(' ', '')
     assert 'b(n,m,10)' in fgen(b_decl).lower().replace(' ', '')
 
 
