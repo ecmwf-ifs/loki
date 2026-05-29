@@ -367,7 +367,7 @@ class PrintStmt(GenericStmt):
 
     keyword = 'PRINT'
 
-    text: Tuple[Expression, ...]
+    text: Tuple[Union[Expression,str], ...]
 
     @field_validator('text', mode='before')
     @classmethod
@@ -393,7 +393,7 @@ class FormatStmt(GenericStmt):
 
     keyword = 'FORMAT'
 
-    text: Optional[Tuple[Expression, ...]] = ()
+    text: Optional[Tuple[Union[Expression,str], ...]] = ()
 
     @field_validator('text', mode='before')
     @classmethod

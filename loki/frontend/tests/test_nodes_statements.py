@@ -189,27 +189,38 @@ end module test_intrinsics_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_empty_print_statement(frontend):
-    """
-    Test if an empty print statement (PRINT *) is parsed correctly.
-    """
+def test_output_statements(frontend):
+    """ Test parsing of various output statement types. """
+
     fcode = """
-SUBROUTINE test_routine()
-    IMPLICIT NONE
-    print *
+subroutine test_routine(unit)
+    implicit none
+    integer, intent(in) :: unit
+
+    ! Check legality of empty print statement
+101 print *
+
     ! Using single quotes to simplify the test comparison (see below)
-    print *, 'test_text'
-END SUBROUTINE test_routine
+102  print *, 'test_text'
+
+    ! Format identifier with a mised list of arguments
+103 format(4X, 'Ma=', I0, 'Pa=', I0, 'Baby=', I0, 'Goldilocks=', I0)
+end subroutine test_routine
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    print_stmts = [
-        intr for intr in FindNodes(ir.GenericStmt).visit(routine.ir)
-        if 'print' in intr.text.lower()
-    ]
-    assert print_stmts[0].text.lower() == 'print *'
-    # NOTE: OMNI always uses single quotes ('') to represent string data in PRINT statements
-    #       while fparser will mimic the quotes used in the parsed source code
-    assert print_stmts[1].text.lower() == "print *, 'test_text'"
+
+    stmts = FindNodes(ir.GenericStmt).visit(routine.ir)
+    assert len(stmts) == 4
+    assert isinstance(stmts[0], ir.ImplicitStmt)
+    assert isinstance(stmts[1], ir.PrintStmt)
+    assert stmts[1].text == ('*',)
+    assert isinstance(stmts[2], ir.PrintStmt)
+    assert stmts[2].text == ('*', 'test_text')
+    assert isinstance(stmts[3], ir.FormatStmt)
+    if frontend == OMNI:
+        assert stmts[3].text == ('4x', 'Ma=', 'i0', 'Pa=', 'i0', 'Baby=', 'i0', 'Goldilocks=', 'i0')
+    else:
+        assert stmts[3].text == ('4X', 'Ma=', 'I0', 'Pa=', 'I0', 'Baby=', 'I0', 'Goldilocks=', 'I0')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -3249,14 +3249,6 @@ class FParser2IR(GenericVisitor):
         content = tuple(i if isinstance(i, str) else self.visit(i, **kwargs) for i in o.items)
         return ir.ImplicitStmt(text=content, **kwargs)
 
-    def visit_Print_Stmt(self, o, **kwargs):
-        # NOTE: fparser returns None for an empty print (`PRINT *`) instead of
-        #       the usual `Output_Item_List` entity.
-        return ir.GenericStmt(
-            text=f'PRINT {", ".join(str(i) for i in o.items if i is not None)}',
-            source=kwargs.get('source'), label=kwargs.get('label')
-        )
-
     # TODO: Deal with line-continuation pragmas!
     _re_pragma = re.compile(r'^\s*\!\$(?P<keyword>\w+)\s*(?P<content>.*)', re.IGNORECASE)
 
@@ -3512,8 +3504,28 @@ class FParser2IR(GenericVisitor):
     def visit_Stop_Stmt(self, o, **kwargs):
         return ir.StopStmt(**kwargs)
 
+    def visit_Print_Stmt(self, o, **kwargs):
+        children = [self.visit(c, **kwargs) for c in o.children]
+        return ir.PrintStmt(text=children, **kwargs)
+
+    def visit_Format_Stmt(self, o, **kwargs):
+        children = [self.visit(c, **kwargs) for c in o.children[1:]]
+        return ir.FormatStmt(text=children, **kwargs)
+
+    def visit_Format_Specification(self, o, **kwargs):
+        return self.visit(o.items[1], **kwargs)
+
+    def visit_Format_Item(self, o, **kwargs):
+        return o.tostr()
+
+    # Various formatting AST pieces
+    visit_Format = visit_Format_Item
+    visit_Position_Edit_Desc = visit_Format_Item
+    visit_Format_Item_List = visit_List
+    visit_Output_Item_List = visit_List
+    visit_Digit_String = visit_Char_Literal_Constant
+
     visit_Intrinsic_Stmt = visit_Generic_Stmt
-    visit_Format_Stmt = visit_Generic_Stmt
     visit_Write_Stmt = visit_Generic_Stmt
     visit_Read_Stmt = visit_Generic_Stmt
     visit_Open_Stmt = visit_Generic_Stmt
