@@ -489,7 +489,7 @@ class SeparateModesKernel(Transformation):
 
     def _create_new_items(self, item, successors, item_factory, config, ignore=None):
         """
-        Duplicate :data:`item` for each transformation mode and update teh plan
+        Duplicate :data:`item` for each transformation mode and update the plan
         dependencies accordingly.
 
         Driver items are not duplicated but their dependencies are still updated to point
