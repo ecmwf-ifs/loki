@@ -25,7 +25,7 @@ from loki.transformations.single_column.revector import (
     SCCVecRevectorTransformation, SCCSeqRevectorTransformation
 )
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
-from loki.transformations.array_indexing import PromoteLocalArrayTransformation
+from loki.transformations.array_indexing.promote_local_array import PromoteLocalArrayTransformation
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
 

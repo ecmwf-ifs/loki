@@ -10,15 +10,14 @@ import numpy as np
 
 from loki import Subroutine, Sourcefile, fgen
 from loki.batch import ProcedureItem
-from loki.jit_build import jit_compile
+from loki.dimension import Dimension
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables, Section, SubstituteExpressions
-
+from loki.jit_build import jit_compile
 from loki.transformations.array_indexing.promote import promote_variables, promote_variable_declarations
 from loki.transformations.array_indexing.promote_local_array import PromoteLocalArrayTransformation
 from loki.transformations.utilities import update_variable_declaration_dimensions
-from loki.dimension import Dimension
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

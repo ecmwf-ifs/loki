@@ -29,7 +29,7 @@ from loki.transformations.single_column import (
     SCCAnnotateTransformation, SCCVectorPipeline,
     SCCVVectorPipeline, SCCSVectorPipeline, SCCSeqRevectorTransformation
 )
-from loki.transformations.array_indexing import PromoteLocalArrayTransformation
+from loki.transformations.array_indexing.promote_local_array import PromoteLocalArrayTransformation
 
 
 @pytest.fixture(scope='module', name='horizontal')
