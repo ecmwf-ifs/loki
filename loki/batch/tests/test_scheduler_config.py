@@ -720,6 +720,35 @@ def fixture_multi_modes_config():
         },
     }
 
+
+@pytest.fixture(name='check_multimodes_callgraph', scope='module')
+def fixture_check_multimodes_callgraph():
+    """
+    Fixture that provides a function to check that the call graph of the scheduler
+    is consistent with the provided callgraph dictionary
+    """
+    def check_callgraph(scheduler, callgraph):
+        if not isinstance(callgraph, dict) or not callgraph:
+            return
+        for routine in callgraph.keys():
+            routine_ir = scheduler[routine].ir
+            imports = routine_ir.imports
+            imported_symbols = ()
+            for imp in imports:
+                imported_symbols += imp.symbols
+            successors = []
+            for successor in callgraph[routine]:
+                if '#' in successor:
+                    successors.append(scheduler[successor].ir)
+            successors_local_name = [str(successor.name).lower() for successor in successors]
+            calls = FindNodes(ir.CallStatement).visit(routine_ir.body)
+            for call in calls:
+                assert str(call.name).lower() in successors_local_name
+                assert str(call.name).lower() in imported_symbols
+            check_callgraph(scheduler, callgraph[routine])
+    yield check_callgraph
+
+
 def test_scheduler_multi_modes_invalid_pipeline(testdir, tmp_path, multi_modes_config):
     """
     Test that the scheduler raises an error when a pipeline is missing for a mode
@@ -738,7 +767,7 @@ def test_scheduler_multi_modes_invalid_pipeline(testdir, tmp_path, multi_modes_c
 
 @pytest.mark.parametrize('as_modules', [False, True])
 @pytest.mark.parametrize('reinit_scheduler', [True, False])
-def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_scheduler, as_modules):
+def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_scheduler, as_modules, check_multimodes_callgraph):
     config = SchedulerConfig.from_dict(multi_modes_config)
 
     if as_modules:
@@ -923,23 +952,109 @@ def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_sch
         }
     }
 
-    def check_callgraph(callgraph):
-        if not isinstance(callgraph, dict) or not callgraph:
-            return
-        for routine in callgraph.keys():
-            routine_ir = scheduler[routine].ir
-            imports = routine_ir.imports
-            imported_symbols = ()
-            for imp in imports:
-                imported_symbols += imp.symbols
-            successors = []
-            for successor in callgraph[routine]:
-                successors.append(scheduler[successor].ir)
-            successors_local_name = [str(successor.name).lower() for successor in successors]
-            calls = FindNodes(ir.CallStatement).visit(routine_ir.body)
-            for call in calls:
-                assert str(call.name).lower() in successors_local_name
-                assert str(call.name).lower() in imported_symbols
-            check_callgraph(callgraph[routine])
+    check_multimodes_callgraph(scheduler, expected_callgraph)
 
-    check_callgraph(expected_callgraph)
+
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.PLAN, ProcessingStrategy.DEFAULT])
+def test_scheduler_multi_modes_imports(tmp_path, proc_strategy, check_multimodes_callgraph):
+    """
+    Test that the correct imports are added to the transformed files in multi-mode pipelines
+    """
+
+    fcode_driver1 = """
+subroutine driver1
+    use test_multi_modes_kernel1, only: kernel1, n
+    use test_multi_modes_kernel2, only: kernel2
+    implicit none
+    integer :: arr(n, n)
+    call kernel1
+    call kernel2
+end subroutine driver1
+    """.strip()
+
+    fcode_driver2 = """
+subroutine driver2
+    use test_multi_modes_kernel1, only: n
+    use test_multi_modes_kernel2, only: kernel2
+    implicit none
+    integer :: arr(n, n)
+    call kernel2
+end subroutine driver2
+    """.strip()
+
+    fcode_kernel1 = """
+module test_multi_modes_kernel1
+implicit none
+integer, parameter :: n = 10
+contains
+subroutine kernel1
+    use test_multi_modes_kernel2, only: kernel2
+    call kernel2
+end subroutine kernel1
+end module test_multi_modes_kernel1
+    """.strip()
+
+    fcode_kernel2 = """
+module test_multi_modes_kernel2
+implicit none
+contains
+subroutine kernel2
+end subroutine kernel2
+end module test_multi_modes_kernel2
+    """.strip()
+
+    config = {
+        'default': {'role': 'kernel', 'expand': True, 'strict': False, 'mode': 'm1', 'replicate': True},
+        'routines': {
+            'driver1': {'role': 'driver', 'mode': 'm1', 'replicate': False},
+            'driver2': {'role': 'driver', 'mode': 'm2', 'replicate': False},
+        },
+        'transformations': {
+            'Idem1': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+            'Idem2': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+        },
+        'pipelines': {
+            'm1': {'transformations': {'Idem1'}},
+            'm2': {'transformations': {'Idem2'}},
+        },
+    }
+    scheduler_config = SchedulerConfig.from_dict(config)
+
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    (src_dir/'driver1.F90').write_text(fcode_driver1)
+    (src_dir/'driver2.F90').write_text(fcode_driver2)
+    (src_dir/'test_multi_modes_kernel1.F90').write_text(fcode_kernel1)
+    (src_dir/'test_multi_modes_kernel2.F90').write_text(fcode_kernel2)
+
+    out_dir = tmp_path/'output'
+    out_dir.mkdir()
+
+    scheduler = Scheduler(paths=src_dir, config=scheduler_config, xmods=[tmp_path], output_dir=out_dir)
+    scheduler.propagate_and_separate_modes(proc_strategy=proc_strategy)
+    scheduler.process(scheduler_config.pipelines, proc_strategy=proc_strategy)
+
+    if proc_strategy != ProcessingStrategy.PLAN:
+        expected_dependencies = {
+            '#driver1': {
+                'test_multi_modes_kernel1', 'test_multi_modes_kernel1_loki_m1#kernel1_loki_m1',
+                'test_multi_modes_kernel2_loki_m1#kernel2_loki_m1'
+            },
+            '#driver2': {'test_multi_modes_kernel1', 'test_multi_modes_kernel2_loki_m2#kernel2_loki_m2'},
+            'test_multi_modes_kernel1_loki_m1#kernel1_loki_m1': {'test_multi_modes_kernel2_loki_m1#kernel2_loki_m1'},
+        }
+
+        check_multimodes_callgraph(scheduler, expected_dependencies)
+
+        expected_imports = {
+            '#driver1': {
+                'test_multi_modes_kernel1', 'test_multi_modes_kernel1_loki_m1', 'test_multi_modes_kernel2_loki_m1'
+            },
+            '#driver2': {'test_multi_modes_kernel1', 'test_multi_modes_kernel2_loki_m2'},
+            'test_multi_modes_kernel1_loki_m1#kernel1_loki_m1': {'test_multi_modes_kernel2_loki_m1'},
+        }
+        for item_name, imports in expected_imports.items():
+            item_ir = scheduler[item_name].ir
+            item_imports = item_ir.imports
+            imported_modules = {imp.module for imp in item_imports}
+            assert imported_modules == imports

@@ -5,6 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from collections import defaultdict
 from itertools import chain
 
 from loki.batch.transformation import Transformation
@@ -389,8 +390,8 @@ class SeparateModesKernel(Transformation):
         scope_name = item.scope_name
         local_name = f'{item.local_name}{mode_rename}'
         if scope_name:
-            if "_mod" in scope_name:
-                scope_name = scope_name.replace('_mod', f'_{mode_rename}_mod').replace('__', '_')
+            if scope_name.endswith('_mod'):
+                scope_name = f'{scope_name[:-4]}{mode_rename}_mod'
             else:
                 scope_name = f'{scope_name}{mode_rename}'
 
@@ -616,6 +617,7 @@ class SeparateModesKernel(Transformation):
             return
 
         # We go through the IR, as C-imports can be attributed to the body
+        new_imports = []
         for import_ in imports:
             if import_.c_import:
                 target_symbol = import_.module.lower().split('.', maxsplit=1)[0]
@@ -628,20 +630,21 @@ class SeparateModesKernel(Transformation):
                     if not any(s.name in imports_to_rename for s in import_.symbols):
                         continue
 
-                    symbols_modules = {
-                        s.clone(name=f'{imports_to_rename[s.name].local_name}'): imports_to_rename[s.name].scope_name
-                        if s.name in imports_to_rename else (s, import_.module) for s in import_.symbols
-                    }
-                    new_modules = list(symbols_modules.values())
-                    if any(m != new_modules[0] for m in new_modules):
-                        warning((
-                            '[Loki] SeparateModesKernel: Non-matching module names during import renaming. '
-                            f'Skipping imports from module {import_.module}.'
-                        ))
-                        continue
-                    import_._update(module=new_modules[0], symbols=tuple(symbols_modules))
+                    modules_and_symbols = defaultdict(list)
+                    for s in import_.symbols:
+                        if s.name in imports_to_rename:
+                            modules_and_symbols[imports_to_rename[s.name].scope_name].append(s.clone(name=imports_to_rename[s.name].local_name))
+                        else:
+                            modules_and_symbols[import_.module].append(s)
+                    for module, symbols in modules_and_symbols.items():
+                        if module == import_.module or len(modules_and_symbols) == 1:
+                            import_._update(module=module,symbols=tuple(symbols))
+                        else:
+                            new_imports += [import_.clone(module=module, symbols=tuple(symbols))]
                 else:
                     warning(f'[Loki] SeparateModesKernel: encountered unqualified blank import for {import_.module}')
+        if new_imports:
+            item.ir.spec.prepend(as_tuple(new_imports))
 
     def rename_calls(self, item, mapping):
         """
