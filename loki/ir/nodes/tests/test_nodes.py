@@ -573,12 +573,20 @@ def test_stmt_nodes(scope, n, i):
     # Output statements
     assert fgen(ir.PrintStmt(i)) == 'PRINT i'
     assert fgen(ir.PrintStmt((n, i))) == 'PRINT n, i'
+    assert ir.PrintStmt((n, i)).values == (n, i)
+    assert ir.PrintStmt((n, i)).text == 'n, i'
     with pytest.raises(ValidationError):
         ir.PrintStmt()  # Need at least one argument
+    with pytest.raises(ValidationError, match='PrintStmt uses values='):
+        ir.PrintStmt(text=(n, i))
 
     assert fgen(ir.FormatStmt()) == 'FORMAT'
     assert fgen(ir.FormatStmt(i)) == 'FORMAT i'
     assert fgen(ir.FormatStmt((n, i))) == 'FORMAT n, i'
+    assert ir.FormatStmt((n, i)).values == (n, i)
+    assert ir.FormatStmt((n, i)).text == 'n, i'
+    with pytest.raises(ValidationError, match='FormatStmt uses values='):
+        ir.FormatStmt(text=(n, i))
 
     # Check adding labels for certain control flow statements
     assert ir.ReturnStmt(label=42).label == '42'

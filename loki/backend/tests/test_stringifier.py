@@ -131,11 +131,11 @@ END MODULE some_mod
         "####<Case (0)>",
         "#####<Assignment:: m = 1>",
         "####<Case (1:10)>",
-        "#####<GenericStmt:: PRINT *, '1 t...>",
+        "#####<Print:: *, 1 to 10>",
         "####<Case (-1, -2)>",  # l. 50
         "#####<Assignment:: m = 10>",
         "####<Default>",
-        "#####<GenericStmt:: PRINT *, 'Def...>",
+        "#####<Print:: *, Default case>",
         "###<Associate:: arr(m)=x>",
         "####<Assignment:: x = x*2.>",
         "###<Allocation:: var>",
@@ -148,8 +148,6 @@ END MODULE some_mod
         # Some string inconsistencies
         ref_lines[16] = ref_lines[16].replace('1E-8', '1e-8')
         ref_lines[36] = ref_lines[36].replace('SQRT', 'sqrt')
-        ref_lines[49] = ref_lines[49].replace('PRINT', 'print')
-        ref_lines[53] = ref_lines[53].replace('PRINT', 'print')
 
     cont_index = 28  # line number where line continuation is happening
     ref = '\n'.join(ref_lines)
