@@ -7,10 +7,12 @@
 
 """ Generic and specific statement node type definitions. """
 
+from dataclasses import field
 from typing import Optional, Union, Tuple
 
 from pymbolic.primitives import Expression
-from pydantic import field_validator, ValidationError
+from pydantic import field_validator, model_validator, ValidationError
+from pydantic_core import ArgsKwargs
 
 from loki.ir.nodes.abstract_nodes import LeafNode
 from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
@@ -359,20 +361,51 @@ class PrintStmt(GenericStmt):
 
     Parameters
     ----------
-    text : str or tuple of :any:`Expression`, optional
-        Either a tuple of variable specifiers or a string; default: ``NONE``
+    values : tuple of str or :any:`Expression`
+        Tuple of print specifier and variable specifiers.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     keyword = 'PRINT'
 
-    text: Tuple[Union[Expression,str], ...]
+    # For output statements, the ``text`` is derived from a tuple of ``values``
+    text: str = field(init=False)  # pylint: disable=invalid-field-call
+    values: Tuple[Union[Expression, str], ...] = ()
 
-    @field_validator('text', mode='before')
+    @model_validator(mode='before')
+    @classmethod
+    def disallow_text_argument(cls, data):
+        """ Ensure the alternating construcotr arguments are used. """
+        kwargs = getattr(data, 'kwargs', None) or {}
+        if 'text' in kwargs:
+            raise ValueError('PrintStmt uses values= for constructor input; text is derived from values')
+        if not getattr(data, 'args', None) and 'values' not in kwargs:
+            raise ValueError('PrintStmt requires at least one value')
+        if getattr(data, 'args', None):
+            return ArgsKwargs((), {'values': data.args[0], **kwargs})
+        return data
+
+    @field_validator('values', mode='before')
     @classmethod
     def ensure_tuple(cls, value):
         return sanitize_tuple(value)
+
+    @field_validator('values')
+    @classmethod
+    def require_values(cls, value):
+        if not value:
+            raise ValueError('PrintStmt requires at least one value')
+        return value
+
+    def __post_init__(self):
+        super().__post_init__()
+        object.__setattr__(self, 'text', ', '.join(str(v) for v in self.values))
+
+    @property
+    def args(self):
+        """ Ensure safe cloning by excluding derived ``text`` property from ``args``. """
+        return {k: v for k, v in super().args.items() if k != 'text'}
 
     def __repr__(self):
         return f'Print:: {truncate_string(self.text)}'
@@ -385,20 +418,42 @@ class FormatStmt(GenericStmt):
 
     Parameters
     ----------
-    text : str or tuple of :any:`Expression`, optional
-        Either a tuple of variable specifiers or a string; default: ``NONE``
+    values : tuple of str or :any:`Expression`, optional
+        Tuple of format specifiers.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     keyword = 'FORMAT'
 
-    text: Optional[Tuple[Union[Expression,str], ...]] = ()
+    # For output statements, the ``text`` is derived from a tuple of ``values``
+    text: str = field(init=False)  # pylint: disable=invalid-field-call
+    values: Optional[Tuple[Union[Expression, str], ...]] = ()
 
-    @field_validator('text', mode='before')
+    @model_validator(mode='before')
+    @classmethod
+    def disallow_text_argument(cls, data):
+        """ Ensure the alternating construcotr arguments are used. """
+        kwargs = getattr(data, 'kwargs', None) or {}
+        if 'text' in kwargs:
+            raise ValueError('FormatStmt uses values= for constructor input; text is derived from values')
+        if getattr(data, 'args', None):
+            return ArgsKwargs((), {'values': data.args[0], **kwargs})
+        return data
+
+    @field_validator('values', mode='before')
     @classmethod
     def ensure_tuple(cls, value):
         return sanitize_tuple(value)
+
+    def __post_init__(self):
+        super().__post_init__()
+        object.__setattr__(self, 'text', ', '.join(str(v) for v in self.values))
+
+    @property
+    def args(self):
+        """ Ensure safe cloning by excluding derived ``text`` property from ``args``. """
+        return {k: v for k, v in super().args.items() if k != 'text'}
 
     def __repr__(self):
         return f'Format:: {truncate_string(self.text)}'

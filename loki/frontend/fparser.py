@@ -3506,11 +3506,11 @@ class FParser2IR(GenericVisitor):
 
     def visit_Print_Stmt(self, o, **kwargs):
         children = [self.visit(c, **kwargs) for c in o.children]
-        return ir.PrintStmt(text=children, **kwargs)
+        return ir.PrintStmt(values=children, **kwargs)
 
     def visit_Format_Stmt(self, o, **kwargs):
         children = [self.visit(c, **kwargs) for c in o.children[1:]]
-        return ir.FormatStmt(text=children, **kwargs)
+        return ir.FormatStmt(values=children, **kwargs)
 
     def visit_Format_Specification(self, o, **kwargs):
         return self.visit(o.items[1], **kwargs)

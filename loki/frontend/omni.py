@@ -1329,12 +1329,12 @@ class OMNI2IR(GenericVisitor):
     def visit_FprintStatement(self, o, **kwargs):
         values = tuple(self.visit(v, **kwargs) for v in o.find('valueList'))
         fmt = o.attrib['format']
-        return ir.PrintStmt(text=(fmt,) + values, source=kwargs['source'])
+        return ir.PrintStmt(values=(fmt,) + values, source=kwargs['source'])
 
     def visit_FformatDecl(self, o, **kwargs):
         # Reverse engineer the format items that OMNI has already parsed into a string
         values = tuple(v.strip(' "\'') for v in o.attrib["format"].strip('()').split(','))
-        return ir.FormatStmt(text=values, source=kwargs['source'])
+        return ir.FormatStmt(values=values, source=kwargs['source'])
 
     def visit_namedValue(self, o, **kwargs):
         name = o.attrib['name']
