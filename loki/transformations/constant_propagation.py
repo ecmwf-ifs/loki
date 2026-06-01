@@ -7,7 +7,6 @@
 
 from copy import deepcopy
 
-import functools
 import itertools
 
 from loki.expression import (
@@ -87,18 +86,17 @@ def _separate_literals(children):
 
 
 def _array_indices_to_accesses(dimensions, shape):
-    accesses = functools.partial(itertools.product)
+    arg_lists = []
     for count, dimension in enumerate(dimensions):
         if isinstance(dimension, sym.RangeIndex):
-            start = dimension.start if dimension.start is not None else sym.IntLiteral(1)
-            stop = dimension.stop if dimension.stop is not None else shape[count]
-            accesses = functools.partial(
-                accesses,
-                [sym.IntLiteral(value) for value in get_pyrange(sym.LoopRange((start, stop, dimension.step)))]
-            )
+            start = dimension.start if dimension.start else sym.IntLiteral(1)
+            stop = dimension.stop if dimension.stop else shape[count]
+            arg_lists.append([
+                sym.IntLiteral(v) for v in get_pyrange(sym.LoopRange((start, stop, dimension.step)))
+            ])
         else:
-            accesses = functools.partial(accesses, [dimension])
-    return accesses()
+            arg_lists.append([dimension])
+    return itertools.product(*arg_lists)
 
 
 class ConstantPropagationMapper(SimplifyMapper):
