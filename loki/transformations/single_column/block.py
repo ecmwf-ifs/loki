@@ -136,14 +136,7 @@ class ReblockSectionTransformer(Transformer):
 
         self.routine = routine
         self.horizontal = horizontal
-
-        if 'LowerBlockIndex' not in item.trafo_data:
-            raise RuntimeError(
-                f'{self.__class__.__name__}: '
-                f"'LowerBlockIndex' missing from item.trafo_data "
-                f'for routine {routine.name}'
-            )
-        self.driver_loop = item.trafo_data['LowerBlockIndex']['driver_loop']
+        self.driver_loop = item.trafo_data.get('LowerBlockIndex', {}).get('driver_loop')
 
     def visit_Section(self, s, **kwargs):
         """
@@ -152,6 +145,12 @@ class ReblockSectionTransformer(Transformer):
         ``!$loki loop driver`` pragma.
         """
         if s.label == 'block_section':
+            if self.driver_loop is None:
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: driver_loop is None but '
+                    f'a block section needs to be wrapped in a driver loop '
+                    f'for routine {self.routine.name}'
+                )
             symbol_map = self.routine.symbol_map
             sizes = tuple(
                 self.routine.resolve_typebound_var(size, symbol_map)

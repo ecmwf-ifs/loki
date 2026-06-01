@@ -17,7 +17,7 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer, pragmas_attached,
 )
-from loki.tools import CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict
 
 from loki.transformations.single_column.block import (
     SCCBlockSectionTransformation,
@@ -839,26 +839,172 @@ end subroutine seq_kernel
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full module header')]
 ))
-def test_reblock_raises_without_trafo_data(frontend, horizontal):
+def test_reblock_without_trafo_data_is_noop_without_block_section(frontend, horizontal):
+    """
+    Verify that ``ReblockSectionTransformer`` is a no-op for kernels
+    without ``LowerBlockIndex`` when no ``block_section`` nodes exist.
+    """
+    fcode = """
+subroutine noop_kernel(nproma)
+  implicit none
+  integer, intent(in) :: nproma
+  real :: z(nproma)
+  z(1) = 1.0
+end subroutine noop_kernel
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['noop_kernel']
+
+    item = _make_item(routine, role='kernel')
+    assigns_before = tuple(FindNodes(ir.Assignment).visit(routine.body))
+
+    routine.body = ReblockSectionTransformer(routine, item, horizontal).visit(routine.body)
+
+    assert tuple(FindNodes(ir.Assignment).visit(routine.body)) == assigns_before
+    assert not FindNodes(ir.Loop).visit(routine.body)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full module header')]
+))
+def test_reblock_raises_without_driver_loop_for_block_section(frontend, horizontal):
     """
     Verify that ``ReblockSectionTransformer`` raises ``RuntimeError``
-    when ``LowerBlockIndex`` is missing from ``item.trafo_data``.
+    only when a ``block_section`` is encountered without a driver loop.
     """
     fcode = """
 subroutine raise_kernel(nproma)
   implicit none
   integer, intent(in) :: nproma
+  real :: z(nproma)
+  z(1) = 1.0
 end subroutine raise_kernel
     """.strip()
 
     source = Sourcefile.from_source(fcode, frontend=frontend)
     routine = source['raise_kernel']
 
-    item = _make_item(routine, role='kernel')
-    # No LowerBlockIndex in trafo_data
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    routine.body = Transformer({
+        assigns[0]: ir.Section(body=(assigns[0],), label='block_section')
+    }).visit(routine.body)
 
-    with pytest.raises(RuntimeError, match='LowerBlockIndex'):
-        ReblockSectionTransformer(routine, item, horizontal)
+    item = _make_item(routine, role='kernel')
+
+    with pytest.raises(RuntimeError, match='driver_loop is None'):
+        routine.body = ReblockSectionTransformer(routine, item, horizontal).visit(routine.body)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full module header')]
+))
+def test_reblock_mixed_call_tree_skips_kernel_without_block_section(
+        frontend, block_dim, horizontal):
+    """
+    Verify that only kernels reached through ``!$loki small-kernels``
+    are reblocked, while other discovered kernels pass through.
+    """
+    fcode_driver = """
+subroutine mixed_driver(nproma, nb)
+  implicit none
+  integer, intent(in) :: nproma, nb
+  integer :: ibl
+
+  do ibl = 1, nb
+    call plain_kernel(nproma, nb, ibl)
+  end do
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call sk_kernel(nproma, nb, ibl)
+  end do
+end subroutine mixed_driver
+    """.strip()
+
+    fcode_plain = """
+subroutine plain_kernel(nproma, nb, ibl)
+  implicit none
+  integer, intent(in) :: nproma, nb, ibl
+  real :: z(nproma)
+  z(ibl) = 1.0
+end subroutine plain_kernel
+    """.strip()
+
+    fcode_sk = """
+subroutine sk_kernel(nproma, nb, ibl)
+  implicit none
+  integer, intent(in) :: nproma, nb, ibl
+  real :: z(nproma)
+  z(ibl) = 2.0
+end subroutine sk_kernel
+    """.strip()
+
+    source = Sourcefile.from_source(
+        '\n'.join((fcode_driver, fcode_plain, fcode_sk)), frontend=frontend
+    )
+    driver = source['mixed_driver']
+    plain_kernel = source['plain_kernel']
+    sk_kernel = source['sk_kernel']
+
+    driver.enrich(plain_kernel)
+    driver.enrich(sk_kernel)
+
+    driver_item = _make_item(
+        driver, role='driver', targets=('plain_kernel', 'sk_kernel')
+    )
+    plain_item = _make_item(plain_kernel, role='kernel')
+    sk_item = _make_item(sk_kernel, role='kernel')
+    successor_map = CaseInsensitiveDict({
+        'plain_kernel': plain_item,
+        'sk_kernel': sk_item,
+    })
+
+    block_trafo = SCCBlockSectionTransformation(block_dim=block_dim)
+    block_trafo.process_driver(
+        driver, driver_item, successor_map,
+        targets=('plain_kernel', 'sk_kernel')
+    )
+
+    assert not plain_item.trafo_data.get('BlockSectionTrafo', False)
+    assert sk_item.trafo_data.get('BlockSectionTrafo') is True
+
+    block_trafo.process_kernel(plain_kernel, plain_item, successor_map)
+    block_trafo.process_kernel(sk_kernel, sk_item, successor_map)
+
+    sections = [
+        section for section in FindNodes(ir.Section).visit(sk_kernel.body)
+        if section.label == 'block_section'
+    ]
+    assert sections
+    assert not [
+        section for section in FindNodes(ir.Section).visit(plain_kernel.body)
+        if section.label == 'block_section'
+    ]
+
+    driver_loop = ir.Loop(
+        variable=sk_kernel.variable_map['ibl'],
+        bounds=sym.LoopRange((sym.IntLiteral(1), sk_kernel.variable_map['nb'])),
+        body=(),
+    )
+    sk_item.trafo_data['LowerBlockIndex'] = {'driver_loop': driver_loop}
+
+    reblock_trafo = SCCBlockSectionToLoopTransformation(
+        block_dim=block_dim, horizontal=horizontal
+    )
+    plain_assigns_before = tuple(FindNodes(ir.Assignment).visit(plain_kernel.body))
+
+    reblock_trafo.transform_subroutine(plain_kernel, role='kernel', item=plain_item)
+    reblock_trafo.transform_subroutine(sk_kernel, role='kernel', item=sk_item)
+
+    assert tuple(FindNodes(ir.Assignment).visit(plain_kernel.body)) == plain_assigns_before
+    assert not FindNodes(ir.Loop).visit(plain_kernel.body)
+    loops = FindNodes(ir.Loop).visit(sk_kernel.body)
+    assert loops
+    assert any(
+        pragma.keyword.lower() == 'loki' and 'loop driver' in pragma.content.lower()
+        for loop in loops for pragma in as_tuple(loop.pragma)
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends(

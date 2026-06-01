@@ -481,7 +481,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
-            block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
+            block_size = None
+            for _size in self.block_dim.sizes:
+                try:
+                    block_size = routine.resolve_typebound_var(_size, routine.symbol_map)
+                    break
+                except (KeyError, AttributeError):
+                    continue
+            if block_size is None:
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve any block dimension size '
+                    f'({self.block_dim.sizes}) in {routine.name}'
+                )
             stack_alloc = self._get_stack_alloc(routine, stack_storage, stack_size_var, block_size)
             stack_dealloc = self._get_stack_dealloc(routine, stack_storage, stack_size_var, block_size)
 
