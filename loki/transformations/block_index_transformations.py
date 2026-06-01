@@ -378,7 +378,10 @@ class InjectBlockIndexTransformation(Transformation):
         elif role == 'driver':
             with pragmas_attached(routine, ir.Loop):
                 for loop in find_driver_loops(routine.body, targets):
-                    body = self.process_body(loop.body, block_index, targets, exclude_arrays, force_inject_arrays)
+                    loop_block_index = self.get_block_index(routine, variable_map, loop=loop)
+                    body = self.process_body(
+                        loop.body, loop_block_index, targets, exclude_arrays, force_inject_arrays
+                    )
                     body_map = {loop.body: body}
                     Transformer(body_map, inplace=True).visit(loop)
 
@@ -395,13 +398,29 @@ class InjectBlockIndexTransformation(Transformation):
 
         return rank
 
-    def get_block_index(self, routine, variable_map):
+    def get_block_index(self, routine, variable_map, loop=None):
         """
         Utility to retrieve the block-index loop induction variable.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine to search in.
+        variable_map : dict
+            The routine's variable map.
+        loop : :any:`Loop`, optional
+            If provided, also search assignment LHS in the loop body
+            for block-index aliases (e.g. ``IBL = YDGEOMETRY%YRDIM%...``).
+            This fallback is only used when the primary index is not found
+            directly in the variable map.
         """
 
         if (block_index := variable_map.get(self.block_dim.index, None)):
             return block_index
+        if loop is not None:
+            for assign in FindNodes(ir.Assignment).visit(loop.body):
+                if assign.lhs in self.block_dim.indices:
+                    return assign.lhs
         if (block_index := [i for i in self.block_dim.indices
                             if i.split('%', maxsplit=1)[0] in variable_map]):
             return routine.resolve_typebound_var(block_index[0], variable_map)
