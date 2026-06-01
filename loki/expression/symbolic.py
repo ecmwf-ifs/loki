@@ -309,7 +309,7 @@ def sum_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
         return expr
     remaining_components = [ch for ch in transformed_components[2] if ch is not None]
     if value != 0:
-        remaining_components = [sym.Literal(value) if has_float else sym.IntLiteral(value)] + remaining_components
+        remaining_components = [sym.Literal(value)] + remaining_components
 
     if not remaining_components:
         return sym.Literal(0.0) if has_float else sym.IntLiteral(0)
@@ -393,11 +393,9 @@ def mul_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
         expr, int_arithmetic=int_arithmetic, fp_arithmetic=fp_arithmetic
     )
     if value == 0:
-        return sym.Literal(0.0) if has_float else sym.IntLiteral(0)
+        return sym.Literal(value)
     if abs(value) != 1:
-        remaining_components = [
-            sym.Literal(abs(value)) if has_float else sym.IntLiteral(abs(value))
-        ] + remaining_components
+        remaining_components = [sym.Literal(abs(value))] + remaining_components
 
     if not remaining_components:
         ret = sym.Literal(1.0) if has_float else sym.IntLiteral(1)
