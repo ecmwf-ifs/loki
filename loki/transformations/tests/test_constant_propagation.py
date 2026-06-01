@@ -39,6 +39,7 @@ def test_constant_propagation_mapper_folds_expressions():
 
     assert mapper(sym.Sum((sym.IntLiteral(1), sym.IntLiteral(2)))) == sym.IntLiteral(3)
     assert mapper(sym.Quotient(sym.IntLiteral(7), sym.IntLiteral(2))) == sym.IntLiteral(3)
+    assert mapper(sym.Quotient(sym.IntLiteral(-7), sym.IntLiteral(2))) == sym.IntLiteral(-3)
     assert mapper(sym.Power(sym.IntLiteral(2), sym.IntLiteral(3))) == sym.IntLiteral(8)
     assert mapper(sym.LogicalAnd((sym.LogicLiteral(True), sym.LogicLiteral(False)))) == sym.LogicLiteral(False)
     assert mapper(sym.StringConcat((sym.StringLiteral('foo'), sym.StringLiteral('bar')))) == sym.StringLiteral('foobar')
@@ -243,16 +244,23 @@ end subroutine test_constant_propagation_conditional_basic
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_constant_propagation_for_loop_basic(frontend):
     fcode = """
-subroutine test_constant_propagation_for_loop_basic(c)
+subroutine test_constant_propagation_for_loop_basic(c, d)
   integer :: a = 5
   integer :: b = 3
-  integer :: i
+  integer :: i, j
   integer, intent(out) :: c
+  integer, intent(inout) :: d
 
   c = 0
   do i = 1, a
     c = c + b
   end do
+
+  do j = 1, d
+    c = a + d
+  end do
+
+  d = c
 end subroutine test_constant_propagation_for_loop_basic
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -260,10 +268,20 @@ end subroutine test_constant_propagation_for_loop_basic
     # First, propagate the initial constatns, then resolve the loop
     transformed = do_constant_propagation(routine, unroll_loops=True)
 
-    assert len(FindNodes(ir.Loop).visit(transformed.body)) == 0
+    loops = FindNodes(ir.Loop).visit(transformed.body)
+    assert len(loops) == 1
+    assert loops[0].variable == 'j'
+
+    # Check that constant-bounds loop is unrolled
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     for i in range(1, 6):
         assert f'Assignment:: c = {3*i}' in assignments
+
+    # Check that non-constant-bounds loop is not unrolled and that
+    # this loop invalidates the value of `c` before final assignment.
+    assert len(assignments) == 8
+    assert assignments[6] == 'Assignment:: c = 5 + d'
+    assert assignments[7] == 'Assignment:: d = c'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
