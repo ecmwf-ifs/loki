@@ -1333,8 +1333,32 @@ class OMNI2IR(GenericVisitor):
 
     def visit_FformatDecl(self, o, **kwargs):
         # Reverse engineer the format items that OMNI has already parsed into a string
-        values = tuple(v.strip(' "\'') for v in o.attrib["format"].strip('()').split(','))
-        return ir.FormatStmt(values=values, source=kwargs['source'])
+        values = []
+        item = []
+        quote = None
+        for char in o.attrib["format"].strip('()'):
+            if char in ('"', "'"):
+                quote = None if quote == char else char
+            if char == ',' and quote is None:
+                value = ''.join(item).strip()
+                values.append(sym.StringLiteral(value) if value[0] in ('"', "'") else value)
+                item = []
+            else:
+                item.append(char)
+        value = ''.join(item).strip()
+        values.append(sym.StringLiteral(value) if value[0] in ('"', "'") else value)
+
+        label = None
+        source = kwargs['source']
+        if source.string:
+            stripped = source.string.lstrip()
+            label_chars = []
+            for char in stripped:
+                if not char.isdigit():
+                    break
+                label_chars.append(char)
+            label = ''.join(label_chars) or None
+        return ir.FormatStmt(values=values, label=label, source=source)
 
     def visit_namedValue(self, o, **kwargs):
         name = o.attrib['name']

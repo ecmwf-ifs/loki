@@ -12,6 +12,8 @@ Specific test battery for the OMNI parser frontend.
 import pytest
 
 from loki import Module, Subroutine
+from loki.backend import fgen
+from loki.expression import symbols as sym
 from loki.frontend import OMNI, HAVE_OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables
 
@@ -82,3 +84,27 @@ end subroutine omni_array_indexing
     assert assigns[1].lhs == 'b(1:n)'
     assert assigns[2].lhs == 'c(2:n, 0:n)'
     assert assigns[3].lhs == 'd(:, 0:n)'
+
+
+@pytest.mark.skipif(not HAVE_OMNI, reason='Test tequires OMNI frontend.')
+def test_labelled_format_with_quoted_items():
+    """Test parsing of labelled FORMAT statements with quoted comma literals."""
+    fcode = """
+subroutine omni_labelled_format()
+  implicit none
+1003 format(5x,'NUMPROC=',i0,', NUMOMP=',i0,', NGPTOTG=',i0,', NPROMA=',i0,', NGPBLKS=',i0)
+end subroutine omni_labelled_format
+"""
+    routine = Subroutine.from_source(fcode, frontend=OMNI)
+    stmt = FindNodes(ir.FormatStmt).visit(routine.body)[0]
+
+    assert stmt.label == '1003'
+    assert stmt.values == (
+        '5x', sym.StringLiteral('NUMPROC='), 'i0', sym.StringLiteral(', NUMOMP='), 'i0',
+        sym.StringLiteral(', NGPTOTG='), 'i0', sym.StringLiteral(', NPROMA='), 'i0',
+        sym.StringLiteral(', NGPBLKS='), 'i0'
+    )
+    assert fgen(routine.body) == (
+        "1003 FORMAT(5x, 'NUMPROC=', i0, ', NUMOMP=', i0, ', NGPTOTG=', i0, "
+        "', NPROMA=', i0, ', NGPBLKS=', i0)"
+    )
