@@ -331,6 +331,20 @@ class FortranCodegen(Stringifier):
         text = ', '.join(self.visit_all(as_tuple(o.text), **kwargs)) if o.text else ''
         return self.format_line(keyword, str(text).lstrip())
 
+    def visit_PrintStmt(self, o, **kwargs):
+        """
+        Format ``PRINT`` statements.
+        """
+        text = ', '.join(self.visit_all(o.values, **kwargs))
+        return self.format_line(f'{o.keyword} ', text)
+
+    def visit_FormatStmt(self, o, **kwargs):
+        """
+        Format ``FORMAT`` statements.
+        """
+        text = ', '.join(self.visit_all(o.values, **kwargs))
+        return self.format_line(f'{o.keyword}({text})') if text else self.format_line(o.keyword)
+
     def visit_RawSource(self, o, **kwargs):
         """
         Format raw source nodes.

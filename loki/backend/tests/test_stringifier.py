@@ -131,11 +131,11 @@ END MODULE some_mod
         "####<Case (0)>",
         "#####<Assignment:: m = 1>",
         "####<Case (1:10)>",
-        "#####<Print:: *, 1 to 10>",
+        "#####<Print:: *, '1 to 10'>",
         "####<Case (-1, -2)>",  # l. 50
         "#####<Assignment:: m = 10>",
         "####<Default>",
-        "#####<Print:: *, Default case>",
+        "#####<Print:: *, 'Default c...>",
         "###<Associate:: arr(m)=x>",
         "####<Assignment:: x = x*2.>",
         "###<Allocation:: var>",
