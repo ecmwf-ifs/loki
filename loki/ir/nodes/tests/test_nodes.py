@@ -508,7 +508,7 @@ def test_multiconditional(scope, a_i, i):
     assert multicond.else_body == (assign3, assign2)
 
 
-def test_stmt_nodes(scope, n, i):
+def test_stmt_nodes(n, i):
     """
     Test constructors and scoping behaviour of various :any:`GenericStmt` nodes.
     """
@@ -581,8 +581,8 @@ def test_stmt_nodes(scope, n, i):
         ir.PrintStmt(text=(n, i))
 
     assert fgen(ir.FormatStmt()) == 'FORMAT'
-    assert fgen(ir.FormatStmt(i)) == 'FORMAT i'
-    assert fgen(ir.FormatStmt((n, i))) == 'FORMAT n, i'
+    assert fgen(ir.FormatStmt(i)) == 'FORMAT(i)'
+    assert fgen(ir.FormatStmt((n, i))) == 'FORMAT(n, i)'
     assert ir.FormatStmt((n, i)).values == (n, i)
     assert ir.FormatStmt((n, i)).text == 'n, i'
     with pytest.raises(ValidationError, match='FormatStmt uses values='):
