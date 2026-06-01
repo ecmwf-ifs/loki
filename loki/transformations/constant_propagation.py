@@ -121,11 +121,6 @@ class ConstantPropagationMapper(SimplifyMapper):
 class ConstantPropagationTransformer(Transformer):
     """Apply constant-propagation analysis as a transformation driver."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-        self.constants_map = {}
-
     def visit_Assignment(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
