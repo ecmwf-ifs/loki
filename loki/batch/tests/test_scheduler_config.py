@@ -767,7 +767,8 @@ def test_scheduler_multi_modes_invalid_pipeline(testdir, tmp_path, multi_modes_c
 
 @pytest.mark.parametrize('as_modules', [False, True])
 @pytest.mark.parametrize('reinit_scheduler', [True, False])
-def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_scheduler, as_modules, check_multimodes_callgraph):
+def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_scheduler,
+                               as_modules, check_multimodes_callgraph):
     config = SchedulerConfig.from_dict(multi_modes_config)
 
     if as_modules:

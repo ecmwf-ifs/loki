@@ -633,7 +633,9 @@ class SeparateModesKernel(Transformation):
                     modules_and_symbols = defaultdict(list)
                     for s in import_.symbols:
                         if s.name in imports_to_rename:
-                            modules_and_symbols[imports_to_rename[s.name].scope_name].append(s.clone(name=imports_to_rename[s.name].local_name))
+                            modules_and_symbols[imports_to_rename[s.name].scope_name].append(
+                                s.clone(name=imports_to_rename[s.name].local_name)
+                            )
                         else:
                             modules_and_symbols[import_.module].append(s)
                     for module, symbols in modules_and_symbols.items():
