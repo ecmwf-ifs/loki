@@ -205,22 +205,44 @@ subroutine test_routine(unit)
 
     ! Format identifier with a mised list of arguments
 103 format(4X, 'Ma=', I0, 'Pa=', I0, 'Baby=', I0, 'Goldilocks=', I0)
+1003 format(5x,'NUMPROC=',i0,', NUMOMP=',i0,', NGPTOTG=',i0,', NPROMA=',i0,', NGPBLKS=',i0)
 end subroutine test_routine
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     stmts = FindNodes(ir.GenericStmt).visit(routine.ir)
-    assert len(stmts) == 4
+    assert len(stmts) == 5
     assert isinstance(stmts[0], ir.ImplicitStmt)
     assert isinstance(stmts[1], ir.PrintStmt)
-    assert stmts[1].text == ('*',)
+    assert stmts[1].values == ('*',)
     assert isinstance(stmts[2], ir.PrintStmt)
-    assert stmts[2].text == ('*', 'test_text')
+    assert stmts[2].values == ('*', sym.StringLiteral('test_text'))
     assert isinstance(stmts[3], ir.FormatStmt)
     if frontend == OMNI:
-        assert stmts[3].text == ('4x', 'Ma=', 'i0', 'Pa=', 'i0', 'Baby=', 'i0', 'Goldilocks=', 'i0')
+        assert stmts[3].values == (
+            '4x', sym.StringLiteral('Ma='), 'i0', sym.StringLiteral('Pa='), 'i0',
+            sym.StringLiteral('Baby='), 'i0', sym.StringLiteral('Goldilocks='), 'i0'
+        )
     else:
-        assert stmts[3].text == ('4X', 'Ma=', 'I0', 'Pa=', 'I0', 'Baby=', 'I0', 'Goldilocks=', 'I0')
+        assert stmts[3].values == (
+            '4X', sym.StringLiteral('Ma='), 'I0', sym.StringLiteral('Pa='), 'I0',
+            sym.StringLiteral('Baby='), 'I0', sym.StringLiteral('Goldilocks='), 'I0'
+        )
+
+    assert isinstance(stmts[4], ir.FormatStmt)
+    assert stmts[4].label == '1003'
+    if frontend == OMNI:
+        assert stmts[4].values == (
+            '5x', sym.StringLiteral('NUMPROC='), 'i0', sym.StringLiteral(', NUMOMP='), 'i0',
+            sym.StringLiteral(', NGPTOTG='), 'i0', sym.StringLiteral(', NPROMA='), 'i0',
+            sym.StringLiteral(', NGPBLKS='), 'i0'
+        )
+    else:
+        assert stmts[4].values == (
+            '5X', sym.StringLiteral('NUMPROC='), 'I0', sym.StringLiteral(', NUMOMP='), 'I0',
+            sym.StringLiteral(', NGPTOTG='), 'I0', sym.StringLiteral(', NPROMA='), 'I0',
+            sym.StringLiteral(', NGPBLKS='), 'I0'
+        )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
