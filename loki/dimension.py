@@ -186,7 +186,8 @@ class Dimension:
         """
         exprs = self.sizes
         exprs += (f'1:{self.size}', )
-        if self.bounds:
-            exprs += (f'{self.bounds[1]} - {self.bounds[0]} + 1', )
-            exprs += (f'{self.bounds[0]}:{self.bounds[1]}', )
+        if self._lower and self._upper:
+            for lower, upper in zip(self._lower, self._upper):
+                exprs += (f'{upper} - {lower} + 1', )
+                exprs += (f'{lower}:{upper}', )
         return exprs
