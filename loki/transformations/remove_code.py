@@ -123,6 +123,15 @@ class RemoveCodeTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
 
+        # Apply marked region removal
+        if self.remove_marked_regions:
+            do_remove_marked_regions(
+                routine, mark_with_comment=self.mark_with_comment,
+                replacement_call=self.replacement_call,
+                replacement_msg=self.replacement_msg,
+                replacement_module=self.replacement_module
+            )
+
         if kwargs.get('role') == 'kernel' or not self.kernel_only:
             # Apply named node removal to strip specific calls
             if self.call_names or self.intrinsic_names:
@@ -130,15 +139,6 @@ class RemoveCodeTransformation(Transformation):
                     routine, call_names=self.call_names,
                     intrinsic_names=self.intrinsic_names,
                     remove_imports=self.remove_imports
-                )
-
-            # Apply marked region removal
-            if self.remove_marked_regions:
-                do_remove_marked_regions(
-                    routine, mark_with_comment=self.mark_with_comment,
-                    replacement_call=self.replacement_call,
-                    replacement_msg=self.replacement_msg,
-                    replacement_module=self.replacement_module
                 )
 
             # Apply Dead Code Elimination

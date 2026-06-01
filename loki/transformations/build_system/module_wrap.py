@@ -18,8 +18,8 @@ __all__ = ['ModuleWrapTransformation']
 
 class ModuleWrapTransformation(Transformation):
     """
-    Utility transformation that ensures all transformed kernel
-    subroutines are wrapped in a module
+    Utility transformation that ensures transformed subroutines that need to
+    coexist with their original implementation are wrapped in a module.
 
     The module name is derived from the subroutine name and :data:`module_suffix`.
 
@@ -51,20 +51,28 @@ class ModuleWrapTransformation(Transformation):
         self.module_suffix = module_suffix
         self.replace_ignore_items = replace_ignore_items
 
+    @staticmethod
+    def wrap_item(item, role):
+        """Determine whether the transformed definition itself should be wrapped."""
+        if item is not None:
+            return item.replicate
+        return role == 'kernel'
+
     def transform_file(self, sourcefile, **kwargs):
         """
-        For kernel routines, wrap each subroutine in the current file in a module
+        For replicated routines, wrap each subroutine in the current file in a module.
         """
+        item = kwargs.get('item')
         role = kwargs.get('role')
 
-        if items := kwargs.get('items'):
-            # We consider the sourcefile to be a "kernel" file if all items are kernels
+        if item is None and (items := kwargs.get('items')):
+            # Legacy fallback when no item metadata is available
             if all(item.role == 'kernel' for item in items):
                 role = 'kernel'
             else:
                 role = 'driver'
 
-        if role == 'kernel':
+        if self.wrap_item(item, role):
             self.module_wrap(sourcefile)
 
     def transform_module(self, module, **kwargs):

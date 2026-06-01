@@ -363,6 +363,41 @@ def test_module_item4(testdir):
     assert item_factory.item_cache['some_module#add_args'] in items
 
 
+def test_module_item_replicate_from_member_config(tmp_path):
+    fcode = """
+module kernel_mod
+contains
+  subroutine kernel()
+  end subroutine kernel
+  subroutine kernel_loki()
+  end subroutine kernel_loki
+end module kernel_mod
+    """.strip()
+
+    path = tmp_path/'kernel_mod.F90'
+    path.write_text(fcode)
+
+    config = SchedulerConfig.from_dict({
+        'default': {
+            'role': 'kernel',
+            'expand': True,
+            'strict': True,
+            'replicate': True,
+        },
+        'routines': {
+            'kernel_loki': {'replicate': False},
+        }
+    })
+
+    source = Sourcefile.from_file(path, frontend=REGEX, parser_classes=RegexParserClass.ProgramUnitClass)
+    item_factory = ItemFactory()
+    file_item = item_factory.get_or_create_file_item_from_source(source, config)
+
+    module_item = item_factory.get_or_create_item(ModuleItem, 'kernel_mod', file_item.name, config)
+
+    assert not module_item.replicate
+
+
 def test_procedure_item1(testdir):
     proj = testdir/'sources/projBatch'
 

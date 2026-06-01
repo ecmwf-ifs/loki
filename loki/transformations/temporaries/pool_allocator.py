@@ -19,13 +19,13 @@ from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, Transformer, Intrinsic,
     Assignment, Conditional, CallStatement, Import, Allocation,
     Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
-    SubstituteExpressions
+    SubstituteExpressions, pragmas_attached
 )
 from loki.logging import warning, debug
 from loki.tools import as_tuple, OrderedSet
 from loki.types import SymbolAttributes, BasicType, DerivedType
 
-from loki.transformations.utilities import recursive_expression_map_update
+from loki.transformations.utilities import recursive_expression_map_update, find_driver_loops
 
 
 __all__ = ['TemporariesPoolAllocatorTransformation', 'EcstackPoolAllocatorTransformation']
@@ -244,7 +244,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if item:
                 # import variable type specifiers used in stack allocations
                 self.import_allocation_types(routine, item)
-            self.create_pool_allocator(routine, stack_size)
+            self.create_pool_allocator(routine, stack_size, targets)
 
         self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
@@ -771,7 +771,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         return stack_size
 
-    def create_pool_allocator(self, routine, stack_size):
+    def create_pool_allocator(self, routine, stack_size, targets):
         """
         Create a pool allocator in the driver
         """
@@ -817,8 +817,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         # Find first block loop and assign local stack pointers there
         loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.body):
-            assignments = FindNodes(Assignment).visit(loop.body)
+        with pragmas_attached(routine, Loop):
+            driver_loops = find_driver_loops(routine.body, targets)
+            annotated_loops = [
+                loop for loop in FindNodes(Loop).visit(routine.body)
+                if any(
+                    key in pragma.content.lower()
+                    for pragma in as_tuple(loop.pragma)
+                    for key in ('loop gang', 'teams distribute')
+                )
+            ]
+            loops = OrderedSet(as_tuple(driver_loops) + as_tuple(annotated_loops))
+
+        for loop in loops:
+            assignments = tuple(stmt for stmt in loop.body if isinstance(stmt, Assignment))
             if loop.variable != self.block_dim.index:
                 # Check if block variable is assigned in loop body
                 for assignment in assignments:

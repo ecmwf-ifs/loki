@@ -415,19 +415,19 @@ class Transformation:
             raise TypeError('Transformation.apply_subroutine can only be applied to Subroutine object')
 
         # Apply the actual transformation for subroutines
-        try:
-            if plan_mode:
-                self.plan_subroutine(subroutine, **kwargs)
-            else:
-                if subroutine._incomplete:
-                    raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
+        #try:
+        if plan_mode:
+            self.plan_subroutine(subroutine, **kwargs)
+        else:
+            if subroutine._incomplete:
+                raise RuntimeError('Transformation.apply_subroutine requires Subroutine to be complete')
 
-                self.transform_subroutine(subroutine, **kwargs)
-        except Exception as e:
-            raise TransformationError(
-                message=f'Error in Procedure {subroutine.name} -- {e!s}',
-                transformation=type(self), source=subroutine
-            ) from e
+            self.transform_subroutine(subroutine, **kwargs)
+        #except Exception as e:
+        #    raise TransformationError(
+        #        message=f'Error in Procedure {subroutine.name} -- {e!s}',
+        #        transformation=type(self), source=subroutine
+        #    ) from e
 
         # Recurse to internal procedures
         if self.recurse_to_internal_procedures:

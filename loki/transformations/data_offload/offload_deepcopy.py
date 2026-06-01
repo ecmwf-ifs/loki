@@ -33,6 +33,7 @@ from loki.transformations.field_api import (
         FieldAPIAccessorType
 )
 from loki.transformations.utilities import find_driver_loops, get_integer_variable
+from loki.transformations.data_offload.offload import DataOffloadTransformation
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -130,13 +131,14 @@ class DeepcopyDataflowAnalysis(DataflowAnalysis):
         self.successor_map = successor_map
 
     def resolve_call_effects(self, call, *, attacher, **kwargs):
-        if not call.routine:
-            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
-            raise RuntimeError(msg)
 
         child = self.successor_map.get(call, None)
         if not child:
             return None
+
+        if not call.routine:
+            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
+            raise RuntimeError(msg)
 
         # remap root variable names to current scope
         arg_map = get_sanitised_arg_map(call.arg_map)
@@ -286,6 +288,9 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                     warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
 
+        #if routine.name.lower() == 'qmfixer':
+        #    import pdb
+        #    pdb.set_trace()
         # We store the collected analyses on item.trafo_data
         for loop in driver_loops:
             item.trafo_data[self._key]['analysis'][loop] = loop_analyses[loop]
@@ -431,8 +436,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
-    def __init__(self, mode):
+    def __init__(self, mode, remove_openmp=False):
         self.mode = mode
+        self.remove_openmp = remove_openmp
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -447,6 +453,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
         targets = kwargs['targets']
 
         if role == 'driver':
+            transform = DataOffloadTransformation()
+            transform.remove_openmp_pragmas(routine, targets, include_driver_loops=True)
             self.process_driver(routine, item.trafo_data[self._key]['analysis'],
                                 item.trafo_data[self._key]['typedef_configs'], targets)
 
@@ -513,6 +521,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
         pragma_map = {}
         imports = defaultdict(tuple)
         symbol_map = routine.symbol_map | routine.all_imported_symbol_map
+        #if routine.name.lower() == 'qmfixer':
+        #    import pdb
+        #    pdb.set_trace()
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 

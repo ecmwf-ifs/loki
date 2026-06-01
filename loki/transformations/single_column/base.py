@@ -5,12 +5,15 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from fnmatch import fnmatch
+
 from loki.batch import Transformation, TransformationError
+from loki.ir import nodes as ir, Transformer, pragmas_attached
 
 from loki.transformations.array_indexing import resolve_vector_dimension, resolve_vector_notation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    check_routine_sequential, get_loop_bounds, rename_variables
+    check_routine_sequential, find_driver_loops, get_loop_bounds, rename_variables
 )
 
 
@@ -109,7 +112,9 @@ class SCCBaseTransformation(Transformation):
             )
         if role == 'driver':
             self.process_driver(
-                routine, do_resolve_vector_notation=do_resolve_vector_notation
+                routine,
+                targets=kwargs.get('targets', ()),
+                do_resolve_vector_notation=do_resolve_vector_notation
             )
 
     def process_kernel(self, routine, rename_indices=False, do_resolve_vector_notation=True):
@@ -169,15 +174,58 @@ class SCCBaseTransformation(Transformation):
         if do_resolve_vector_notation:
             resolve_vector_notation(routine)
 
-    def process_driver(self, routine, do_resolve_vector_notation=True):
+    @staticmethod
+    def remove_driver_loop_calls(routine, loops, patterns):
+        """
+        Remove calls matching ``patterns`` from the provided driver loops.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Routine containing the loops.
+        loops : tuple or list of :any:`Loop`
+            Driver loops from which calls should be removed.
+        patterns : tuple or list of str
+            Case-insensitive glob-style patterns matched against
+            :any:`CallStatement.name`.
+        """
+
+        patterns = tuple(str(pattern).lower() for pattern in patterns)
+
+        class RemoveMatchingCallsTransformer(Transformer):
+            def visit_CallStatement(self, call, **kwargs):  # pylint: disable=unused-argument
+                if any(fnmatch(str(call.name).lower(), pattern) for pattern in patterns):
+                    return None
+                return call
+
+            def visit_Loop(self, loop, **kwargs):
+                loop = self.visit_Node(loop, **kwargs)
+                return loop if loop.body else None
+
+            def visit_Conditional(self, cond, **kwargs):
+                cond = super().visit_Node(cond, **kwargs)
+                return cond if cond.body or cond.else_body else None
+
+        loop_map = {
+            loop: loop.clone(body=RemoveMatchingCallsTransformer().visit(loop.body))
+            for loop in loops
+        }
+        if loop_map:
+            routine.body = Transformer(loop_map).visit(routine.body)
+
+    def process_driver(self, routine, targets=(), do_resolve_vector_notation=True):
         """
         Applies the SCCBase utilities to a "driver". This consists of
-        resolving associates and, by default, vector notation.
+        resolving associates, removing driver-loop view updates and,
+        by default, vector notation.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
             Subroutine to apply this transformation to.
+        targets : list or string, optional
+            List of subroutines that are to be considered as part of
+            the transformation call tree.
         do_resolve_vector_notation : bool, optional
             Whether to resolve vector notation into explicit loops.
             Set to ``False`` to skip this step for driver routines
@@ -196,3 +244,10 @@ class SCCBaseTransformation(Transformation):
                 substitute_derived_type_bounds=True,
             )
             resolve_vector_notation(routine, substitute_derived_type_bounds=True)
+
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            driver_loops = find_driver_loops(section=routine.body, targets=targets)
+
+        self.remove_driver_loop_calls(
+            routine, loops=driver_loops, patterns=('*%update_view',)
+        )
