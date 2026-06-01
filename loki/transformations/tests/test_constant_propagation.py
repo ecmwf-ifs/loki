@@ -210,19 +210,22 @@ end subroutine test_constant_propagation_ops_bool_short_circuiting
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_constant_propagation_conditional_basic(frontend):
     fcode = """
-subroutine test_constant_propagation_conditional_basic(c)
+subroutine test_constant_propagation_conditional_basic(c, d)
   integer :: a = 5
   integer :: b = 3
   logical :: cond = .true.
-  integer, intent(out) :: c
+  integer, intent(out) :: c, d
 
   if (cond) then
     c = a
+    d = a
   else
     c = b
+    d = a
   endif
 
   c = c
+  d = d
 end subroutine test_constant_propagation_conditional_basic
 """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -234,6 +237,7 @@ end subroutine test_constant_propagation_conditional_basic
     assert 'Assignment:: c = 5' in assignments
     assert 'Assignment:: c = 3' in assignments
     assert 'Assignment:: c = c' in assignments
+    assert 'Assignment:: c = 5' in assignments
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
