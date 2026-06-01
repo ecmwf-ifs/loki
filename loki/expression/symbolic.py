@@ -10,7 +10,6 @@ import enum
 from functools import reduce
 from math import gcd, floor
 import operator as _op
-import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki.expression.mappers import LokiIdentityMapper
@@ -276,86 +275,130 @@ def flatten_expr(expr):
     return sym.Sum(as_tuple(done))
 
 
-def sum_int_literals(expr):
+def sum_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     """
-    Sum up the values of all `IntLiteral` in the sum and return the reduced sum.
+    Sum up the values of all numeric literals in the sum and return the reduced sum.
+
+    Parameters
+    ----------
+    expr : :any:`Sum`
+         The sum comprising constant and non-constant sub-expressions.
+    int_arithmetic : bool, default True
+        Perform arithmetic on integer literals
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
     """
     def _process(child):
-        if isinstance(child, sym.IntLiteral):
-            return child.value, None
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, sym.IntLiteral):
+            return child.value, False, None
+        if fp_arithmetic and isinstance(child, sym.FloatLiteral):
+            return float(child.value), True, None
         if is_minus_prefix(child):
-            value, stripped_child = _process(strip_minus_prefix(child))
+            value, has_float, stripped_child = _process(strip_minus_prefix(child))
             if value != 0:
-                return -value, stripped_child
-        return 0, child
+                return -value, has_float, stripped_child
+        return 0, False, child
 
     if not isinstance(expr, sym.Sum):
         return expr
 
     transformed_components = list(zip(*[_process(child) for child in expr.children]))
     value = sum(transformed_components[0])
-    remaining_components = [ch for ch in transformed_components[1] if ch is not None]
+    has_float = any(transformed_components[1])
+    if not int_arithmetic and not has_float:
+        return expr
+    remaining_components = [ch for ch in transformed_components[2] if ch is not None]
     if value != 0:
-        remaining_components = [sym.IntLiteral(value)] + remaining_components
+        remaining_components = [sym.Literal(value)] + remaining_components
 
     if not remaining_components:
-        return sym.IntLiteral(0)
+        return sym.Literal(0.0) if has_float else sym.IntLiteral(0)
     if len(remaining_components) == 1:
         return remaining_components[0]
     return sym.Sum(as_tuple(remaining_components))
 
 
-def separate_coefficients(expr):
+def separate_coefficients(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Helper routine that separates components of a product into constant coefficients
     and remaining factors.
 
-    :param sym.Product expr: the product comprising constant and non-constant sub-expressions.
-    :returns: the constant coefficient and remaining non-constant sub-expressions.
-    :rtype: (int, list)
+    Parameters
+    ----------
+    expr : :any:`Product`
+         The product comprising constant and non-constant sub-expressions.
+    int_arithmetic : bool, default True
+        Perform arithmetic on integer literals
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
+
+    Returns
+    -------
+    (int, list)
+         The constant coefficient and remaining non-constant sub-expressions.
     """
     def _process(child):
-        if isinstance(child, (int, np.integer)):
-            return child, None
-        if isinstance(child, sym.IntLiteral):
-            return child.value, None
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, int):
+            return child, False, None
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, sym.IntLiteral):
+            return child.value, False, None
+        if fp_arithmetic and isinstance(child, sym.FloatLiteral):
+            return float(child.value), True, None
         if is_minus_prefix(child):
             # We recurse here as products that are only there to change the sign
             # should not introduce a layer in the expression tree.
-            value, component = _process(child.children[1])
-            return -value, component
-        return 1, child
+            value, has_float, component = _process(child.children[1])
+            return -value, has_float, component
+        return 1, False, child
 
-    if isinstance(expr, sym.IntLiteral):
-        return expr.value, []
+    if (int_arithmetic or fp_arithmetic) and isinstance(expr, sym.IntLiteral):
+        return expr.value, False, []
+    if fp_arithmetic and isinstance(expr, sym.FloatLiteral):
+        return float(expr.value), True, []
     if not isinstance(expr, sym.Product):
-        return 1, [expr]
+        return 1, False, [expr]
 
     if is_minus_prefix(expr):
-        value, remaining_components = separate_coefficients(strip_minus_prefix(expr))
-        return -value, remaining_components
+        value, has_float, remaining_components = separate_coefficients(
+            strip_minus_prefix(expr), int_arithmetic=int_arithmetic, fp_arithmetic=fp_arithmetic
+        )
+        return -value, has_float, remaining_components
 
     transformed_components = list(zip(*[_process(child) for child in expr.children]))
     value = reduce(_op.mul, transformed_components[0], 1)
-    remaining_components = [ch for ch in transformed_components[1] if ch is not None]
-    return value, remaining_components
+    has_float = any(transformed_components[1])
+    if not int_arithmetic and not has_float:
+        return 1, False, [expr]
+    remaining_components = [ch for ch in transformed_components[2] if ch is not None]
+    return value, has_float, remaining_components
 
 
-def mul_int_literals(expr):
+def mul_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Multiply all `IntLiteral` in the given `Product` and return the reduced expression.
+
+    Parameters
+    ----------
+    expr : :any:`Product`
+         The product comprising constant and non-constant sub-expressions.
+    int_arithmetic : bool, default True
+        Perform arithmetic on integer literals
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
     """
     if not isinstance(expr, sym.Product):
         return expr
 
-    value, remaining_components = separate_coefficients(expr)
+    value, has_float, remaining_components = separate_coefficients(
+        expr, int_arithmetic=int_arithmetic, fp_arithmetic=fp_arithmetic
+    )
     if value == 0:
-        return sym.IntLiteral(0)
+        return sym.Literal(value)
     if abs(value) != 1:
-        remaining_components = [sym.IntLiteral(abs(value))] + remaining_components
+        remaining_components = [sym.Literal(abs(value))] + remaining_components
 
     if not remaining_components:
-        ret = sym.IntLiteral(1)
+        ret = sym.Literal(1.0) if has_float else sym.IntLiteral(1)
     elif len(remaining_components) == 1:
         ret = remaining_components[0]
     else:
@@ -366,20 +409,32 @@ def mul_int_literals(expr):
     return ret
 
 
-def div_int_literals(expr):
+def div_int_literals(expr, fp_arithmetic=False):
     """
     Reduce fractions where the denominator is a `IntLiteral`.
+
+    Parameters
+    ----------
+    expr : :any:`Expression`
+         The expression comprising constant and non-constant sub-expressions.
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
     """
     if not isinstance(expr, sym.Quotient):
         return expr
 
     if is_minus_prefix(expr.numerator):
         q = sym.Quotient(strip_minus_prefix(expr.numerator), expr.denominator)
-        return sym.Product((-1, div_int_literals(q)))
+        return sym.Product((-1, div_int_literals(q, fp_arithmetic=fp_arithmetic)))
 
     if is_minus_prefix(expr.denominator):
         q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
-        return sym.Product((-1, div_int_literals(q)))
+        return sym.Product((-1, div_int_literals(q, fp_arithmetic=fp_arithmetic)))
+
+    if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
+        if not fp_arithmetic:
+            return expr
+        return sym.Literal(float(expr.numerator.value) / float(expr.denominator.value))
 
     if not isinstance(expr.denominator, sym.IntLiteral):
         return expr
@@ -390,9 +445,11 @@ def div_int_literals(expr):
         denominator = sym.IntLiteral(expr.denominator.value / div)
 
     elif isinstance(expr.numerator, sym.Product):
-        value, remaining_components = separate_coefficients(expr.numerator)
+        value, _, remaining_components = separate_coefficients(expr.numerator, fp_arithmetic=fp_arithmetic)
         div = gcd(value, expr.denominator.value)
-        numerator = mul_int_literals(sym.Product((sym.IntLiteral(value / div), *remaining_components)))
+        numerator = mul_int_literals(
+            sym.Product((sym.IntLiteral(value / div), *remaining_components)), fp_arithmetic=fp_arithmetic
+        )
         denominator = sym.IntLiteral(expr.denominator.value / div)
 
     else:
@@ -423,7 +480,7 @@ def accumulate_polynomial_terms(expr):
     summands = defaultdict(int)  # map (base, coefficient) pairs
     for item in components:
         if isinstance(item, sym.Product):
-            value, remaining_components = separate_coefficients(item)
+            value, _, remaining_components = separate_coefficients(item)
             if value == 0:
                 continue
             if not remaining_components:
@@ -431,7 +488,7 @@ def accumulate_polynomial_terms(expr):
             else:
                 # We sort the components using their string representation
                 summands[as_tuple(sorted(remaining_components, key=str))] += value
-        elif isinstance(item, (int, np.integer)):
+        elif isinstance(item, int):
             summands[1] += item
         elif isinstance(item, sym.IntLiteral):
             summands[1] += item.value
@@ -497,17 +554,19 @@ class Simplification(enum.Flag):
     Attributes:
         Flatten             Flatten sub-sums and distribute products.
         IntegerArithmetic   Perform arithmetic on integer literals (addition and multiplication).
+        FloatingPointArithmetic Perform arithmetic on floating point literals (addition and multiplication).
         CollectCoefficients Combine summands as far as possible.
         LogicEvaluation     Resolve logically fully determinate expressions, like ``1 == 1`` or ``1 == 6``
         ALL                 All of the above.
     """
     Flatten = enum.auto()
     IntegerArithmetic = enum.auto()
+    FloatingPointArithmetic = enum.auto()
     CollectCoefficients = enum.auto()
     LogicEvaluation = enum.auto()
 
     # pylint: disable-next=unsupported-binary-operation
-    ALL = Flatten | IntegerArithmetic | CollectCoefficients | LogicEvaluation
+    ALL = Flatten | IntegerArithmetic | FloatingPointArithmetic | CollectCoefficients | LogicEvaluation
 
 
 class SimplifyMapper(LokiIdentityMapper):
@@ -529,8 +588,12 @@ class SimplifyMapper(LokiIdentityMapper):
         if self.enabled_simplifications & Simplification.Flatten:
             new_expr = flatten_expr(new_expr)
 
-        if self.enabled_simplifications & Simplification.IntegerArithmetic:
-            new_expr = sum_int_literals(new_expr)
+        if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
+            new_expr = sum_int_literals(
+                new_expr,
+                int_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
+                fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
+            )
 
         if self.enabled_simplifications & Simplification.CollectCoefficients:
             new_expr = collect_coefficients(new_expr)
@@ -545,8 +608,12 @@ class SimplifyMapper(LokiIdentityMapper):
         if self.enabled_simplifications & Simplification.Flatten:
             new_expr = flatten_expr(new_expr)
 
-        if self.enabled_simplifications & Simplification.IntegerArithmetic:
-            new_expr = mul_int_literals(new_expr)
+        if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
+            new_expr = mul_int_literals(
+                new_expr,
+                int_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
+                fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
+            )
 
         if new_expr != expr:
             return self.rec(new_expr, *args, **kwargs)
@@ -560,12 +627,37 @@ class SimplifyMapper(LokiIdentityMapper):
         if self.enabled_simplifications & Simplification.Flatten:
             new_expr = flatten_expr(new_expr)
 
-        if self.enabled_simplifications & Simplification.IntegerArithmetic:
-            new_expr = div_int_literals(new_expr)
+        if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
+            new_expr = div_int_literals(
+                new_expr, fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
+            )
 
         if new_expr != expr:
             return self.rec(new_expr, *args, **kwargs)
         return expr
+
+    def map_power(self, expr, *args, **kwargs):
+        base = self.rec(expr.base, *args, **kwargs)
+        exponent = self.rec(expr.exponent, *args, **kwargs)
+
+        if self.enabled_simplifications & Simplification.IntegerArithmetic:
+            literal_types = (sym.IntLiteral, sym.FloatLiteral)
+            base_value = float(base.value) if isinstance(base, sym.FloatLiteral) else getattr(base, 'value', None)
+            exponent_value = (
+                float(exponent.value) if isinstance(exponent, sym.FloatLiteral) else getattr(exponent, 'value', None)
+            )
+
+            if isinstance(base, literal_types) and base_value == 1:
+                return base
+            if isinstance(exponent, literal_types):
+                if exponent_value == 0:
+                    return sym.IntLiteral(1)
+                if exponent_value == 1:
+                    return base
+                if isinstance(base, literal_types) and exponent_value > 0 and float(exponent_value).is_integer():
+                    return sym.Literal(base_value ** int(exponent_value))
+
+        return sym.Power(base, exponent)
 
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
@@ -613,6 +705,35 @@ class SimplifyMapper(LokiIdentityMapper):
                 children = tuple(c for c in children if not c == 'False')
 
         return sym.LogicalOr(children) if len(children) > 0 else sym.LogicLiteral('False')
+
+    def map_logical_not(self, expr, *args, **kwargs):
+        child = self.rec(expr.child, *args, **kwargs)
+        if self.enabled_simplifications & Simplification.LogicEvaluation:
+            if child == 'True':
+                return sym.LogicLiteral(False)
+            if child == 'False':
+                return sym.LogicLiteral(True)
+
+        return sym.LogicalNot(child)
+
+    def map_string_concat(self, expr, *args, **kwargs):
+        children = tuple(self.rec(child, *args, **kwargs) for child in expr.children)
+
+        new_children = []
+        string_parts = []
+        for child in children:
+            if isinstance(child, sym.StringLiteral):
+                string_parts.append(child.value)
+            else:
+                if string_parts:
+                    new_children.append(sym.StringLiteral(''.join(string_parts)))
+                    string_parts = []
+                new_children.append(child)
+
+        if string_parts:
+            new_children.append(sym.StringLiteral(''.join(string_parts)))
+
+        return new_children[0] if len(new_children) == 1 else sym.StringConcat(tuple(new_children))
 
 
 def simplify(expr, enabled_simplifications=Simplification.ALL):

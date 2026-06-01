@@ -100,7 +100,7 @@ class ParenthesisedPow(Power):
     make_stringifier = loki_make_stringifier
 
 
-class StringConcat(pmbl._MultiChildExpression):
+class StringConcat(StrCompareMixin, pmbl._MultiChildExpression):
     """
     Implements string concatenation in a way similar to :class:`Sum`.
     """

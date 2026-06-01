@@ -1021,6 +1021,9 @@ def test_string_compare():
     assert all(sym.LogicalAnd((i, u)) == exp for exp in ['i AND u', 'i and u', 'i and  U', ' I and u'])
     assert all(sym.LogicalOr((i, u)) == exp for exp in ['i OR u', 'i or u', 'i or  U', ' I oR u'])
     assert all(sym.LogicalNot(u) == exp for exp in ['not u', ' nOt u', 'not  U', ' noT u'])
+    assert all(sym.StringConcat((sym.StringLiteral('prefix'), u)) == exp for exp in [
+        "'prefix'//u", "'prefix' // u", "'prefix' //  U", " 'prefix' // u"
+    ])
 
     # Test literal behaviour
     assert sym.Literal(41) == 41

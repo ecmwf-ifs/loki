@@ -166,6 +166,41 @@ def test_simplify_integer_arithmetic(source, ref):
 
 
 @pytest.mark.parametrize('source, ref', [
+    ('1.5 + 2.5', '1.5 + 2.5'),
+    ('1 + 2.5', '1 + 2.5'),
+    ('1.5*2.0', '1.5*2.0'),
+    ('1.0/2', '1.0 / 2'),
+])
+def test_simplify_integer_arithmetic_skips_floats(source, ref):
+    scope = Scope()
+    expr = parse_expr(source, scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
+    assert str(expr) == ref
+
+
+@pytest.mark.parametrize('source, ref', [
+    ('1 + 1', '1 + 1'),
+    ('1.5 + 2.5', '4.0'),
+    ('1 + 2.5', '3.5'),
+    ('1.5 + 2', '3.5'),
+    ('2.5 - 1.0', '1.5'),
+    ('1.0 - 1.0', '0.0'),
+    ('1.5*2.0', '3.0'),
+    ('2*1.5', '3.0'),
+    ('-3.0*7', '-21.0'),
+    ('3.0*7*0*10', '3.0*7*0*10'),
+    ('1.0/2.0', '0.5'),
+    ('1/2.0', '0.5'),
+    ('1.0/2', '0.5'),
+])
+def test_simplify_floating_point_arithmetic(source, ref):
+    scope = Scope()
+    expr = parse_expr(source, scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.FloatingPointArithmetic)
+    assert str(expr) == ref
+
+
+@pytest.mark.parametrize('source, ref', [
     ('a + a + a', '3*a'),
     ('2*a + 1*a + a*3', '6*a'),
     ('(a + a)*(b + b)', '2*a*2*b'),
@@ -216,6 +251,10 @@ def test_simplify_collect_coefficients(source, ref):
     ('.false. .or. a', 'a'),
     ('.false. .and. a', 'False'),
     ('.true. .and. a', 'a'),
+    ('.not. .true.', 'False'),
+    ('.not. .false.', 'True'),
+    ('.not. .true. .and. a', 'False'),
+    ('.not. .false. .or. a', 'True'),
 ])
 def test_simplify_logic_evaluation(source, ref):
     scope = Scope()
@@ -241,12 +280,39 @@ def test_simplify_logic_evaluation(source, ref):
     ('(5 + 3) * a - 8 * a / 2 + a * ((7 - 1) / 3)', '6*a'),
     ('(5 + 3) == 8', 'True'),
     ('42 == 666', 'False'),
+    ('1**n', '1'),
+    ('n**0', '1'),
+    ('n**1', 'n'),
+    ('2**3', '8'),
+    ('1.0**n', '1.0'),
+    ('n**0.0', '1'),
+    ('n**1.0', 'n'),
+    ('2.0**3', '8.0'),
+    ('3.0*7*0*10', '0'),
 ])
 def test_simplify(source,ref):
     scope = Scope()
     expr = parse_expr(source, scope)
     expr = simplify(expr)
     assert str(expr) == ref
+
+
+def test_simplify_string_concat():
+    a = sym.Variable(name='a')
+
+    expr = sym.StringConcat((sym.StringLiteral('Hel'), sym.StringLiteral('lo')))
+    assert expr == "'Hel'//'lo'"
+    assert simplify(expr) == 'Hello'
+
+    expr = sym.StringConcat((sym.StringLiteral('Hel'), sym.StringLiteral('lo'), a, sym.StringLiteral('!')))
+    assert expr == "'Hel'//'lo'//a//'!'"
+    assert simplify(expr) == "'Hello'//a//'!'"
+
+    expr = sym.StringConcat((
+        sym.StringLiteral('Hel'), sym.StringConcat((sym.StringLiteral('l'), sym.StringLiteral('o')))
+    ))
+    assert expr == "'Hel'//'l'//'o'"
+    assert simplify(expr) == 'Hello'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
