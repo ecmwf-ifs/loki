@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import Module, Subroutine, Sourcefile
+from loki import Module, Subroutine, Sourcefile, ir
 from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
@@ -69,7 +69,7 @@ end module some_mod
     # Make sure all lines are continued correctly
     code = module.to_fortran()
     code_lines = code.splitlines()
-    assert len(code_lines) in (35, 36) # OMNI produces an extra line
+    assert len(code_lines) in (35, 37) # OMNI produces an extra line
     assert all(line.strip(' &\n') for line in code_lines)
     assert all(len(line) < 132 for line in code_lines)
 
@@ -114,6 +114,21 @@ end module some_mod
         "'Yi                    '"
     ):
         assert ice_model_name in generated_fcode
+
+
+def test_fgen_print_format_statements():
+    """
+    Test correct formatting of PRINT and FORMAT statements.
+    """
+    n = sym.Variable(name='n')
+    x = sym.Variable(name='x')
+
+    assert fgen(ir.PrintStmt(('*', sym.StringLiteral('n='), n))) == "PRINT *, 'n=', n"
+    assert fgen(ir.PrintStmt((sym.IntLiteral(100), sym.StringLiteral('x='), x, n))) == "PRINT 100, 'x=', x, n"
+    assert fgen(ir.FormatStmt((
+        sym.IntrinsicLiteral('A'), sym.IntrinsicLiteral('1X'),
+        sym.StringLiteral('n='), sym.IntrinsicLiteral('F8.2'), sym.IntrinsicLiteral('I4')
+    ))) == "FORMAT(A, 1X, 'n=', F8.2, I4)"
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

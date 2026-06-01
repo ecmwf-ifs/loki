@@ -11,9 +11,7 @@ import pytest
 from loki import Sourcefile
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
-from loki.ir import (
-    FindNodes, CallStatement, Import, Interface, Intrinsic, FindInlineCalls
-)
+from loki.ir import nodes as ir, FindNodes, FindInlineCalls
 
 from loki.transformations import (
     DependencyTransformation, ModuleWrapTransformation
@@ -107,17 +105,17 @@ END SUBROUTINE driver
     assert kernel.modules[0].variables[0].name == 'some_const'
 
     # Check that calls and matching import have been diverted to the re-generated routine
-    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver'].spec)
     assert len(imports) == 2
-    assert isinstance(imports[0], Import)
+    assert isinstance(imports[0], ir.Import)
     assert driver['driver'].spec.body[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver'].spec.body[0].symbols]
 
     # Check that global variable import remains unchanged
-    assert isinstance(imports[1], Import)
+    assert isinstance(imports[1], ir.Import)
     assert driver['driver'].spec.body[1].module == 'kernel_mod'
     assert 'some_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
 
@@ -229,17 +227,17 @@ END SUBROUTINE driver
     assert kernel.modules[0].typedefs[1].name == 't_type_2'
 
     # Check that calls and matching import have been diverted to the re-generated routine
-    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver'].spec)
     assert len(imports) == 3
-    assert isinstance(imports[0], Import)
+    assert isinstance(imports[0], ir.Import)
     assert driver['driver'].spec.body[0].module == 'kernel_access_spec_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver'].spec.body[0].symbols]
 
     # Check that global variable import remains unchanged
-    assert isinstance(imports[1], Import)
+    assert isinstance(imports[1], ir.Import)
     assert driver['driver'].spec.body[1].module == 'kernel_access_spec_mod'
     assert 'another_const' in [str(s) for s in driver['driver'].spec.body[1].symbols]
     assert 'some_const' in [str(s) for s in driver['driver'].spec.body[2].symbols]
@@ -311,17 +309,17 @@ END MODULE DRIVER_MOD
     assert kernel.modules[0].variables[0].name == 'some_const'
 
     # Check that calls and matching import have been diverted to the re-generated routine
-    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver_mod'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver_mod'].spec)
     assert len(imports) == 2
-    assert isinstance(imports[0], Import)
+    assert isinstance(imports[0], ir.Import)
     assert driver['driver_mod'].spec.body[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in driver['driver_mod'].spec.body[0].symbols]
 
     # Check that global variable import remains unchanged
-    assert isinstance(imports[1], Import)
+    assert isinstance(imports[1], ir.Import)
     assert driver['driver_mod'].spec.body[1].module == 'kernel_mod'
     assert 'some_const' in [str(s) for s in driver['driver_mod'].spec.body[1].symbols]
 
@@ -499,9 +497,9 @@ END SUBROUTINE other_kernel
     assert driver.subroutines[0].name == 'driver'
 
     # Check that calls and imports have been diverted to the re-generated routine
-    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(driver['driver'].body)
     assert len(calls) == 2
-    imports = FindNodes(Import).visit(driver['driver'].ir)
+    imports = FindNodes(ir.Import).visit(driver['driver'].ir)
     assert len(imports) == 3
 
     _imported_symbols = driver['driver'].imported_symbols
@@ -606,26 +604,26 @@ END SUBROUTINE kernel
     assert driver.subroutines[0].name == 'driver'
 
     # Check that calls have been diverted to the re-generated routine
-    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
 
     if module_wrap:
         # Check that imports have been generated
-        imports = FindNodes(Import).visit(driver['driver'].spec)
+        imports = FindNodes(ir.Import).visit(driver['driver'].spec)
         assert len(imports) == 1
         assert imports[0].module.lower() == 'kernel_test_mod'
         assert 'kernel_test' in imports[0].symbols
 
         # Check that the newly generated USE statement appears before IMPLICIT NONE
-        nodes = FindNodes((Intrinsic, Import)).visit(driver['driver'].spec)
+        nodes = FindNodes((ir.ImplicitStmt, ir.Import)).visit(driver['driver'].spec)
         assert len(nodes) == 2
-        assert isinstance(nodes[1], Intrinsic)
-        assert nodes[1].text.lower() == 'implicit none'
+        assert isinstance(nodes[1], ir.ImplicitStmt)
+        assert nodes[1].text.lower() == 'none'
 
     else:
         # Check that the interface has been updated
-        intfs = FindNodes(Interface).visit(driver['driver'].spec)
+        intfs = FindNodes(ir.Interface).visit(driver['driver'].spec)
         assert len(intfs) == 1
         assert intfs[0].symbols == ('kernel_test',)
 
@@ -697,7 +695,7 @@ END FUNCTION kernel
     calls = tuple(FindInlineCalls(unique=False).visit(driver['driver'].body))
     assert len(calls) == 3
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver'].spec)
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
@@ -768,7 +766,7 @@ END FUNCTION kernel
     calls = tuple(FindInlineCalls(unique=False).visit(driver['driver'].body))
     assert len(calls) == 3
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver'].spec)
     assert len(imports) == 1
     assert imports[0].module == 'kernel_test_mod'
     assert 'kernel_test' in [str(s) for s in imports[0].symbols]
@@ -839,10 +837,10 @@ END SUBROUTINE driver
         driver['driver'].apply(transformation, role='driver', targets=('kernel', 'kernel_mod'))
 
     # Check that calls and matching import have been diverted to the re-generated routine
-    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    calls = FindNodes(ir.CallStatement).visit(driver['driver'].body)
     assert len(calls) == 1
     assert calls[0].name == 'kernel_test'
-    imports = FindNodes(Import).visit(driver['driver'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver'].spec)
     assert len(imports) == 1
     assert imports[0].module.lower() == 'kernel_test_mod'
     assert imports[0].symbols == ('kernel_test',)
@@ -856,7 +854,7 @@ END SUBROUTINE driver
     assert kernel['kernel_test'].subroutines[1].name.lower() == 'get_b'
 
     # Check if kernel calls have been renamed
-    calls = FindNodes(CallStatement).visit(kernel['kernel_test'].body)
+    calls = FindNodes(ir.CallStatement).visit(kernel['kernel_test'].body)
     assert len(calls) == 1
     assert calls[0].name == 'set_a'
 
@@ -956,7 +954,7 @@ END MODULE header_mod
     calls = tuple(FindInlineCalls(unique=False).visit(driver['driver'].body))
     assert len(calls) == 3
     assert all(call.name == 'kernel_test' for call in calls)
-    imports = FindNodes(Import).visit(driver['driver'].spec)
+    imports = FindNodes(ir.Import).visit(driver['driver'].spec)
     imports = driver['driver'].import_map
     assert len(imports) == 2
     assert 'header_var' in imports and imports['header_var'].module.lower() == 'header_mod'

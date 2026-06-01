@@ -125,7 +125,7 @@ end subroutine kernel
         assert not 'var2(jl,jk)' in FindVariables().visit(outer_loops[1])
 
         # check print statement is only present in first copy of region
-        assert len(FindNodes(ir.Intrinsic).visit(region)) == 1
+        assert len(FindNodes(ir.GenericStmt).visit(region)) == 1
 
         # check correctness of split reads
         assigns = FindNodes(ir.Assignment).visit(outer_loops[0].body)

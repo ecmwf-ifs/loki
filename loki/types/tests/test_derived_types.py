@@ -506,10 +506,10 @@ end module derived_type_private_comp_mod
     some_private_comp_type = module.typedef_map['some_private_comp_type']
     type_bound_proc_type = module.typedef_map['type_bound_proc_type']
 
-    intrinsic_nodes = FindNodes(ir.Intrinsic).visit(type_bound_proc_type.body)
+    intrinsic_nodes = FindNodes(ir.GenericStmt).visit(type_bound_proc_type.body)
     assert len(intrinsic_nodes) == 2
-    assert intrinsic_nodes[0].text.lower() == 'contains'
-    assert intrinsic_nodes[1].text.lower() == 'private'
+    assert isinstance(intrinsic_nodes[0], ir.ContainsStmt)
+    assert isinstance(intrinsic_nodes[1], ir.PrivateStmt)
 
     assert re.search(
       r'^\s+contains$\s+private', fgen(type_bound_proc_type), re.I | re.MULTILINE
@@ -517,10 +517,10 @@ end module derived_type_private_comp_mod
 
     # OMNI gets the below wrong as it doesn't retain the private statement for components
     if frontend != OMNI:
-        intrinsic_nodes = FindNodes(ir.Intrinsic).visit(some_private_comp_type.body)
+        intrinsic_nodes = FindNodes(ir.GenericStmt).visit(some_private_comp_type.body)
         assert len(intrinsic_nodes) == 2
-        assert intrinsic_nodes[0].text.lower() == 'private'
-        assert intrinsic_nodes[1].text.lower() == 'contains'
+        assert isinstance(intrinsic_nodes[0], ir.PrivateStmt)
+        assert isinstance(intrinsic_nodes[1], ir.ContainsStmt)
 
         assert re.search(
             r'^\s+private*$(\s.*?){2}\s+contains', fgen(some_private_comp_type), re.I | re.MULTILINE
