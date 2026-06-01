@@ -276,14 +276,23 @@ def flatten_expr(expr):
     return sym.Sum(as_tuple(done))
 
 
-def sum_int_literals(expr, integer_arithmetic=True, floating_point=False):
+def sum_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Sum up the values of all numeric literals in the sum and return the reduced sum.
+
+    Parameters
+    ----------
+    expr : :any:`Sum`
+         The sum comprising constant and non-constant sub-expressions.
+    int_arithmetic : bool, default True
+        Perform arithmetic on integer literals
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
     """
     def _process(child):
-        if (integer_arithmetic or floating_point) and isinstance(child, sym.IntLiteral):
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, sym.IntLiteral):
             return child.value, False, None
-        if floating_point and isinstance(child, sym.FloatLiteral):
+        if fp_arithmetic and isinstance(child, sym.FloatLiteral):
             return float(child.value), True, None
         if is_minus_prefix(child):
             value, has_float, stripped_child = _process(strip_minus_prefix(child))
@@ -297,7 +306,7 @@ def sum_int_literals(expr, integer_arithmetic=True, floating_point=False):
     transformed_components = list(zip(*[_process(child) for child in expr.children]))
     value = sum(transformed_components[0])
     has_float = any(transformed_components[1])
-    if not integer_arithmetic and not has_float:
+    if not int_arithmetic and not has_float:
         return expr
     remaining_components = [ch for ch in transformed_components[2] if ch is not None]
     if value != 0:
@@ -310,21 +319,31 @@ def sum_int_literals(expr, integer_arithmetic=True, floating_point=False):
     return sym.Sum(as_tuple(remaining_components))
 
 
-def separate_coefficients(expr, integer_arithmetic=True, floating_point=False):
+def separate_coefficients(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Helper routine that separates components of a product into constant coefficients
     and remaining factors.
 
-    :param sym.Product expr: the product comprising constant and non-constant sub-expressions.
-    :returns: the constant coefficient and remaining non-constant sub-expressions.
-    :rtype: (int, list)
+    Parameters
+    ----------
+    expr : :any:`Product`
+         The product comprising constant and non-constant sub-expressions.
+    int_arithmetic : bool, default True
+        Perform arithmetic on integer literals
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
+
+    Returns
+    -------
+    (int, list)
+         The constant coefficient and remaining non-constant sub-expressions.
     """
     def _process(child):
-        if (integer_arithmetic or floating_point) and isinstance(child, (int, np.integer)):
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, (int, np.integer)):
             return child, False, None
-        if (integer_arithmetic or floating_point) and isinstance(child, sym.IntLiteral):
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, sym.IntLiteral):
             return child.value, False, None
-        if floating_point and isinstance(child, sym.FloatLiteral):
+        if fp_arithmetic and isinstance(child, sym.FloatLiteral):
             return float(child.value), True, None
         if is_minus_prefix(child):
             # We recurse here as products that are only there to change the sign
@@ -333,37 +352,46 @@ def separate_coefficients(expr, integer_arithmetic=True, floating_point=False):
             return -value, has_float, component
         return 1, False, child
 
-    if (integer_arithmetic or floating_point) and isinstance(expr, sym.IntLiteral):
+    if (int_arithmetic or fp_arithmetic) and isinstance(expr, sym.IntLiteral):
         return expr.value, False, []
-    if floating_point and isinstance(expr, sym.FloatLiteral):
+    if fp_arithmetic and isinstance(expr, sym.FloatLiteral):
         return float(expr.value), True, []
     if not isinstance(expr, sym.Product):
         return 1, False, [expr]
 
     if is_minus_prefix(expr):
         value, has_float, remaining_components = separate_coefficients(
-            strip_minus_prefix(expr), integer_arithmetic=integer_arithmetic, floating_point=floating_point
+            strip_minus_prefix(expr), int_arithmetic=int_arithmetic, fp_arithmetic=fp_arithmetic
         )
         return -value, has_float, remaining_components
 
     transformed_components = list(zip(*[_process(child) for child in expr.children]))
     value = reduce(_op.mul, transformed_components[0], 1)
     has_float = any(transformed_components[1])
-    if not integer_arithmetic and not has_float:
+    if not int_arithmetic and not has_float:
         return 1, False, [expr]
     remaining_components = [ch for ch in transformed_components[2] if ch is not None]
     return value, has_float, remaining_components
 
 
-def mul_int_literals(expr, integer_arithmetic=True, floating_point=False):
+def mul_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Multiply all `IntLiteral` in the given `Product` and return the reduced expression.
+
+    Parameters
+    ----------
+    expr : :any:`Product`
+         The product comprising constant and non-constant sub-expressions.
+    int_arithmetic : bool, default True
+        Perform arithmetic on integer literals
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
     """
     if not isinstance(expr, sym.Product):
         return expr
 
     value, has_float, remaining_components = separate_coefficients(
-        expr, integer_arithmetic=integer_arithmetic, floating_point=floating_point
+        expr, int_arithmetic=int_arithmetic, fp_arithmetic=fp_arithmetic
     )
     if value == 0:
         return sym.Literal(0.0) if has_float else sym.IntLiteral(0)
@@ -384,23 +412,30 @@ def mul_int_literals(expr, integer_arithmetic=True, floating_point=False):
     return ret
 
 
-def div_int_literals(expr, floating_point=False):
+def div_int_literals(expr, fp_arithmetic=False):
     """
     Reduce fractions where the denominator is a `IntLiteral`.
+
+    Parameters
+    ----------
+    expr : :any:`Expression`
+         The expression comprising constant and non-constant sub-expressions.
+    fp_arithmetic : bool, default False
+        Perform arithmetic on floating point literals
     """
     if not isinstance(expr, sym.Quotient):
         return expr
 
     if is_minus_prefix(expr.numerator):
         q = sym.Quotient(strip_minus_prefix(expr.numerator), expr.denominator)
-        return sym.Product((-1, div_int_literals(q, floating_point=floating_point)))
+        return sym.Product((-1, div_int_literals(q, fp_arithmetic=fp_arithmetic)))
 
     if is_minus_prefix(expr.denominator):
         q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
-        return sym.Product((-1, div_int_literals(q, floating_point=floating_point)))
+        return sym.Product((-1, div_int_literals(q, fp_arithmetic=fp_arithmetic)))
 
     if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
-        if not floating_point:
+        if not fp_arithmetic:
             return expr
         return sym.Literal(float(expr.numerator.value) / float(expr.denominator.value))
 
@@ -413,10 +448,10 @@ def div_int_literals(expr, floating_point=False):
         denominator = sym.IntLiteral(expr.denominator.value / div)
 
     elif isinstance(expr.numerator, sym.Product):
-        value, _, remaining_components = separate_coefficients(expr.numerator, floating_point=floating_point)
+        value, _, remaining_components = separate_coefficients(expr.numerator, fp_arithmetic=fp_arithmetic)
         div = gcd(value, expr.denominator.value)
         numerator = mul_int_literals(
-            sym.Product((sym.IntLiteral(value / div), *remaining_components)), floating_point=floating_point
+            sym.Product((sym.IntLiteral(value / div), *remaining_components)), fp_arithmetic=fp_arithmetic
         )
         denominator = sym.IntLiteral(expr.denominator.value / div)
 
@@ -559,8 +594,8 @@ class SimplifyMapper(LokiIdentityMapper):
         if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
             new_expr = sum_int_literals(
                 new_expr,
-                integer_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
-                floating_point=self.enabled_simplifications & Simplification.FloatingPointArithmetic
+                int_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
+                fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
             )
 
         if self.enabled_simplifications & Simplification.CollectCoefficients:
@@ -579,8 +614,8 @@ class SimplifyMapper(LokiIdentityMapper):
         if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
             new_expr = mul_int_literals(
                 new_expr,
-                integer_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
-                floating_point=self.enabled_simplifications & Simplification.FloatingPointArithmetic
+                int_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
+                fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
             )
 
         if new_expr != expr:
@@ -597,7 +632,7 @@ class SimplifyMapper(LokiIdentityMapper):
 
         if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
             new_expr = div_int_literals(
-                new_expr, floating_point=self.enabled_simplifications & Simplification.FloatingPointArithmetic
+                new_expr, fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
             )
 
         if new_expr != expr:
