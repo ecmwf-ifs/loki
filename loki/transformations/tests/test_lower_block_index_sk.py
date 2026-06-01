@@ -350,6 +350,66 @@ end subroutine kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+def test_sk_does_not_duplicate_existing_loki_unstructured_data_pragmas(frontend, block_dim):
+    """
+    Verify that existing generic ``!$loki unstructured-data`` pragmas
+    suppress duplicate injection before ``PragmaModel`` lowering.
+    """
+    fcode_driver = """
+subroutine driver(nproma, nlev, nb, field)
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  real, intent(inout) :: field(nproma, nlev, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call kernel(nproma, nlev, field(:,:,ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, nlev, field)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(inout) :: field(nproma, nlev)
+  real :: work(nproma)
+  integer :: jl, jk
+
+  !$loki unstructured-data create(work)
+  do jk = 1, nlev
+    do jl = 1, nproma
+      work(jl) = field(jl, jk)
+      field(jl, jk) = work(jl) + 1.0
+    end do
+  end do
+  !$loki exit unstructured-data delete(work)
+end subroutine kernel
+"""
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver.enrich(kernel)
+
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=())
+    sgraph = _build_sgraph([driver_item, kernel_item])
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    trafo.transform_subroutine(
+        driver, role='driver', targets=('kernel',),
+        item=driver_item, sub_sgraph=sgraph
+    )
+
+    pragmas = FindNodes(ir.Pragma).visit(kernel.body)
+    create_pragmas = [p for p in pragmas if 'unstructured-data create' in p.content]
+    delete_pragmas = [p for p in pragmas if 'unstructured-data delete' in p.content]
+    assert len(create_pragmas) == 1
+    assert len(delete_pragmas) == 1
+    assert create_pragmas[0].content == 'unstructured-data create(work)'
+    assert delete_pragmas[0].content == 'exit unstructured-data delete(work)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
 def test_sk_replaces_block_index_with_range(frontend, block_dim):
     """
     Verify that block-index subscripts in call arguments are replaced
@@ -684,6 +744,75 @@ end subroutine kernel
 
     # Verify dimensions match shape
     assert len(field_var.dimensions) == 3
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+def test_sk_new_derived_dummy_declared_before_bounds_use(frontend):
+    """
+    Verify that newly-added derived-type dummies are declared before any
+    existing dummy-array declarations whose bounds are updated to use them.
+    """
+    fcode_type_mod = """
+module type_mod
+  implicit none
+  type :: yrdim_type
+    integer :: ngpblks
+  end type yrdim_type
+  type :: geometry
+    type(yrdim_type) :: yrdim
+  end type geometry
+end module type_mod
+"""
+    fcode_driver = """
+subroutine driver(nproma, nlev, nb, geom, field)
+  use type_mod, only: geometry
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  type(geometry), intent(in) :: geom
+  real, intent(inout) :: field(nproma, nlev, geom%yrdim%ngpblks)
+  integer :: ibl, jkglo
+
+  do ibl = 1, nb
+    jkglo = geom%yrdim%ngpblks
+    !$loki small-kernels
+    call kernel(nproma, nlev, field(:, :, ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, nlev, field)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(inout) :: field(nproma, nlev)
+  field(1, 1) = 0.0
+end subroutine kernel
+"""
+    type_mod = Module.from_source(fcode_type_mod, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[type_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod])
+    driver.enrich(kernel)
+
+    geom_block_dim = Dimension(
+        name='block_dim', size='geom%yrdim%ngpblks', index='ibl',
+        bounds=('1', 'geom%yrdim%ngpblks'), aliases=('jkglo',)
+    )
+
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=())
+    sgraph = _build_sgraph([driver_item, kernel_item])
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=geom_block_dim)
+    trafo.transform_subroutine(
+        driver, role='driver', targets=('kernel',),
+        item=driver_item, sub_sgraph=sgraph
+    )
+
+    decls = [decl for decl in FindNodes(ir.VariableDeclaration).visit(kernel.spec) if len(decl.symbols) == 1]
+    decl_pos = {decl.symbols[0].name.lower(): idx for idx, decl in enumerate(decls)}
+
+    assert 'geom' in [arg.name.lower() for arg in kernel.arguments]
+    assert kernel.variable_map['field'].shape[-1] == 'geom%yrdim%ngpblks'
+    assert decl_pos['geom'] < decl_pos['field']
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))

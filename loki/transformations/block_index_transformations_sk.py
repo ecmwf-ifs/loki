@@ -12,7 +12,7 @@ Small-kernels variant of the block-index lowering transformation.
 from loki.batch import ProcedureItem
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached,
-    SubstituteExpressions, FindUsedVariables
+    SubstituteExpressions, FindUsedVariables, get_pragma_parameters
 )
 from loki.logging import warning
 from loki.tools import as_tuple, CaseInsensitiveDict
@@ -284,6 +284,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         Update *call* with new positional/keyword arguments, add them to
         the callee's argument list, and mark already-passed args as inout.
         """
+        missing_args = ()
         if new_args or new_kwargs:
             call._update(
                 kwarguments=(
@@ -304,6 +305,72 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
                 call.routine.symbol_attrs.update({
                     var.name: call.routine.variable_map[var.name].type.clone(intent='inout')
                 })
+
+        return as_tuple(missing_args)
+
+    @staticmethod
+    def _reorder_new_dummy_declarations(routine, new_args):
+        """
+        Move declarations for newly-added dummy arguments into the existing
+        dummy declaration block.
+
+        ``Subroutine.arguments`` appends declarations for missing dummies to the
+        end of the spec. In the small-kernels path, those new dummies can then be
+        referenced in dimensions of earlier dummy-array declarations, which breaks
+        some compilers. Keep the fix local to this transformation by moving the
+        new declarations next to the other dummy declarations.
+        """
+        new_arg_names = {arg.name.lower() for arg in new_args}
+        if not new_arg_names:
+            return
+
+        declarations = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+        decl_map = {decl.symbols[0].name.lower(): decl for decl in declarations if len(decl.symbols) == 1}
+        new_decls = tuple(
+            decl_map[name] for name in new_arg_names
+            if (name in decl_map and decl_map[name] in routine.spec.body)
+        )
+        if not new_decls:
+            return
+
+        existing_dummy_decls = []
+        for decl in declarations:
+            if decl in new_decls or decl not in routine.spec.body:
+                continue
+            symbols = decl.symbols
+            if all(symbol.name.lower() in routine._dummies for symbol in symbols):
+                existing_dummy_decls.append(decl)
+
+        spec_body = tuple(node for node in routine.spec.body if node not in new_decls)
+        insert_pos = next(
+            (
+                idx for idx, node in enumerate(spec_body)
+                if isinstance(node, ir.VariableDeclaration)
+                and not any(symbol.name.lower() in new_arg_names for symbol in node.symbols)
+                and any(
+                    any(part.lower() in new_arg_names for part in str(var).split('%'))
+                    for var in FindUsedVariables().visit(node)
+                    if hasattr(var, 'name')
+                )
+            ),
+            None
+        )
+        if insert_pos is None:
+            if existing_dummy_decls:
+                last_dummy_decl = existing_dummy_decls[-1]
+                insert_pos = spec_body.index(last_dummy_decl) + 1
+            else:
+                insert_pos = next(
+                    (
+                        idx + 1 for idx, node in enumerate(spec_body)
+                        if isinstance(node, ir.Intrinsic) and node.text.upper() == 'IMPLICIT NONE'
+                    ),
+                    0
+                )
+
+        routine.spec = routine.spec.clone(
+            body=spec_body[:insert_pos] + new_decls + spec_body[insert_pos:]
+        )
 
     def _propagate_imports(self, new_args, call, all_import_map):
         """
@@ -362,6 +429,52 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         if not local_vars:
             return
         var_names = ', '.join(v.name for v in local_vars)
+
+        explicit_data_vars = set()
+        for pragma in FindNodes(ir.Pragma).visit(routine.body):
+            keyword = pragma.keyword.lower()
+            content = pragma.content.lower()
+            parameters = None
+
+            if keyword == 'acc':
+                if 'enter' in content and 'data' in content:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='enter data', only_loki_pragmas=False
+                    )
+                elif 'exit' in content and 'data' in content:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='exit data', only_loki_pragmas=False
+                    )
+            elif keyword == 'loki':
+                if 'unstructured-data' in content:
+                    if content.startswith('exit unstructured-data'):
+                        parameters = get_pragma_parameters(
+                            pragma, starts_with='exit unstructured-data', only_loki_pragmas=False
+                        )
+                    else:
+                        parameters = get_pragma_parameters(
+                            pragma, starts_with='unstructured-data', only_loki_pragmas=False
+                        )
+
+            if not parameters:
+                continue
+
+            parameters = {
+                key: ', '.join(as_tuple(value)) for key, value in parameters.items()
+            }
+            for category in ('create', 'delete'):
+                values = parameters.get(category, '')
+                if not values:
+                    continue
+                for entry in values.split(','):
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    explicit_data_vars.add(entry.lower())
+
+        if all(v.name.lower() in explicit_data_vars for v in local_vars):
+            return
+
         pragma_start = ir.Pragma(keyword='loki', content=f'unstructured-data create({var_names})')
         pragma_end = ir.Pragma(keyword='loki', content=f'exit unstructured-data delete({var_names})')
         routine.body.prepend(pragma_start)
@@ -533,7 +646,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             new_args, new_kwargs, already_arg = self._determine_new_args(
                 relevant_vars, call, driver_loop_var=driver_loop.variable
             )
-            self._apply_new_args_to_call(call, new_args, new_kwargs, already_arg)
+            missing_args = self._apply_new_args_to_call(call, new_args, new_kwargs, already_arg)
 
             # Ensure driver loop variable is declared in callee
             if driver_loop.variable not in call.routine.variable_map:
@@ -548,6 +661,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
 
             # Update argument dimensions where rank mismatch
             self._update_argument_dims(call)
+            self._reorder_new_dummy_declarations(call.routine, missing_args)
 
             # Replace block indices with range indices in call args
             self._replace_block_indices_in_call(call)
@@ -594,7 +708,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             new_args, new_kwargs, already_arg = self._determine_new_args(
                 relevant_vars, call
             )
-            self._apply_new_args_to_call(call, new_args, new_kwargs, already_arg)
+            missing_args = self._apply_new_args_to_call(call, new_args, new_kwargs, already_arg)
 
             # Propagate imports for new args
             self._propagate_imports(new_args, call, all_import_map)
@@ -605,6 +719,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
 
             # Update argument dimensions where rank mismatch
             self._update_argument_dims(call)
+            self._reorder_new_dummy_declarations(call.routine, missing_args)
 
             # Replace block indices with range indices in call args
             self._replace_block_indices_in_call(call)

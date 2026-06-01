@@ -129,6 +129,15 @@ class SCCAnnotateTransformation(Transformation):
         routine.spec.append(routine_pragmas)
         routine.body = Transformer({pragma: None for pragma in routine_pragmas}).visit(routine.body)
 
+        # Keep explicit ACC data regions as-is. Adding a generic device-present
+        # wrapper on top of an existing ACC data region leads to duplicated
+        # ``acc data`` pragmas after PragmaModelTransformation.
+        if any(
+            pragma.keyword.lower() == 'acc' and 'data' in pragma.content.lower()
+            for pragma in FindNodes(ir.Pragma).visit(routine.body)
+        ):
+            return
+
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
         args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
