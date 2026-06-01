@@ -8,13 +8,13 @@
 from loki.batch import Transformation
 from loki.expression import Array
 from loki.ir import (
-    FindNodes, PragmaRegion, CallStatement, Pragma, Transformer,
-    pragma_regions_attached, get_pragma_parameters
+    nodes as ir, FindNodes, PragmaRegion, CallStatement, Pragma, Transformer,
+    pragma_regions_attached, pragmas_attached, get_pragma_parameters
 )
 from loki.logging import warning, error
 from loki.tools import as_tuple
 from loki.types import BasicType
-
+from loki.transformations.utilities import find_driver_loops
 
 __all__ = ['DataOffloadTransformation']
 
@@ -189,7 +189,7 @@ class DataOffloadTransformation(Transformation):
 
         routine.body = Transformer(pragma_map).visit(routine.body)
 
-    def remove_openmp_pragmas(self, routine, targets):
+    def remove_openmp_pragmas(self, routine, targets, include_driver_loops=False):
         """
         Remove any existing OpenMP pragmas in the offload regions that
         will have been intended for OpenMP threading rather than
@@ -202,12 +202,21 @@ class DataOffloadTransformation(Transformation):
         targets : list or string
             List of subroutines that are to be considered as part of
             the transformation call tree.
+        include_driver_loops : bool, optional
+            Also treat ``!$loki data`` regions containing driver loops as
+            active, even if they do not contain target kernel calls.
+            Default is ``False``.
         """
         pragma_map = {}
         with pragma_regions_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
                 # Only work on active `!$loki data` regions
-                if not self._is_active_loki_data_region(region, targets):
+                is_active = self._is_active_loki_data_region(region, targets)
+                if not is_active and include_driver_loops:
+                    with pragmas_attached(routine, ir.Loop):
+                        driver_loops = find_driver_loops(region.body, targets)
+                    is_active = len(driver_loops) > 0
+                if not is_active:
                     continue
 
                 for p in FindNodes(Pragma).visit(routine.body):

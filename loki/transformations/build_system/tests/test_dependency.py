@@ -964,6 +964,104 @@ END MODULE header_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_module_rename_respects_nonreplicated_members(tmp_path, frontend):
+    fcode = """
+module kernel_mod
+contains
+    subroutine kernel()
+    end subroutine kernel
+    subroutine kernel_loki()
+    end subroutine kernel_loki
+end module kernel_mod
+    """.strip()
+
+    filepath = tmp_path/'kernel_mod.F90'
+    filepath.write_text(fcode)
+
+    scheduler = Scheduler(
+        paths=[tmp_path],
+        config=SchedulerConfig.from_dict({
+            'default': {
+                'role': 'kernel',
+                'expand': True,
+                'strict': True,
+                'replicate': True,
+            },
+            'routines': {
+                'kernel_loki': {'replicate': False},
+            }
+        }),
+        seed_routines=['kernel_loki'], frontend=frontend, xmods=[tmp_path]
+    )
+
+    scheduler.process(DependencyTransformation(suffix='_test', module_suffix='_mod'))
+
+    kernel = scheduler['kernel_mod#kernel_loki'].source
+    assert len(kernel.modules) == 1
+    assert kernel.modules[0].name == 'kernel_mod'
+    assert 'kernel_test_mod' not in {module.name.lower() for module in kernel.modules}
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_dependency_transformation_import_keeps_unrenamed_module(tmp_path, frontend):
+    kernel_fcode = """
+module kernel_mod
+contains
+    subroutine kernel(a)
+        integer, intent(inout) :: a
+        a = a + 1
+    end subroutine kernel
+    subroutine not_kernel(a)
+        integer, intent(inout) :: a
+        a = a - 1
+    end subroutine not_kernel
+end module kernel_mod
+    """.strip()
+
+    driver_fcode = """
+subroutine driver(a)
+    use kernel_mod, only: kernel
+    integer, intent(inout) :: a
+    call kernel(a)
+end subroutine driver
+    """.strip()
+
+    (tmp_path/'kernel_mod.F90').write_text(kernel_fcode)
+    (tmp_path/'driver.F90').write_text(driver_fcode)
+
+    scheduler = Scheduler(
+        paths=[tmp_path],
+        config=SchedulerConfig.from_dict({
+            'default': {
+                'role': 'kernel',
+                'expand': True,
+                'strict': True,
+                'replicate': True,
+            },
+            'routines': {
+                'driver': {'role': 'driver', 'replicate': False},
+                'not_kernel': {'replicate': False},
+            }
+        }),
+        frontend=frontend, xmods=[tmp_path]
+    )
+
+    scheduler.process(DependencyTransformation(suffix='_test', module_suffix='_mod'))
+
+    assert 'kernel_mod#kernel_test' in scheduler.items
+    driver = scheduler['#driver'].source
+
+    calls = FindNodes(CallStatement).visit(driver['driver'].body)
+    assert len(calls) == 1
+    assert calls[0].name == 'kernel_test'
+
+    imports = FindNodes(Import).visit(driver['driver'].spec)
+    assert len(imports) == 1
+    assert imports[0].module.lower() == 'kernel_mod'
+    assert 'kernel_test' in [str(symbol).lower() for symbol in imports[0].symbols]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_dependency_transformation_filter_items_file_graph(tmp_path, frontend, config):
     """
     Ensure that the ``items`` list given to a transformation in

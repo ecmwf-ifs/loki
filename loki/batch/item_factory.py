@@ -168,6 +168,21 @@ class ItemFactory:
             for symbol in procedure_symbols
         )
 
+    @staticmethod
+    def _update_module_item_config(item, config):
+        """Amend module item config based on the replication of contained procedures."""
+        if config is None or not isinstance(item, ModuleItem) or isinstance(item, ExternalItem):
+            return item
+
+        item.concretize_definitions()
+        if any(
+            not config.create_item_config(f'{item.name}#{routine.name.lower()}').get('replicate', False)
+            for routine in item.ir.subroutines
+        ):
+            item.config['replicate'] = False
+
+        return item
+
     def get_or_create_item(self, item_cls, item_name, scope_name, config=None):
         """
         Helper method to instantiate an :any:`Item` of class :data:`item_cls`
@@ -204,7 +219,8 @@ class ItemFactory:
             The item object or `None` if disabled or impossible to create
         """
         if item_name in self.item_cache:
-            return self.item_cache[item_name]
+            item = self.item_cache[item_name]
+            return self._update_module_item_config(item, config)
 
         if not scope_name and item_name.count('#') == 2:
             # For an internal procedure that is contained in a procedure that
@@ -222,7 +238,7 @@ class ItemFactory:
             source = scope_item.source
             item = item_cls(item_name, source=source, config=item_conf)
         self.item_cache[item_name] = item
-        return item
+        return self._update_module_item_config(item, config)
 
     def get_or_create_item_from_item(self, name, item, config=None):
         """

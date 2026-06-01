@@ -31,6 +31,8 @@ from loki.transformations.field_api import (
         FieldAPITransferType, field_get_device_data, field_get_host_data, field_delete_device_data,
         FieldAPIAccessorType
 )
+from loki.transformations.utilities import find_driver_loops, get_integer_variable
+from loki.transformations.data_offload.offload import DataOffloadTransformation
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -122,29 +124,29 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
     write-only accesses to arguments, we have to bypass the intent. This is achieved here by importing
     the dataflow analysis of the child :any:`Subroutine` and ignoring the intents altogether.
     """
+    def __init__(self, successor_map, include_literal_kinds=False):
+        super().__init__(include_literal_kinds=include_literal_kinds)
+        self.successor_map = successor_map
 
-    def visit_CallStatement(self, o, **kwargs):
-
-        successor_map = kwargs['successor_map']
-
-        if not o.routine:
-            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {o}.'
+    def resolve_call_effects(self, call, *, attacher, **kwargs):
+        if not call.routine:
+            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
             raise RuntimeError(msg)
 
-        child = successor_map.get(o, None)
+        child = self.successor_map.get(call, None)
         if not child:
-            return self.visit_Node(o, **kwargs)
+            return None
 
         # remap root variable names to current scope
-        arg_map = get_sanitised_arg_map(o.arg_map)
+        arg_map = get_sanitised_arg_map(call.arg_map)
         child_analysis = child.trafo_data['DataOffloadDeepcopyAnalysis']['analysis']
         child_analysis = map_derived_type_arguments(arg_map, child_analysis)
 
         # Dimensions of array arguments must also be included in uses_symbols OrderedSet
         defines = OrderedSet()
-        array_args = [v for v in o.arg_map.values() if isinstance(v, sym.Array)]
+        array_args = [v for v in call.arg_map.values() if isinstance(v, sym.Array)]
         uses = OrderedSet(v for a in array_args
-                   for v in self._symbols_from_expr(a.dimensions))
+                   for v in attacher._symbols_from_expr(a.dimensions))
         for k, v in child_analysis.items():
 
             if 'read' in v:
@@ -152,7 +154,7 @@ class DeepcopyDataflowAnalysisAttacher(DataflowAnalysisAttacher):
             if 'write' in v:
                 defines |= {k}
 
-        return self.visit_Node(o, defines_symbols=defines, uses_symbols=uses, **kwargs)
+        return defines, uses
 
 class DataOffloadDeepcopyAnalysis(Transformation):
     """
@@ -283,6 +285,9 @@ class DataOffloadDeepcopyAnalysis(Transformation):
                     warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
 
+        #if routine.name.lower() == 'qmfixer':
+        #    import pdb
+        #    pdb.set_trace()
         # We store the collected analyses on item.trafo_data
         for loop in driver_loops:
             item.trafo_data[self._key]['analysis'][loop] = loop_analyses[loop]
@@ -447,8 +452,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
-    def __init__(self, mode):
+    def __init__(self, mode, remove_openmp=False):
         self.mode = mode
+        self.remove_openmp = remove_openmp
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -463,6 +469,8 @@ class DataOffloadDeepcopyTransformation(Transformation):
         targets = kwargs['targets']
 
         if role == 'driver':
+            transform = DataOffloadTransformation()
+            transform.remove_openmp_pragmas(routine, targets, include_driver_loops=True)
             self.process_driver(routine, item.trafo_data[self._key]['analysis'],
                                 item.trafo_data[self._key]['typedef_configs'], targets)
 
@@ -529,6 +537,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
         pragma_map = {}
         imports = defaultdict(tuple)
         symbol_map = routine.symbol_map | routine.all_imported_symbol_map
+        #if routine.name.lower() == 'qmfixer':
+        #    import pdb
+        #    pdb.set_trace()
         with pragma_regions_attached(routine):
             for region in FindNodes(ir.PragmaRegion).visit(routine.body):
 

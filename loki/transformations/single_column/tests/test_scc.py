@@ -204,6 +204,57 @@ def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
         f"z(:) should be resolved, got: {fgen(z_assigns2[0])}"
 
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_scc_base_driver_remove_update_view_calls(frontend, horizontal):
+    """
+    Test that SCCBaseTransformation removes ``*%update_view`` calls
+    from inside driver loops only.
+    """
+
+    fcode_driver = """
+  SUBROUTINE column_driver(nlon, nb, state)
+    USE type_module, ONLY: state_type
+    IMPLICIT NONE
+    INTEGER, INTENT(IN) :: nlon, nb
+    TYPE(state_type), INTENT(INOUT) :: state
+    INTEGER :: b, start, end
+
+    CALL state%update_view(0)
+
+    start = 1
+    end = nlon
+
+    DO b=1, nb
+      CALL state%update_view(b)
+      IF (b > 1) CALL state%update_view(b-1)
+      CALL state%other_call(b)
+      CALL compute_column(start, end, nlon, b)
+    END DO
+
+    CALL state%update_view(nb+1)
+  END SUBROUTINE column_driver
+"""
+
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver', targets=['compute_column'])
+
+    calls = FindNodes(CallStatement).visit(driver.body)
+    call_names = [str(call.name).lower() for call in calls]
+    assert call_names.count('state%update_view') == 2
+    assert 'state%other_call' in call_names
+    assert 'compute_column' in call_names
+
+    loops = FindNodes(Loop).visit(driver.body)
+    assert len(loops) == 1
+    loop_call_names = [str(call.name).lower() for call in FindNodes(CallStatement).visit(loops[0].body)]
+    assert 'state%update_view' not in loop_call_names
+    assert loop_call_names == ['state%other_call', 'compute_column']
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('rel_index', ('jl', 'jcol', 'ji'))
 @pytest.mark.parametrize('indices', (('jl', 'jcol', 'jlll'), ('jcol','jcol', 'jcol'),
