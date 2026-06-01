@@ -13,7 +13,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from loki import Dimension, Subroutine
+from loki import Dimension, Subroutine, fgen
 from loki.frontend import available_frontends, OMNI
 from loki.ir import FindNodes, FindVariables, Pragma
 
@@ -79,7 +79,7 @@ end subroutine
     skip=[(OMNI, 'OMNI parser not reliably available')]
 ))
 def test_get_block_index_derived_type(tmp_path, frontend):
-    """get_block_index resolves a %-separated derived-type path."""
+    """get_block_index resolves a %-separated derived-type path to its parent object."""
     fcode = """
 subroutine kernel(dims, field)
   implicit none
@@ -96,7 +96,7 @@ end subroutine
         routine, routine.variable_map, 'dims%ibl'
     )
     assert var is not None
-    assert var == 'dims%ibl'
+    assert var == 'dims'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -221,6 +221,53 @@ end subroutine
     var_names = {v.name.lower() for v in routine.variables}
     assert 'local_start' in var_names
     assert 'local_end' in var_names
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI parser not reliably available')]
+))
+def test_create_local_copies_derived_bounds_do_not_declare_members(
+        tmp_path, frontend):
+    """
+    Derived-type bounds/index members must not be materialised as standalone
+    declarations like ``INTEGER :: bounds%block``.
+    """
+    block_dim = Dimension(
+        name='block_dim', size='nb',
+        index=('ibl', 'bounds%block')
+    )
+    horizontal_derived = Dimension(
+        name='horizontal', size='nlon', index='jl',
+        bounds=('bounds%start', 'bounds%end'), aliases=('klon',)
+    )
+    fcode = """
+subroutine kernel(bounds, field)
+  implicit none
+  type :: bounds_t
+    integer :: block
+    integer :: start
+    integer :: end
+  end type
+  type(bounds_t), intent(in) :: bounds
+  real, intent(inout) :: field(10, 10)
+  integer :: jl
+
+  do jl = bounds%start, bounds%end
+    field(jl, bounds%block) = field(jl, bounds%block) + 1.0
+  end do
+end subroutine
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    trafo = CreateLocalCopiesTransformation(block_dim=block_dim, horizontal=horizontal_derived)
+    trafo._create_local_copies(routine)
+
+    code = fgen(routine).lower()
+    assert ':: bounds%block' not in code
+    assert ':: bounds%start' not in code
+    assert ':: bounds%end' not in code
+    assert ':: local_bounds%block' not in code
+    assert ':: local_bounds%start' not in code
+    assert ':: local_bounds%end' not in code
 
 
 # ---------------------------------------------------------------------------

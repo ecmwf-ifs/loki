@@ -453,8 +453,78 @@ class SCCBlockSectionTransformation(Transformation):
 
         return separator_nodes
 
+    @staticmethod
+    def _resolve_block_indices(routine, block_dim):
+        """Resolve block-dimension index strings to routine-scoped expressions."""
+        if routine is None:
+            return ()
+
+        variable_map = routine.variable_map
+        resolved_indices = []
+        for index in block_dim.indices:
+            if (resolved := variable_map.get(index, None)) is not None:
+                resolved_indices.append(resolved)
+                continue
+            parent = index.split('%', maxsplit=1)[0]
+            if parent in variable_map:
+                resolved_indices.append(routine.resolve_typebound_var(index, variable_map))
+        return as_tuple(resolved_indices)
+
     @classmethod
-    def extract_block_sections(cls, section, block_dim, successor_map):
+    def _section_references_block_index(cls, section, resolved_block_indices):
+        """Return True if a section references a resolved block index directly or in dimensions."""
+        for var in FindVariables().visit(section):
+            if resolved_block_indices:
+                if var in resolved_block_indices:
+                    return True
+                if any(
+                        dim in resolved_block_indices
+                        for dim in as_tuple(getattr(var, 'dimensions', None) or ())
+                ):
+                    return True
+        return False
+
+    @staticmethod
+    def _section_references_block_index_stringwise(section, block_dim):
+        """Fallback match for block-index references embedded in rendered variable expressions."""
+        block_indices = tuple(index.lower() for index in block_dim.indices)
+        for var in FindVariables().visit(section):
+            if any(index in str(var).lower() for index in block_indices):
+                return True
+            if any(
+                any(index in str(dim).lower() for index in block_indices)
+                for dim in as_tuple(getattr(var, 'dimensions', None) or ())
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _is_explicit_data_pragma(node):
+        """Return True for explicit data-management pragmas that must stay outside block loops."""
+        if not isinstance(node, ir.Pragma):
+            return False
+
+        keyword = node.keyword.lower()
+        content = node.content.lower()
+        if keyword == 'acc':
+            return ('enter' in content or 'exit' in content) and 'data' in content
+        if keyword == 'loki':
+            return 'unstructured-data' in content
+        return False
+
+    @classmethod
+    def _node_is_block_anchor(cls, node, resolved_block_indices, block_dim):
+        """Return True if the node itself should anchor a trimmed block section."""
+        if cls._is_explicit_data_pragma(node):
+            return False
+
+        return bool(
+            cls._section_references_block_index((node,), resolved_block_indices)
+            or cls._section_references_block_index_stringwise((node,), block_dim)
+        )
+
+    @classmethod
+    def extract_block_sections(cls, section, block_dim, successor_map, routine=None):
         """
         Extract contiguous sections of nodes that contain block-level
         computations, split at call statements annotated with
@@ -480,6 +550,9 @@ class SCCBlockSectionTransformation(Transformation):
         list of tuple
             List of node tuples representing extracted block sections.
         """
+        if routine is None and section:
+            routine = getattr(section[0], 'scope', None)
+
         calls = FindNodes(ir.CallStatement).visit(section)
         separator_nodes = []
 
@@ -509,21 +582,20 @@ class SCCBlockSectionTransformation(Transformation):
                 call, section, separator_nodes
             )
 
-        subsections = [
+        raw_subsections = [
             as_tuple(s)
             for s in split_at(
                 section, lambda n: n in separator_nodes
             )
         ]
+        resolved_block_indices = cls._resolve_block_indices(routine, block_dim)
 
         # Keep only subsections that reference block-dim indices or
         # contain resolved call statements
         subsections = [
-            s for s in subsections
-            if any(
-                index in FindVariables().visit(s)
-                for index in block_dim.indices
-            )
+            s for s in raw_subsections
+            if cls._section_references_block_index(s, resolved_block_indices)
+            or cls._section_references_block_index_stringwise(s, block_dim)
             or any(
                 call
                 for call in FindNodes(ir.CallStatement).visit(s)
@@ -535,13 +607,13 @@ class SCCBlockSectionTransformation(Transformation):
         for separator in separator_nodes:
             if isinstance(separator, ir.Conditional):
                 subsec_body = cls.extract_block_sections(
-                    separator.body, block_dim, successor_map
+                    separator.body, block_dim, successor_map, routine=routine
                 )
                 if subsec_body:
                     subsections += subsec_body
                 for ebody in separator.else_bodies:
                     subsections += cls.extract_block_sections(
-                        ebody, block_dim, successor_map
+                        ebody, block_dim, successor_map, routine=routine
                     )
 
             if isinstance(
@@ -549,12 +621,12 @@ class SCCBlockSectionTransformation(Transformation):
             ):
                 for body in separator.bodies:
                     subsec_body = cls.extract_block_sections(
-                        body, block_dim, successor_map
+                        body, block_dim, successor_map, routine=routine
                     )
                     if subsec_body:
                         subsections += subsec_body
                 subsec_else = cls.extract_block_sections(
-                    separator.else_body, block_dim, successor_map
+                    separator.else_body, block_dim, successor_map, routine=routine
                 )
                 if subsec_else:
                     subsections += subsec_else
@@ -585,6 +657,7 @@ class SCCBlockSectionTransformation(Transformation):
             The trimmed block sections.
         """
         trimmed_sections = ()
+        resolved_block_indices = cls._resolve_block_indices(routine, block_dim)
         with dataflow_analysis_attached(routine):
             for sec in sections:
                 block_nodes = [
@@ -593,6 +666,7 @@ class SCCBlockSectionTransformation(Transformation):
                         index.lower() in node.uses_symbols
                         for index in block_dim.indices
                     )
+                    and cls._node_is_block_anchor(node, resolved_block_indices, block_dim)
                 ]
                 if block_nodes:
                     start = sec.index(block_nodes[0])
@@ -617,8 +691,6 @@ class SCCBlockSectionTransformation(Transformation):
                         start = sec.index(call_nodes[0])
                         end = sec.index(call_nodes[-1])
                         trimmed_sections += (sec[start:end + 1],)
-                    else:
-                        trimmed_sections += (sec,)
 
         return trimmed_sections
 
@@ -708,7 +780,7 @@ class SCCBlockSectionTransformation(Transformation):
 
         with pragmas_attached(routine, ir.CallStatement):
             sections = self.extract_block_sections(
-                routine.body.body, self.block_dim, successor_map
+                routine.body.body, self.block_dim, successor_map, routine=routine
             )
 
         if self.trim_block_sections:

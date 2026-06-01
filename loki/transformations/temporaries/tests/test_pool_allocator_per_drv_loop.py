@@ -145,6 +145,90 @@ end subroutine driver
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI parser not reliably available')]
 ))
+def test_per_drv_loop_stack_pointer_inserted_after_resolved_block_index(
+        tmp_path, frontend, horizontal):
+    block_dim = Dimension(name='block_dim', size='nb', index=('ibl', 'bnds%kbl'))
+
+    fcode_kernel = """
+subroutine kernel_loc(nlon, nz, start, end, field1)
+  implicit none
+  integer, intent(in) :: nlon, nz, start, end
+  real, intent(inout) :: field1(nlon, nz)
+  real :: tmp1(nlon)
+  integer :: jl
+
+  do jl = start, end
+    tmp1(jl) = field1(jl, 1)
+    field1(jl, 1) = tmp1(jl)
+  end do
+end subroutine kernel_loc
+    """.strip()
+
+    fcode_driver = """
+subroutine driver_loc(nlon, nz, nproma, nb, kgpcomp, field1)
+  implicit none
+  integer, intent(in) :: nlon, nz, nproma, nb, kgpcomp
+  real, intent(inout) :: field1(nlon, nz, nb)
+  integer :: jkglo, kst, kend, ibl
+
+  !$loki driver-loop
+  do jkglo = 1, kgpcomp, nproma
+    kst = 1
+    kend = min(nproma, kgpcomp - jkglo + 1)
+    ibl = (jkglo - 1) / nproma + 1
+    call kernel_loc(nlon, nz, kst, kend, field1(:,:,ibl))
+  end do
+end subroutine driver_loc
+    """.strip()
+
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    driver.enrich(kernel)
+
+    transformation = TemporariesPoolAllocatorPerDrvLoopTransformation(
+        block_dim=block_dim, horizontal=horizontal, check_bounds=True
+    )
+
+    kernel_item = ProcedureItem(name='#kernel_loc', source=kernel, config={'role': 'kernel'})
+    driver_item = ProcedureItem(name='#driver_loc', source=driver, config={'role': 'driver'})
+
+    class MockSGraph:
+        def successors(self, item):
+            if item is driver_item:
+                return (kernel_item,)
+            return ()
+
+    sgraph = MockSGraph()
+
+    transformation.transform_subroutine(
+        kernel, role='kernel', item=kernel_item, targets=('kernel_loc',),
+        sub_sgraph=sgraph
+    )
+    transformation.transform_subroutine(
+        driver, role='driver', item=driver_item, targets=('kernel_loc',),
+        sub_sgraph=sgraph
+    )
+
+    loops = FindNodes(Loop).visit(driver.body)
+    driver_loop = [loop for loop in loops if loop.variable == 'jkglo'][0]
+    assignments = [node for node in driver_loop.body if isinstance(node, Assignment)]
+
+    ibl_assign_pos = next(
+        idx for idx, assignment in enumerate(assignments)
+        if assignment.lhs == 'ibl'
+    )
+    stack_assign_pos = next(
+        idx for idx, assignment in enumerate(assignments)
+        if assignment.lhs == 'ylstack_l'
+    )
+
+    assert stack_assign_pos > ibl_assign_pos
+    assert 'loc(zstack(1, ibl))' in str(assignments[stack_assign_pos].rhs).lower()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI parser not reliably available')]
+))
 def test_per_drv_loop_multiple_loops(tmp_path, frontend, block_dim, horizontal):
     """
     Test per-driver-loop pool allocator with multiple independent driver

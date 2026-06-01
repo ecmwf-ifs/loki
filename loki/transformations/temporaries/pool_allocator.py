@@ -381,8 +381,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         )
 
     def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
+        stack_size = InlineCall(
+            function=Variable(name='MAX'), parameters=(stack_size_var, IntLiteral(1)), kw_parameters=()
+        )
         stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-            stack_size_var, block_size)),))
+            stack_size, block_size)),))
         return stack_alloc
 
     def _get_stack_dealloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
@@ -440,6 +443,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         variables_append = []  # New variables to declare in the routine
 
+        existing_acc_data_vars = {
+            p.content.lower() for p in FindNodes(Pragma).visit(routine.body)
+            if p.keyword.lower() == 'acc' and 'data' in p.content.lower()
+        }
+
         if self.stack_size_name in variable_map:
             # Use an existing stack size declaration
             stack_size_var = routine.variable_map[self.stack_size_name]
@@ -479,9 +487,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
             body_prepend += [stack_alloc]
             pragma_data_start = self._get_pragma_start(routine, stack_storage)
-            body_prepend += [pragma_data_start]
             pragma_data_end = self._get_pragma_end(routine, stack_storage)
-            body_append += [pragma_data_end]
+
+            stack_name = stack_storage.name.lower()  # pylint: disable=no-member
+            explicit_acc_management = any(stack_name in content for content in existing_acc_data_vars)
+            if not explicit_acc_management:
+                body_prepend += [pragma_data_start]
+                body_append += [pragma_data_end]
             if stack_dealloc is not None:
                 body_append += [stack_dealloc]
 
@@ -733,6 +745,54 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         temporary_arrays = [
             var for var in temporary_arrays
             if not var.type.pointer or var.type.allocatable
+        ]
+
+        # Filter out temporaries that are already managed explicitly by data
+        # pragmas in the routine body. Pool-allocating them would rewrite them
+        # as Cray-pointer aliases and can break subsequent device data handling.
+        explicit_data_vars = set()
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            keyword = pragma.keyword.lower()
+            content = pragma.content.lower()
+            parameters = None
+
+            if keyword == 'acc':
+                if 'enter' in content and 'data' in content:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='enter data', only_loki_pragmas=False
+                    )
+                elif 'exit' in content and 'data' in content:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='exit data', only_loki_pragmas=False
+                    )
+            elif keyword == 'loki' and 'unstructured-data' in content:
+                if content.startswith('exit unstructured-data'):
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='exit unstructured-data', only_loki_pragmas=False
+                    )
+                else:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='unstructured-data', only_loki_pragmas=False
+                    )
+
+            if not parameters:
+                continue
+
+            parameters = {
+                key: ', '.join(as_tuple(value)) for key, value in parameters.items()
+            }
+            for category in ('create', 'delete'):
+                values = parameters.get(category, '')
+                if not values:
+                    continue
+                for entry in values.split(','):
+                    entry = entry.strip()
+                    if entry:
+                        explicit_data_vars.add(entry.lower())
+
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if var.name.lower() not in explicit_data_vars
         ]
 
         # Create stack argument and local stack var

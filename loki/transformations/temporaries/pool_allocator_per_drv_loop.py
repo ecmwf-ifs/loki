@@ -244,6 +244,14 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(TemporariesPoolAllocatorT
 
         # Find position for stack pointer assignment
         assignments = FindNodes(Assignment).visit(drv_loop.body)
+        block_index = self.get_block_index(routine, routine.variable_map)
+        if block_index is None:
+            warning(
+                f'{self.__class__.__name__}: '
+                f'Could not resolve block index in {routine.name}; '
+                f'no stack pointer assignment inserted!'
+            )
+            return drv_loop
 
         # Build set of block-dim index names (including local_ prefix)
         block_indices = set()
@@ -254,17 +262,26 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(TemporariesPoolAllocatorT
                 block_indices.add(idx.split('%')[-1].lower())
                 block_indices.add(f'local_{idx.split("%")[-1]}'.lower())
 
-        if str(drv_loop.variable).lower() in block_indices:
+        if drv_loop.variable == block_index or str(drv_loop.variable).lower() == str(block_index).lower():
             # Block variable is the loop variable
             assign_pos = -1
         else:
-            # Look for block-dim assignment in loop body
+            # Look for the exact assignment that defines the resolved block index
             assign_pos = None
             for assignment in assignments:
-                if str(assignment.lhs).lower() in block_indices:
+                if assignment.lhs == block_index or str(assignment.lhs).lower() == str(block_index).lower():
                     assert assignment in drv_loop.body
                     assign_pos = drv_loop.body.index(assignment)
                     break
+
+            # Fall back to broad block-index matching only if the exact symbol
+            # is not found directly in the top-level loop body.
+            if assign_pos is None:
+                for assignment in assignments:
+                    if str(assignment.lhs).lower() in block_indices:
+                        assert assignment in drv_loop.body
+                        assign_pos = drv_loop.body.index(assignment)
+                        break
 
             if assign_pos is None:
                 warning(
@@ -289,7 +306,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(TemporariesPoolAllocatorT
         if self.cray_ptr_loc_rhs:
             ptr_assignment = Assignment(lhs=stack_ptr, rhs=IntLiteral(1))
         else:
-            block_index = self.get_block_index(routine, routine.variable_map)
             ptr_assignment = Assignment(
                 lhs=stack_ptr, rhs=InlineCall(
                     function=Variable(name='LOC'),

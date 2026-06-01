@@ -11,7 +11,7 @@ Tests for :mod:`loki.transformations.single_column.block`.
 
 import pytest
 
-from loki import Dimension, Sourcefile
+from loki import Dimension, Sourcefile, fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -35,7 +35,7 @@ def block_dim():
     return Dimension(
         name='block_dim', size='nb', index='ibl',
         bounds=('1', 'nb'),
-        aliases=('ydcpg_bnds%kbl', 'jkglo'),
+        aliases=('bounds%kbl', 'block_global'),
     )
 
 
@@ -81,11 +81,11 @@ def test_block_section_extraction(frontend, block_dim):
     annotated with ``!$loki small-kernels``.
     """
     fcode_kernel = """
-subroutine compute_phys(ydcpg_bnds, nproma, nb)
+subroutine compute_phys(bounds, nproma, nb)
   implicit none
   integer, intent(in) :: nproma, nb
   integer :: ibl, jl
-  type(bounds_type), intent(in) :: ydcpg_bnds
+  type(bounds_type), intent(in) :: bounds
   real :: zfld(nproma, nb)
   real :: ztmp(nproma)
 
@@ -171,6 +171,46 @@ end subroutine trim_test
     assert assign_lhs.count('za(2, ibl)') == 1
     # The leading ztmp=42 and trailing ztmp=99 should be trimmed away
     assert assign_lhs.count('ztmp') == 0
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full module header')]
+))
+def test_block_section_trimming_keeps_setup_and_data_pragmas_outside(frontend, block_dim):
+    """
+    Leading scalar setup and explicit data-management pragmas must stay
+    outside trimmed block sections.
+    """
+    fcode = """
+subroutine trim_setup(nproma, nb, flag)
+  implicit none
+  integer, intent(in) :: nproma, nb
+  logical, intent(in) :: flag
+  integer :: ibl
+  character(len=4) :: mode_flag
+  real :: za(nproma, nb)
+  real :: work(nproma)
+
+  mode_flag = 'IBOT'
+  if (flag) mode_flag = 'INTG'
+  !$loki unstructured-data create(work)
+  za(1, ibl) = 1.0
+  !$loki exit unstructured-data delete(work)
+end subroutine trim_setup
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['trim_setup']
+
+    trimmed = SCCBlockSectionTransformation.get_trimmed_sections(
+        routine, block_dim, [routine.body.body]
+    )
+
+    assert len(trimmed) == 1
+    nodes = trimmed[0]
+    assert len(nodes) == 1
+    assert isinstance(nodes[0], ir.Assignment)
+    assert nodes[0].lhs == 'za(1, ibl)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -438,21 +478,21 @@ def test_create_local_copies_block_indices(frontend, horizontal):
     # Use a block_dim whose indices include the derived-type member
     block_dim_with_dt = Dimension(
         name='block_dim', size='nb',
-        index=('ibl', 'ydcpg_bnds%kbl'),
+        index=('ibl', 'bounds%kbl'),
         bounds=('1', 'nb'),
     )
 
     fcode = """
-subroutine localcopy_kernel(ydcpg_bnds, nproma, nb)
+subroutine localcopy_kernel(bounds, nproma, nb)
   implicit none
   integer, intent(in) :: nproma, nb
   type :: bounds_t
     integer :: kbl
   end type bounds_t
-  type(bounds_t), intent(in) :: ydcpg_bnds
+  type(bounds_t), intent(in) :: bounds
   real :: za(nproma, nb)
 
-  za(1, ydcpg_bnds%kbl) = 1.0
+  za(1, bounds%kbl) = 1.0
 end subroutine localcopy_kernel
     """.strip()
 
@@ -464,19 +504,19 @@ end subroutine localcopy_kernel
     )
     trafo._create_local_copies(routine)
 
-    # Should have a local_ydcpg_bnds variable (the parent of the
-    # derived-type member ydcpg_bnds%kbl is localized)
+    # Should have a local_bounds variable (the parent of the
+    # derived-type member bounds%kbl is localized)
     var_names = [v.name.lower() for v in routine.variables]
-    assert 'local_ydcpg_bnds' in var_names
+    assert 'local_bounds' in var_names
 
-    # Should have a local_ydcpg_bnds = ydcpg_bnds assignment at top
+    # Should have a local_bounds = bounds assignment at top
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     local_assigns = [
         a for a in assigns
         if 'local_' in str(a.lhs).lower()
     ]
     assert len(local_assigns) >= 1
-    assert local_assigns[0].lhs == 'local_ydcpg_bnds'
+    assert local_assigns[0].lhs == 'local_bounds'
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -532,6 +572,97 @@ end subroutine sub_kernel
     assert len(sections) >= 1
     # sub_kernel should be marked
     assert sub_item.trafo_data.get('BlockSectionTrafo') is True
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full module header')]
+))
+def test_block_section_nested_conditional_array_ref_block_index(frontend, block_dim):
+    """
+    Reproduce a nested-call pattern where block-index usage appears only
+    inside array references in pre/post-call loop regions.
+    """
+    block_dim_with_members = Dimension(
+        name='block_dim',
+        size=('GEOMETRY%DIMS%NBLOCKS', 'GEOM_INFO%DIMS%NBLOCKS'),
+        index=('IBL', 'BOUNDS%KBL', 'LOCAL_BOUNDS%KBL', 'BLOCK_GLOBAL')
+    )
+
+    fcode_kernel = """
+subroutine array_ref_block_kernel(nproma, kst, kend, klev, bounds)
+  implicit none
+  type bounds_type
+    integer :: kbl
+  end type bounds_type
+  integer, intent(in) :: nproma, kst, kend, klev
+  type(bounds_type), intent(in) :: bounds
+  integer :: jrof, jlev
+  logical :: lflag
+  real :: zphi(nproma, 0:klev+1, 10)
+  real :: phi(nproma, 0:klev, 10)
+  real :: phif(nproma, klev, 10)
+  real :: pt(nproma, klev, 10)
+  real :: pr(nproma, klev, 10)
+  real :: plnpr(nproma, klev, 10)
+
+  if (lflag) then
+    do jrof = kst, kend
+      do jlev = 1, klev
+        zphi(jrof, jlev, bounds%kbl) = pr(jrof, jlev, bounds%kbl) * pt(jrof, jlev, bounds%kbl)
+      end do
+      zphi(jrof, 0, bounds%kbl) = 0.0
+      zphi(jrof, klev + 1, bounds%kbl) = 0.0
+    end do
+
+    !$loki small-kernels
+    call child_kernel(nproma, klev, zphi, phif)
+
+    do jrof = kst, kend
+      do jlev = klev, 1, -1
+        phi(jrof, jlev - 1, bounds%kbl) = phi(jrof, jlev, bounds%kbl) + pr(jrof, jlev, bounds%kbl) * pt(jrof, jlev, bounds%kbl) * plnpr(jrof, jlev, bounds%kbl)
+      end do
+    end do
+  end if
+end subroutine array_ref_block_kernel
+    """.strip()
+
+    fcode_child = """
+subroutine child_kernel(nproma, klev, zphi, phif)
+  implicit none
+  integer, intent(in) :: nproma, klev
+  real, intent(in) :: zphi(nproma, 0:klev+1, 10)
+  real, intent(out) :: phif(nproma, klev, 10)
+end subroutine child_kernel
+    """.strip()
+
+    source = Sourcefile.from_source(
+        fcode_kernel + '\n' + fcode_child, frontend=frontend
+    )
+    routine = source['array_ref_block_kernel']
+    child = source['child_kernel']
+    routine.enrich(child)
+
+    child_item = _make_item(child, role='kernel')
+    successor_map = CaseInsensitiveDict({
+        'child_kernel': child_item,
+    })
+
+    with pragmas_attached(routine, ir.CallStatement):
+        sections = SCCBlockSectionTransformation.extract_block_sections(
+            routine.body.body, block_dim_with_members, successor_map
+        )
+
+    assert len(sections) == 2
+    assert child_item.trafo_data.get('BlockSectionTrafo') is True
+
+    for sec in sections:
+        vars_in_sec = tuple(FindVariables().visit(sec))
+        assert 'BOUNDS%KBL' in vars_in_sec
+        assert any('bounds%kbl' in str(var).lower() for var in vars_in_sec)
+
+    section_code = [tuple(fgen(node).lower() for node in sec) for sec in sections]
+    assert any(any('zphi(' in node for node in sec) for sec in section_code)
+    assert any(any('phi(' in node for node in sec) for sec in section_code)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -645,6 +776,7 @@ end subroutine sub_phys
 
     trafo = SCCBlockSectionTransformation(block_dim=block_dim)
     trafo.process_kernel(routine, item, successor_map)
+
 
     # There should be Section nodes labelled 'block_section'
     sections = [

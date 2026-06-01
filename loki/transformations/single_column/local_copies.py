@@ -15,6 +15,7 @@ derived-type component (e.g. ``YDCPG_BNDS%KIDIA``).
 
 from loki.batch import Transformation
 from loki.ir import (
+    nodes as ir,
     FindNodes, Pragma, Transformer, SubstituteExpressions,
     is_loki_pragma, get_pragma_parameters
 )
@@ -85,12 +86,15 @@ class CreateLocalCopiesTransformation(Transformation):
         ``horizontal._upper/_lower``) to a Loki variable in *routine*.
 
         Handles both plain names and ``%``-separated derived-type paths.
+        For derived-type components, this returns the parent object so local
+        copies can be created as valid Fortran symbols (e.g. ``local_bnds``),
+        rather than illegal component declarations like ``local_bnds%kbl``.
         """
         if (block_index := variable_map.get(index, None)):
             return block_index
         parent = index.split('%', maxsplit=1)[0]
         if parent in variable_map:
-            return routine.resolve_typebound_var(index, variable_map)
+            return routine.resolve_typebound_var(parent, variable_map)
         return None
 
     def _create_local_copies(self, routine):
@@ -126,6 +130,13 @@ class CreateLocalCopiesTransformation(Transformation):
         }
         routine.body = SubstituteExpressions(local_copy_map).visit(routine.body)
         routine.variables += as_tuple(local_copy_map.values())
+
+        new_assignments = tuple(
+            ir.Assignment(lhs=val, rhs=key)
+            for key, val in local_copy_map.items()
+        )
+        if new_assignments:
+            routine.body.prepend(new_assignments)
 
         # Remove replaced variable names from !$loki device-present pragmas.
         # We use create_local_copy (not local_copy_map) because an earlier

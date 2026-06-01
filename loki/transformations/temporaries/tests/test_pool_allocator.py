@@ -59,7 +59,7 @@ def check_stack_created_in_driver(
 
     # Is there an allocation and deallocation for the stack storage?
     allocations = FindNodes(Allocation).visit(driver.body)
-    assert len(allocations) == 1 and 'zstack(istsz,nb)' in allocations[0].variables
+    assert len(allocations) == 1 and 'zstack(max(istsz, 1),nb)' in allocations[0].variables
     deallocations = FindNodes(Deallocation).visit(driver.body)
     assert len(deallocations) == 1 and 'zstack' in deallocations[0].variables
 
@@ -131,7 +131,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
 
         istsz = {stack_size_str}
 
-        {'ALLOCATE(ZSTACK(ISTSZ, nb))' if trafo == TemporariesPoolAllocatorTransformation else 'CALL ECSTACK%GET_STACK_PTR(ZSTACK, ISTSZ, nb)'}
+        {'ALLOCATE(ZSTACK(MAX(ISTSZ, 1), nb))' if trafo == TemporariesPoolAllocatorTransformation else 'CALL ECSTACK%GET_STACK_PTR(ZSTACK, ISTSZ, nb)'}
     """
     if cray_ptr_loc_rhs:
         fcode_stack_assign = """
@@ -822,6 +822,45 @@ end module kernel_mod
         else:
             assert fcode.lower().count('if (ylstack_l > ylstack_u)') == 2
             assert fcode.lower().count('stop') == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_pool_allocator_skips_explicit_acc_managed_temporary(frontend, block_dim, horizontal):
+    fcode = """
+subroutine kernel(start, end, klon, klev, nb, field)
+    implicit none
+    integer, intent(in) :: start, end, klon, klev, nb
+    real, intent(inout) :: field(klon, klev, nb)
+    real :: work(klon, nb)
+    integer :: jl, jk
+
+    !$acc enter data create(work)
+    do jk=1,klev
+        do jl=start,end
+            work(jl, 1) = field(jl, jk, 1)
+        end do
+    end do
+    !$acc exit data delete(work)
+end subroutine kernel
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    trafo = TemporariesPoolAllocatorTransformation(
+        block_dim=block_dim, horizontal=horizontal, check_bounds=False
+    )
+
+    stack_size = trafo.apply_pool_allocator_to_temporaries(routine)
+
+    pointers = [
+        intrinsic.text.split(',')[1].replace(')', '').replace(' ', '')
+        for intrinsic in FindNodes(Intrinsic).visit(routine.spec)
+        if 'pointer' in intrinsic.text.lower()
+    ]
+    assignments = FindNodes(Assignment).visit(routine.body)
+
+    assert 'work' not in pointers
+    assert all('ip_work' not in assignment.lhs for assignment in assignments)
+    assert stack_size == 0
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
