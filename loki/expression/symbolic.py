@@ -10,7 +10,6 @@ import enum
 from functools import reduce
 from math import gcd, floor
 import operator as _op
-import numpy as np
 import pymbolic.primitives as pmbl
 
 from loki.expression.mappers import LokiIdentityMapper
@@ -339,7 +338,7 @@ def separate_coefficients(expr, int_arithmetic=True, fp_arithmetic=False):
          The constant coefficient and remaining non-constant sub-expressions.
     """
     def _process(child):
-        if (int_arithmetic or fp_arithmetic) and isinstance(child, (int, np.integer)):
+        if (int_arithmetic or fp_arithmetic) and isinstance(child, int):
             return child, False, None
         if (int_arithmetic or fp_arithmetic) and isinstance(child, sym.IntLiteral):
             return child.value, False, None
@@ -491,7 +490,7 @@ def accumulate_polynomial_terms(expr):
             else:
                 # We sort the components using their string representation
                 summands[as_tuple(sorted(remaining_components, key=str))] += value
-        elif isinstance(item, (int, np.integer)):
+        elif isinstance(item, int):
             summands[1] += item
         elif isinstance(item, sym.IntLiteral):
             summands[1] += item.value
