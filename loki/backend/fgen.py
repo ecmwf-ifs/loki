@@ -206,7 +206,7 @@ class FortranCodegen(Stringifier):
             prefix += ' '
         if not o.result_name in o.variable_map:
             prefix += f'{self.visit(o.return_type)} '
-        arguments = self.join_items(o.argnames)
+        arguments = self.join_items(tuple(a.name for a in o.arguments))
         result = f' RESULT({o.result_name})' if o.result_name\
                 and o.result_name.lower() != o.name.lower() else ''
         if isinstance(o.bind, str):
@@ -254,7 +254,7 @@ class FortranCodegen(Stringifier):
         prefix = self.join_items(o.prefix, sep=' ')
         if o.prefix:
             prefix += ' '
-        arguments = self.join_items(o.argnames)
+        arguments = self.join_items(tuple(a.name for a in o.arguments))
         if isinstance(o.bind, str):
             bind_c = f' BIND(c, name="{o.bind}")'
         elif isinstance(o.bind, StringLiteral):

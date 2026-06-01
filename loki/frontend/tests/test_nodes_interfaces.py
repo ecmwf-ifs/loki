@@ -50,7 +50,7 @@ end subroutine interface_subroutine_integration
     assert 'proc' in routine.symbols
     assert routine.symbol_map['proc'] == interface.symbols[0]
     assert 'proc' in routine.arguments
-    assert 'proc' in [arg.lower() for arg in routine.argnames]
+    assert 'proc' in routine.argnames
     assert routine.symbol_map['proc'].type.dtype.procedure is interface.body[0]
 
     code = routine.to_fortran().lower()

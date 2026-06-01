@@ -86,26 +86,26 @@ end subroutine routine_b
     assert routine.name == 'routine_b'
     assert not routine.is_function
     assert routine.arguments == ()
-    assert routine.argnames == []
+    assert routine.argnames == ()
     assert [r.name for r in routine.subroutines] == ['contained_e', 'contained_c', 'contained_d']
 
     contained_c = routine['contained_c']
     assert contained_c.name == 'contained_c'
     assert not contained_c.is_function
     assert contained_c.arguments == ()
-    assert contained_c.argnames == []
+    assert contained_c.argnames == ()
 
     contained_e = routine['contained_e']
     assert contained_e.name == 'contained_e'
     assert contained_e.is_function
     assert contained_e.arguments == ()
-    assert contained_e.argnames == []
+    assert contained_e.argnames == ()
 
     contained_d = routine['contained_d']
     assert contained_d.name == 'contained_d'
     assert not contained_d.is_function
     assert contained_d.arguments == ()
-    assert contained_d.argnames == []
+    assert contained_d.argnames == ()
 
     code = routine.to_fortran()
     assert code.count('SUBROUTINE') == 6
@@ -282,14 +282,14 @@ def test_regex_sourcefile_from_file(testdir):
     assert routine_b.name == 'routine_b'
     assert not routine_b.is_function
     assert routine_b.arguments == ()
-    assert routine_b.argnames == []
+    assert routine_b.argnames == ()
     assert [r.name for r in routine_b.subroutines] == ['contained_c']
 
     function_d = sourcefile['function_d']
     assert function_d.name == 'function_d'
     assert function_d.is_function
     assert function_d.arguments == ()
-    assert function_d.argnames == []
+    assert function_d.argnames == ()
     assert not function_d.contains
 
     code = sourcefile.to_fortran()
