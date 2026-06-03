@@ -43,6 +43,18 @@ pylint --rcfile .pylintrc <relevant paths>
 For broader validation, keep using the same activated environment and local `.pylintrc`.
 
 
+## Commit Message Style
+
+When creating commits in this repository:
+
+- Use a sub-package or area marker in the subject, followed by a colon.
+- Keep the subject concise and imperative, for example:
+  `JIT: Add isolated JIT execution helper`
+  `Transformations: Isolate parametrise JIT test execution`
+- Wrap commit body lines like Python docstrings, preferably around 72 characters.
+- Use the body to explain why the change is needed and what behavior it protects.
+
+
 ## Loki Test Assertions
 
 When editing or adding tests, prefer assertions that match Loki's native IR and expression semantics rather than assertions that depend on rendered source formatting.
@@ -63,4 +75,3 @@ When editing test imports, keep `loki.*` import lines ordered alphabetically by 
   - Avoid: `(str(loop.variable), str(loop.bounds.start), str(loop.bounds.stop), ... )`
 - Use stringification only when the test is explicitly about rendered output, pretty-printing, or a node type that does not compare reliably through Loki's native equality support.
 - If stringification is still necessary in a structural test, keep it narrowly scoped and document why.
-
