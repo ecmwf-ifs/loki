@@ -8,8 +8,10 @@
 from pathlib import Path
 import os
 import pytest
+import numpy as np
 
-from loki.jit_build import Obj, Lib, Builder, run_isolated
+from loki import Subroutine
+from loki.jit_build import Obj, Lib, Builder, run_isolated, jit_compile_and_run
 from loki.jit_build.compiler import  (
     Compiler, GNUCompiler, NvidiaCompiler, get_compiler_from_env,
     _default_compiler
@@ -87,6 +89,51 @@ def test_run_isolated_nonzero_exit():
     with pytest.raises(RuntimeError) as excinfo:
         run_isolated(_isolated_exit, 7)
     assert 'exit code 7' in str(excinfo.value)
+
+
+def test_jit_compile_and_run_in_process(tmp_path):
+    """
+    Test that jit_compile_and_run executes compiled sources in-process by default.
+    """
+    source = """
+subroutine fill_array(a, n)
+  integer, intent(inout) :: a(n)
+  integer, intent(in) :: n
+  integer :: j
+  do j=1,n
+    a(j) = j
+  end do
+end subroutine fill_array
+"""
+    routine = Subroutine.from_source(source)
+    n = 5
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    jit_compile_and_run(routine, filepath=tmp_path/'fill_array.F90', objname='fill_array', a=a, n=n)
+    assert np.all(a == range(1, n+1))
+
+
+def test_jit_compile_and_run_isolated(tmp_path):
+    """
+    Test that jit_compile_and_run can isolate compile-and-execute cycles.
+    """
+    source = """
+subroutine fill_array(a, n)
+  integer, intent(inout) :: a(n)
+  integer, intent(in) :: n
+  integer :: j
+  do j=1,n
+    a(j) = j
+  end do
+end subroutine fill_array
+"""
+    routine = Subroutine.from_source(source)
+    n = 5
+    a = np.zeros(shape=(n,), dtype=np.int32)
+    result = jit_compile_and_run(
+        routine, filepath=tmp_path/'fill_array_isolated.F90', objname='fill_array', isolated=True, a=a, n=n
+    )
+    assert result is None
+    assert np.all(a == range(1, n+1))
 
 
 def test_build_clean(builder):

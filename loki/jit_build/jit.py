@@ -24,7 +24,7 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple, gettempdir, filehash
 
 
-__all__ = ['jit_compile', 'jit_compile_lib', 'run_isolated', 'clean_test']
+__all__ = ['jit_compile', 'jit_compile_and_run', 'jit_compile_lib', 'run_isolated', 'clean_test']
 
 
 _f90wrap_kind_map = Path(__file__).parent.parent/'tests/kind_map'
@@ -90,6 +90,64 @@ def run_isolated(target, *args, multiprocessing_context='fork', exit_after_resul
     if kind == 'result':
         return payload
     return None
+
+
+def _jit_compile_and_run(source, args, kwargs, filepath, objname):
+    """
+    JIT-compile ``source`` and execute the selected entry point.
+    """
+    function = jit_compile(source, filepath=filepath, objname=objname)
+    result = function(*args, **kwargs)
+    return result, args, kwargs
+
+
+def _copy_back_arguments(original, updated):
+    """
+    Copy updated array-like argument values back into the caller objects.
+    """
+    for original_value, updated_value in zip(original, updated):
+        if hasattr(original_value, '__setitem__') and hasattr(original_value, 'shape'):
+            original_value[...] = updated_value
+
+
+def jit_compile_and_run(source, *args, filepath=None, objname=None, isolated=False,
+                        multiprocessing_context='fork', exit_after_result=False, **kwargs):
+    """
+    JIT-compile a source item and execute the selected entry point.
+
+    The complete compile, load, and execution cycle can optionally run in a
+    short-lived subprocess to isolate native extension module state from the
+    parent test process.
+
+    Parameters
+    ----------
+    source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
+        The item to compile and load.
+    *args : tuple
+        Positional arguments passed to the compiled entry point.
+    filepath : str or :any:`Path`, optional
+        Path of the source file to write.
+    objname : str, optional
+        Name of the compiled object to execute.
+    isolated : bool, optional
+        Run the compile-and-execute cycle via :any:`run_isolated` when enabled.
+    multiprocessing_context : str, optional
+        Multiprocessing start method used for isolated execution.
+    exit_after_result : bool, optional
+        Exit the isolated child immediately after reporting the result.
+    **kwargs : dict
+        Keyword arguments passed to the compiled entry point.
+    """
+    if isolated:
+        result, updated_args, updated_kwargs = run_isolated(
+            _jit_compile_and_run, source, args, kwargs, filepath, objname,
+            multiprocessing_context=multiprocessing_context, exit_after_result=exit_after_result
+        )
+        _copy_back_arguments(args, updated_args)
+        _copy_back_arguments(kwargs.values(), updated_kwargs.values())
+        return result
+    result, _, _ = _jit_compile_and_run(source, args, kwargs, filepath, objname)
+    return result
 
 
 def jit_compile(source, filepath=None, objname=None):
