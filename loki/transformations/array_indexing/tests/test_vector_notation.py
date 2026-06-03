@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine, Dimension
-from loki.jit_build import jit_compile, jit_compile_lib, Builder, Obj
+from loki.jit_build import jit_compile_and_run, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables
@@ -70,8 +70,7 @@ end subroutine transform_resolve_vector_notation
     ret2 = np.zeros(shape=(3, 5), order='F', dtype=np.int32)
 
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    function(ret1, ret2)
+    jit_compile_and_run(routine, ret1, ret2, filepath=filepath)
 
     assert np.all(ret1 == 11)
     assert np.all(ret2 == 42)
@@ -133,8 +132,6 @@ end subroutine transform_resolve_vector_notation_common_loops
     routine = Subroutine.from_source(fcode, frontend=frontend)
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
     n = 3
     m = 2
     l = 3
@@ -144,7 +141,8 @@ end subroutine transform_resolve_vector_notation_common_loops
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     vector_2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
-    function(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
+    jit_compile_and_run(routine, scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia,
+                        filepath=filepath)
 
     assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
@@ -200,8 +198,6 @@ end subroutine transform_resolve_vector_notation_common_loops
 
     # Test promoted routine
     resolved_filepath = tmp_path/(f'{routine.name}_resolved_{frontend}.f90')
-    resolved_function = jit_compile(routine, filepath=resolved_filepath, objname=routine.name)
-
     n = 3
     m = 2
     l = 3
@@ -211,7 +207,8 @@ end subroutine transform_resolve_vector_notation_common_loops
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     vector_2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
-    resolved_function(scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia)
+    jit_compile_and_run(routine, scalar, vector, vector_2, matrix, n, m, l, kidia, kfdia,
+                        filepath=resolved_filepath)
 
     assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)

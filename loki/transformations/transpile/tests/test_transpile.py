@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine, Module, cgen, cppgen, cudagen, FindNodes
-from loki.jit_build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
+from loki.jit_build import jit_compile, jit_compile_and_run, jit_compile_lib, clean_test, Builder, Obj
 import loki.expression.symbols as sym
 from loki.frontend import available_frontends
 from loki import ir
@@ -127,13 +127,11 @@ end subroutine simple_loops
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'simple_loops{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='simple_loops')
-
     n, m = 3, 4
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F') + 3.
     tensor = np.zeros(shape=(n, m), order='F') + 4.
-    function(n, m, scalar, vector, tensor)
+    jit_compile_and_run(routine, n, m, scalar, vector, tensor, filepath=filepath)
 
     assert np.all(vector == 8.)
     assert np.all(tensor == [[11., 21., 31., 41.],
@@ -231,8 +229,7 @@ end subroutine transpile_arguments
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'transpile_arguments{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='transpile_arguments')
-    a, b, c = function(n, array, array_io, a_io, b_io, c_io)
+    a, b, c = jit_compile_and_run(routine, n, array, array_io, a_io, b_io, c_io, filepath=filepath)
 
     assert np.all(array == 3.) and array.size == n
     assert np.all(array_io == 6.)
@@ -557,13 +554,11 @@ end subroutine transp_vect
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'transp_vect{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='transp_vect')
-
     n, m = 3, 4
     scalar = 2.0
     v1 = np.zeros(shape=(n,), order='F')
     v2 = np.zeros(shape=(n,), order='F')
-    function(n, m, scalar, v1, v2)
+    jit_compile_and_run(routine, n, m, scalar, v1, v2, filepath=filepath)
 
     assert np.all(v1 == 3.)
     assert v2[0] == 1. and np.all(v2[1:] == 4.)
@@ -617,11 +612,11 @@ end subroutine transpile_intrinsics
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'transpile_intrinsics{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='transpile_intrinsics')
-
     # Test the reference solution
     v1, v2, v3, v4 = 2., 4., 1., 5.
-    vmin, vmax, vabs, vmin_nested, vmax_nested = function(v1, v2, v3, v4)
+    vmin, vmax, vabs, vmin_nested, vmax_nested = jit_compile_and_run(
+        routine, v1, v2, v3, v4, filepath=filepath
+    )
     assert vmin == 2. and vmax == 4. and vabs == 2.
     assert vmin_nested == 1. and vmax_nested == 5.
 
@@ -678,8 +673,6 @@ end subroutine transp_loop_ind
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'transp_loop_ind{"_c_ptr" if use_c_ptr else ""}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='transp_loop_ind')
-
     # Test the reference solution
     n = 6
     cidx, fidx = 3, 4
@@ -687,7 +680,7 @@ end subroutine transp_loop_ind
     mask2 = np.zeros(shape=(n,), order='F', dtype=np.int32)
     mask3 = np.zeros(shape=(n,), order='F', dtype=np.float64)
 
-    function(n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3)
+    jit_compile_and_run(routine, n=n, idx=fidx, mask1=mask1, mask2=mask2, mask3=mask3, filepath=filepath)
     assert np.all(mask1[:cidx-1] == 1)
     assert mask1[cidx] == 2
     assert np.all(mask1[cidx+1:] == 0)
@@ -1028,12 +1021,10 @@ end subroutine transpile_expressions
     # Generate reference code, compile run and verify
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/f'{routine.name}{"_c_ptr" if use_c_ptr else ""}_{frontend!s}.f90'
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
     n = 10
     scalar = 2.0
     vector = np.zeros(shape=(n,), order='F')
-    function(n, scalar, vector)
+    jit_compile_and_run(routine, n, scalar, vector, filepath=filepath)
 
     assert np.all(vector == [i * scalar for i in range(1, n+1)])
 

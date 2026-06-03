@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine
-from loki.jit_build import jit_compile
+from loki.jit_build import jit_compile_and_run
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 
@@ -59,14 +59,12 @@ end subroutine transform_demote_variables
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
     n = 3
     m = 2
     scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
-    function(scalar, vector, matrix, n, m)
+    jit_compile_and_run(routine, scalar, vector, matrix, n, m, filepath=filepath)
 
     assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
@@ -87,14 +85,12 @@ end subroutine transform_demote_variables
 
     # Test promoted routine
     demoted_filepath = tmp_path/(f'{routine.name}_demoted_{frontend}.f90')
-    demoted_function = jit_compile(routine, filepath=demoted_filepath, objname=routine.name)
-
     n = 3
     m = 2
     scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
     matrix = np.zeros(shape=(n, n), order='F', dtype=np.int32)
-    demoted_function(scalar, vector, matrix, n, m)
+    jit_compile_and_run(routine, scalar, vector, matrix, n, m, filepath=demoted_filepath)
 
     assert scalar == 3
     assert np.all(vector == np.arange(1, n + 1)*2)
@@ -134,8 +130,6 @@ end subroutine transform_demote_dimension_arguments
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
     assert isinstance(routine.variable_map['vec1'], sym.Array)
     assert routine.variable_map['vec1'].shape == (routine.variable_map['n'],)
     assert isinstance(routine.variable_map['vec2'], sym.Array)
@@ -148,7 +142,7 @@ end subroutine transform_demote_dimension_arguments
     vec1 = np.zeros(shape=(n,), order='F', dtype=np.int32) + 3
     vec2 = np.zeros(shape=(n,), order='F', dtype=np.int32) + 2
     matrix = np.zeros(shape=(n, m), order='F', dtype=np.int32) + 1
-    function(vec1, vec2, matrix, n, m)
+    jit_compile_and_run(routine, vec1, vec2, matrix, n, m, filepath=filepath)
 
     assert np.all(vec1 == 3) and np.sum(vec1) == 9
     assert np.all(vec2 == 2) and np.sum(vec2) == 6
@@ -164,14 +158,12 @@ end subroutine transform_demote_dimension_arguments
 
     # Test promoted routine
     demoted_filepath = tmp_path/(f'{routine.name}_demoted_{frontend}.f90')
-    demoted_function = jit_compile(routine, filepath=demoted_filepath, objname=routine.name)
-
     n = 3
     m = 2
     vec1 = np.array(3)
     vec2 = np.zeros(shape=(n,), order='F', dtype=np.int32) + 2
     matrix = np.zeros(shape=(m, ), order='F', dtype=np.int32) + 1
-    demoted_function(vec1, vec2, matrix, n, m)
+    jit_compile_and_run(routine, vec1, vec2, matrix, n, m, filepath=demoted_filepath)
 
     assert vec1 == 3
     assert np.all(vec2 == 2) and np.sum(vec2) == 6

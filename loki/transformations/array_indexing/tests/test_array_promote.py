@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine
-from loki.jit_build import jit_compile
+from loki.jit_build import jit_compile_and_run
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 
@@ -38,8 +38,7 @@ end subroutine transform_promote_variable_scalar
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-    ret = function()
+    ret = jit_compile_and_run(routine, filepath=filepath)
     assert ret == 55
 
     # Apply and test the transformation
@@ -49,8 +48,7 @@ end subroutine transform_promote_variable_scalar
     assert routine.variable_map['tmp'].shape == (sym.Literal(10),)
 
     promoted_filepath = tmp_path/(f'{routine.name}_promoted_{frontend}.f90')
-    promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
-    ret = promoted_function()
+    ret = jit_compile_and_run(routine, filepath=promoted_filepath)
     assert ret == 55
 
 
@@ -92,12 +90,10 @@ end subroutine transform_promote_variables
 
     # Test the original implementation
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
-
     n = 10
     scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
-    function(scalar, vector, n)
+    jit_compile_and_run(routine, scalar, vector, n, filepath=filepath)
     assert scalar == n*n
     assert np.all(vector == np.array(list(range(1, 2*n+1, 2)), order='F', dtype=np.int32) + n + 1)
 
@@ -132,11 +128,9 @@ end subroutine transform_promote_variables
 
     # Test promoted routine
     promoted_filepath = tmp_path/(f'{routine.name}_promoted_{frontend}.f90')
-    promoted_function = jit_compile(routine, filepath=promoted_filepath, objname=routine.name)
-
     scalar = np.array(0)
     vector = np.zeros(shape=(n,), order='F', dtype=np.int32)
-    promoted_function(scalar, vector, n)
+    jit_compile_and_run(routine, scalar, vector, n, filepath=promoted_filepath)
     assert scalar == n*(n+1)//2
     assert np.all(vector[:-1] == np.array(list(range(n + 1, 2*n)), order='F', dtype=np.int32))
     assert vector[-1] == 3*n

@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine
-from loki.jit_build import jit_compile_lib, Builder, Obj, jit_compile, clean_test
+from loki.jit_build import jit_compile_lib, Builder, Obj, jit_compile_and_run, clean_test
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 from loki.expression import symbols as sym, parse_expr
@@ -222,19 +222,19 @@ end subroutine kernel
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
     # test original function
     a, b = np.array(1, dtype=np.int32), np.array(2, dtype=np.int32)
-    function(a=a, b=b)
+    jit_compile_and_run(routine, filepath=filepath, a=a, b=b)
     assert a == 15
 
     inline_constant_parameters(routine=routine, external_only=False)
 
     transf_filepath = tmp_path/(f'{routine.name}_transf_{frontend}.f90')
-    transf_function = jit_compile(routine, filepath=transf_filepath, objname=routine.name)
     # test transformed function
     transf_a, transf_b = np.array(1, dtype=np.int32), np.array(2, dtype=np.int32)
-    transf_function(a=transf_a, b=transf_b)
+    jit_compile_and_run(
+        routine, filepath=transf_filepath, a=transf_a, b=transf_b
+    )
     assert transf_a == 15
 
     # check IR

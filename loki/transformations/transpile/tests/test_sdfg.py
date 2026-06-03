@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from loki import Subroutine
-from loki.jit_build import jit_compile
+from loki.jit_build import jit_compile_and_run
 from loki.frontend import available_frontends
 
 from loki.transformations.transpile import FortranPythonTransformation
@@ -74,14 +74,12 @@ end subroutine routine_copy
 
     # Test the reference solution
     filepath = tmp_path/(f'routine_copy_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_copy')
-
     n = 64
     x_ref = np.array(range(n), dtype=np.float64)
     x = np.zeros(n, dtype=np.float64)
     x[:] = x_ref[:]
     y = np.zeros(n, dtype=np.float64)
-    function(n=n, x=x, y=y)
+    jit_compile_and_run(routine, n=n, x=x, y=y, filepath=filepath)
     assert all(x_ref == y)
 
     # Create and compile the SDFG
@@ -118,13 +116,11 @@ end subroutine routine_axpy_scalar
 
     # Test the reference solution
     filepath = tmp_path/(f'sdfg_routine_axpy_scalar_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_axpy_scalar')
-
     a = np.float64(23)
     x = np.float64(42)
     x_out = np.array([x], dtype=np.float64)
     y = np.float64(5)
-    function(a=a, x=x_out, y=y)
+    jit_compile_and_run(routine, a=a, x=x_out, y=y, filepath=filepath)
     assert x_out == a * x + y
 
     # Create and compile the SDFG
@@ -163,13 +159,13 @@ end subroutine routine_copy_stream
 
     # Test the reference solution
     filepath = tmp_path/(f'sdfg_routine_copy_stream_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_copy_stream')
-
     length = 32
     alpha = np.array([7], dtype=np.int32)
     vector_in = np.array(range(length), order='F', dtype=np.int32)
     vector_out = np.zeros(length, order='F', dtype=np.int32)
-    function(length=length, alpha=alpha, vector_in=vector_in, vector_out=vector_out)
+    jit_compile_and_run(
+        routine, length=length, alpha=alpha, vector_in=vector_in, vector_out=vector_out, filepath=filepath
+    )
     assert np.all(vector_out == np.array(range(length)) + alpha)
 
     # Create and compile the SDFG
@@ -212,8 +208,6 @@ end subroutine routine_fixed_loop
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'sdfg_routine_fixed_loop_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_fixed_loop')
-
     # Test the reference solution
     n, m = 6, 4
     scalar = np.array([2.0], dtype=np.float64)
@@ -222,7 +216,10 @@ end subroutine routine_fixed_loop
     tensor_out = np.zeros(shape=(m, n), order='F')
     ref_vector = vector + np.array(list(range(n)), dtype=np.float64) + 1.
     ref_tensor = np.transpose(tensor)
-    function(scalar=scalar, vector=vector, vector_out=vector, tensor=tensor, tensor_out=tensor_out)
+    jit_compile_and_run(
+        routine, scalar=scalar, vector=vector, vector_out=vector, tensor=tensor, tensor_out=tensor_out,
+        filepath=filepath
+    )
     assert np.all(vector == ref_vector)
     assert np.all(tensor_out == ref_tensor)
 
@@ -266,13 +263,11 @@ end subroutine routine_loop_carried_dependency
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'sdfg_routine_loop_carried_dependency_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_loop_carried_dependency')
-
     # Test the reference solution
     n = 32
     vector = np.zeros(shape=(n,), order='F') + 3.
     ref_vector = np.array(list(itertools.accumulate(vector)))
-    function(vector=vector)
+    jit_compile_and_run(routine, vector=vector, filepath=filepath)
     assert np.all(vector == ref_vector)
 
     # Create and compile the SDFG
@@ -336,8 +331,6 @@ end subroutine routine_moving_average
     """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'sdfg_routine_moving_average_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='routine_moving_average')
-
     # Create random input data
     n = 32
     data_in = np.array(np.random.rand(n), order='F')
@@ -350,7 +343,7 @@ end subroutine routine_moving_average
 
     # Test the Fortran kernel
     data_out = np.zeros(shape=(n,), order='F')
-    function(length=n, data_in=data_in, data_out=data_out)
+    jit_compile_and_run(routine, length=n, data_in=data_in, data_out=data_out, filepath=filepath)
     assert np.all(data_out[1:-1] == expected[1:-1])
 
     # Create and compile the SDFG
