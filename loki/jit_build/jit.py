@@ -44,7 +44,8 @@ def _run_isolated_worker(conn, target, args, kwargs, exit_after_result):
         os._exit(0)  # pylint: disable=protected-access
 
 
-def run_isolated(target, *args, multiprocessing_context='fork', exit_after_result=False, **kwargs):
+def run_isolated(target, *args, multiprocessing_context='fork', exit_after_result=False,
+                 timeout=None, **kwargs):
     """
     Execute ``target`` in a short-lived subprocess and return its result.
 
@@ -66,6 +67,8 @@ def run_isolated(target, *args, multiprocessing_context='fork', exit_after_resul
         Exit the child process immediately after reporting the result, bypassing
         interpreter shutdown. This is useful for native extension tests where
         finalizers can crash after successful execution.
+    timeout : int or float, optional
+        Maximum time in seconds to wait for the isolated child process.
     """
     ctx = get_context(multiprocessing_context)
     parent_conn, child_conn = ctx.Pipe(duplex=False)
@@ -74,7 +77,13 @@ def run_isolated(target, *args, multiprocessing_context='fork', exit_after_resul
     )
     process.start()
     child_conn.close()
-    process.join()
+    process.join(timeout=timeout)
+
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        parent_conn.close()
+        raise RuntimeError(f'Isolated process timed out after {timeout} seconds')
 
     try:
         has_payload = parent_conn.poll()
@@ -110,8 +119,9 @@ def _copy_back_arguments(original, updated):
             original_value[...] = updated_value
 
 
-def jit_compile_and_run(source, *args, filepath=None, objname=None, isolated=False,
-                        multiprocessing_context='fork', exit_after_result=False, **kwargs):
+def jit_compile_and_run(source, *args, filepath=None, objname=None, isolated=True,
+                        multiprocessing_context='fork', exit_after_result=False,
+                        timeout=10, **kwargs):
     """
     JIT-compile a source item and execute the selected entry point.
 
@@ -128,20 +138,26 @@ def jit_compile_and_run(source, *args, filepath=None, objname=None, isolated=Fal
     filepath : str or :any:`Path`, optional
         Path of the source file to write.
     objname : str, optional
-        Name of the compiled object to execute.
+        Name of the compiled object to execute. Defaults to ``source.name``
+        when available.
     isolated : bool, optional
-        Run the compile-and-execute cycle via :any:`run_isolated` when enabled.
+        Run the compile-and-execute cycle via :any:`run_isolated` when enabled
+        (default: ``True``).
     multiprocessing_context : str, optional
         Multiprocessing start method used for isolated execution.
     exit_after_result : bool, optional
         Exit the isolated child immediately after reporting the result.
+    timeout : int or float, optional
+        Maximum time in seconds to wait for isolated execution (default: 10).
     **kwargs : dict
         Keyword arguments passed to the compiled entry point.
     """
+    objname = objname or getattr(source, 'name', None)
     if isolated:
         result, updated_args, updated_kwargs = run_isolated(
             _jit_compile_and_run, source, args, kwargs, filepath, objname,
-            multiprocessing_context=multiprocessing_context, exit_after_result=exit_after_result
+            multiprocessing_context=multiprocessing_context, exit_after_result=exit_after_result,
+            timeout=timeout
         )
         _copy_back_arguments(args, updated_args)
         _copy_back_arguments(kwargs.values(), updated_kwargs.values())

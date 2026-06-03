@@ -7,6 +7,7 @@
 
 from pathlib import Path
 import os
+import time
 import pytest
 import numpy as np
 
@@ -50,6 +51,10 @@ def _isolated_exit(status):
     os._exit(status)  # pylint: disable=protected-access
 
 
+def _isolated_sleep(seconds):
+    time.sleep(seconds)
+
+
 def test_run_isolated_returns_result():
     """
     Test that run_isolated returns picklable target results.
@@ -91,9 +96,18 @@ def test_run_isolated_nonzero_exit():
     assert 'exit code 7' in str(excinfo.value)
 
 
+def test_run_isolated_timeout():
+    """
+    Test that run_isolated terminates child processes that exceed a timeout.
+    """
+    with pytest.raises(RuntimeError) as excinfo:
+        run_isolated(_isolated_sleep, 5, timeout=0.1)
+    assert 'timed out after 0.1 seconds' in str(excinfo.value)
+
+
 def test_jit_compile_and_run_in_process(tmp_path):
     """
-    Test that jit_compile_and_run executes compiled sources in-process by default.
+    Test that jit_compile_and_run supports explicit in-process execution.
     """
     source = """
 subroutine fill_array(a, n)
@@ -108,13 +122,13 @@ end subroutine fill_array
     routine = Subroutine.from_source(source)
     n = 5
     a = np.zeros(shape=(n,), dtype=np.int32)
-    jit_compile_and_run(routine, filepath=tmp_path/'fill_array.F90', objname='fill_array', a=a, n=n)
+    jit_compile_and_run(routine, filepath=tmp_path/'fill_array.F90', isolated=False, a=a, n=n)
     assert np.all(a == range(1, n+1))
 
 
 def test_jit_compile_and_run_isolated(tmp_path):
     """
-    Test that jit_compile_and_run can isolate compile-and-execute cycles.
+    Test that jit_compile_and_run isolates compile-and-execute cycles by default.
     """
     source = """
 subroutine fill_array(a, n)
@@ -130,7 +144,7 @@ end subroutine fill_array
     n = 5
     a = np.zeros(shape=(n,), dtype=np.int32)
     result = jit_compile_and_run(
-        routine, filepath=tmp_path/'fill_array_isolated.F90', objname='fill_array', isolated=True, a=a, n=n
+        routine, filepath=tmp_path/'fill_array_isolated.F90', a=a, n=n
     )
     assert result is None
     assert np.all(a == range(1, n+1))
