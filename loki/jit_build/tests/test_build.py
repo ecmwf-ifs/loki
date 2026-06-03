@@ -6,9 +6,10 @@
 # nor does it submit to any jurisdiction.
 
 from pathlib import Path
+import os
 import pytest
 
-from loki.jit_build import Obj, Lib, Builder
+from loki.jit_build import Obj, Lib, Builder, run_isolated
 from loki.jit_build.compiler import  (
     Compiler, GNUCompiler, NvidiaCompiler, get_compiler_from_env,
     _default_compiler
@@ -29,6 +30,56 @@ def fixture_builder(here, tmp_path):
 @pytest.fixture(scope='module', name='testdir')
 def fixture_testdir(here):
     return here.parent.parent/'tests'
+
+
+def _isolated_add(a, b):
+    return a + b
+
+
+def _isolated_write_file(path):
+    Path(path).write_text('child process wrote this')
+
+
+def _isolated_raise():
+    raise ValueError('isolated failure')
+
+
+def _isolated_exit(status):
+    os._exit(status)  # pylint: disable=protected-access
+
+
+def test_run_isolated_returns_result():
+    """
+    Test that run_isolated returns picklable target results.
+    """
+    assert run_isolated(_isolated_add, 2, 5) == 7
+
+
+def test_run_isolated_process_side_effect(tmp_path):
+    """
+    Test that run_isolated executes the target in a child process.
+    """
+    path = tmp_path/'isolated.txt'
+    assert run_isolated(_isolated_write_file, path) is None
+    assert path.read_text() == 'child process wrote this'
+
+
+def test_run_isolated_exception():
+    """
+    Test that run_isolated reports Python exceptions from the child process.
+    """
+    with pytest.raises(RuntimeError) as excinfo:
+        run_isolated(_isolated_raise)
+    assert 'ValueError: isolated failure' in str(excinfo.value)
+
+
+def test_run_isolated_nonzero_exit():
+    """
+    Test that run_isolated reports child process crashes or explicit exits.
+    """
+    with pytest.raises(RuntimeError) as excinfo:
+        run_isolated(_isolated_exit, 7)
+    assert 'exit code 7' in str(excinfo.value)
 
 
 def test_build_clean(builder):

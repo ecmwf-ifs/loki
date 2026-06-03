@@ -8,6 +8,9 @@
 Utilities to facilitate Just-in-Time compilation for testing purposes.
 """
 from pathlib import Path
+from multiprocessing import get_context
+from queue import Empty
+import traceback
 
 from loki.backend import fgen
 from loki.jit_build.builder import Builder
@@ -21,10 +24,50 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple, gettempdir, filehash
 
 
-__all__ = ['jit_compile', 'jit_compile_lib', 'clean_test']
+__all__ = ['jit_compile', 'jit_compile_lib', 'run_isolated', 'clean_test']
 
 
 _f90wrap_kind_map = Path(__file__).parent.parent/'tests/kind_map'
+
+
+def _run_isolated_worker(queue, target, args, kwargs):
+    """
+    Execute a callable in a subprocess and report the outcome through a queue.
+    """
+    try:
+        queue.put(('result', target(*args, **kwargs)))
+    except Exception:  # pylint: disable=broad-exception-caught
+        queue.put(('exception', traceback.format_exc()))
+
+
+def run_isolated(target, *args, **kwargs):
+    """
+    Execute ``target`` in a short-lived subprocess and return its result.
+
+    This is useful for tests that JIT-compile and import native extension modules,
+    where unloading all linked Fortran/Python wrapper state from the current process
+    is not reliable. Python exceptions raised by ``target`` are re-raised as
+    :any:`RuntimeError` with the child traceback; native crashes or explicit
+    non-zero exits are reported via the child process exit code.
+    """
+    ctx = get_context('fork')
+    queue = ctx.Queue()
+    process = ctx.Process(target=_run_isolated_worker, args=(queue, target, args, kwargs))
+    process.start()
+    process.join()
+
+    try:
+        kind, payload = queue.get_nowait()
+    except Empty:
+        kind = payload = None
+
+    if kind == 'exception':
+        raise RuntimeError(payload)
+    if process.exitcode != 0:
+        raise RuntimeError(f'Isolated process failed with exit code {process.exitcode}')
+    if kind == 'result':
+        return payload
+    return None
 
 
 def jit_compile(source, filepath=None, objname=None):
