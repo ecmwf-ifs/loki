@@ -7,6 +7,7 @@
 
 from collections import defaultdict
 from pathlib import Path
+import fnmatch
 
 import re
 try:
@@ -125,18 +126,29 @@ class DeepcopyDataflowAnalysis(DataflowAnalysis):
     the dataflow analysis of the child :any:`Subroutine` and ignoring the intents altogether.
     """
 
-    def __init__(self, successor_map, include_literal_kinds=False):
+    def __init__(self, successor_map, ignore_calls=(), include_literal_kinds=False):
         super().__init__(include_literal_kinds=include_literal_kinds)
         self.successor_map = successor_map
+        self.ignore_calls = tuple(name.lower() for name in ignore_calls)
+
+    def is_ignored_call(self, call):
+        """Return ``True`` if the call matches the configured ignored-call patterns."""
+
+        name = str(call.name).lower()
+        return any(fnmatch.fnmatch(name, pattern) for pattern in self.ignore_calls)
 
     def resolve_call_effects(self, call, *, attacher, **kwargs):
-        if not call.routine:
-            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
-            raise RuntimeError(msg)
 
+        # this already captures disabled/blocked/ignored calls
         child = self.successor_map.get(call, None)
         if not child:
             return None
+
+        if not call.routine:
+            if self.is_ignored_call(call):
+                return None
+            msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without enriching calls: {call}.'
+            raise RuntimeError(msg)
 
         # remap root variable names to current scope
         arg_map = get_sanitised_arg_map(call.arg_map)
@@ -195,6 +207,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
        routine.name_dataoffload_analysis.yaml. For drivers, the files are named
        driver_target-name_offload_analysis.yaml, where "target-name" is the name of the first target
        routine in a given driver loop.
+    ignore_calls : list/tuple
+       Specify a list of routines/calls to be ignored for the analysis (on top of ignored scheduler items).
     """
 
     _key = 'DataOffloadDeepcopyAnalysis'
@@ -207,10 +221,13 @@ class DataOffloadDeepcopyAnalysis(Transformation):
     # therefore be processed.
     process_ignored_items = True
 
-    def __init__(self, output_analysis=False):
+    def __init__(self, output_analysis=False, ignore_calls=None):
         self.output_analysis = output_analysis
+        self.ignore_calls = as_tuple(ignore_calls)
 
     def transform_subroutine(self, routine, **kwargs):
+
+        item = kwargs.get('item')
 
         if not (item := kwargs.pop('item', None)):
             msg = f'[Loki::DataOffloadDeepcopyAnalysis] Cannot apply transformation without item: {routine}.'
@@ -332,7 +349,8 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             warning(f'[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in {routine_name}')
 
         dataflow_analysis = DeepcopyDataflowAnalysis(
-            successor_map=successor_map, include_literal_kinds=False
+            successor_map=successor_map, ignore_calls=self.ignore_calls,
+            include_literal_kinds=False
         )
         with dfa_attached(scope_node, dfa=dataflow_analysis):
 
@@ -440,7 +458,7 @@ class DataOffloadDeepcopyTransformation(Transformation):
             msg = '[Loki::DataOffloadDeepcopyTransformation] can only be applied by the Scheduler.'
             raise RuntimeError(msg)
 
-        if not item.trafo_data[self._key]:
+        if not item.trafo_data.get(self._key):
             raise RuntimeError(f'[Loki::DataOffloadDeepcopyTransformation] item missing analysis: {item.name}.')
 
         role = kwargs['role']

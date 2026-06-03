@@ -10,20 +10,25 @@ import pytest
 import yaml
 
 from loki.backend import fgen
+from loki.sourcefile import Sourcefile
+from loki.batch.item import Item
 from loki.batch import Scheduler
 from loki.ir import (
     nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attached, get_pragma_parameters,
     pragmas_attached
 )
 from loki.expression import Variable, RangeIndex, IntLiteral
+from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.logging import log_levels
 from loki.subroutine import Subroutine
 from loki.tools import gettempdir, flatten, as_tuple
 from loki.transformations import (
-        DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, find_driver_loops
+        DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, RemoveCodeTransformation,
+        find_driver_loops
 )
-from loki.types import BasicType, DerivedType, SymbolAttributes, Scope
+from loki.transformations.data_offload.offload_deepcopy import DeepcopyDataflowAnalysis
+from loki.types import BasicType, DerivedType, SymbolAttributes, Scope, ProcedureType
 
 
 @pytest.fixture(scope='module', name='deepcopy_code')
@@ -354,6 +359,62 @@ def fixture_expected_analysis():
         },
         'ij': 'write'
     }
+
+
+@pytest.fixture(scope='module', name='deepcopy_abort_code')
+def fixture_deepcopy_abort_code():
+    fcode = {
+        'kernel': (
+            """
+module kernel_mod
+contains
+subroutine kernel(flag, a)
+  logical, intent(in) :: flag
+  real, intent(inout) :: a(:)
+
+  if (flag) then
+    !$loki remove
+    a(:) = 0.
+    !$loki end remove
+  endif
+end subroutine kernel
+end module kernel_mod
+            """.strip()
+        ),
+        'driver': (
+            """
+module driver_mod
+contains
+subroutine driver(ngpblks, flag, a)
+  use kernel_mod, only : kernel
+  integer, intent(in) :: ngpblks
+  logical, intent(in) :: flag
+  real, intent(inout) :: a(:,:)
+  integer :: ibl
+
+!$loki data
+!$loki driver-loop
+  do ibl = 1, ngpblks
+    call kernel(flag, a(:, ibl))
+  enddo
+!$loki end data
+
+end subroutine driver
+end module driver_mod
+            """.strip()
+        )
+    }
+
+    workdir = gettempdir()/'test_offload_deepcopy_abort'
+    if workdir.exists():
+        rmtree(workdir)
+    workdir.mkdir()
+    for name, code in fcode.items():
+        (workdir/f'{name}.F90').write_text(code)
+
+    yield workdir
+
+    rmtree(workdir)
 
 
 @pytest.fixture(scope='function', name='config')
@@ -954,3 +1015,108 @@ def test_offload_deepcopy_simple_driver(frontend, config, deepcopy_code, tmp_pat
     # filter out target calls, as we only need to check generated boilerplate
     calls = [call for call in calls if not call.name.name.lower() in driver_item.targets]
     check_other_variable_type('offload', conds, calls, pragmas, driver)
+
+
+def test_deepcopy_dataflow_analysis_ignore_calls_skips_unenriched_call():
+    scope = Scope()
+    _name = 'ABOR1_ACC'
+    _type = SymbolAttributes(dtype=ProcedureType(_name))
+    name = sym.ProcedureSymbol(name=_name, type=_type, scope=scope)
+    call = ir.CallStatement(name=name, arguments=())
+
+    analysis = DeepcopyDataflowAnalysis(
+        successor_map={call: object()},
+        ignore_calls=('ABOR1*',)
+    )
+
+    assert analysis.resolve_call_effects(call, attacher=None) is None
+
+
+def test_deepcopy_dataflow_analysis_unenriched_call_raises():
+    scope = Scope()
+    _name = 'ABOR1_ACC'
+    _type = SymbolAttributes(dtype=ProcedureType(_name))
+    name = sym.ProcedureSymbol(name=_name, type=_type, scope=scope)
+    call = ir.CallStatement(name=name, arguments=())
+
+    analysis = DeepcopyDataflowAnalysis(successor_map={call: object()})
+
+    with pytest.raises(
+        RuntimeError,
+        match=r'\[Loki::DataOffloadDeepcopyAnalysis\] Cannot apply transformation without enriching calls:'
+    ):
+        analysis.resolve_call_effects(call, attacher=None)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_analysis_transform_subroutine_without_item_raises(frontend):
+    routine = Subroutine.from_source('subroutine test_routine()\nend subroutine test_routine', frontend=frontend)
+
+    transformation = DataOffloadDeepcopyAnalysis()
+
+    with pytest.raises(
+        RuntimeError,
+        match=r'\[Loki::DataOffloadDeepcopyAnalysis\] Cannot apply transformation without item:'
+    ):
+        transformation.transform_subroutine(routine, role='driver', targets=(), sub_sgraph=None)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_transformation_transform_subroutine_without_item_raises(frontend):
+    routine = Subroutine.from_source('subroutine test_routine()\nend subroutine test_routine', frontend=frontend)
+
+    transformation = DataOffloadDeepcopyTransformation(mode='offload')
+
+    with pytest.raises(
+        RuntimeError,
+        match=r'\[Loki::DataOffloadDeepcopyTransformation\] can only be applied by the Scheduler\.'
+    ):
+        transformation.transform_subroutine(routine, role='driver', targets=())
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_transformation_transform_subroutine_without_analysis_raises(frontend):
+    source = Sourcefile.from_source('subroutine test_routine()\nend subroutine test_routine', frontend=frontend)
+    item = Item(name='#test_routine', source=source)
+    routine = item.ir
+
+    transformation = DataOffloadDeepcopyTransformation(mode='offload')
+
+    with pytest.raises(
+        RuntimeError,
+        match=r'\[Loki::DataOffloadDeepcopyTransformation\] item missing analysis: #test_routine\.'
+    ):
+        transformation.transform_subroutine(routine, item=item, role='driver', targets=())
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_analysis_skips_unresolved_replacement_calls_without_successors(
+        frontend, config, deepcopy_abort_code, tmp_path
+):
+    """Ensure unresolved replacement calls without successors do not break deepcopy analysis."""
+
+    config['routines'] = {
+        'driver': {'role': 'driver'},
+    }
+
+    scheduler = Scheduler(
+        paths=deepcopy_abort_code, config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=tmp_path, preprocess=True
+    )
+
+    scheduler.process(transformation=RemoveCodeTransformation(
+        remove_marked_regions=True,
+        replacement_call='ABOR1_ACC',
+        replacement_msg='Reached removed GPU-unsupported-path in {}'
+    ))
+
+    kernel = scheduler['kernel_mod#kernel'].ir
+    kernel_calls = FindNodes(ir.CallStatement).visit(kernel.body)
+    assert any(call.name.name.lower() == 'abor1_acc' for call in kernel_calls)
+
+    transformation = DataOffloadDeepcopyAnalysis()
+    scheduler.process(transformation=transformation)
+
+    driver_item = scheduler['driver_mod#driver']
+    analysis = driver_item.trafo_data[transformation._key]['analysis']
+    assert analysis
