@@ -9,7 +9,7 @@ Utilities to facilitate Just-in-Time compilation for testing purposes.
 """
 from pathlib import Path
 from multiprocessing import get_context
-from queue import Empty
+import os
 import traceback
 
 from loki.backend import fgen
@@ -30,17 +30,21 @@ __all__ = ['jit_compile', 'jit_compile_lib', 'run_isolated', 'clean_test']
 _f90wrap_kind_map = Path(__file__).parent.parent/'tests/kind_map'
 
 
-def _run_isolated_worker(queue, target, args, kwargs):
+def _run_isolated_worker(conn, target, args, kwargs, exit_after_result):
     """
     Execute a callable in a subprocess and report the outcome through a queue.
     """
     try:
-        queue.put(('result', target(*args, **kwargs)))
+        conn.send(('result', target(*args, **kwargs)))
     except Exception:  # pylint: disable=broad-exception-caught
-        queue.put(('exception', traceback.format_exc()))
+        conn.send(('exception', traceback.format_exc()))
+    finally:
+        conn.close()
+    if exit_after_result:
+        os._exit(0)  # pylint: disable=protected-access
 
 
-def run_isolated(target, *args, **kwargs):
+def run_isolated(target, *args, multiprocessing_context='fork', exit_after_result=False, **kwargs):
     """
     Execute ``target`` in a short-lived subprocess and return its result.
 
@@ -49,17 +53,35 @@ def run_isolated(target, *args, **kwargs):
     is not reliable. Python exceptions raised by ``target`` are re-raised as
     :any:`RuntimeError` with the child traceback; native crashes or explicit
     non-zero exits are reported via the child process exit code.
+
+    Parameters
+    ----------
+    target : callable
+        The callable to execute in the child process.
+    multiprocessing_context : str, optional
+        Multiprocessing start method. Use ``'fork'`` for low-overhead isolation
+        when inherited process state is safe, or ``'spawn'`` when the child must
+        start without inherited native extension modules.
+    exit_after_result : bool, optional
+        Exit the child process immediately after reporting the result, bypassing
+        interpreter shutdown. This is useful for native extension tests where
+        finalizers can crash after successful execution.
     """
-    ctx = get_context('fork')
-    queue = ctx.Queue()
-    process = ctx.Process(target=_run_isolated_worker, args=(queue, target, args, kwargs))
+    ctx = get_context(multiprocessing_context)
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    process = ctx.Process(
+        target=_run_isolated_worker, args=(child_conn, target, args, kwargs, exit_after_result)
+    )
     process.start()
+    child_conn.close()
     process.join()
 
     try:
-        kind, payload = queue.get_nowait()
-    except Empty:
+        has_payload = parent_conn.poll()
+        kind, payload = parent_conn.recv() if has_payload else (None, None)
+    except EOFError:
         kind = payload = None
+    parent_conn.close()
 
     if kind == 'exception':
         raise RuntimeError(payload)

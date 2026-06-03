@@ -64,6 +64,13 @@ def test_run_isolated_process_side_effect(tmp_path):
     assert path.read_text() == 'child process wrote this'
 
 
+def test_run_isolated_exit_after_result():
+    """
+    Test that run_isolated can bypass child interpreter shutdown after success.
+    """
+    assert run_isolated(_isolated_add, 2, 5, exit_after_result=True) == 7
+
+
 def test_run_isolated_exception():
     """
     Test that run_isolated reports Python exceptions from the child process.
