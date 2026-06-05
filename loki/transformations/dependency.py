@@ -588,6 +588,16 @@ class SeparateModesKernel(Transformation):
             )
 
     def rename_interfaces(self, item, mapping):
+        """
+        Update :any:`Interface` names to actively transformed procedures.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item for which to rename interfaces.
+        mapping : dict
+            A mapping from old dependency item names to new dependency items.
+        """
         intf_map = item.ir.interface_map
         intfs_to_rename = self._match_names_to_new_dependencies(list(intf_map), mapping)
 
@@ -598,6 +608,18 @@ class SeparateModesKernel(Transformation):
                         node.name = intfs_to_rename[name].ir.procedure_symbol.name
 
     def rename_imports(self, item, mapping):
+        """
+        Update :any:`Import` statements to actively transformed procedures and modules.
+
+        Updates imports of C-style headers and Fortran modules to match the new mode-specific names.
+
+        Parameters
+        ----------
+        item : :any:`Item`
+            The item for which to rename imports.
+        mapping : dict
+            A mapping from old dependency item names to new dependency items.
+        """
         imports = item.ir.imports
 
         imported_names = [
@@ -655,9 +677,10 @@ class SeparateModesKernel(Transformation):
 
         Parameters
         ----------
-        targets : list of str
-            Optional list of subroutine names for which to modify the corresponding
-            calls. If not provided, all calls are updated
+        item : :any:`Item`
+            The item for which to rename calls.
+        mapping : dict
+            A mapping from old dependency item names to new dependency items.
         """
         routine = item.ir
         calls = FindNodes(ir.CallStatement).visit(routine.body)
@@ -680,7 +703,12 @@ class SeparateModesKernel(Transformation):
                 self._update_item_config_names(item, orig_name, proc_symbol.name)
 
     def transform_subroutine(self, routine, **kwargs):
+        """
+        Transform the given subroutine by creating new items for the different modes
+        and updating the dependencies accordingly.
+        """
         item = kwargs['item']
+        assert routine is item.ir
         item_factory = kwargs.get('item_factory')
         sub_sgraph = kwargs.get('sub_sgraph')
         successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
@@ -696,7 +724,12 @@ class SeparateModesKernel(Transformation):
                 self.rename_interfaces(item_, mapping)
 
     def plan_subroutine(self, routine, **kwargs):
+        """
+        Transform the given subroutine by creating new items for the different modes
+        and registering the new dependencies in the item's plan_data accordingly.
+        """
         item = kwargs['item']
+        assert routine is item.ir
         item_factory = kwargs.get('item_factory')
         sub_sgraph = kwargs.get('sub_sgraph')
         successors = sub_sgraph.successors(item) if sub_sgraph is not None else ()
