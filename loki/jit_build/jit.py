@@ -127,7 +127,7 @@ def jit_compile_and_run(source, *args, filepath=None, objname=None, isolated=Tru
 
     The complete compile, load, and execution cycle can optionally run in a
     short-lived subprocess to isolate native extension module state from the
-    parent test process.
+    parent test process. See :any:`run_isolated` for available options for arguments.
 
     Parameters
     ----------
