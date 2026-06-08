@@ -98,7 +98,7 @@ def run_isolated(target, *args, multiprocessing_context='fork', exit_after_resul
         raise RuntimeError(f'Isolated process failed with exit code {process.exitcode}')
     if kind == 'result':
         return payload
-    return None
+    raise RuntimeError('Unexpected return form child process - something has gone terribly wrong!')
 
 
 def _jit_compile_and_run(source, args, kwargs, filepath, objname):
