@@ -1056,6 +1056,7 @@ end subroutine transform_loop_fission_promote_read_after_write
 def test_transform_loop_fission_promote_multiple_read_after_write(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_mult_r_a_w(a, b, klon, klev, nclv)
+  implicit none
   integer, intent(inout) :: a(klon, klev), b(klon, klev, nclv)
   integer, intent(in) :: klon, klev, nclv
   integer :: jm, jk, jl, zsupsat(klon), zqxn(nclv, klon)
@@ -1085,10 +1086,10 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
 
     # Test the reference solution
-    klon, klev, nclv = 32, 100, 5
+    klon, klev, nclv = 16, 37, 5
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev, nclv), order='F', dtype=np.int32)
-    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, nclv=nclv, filepath=filepath, isolated=False)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, nclv=nclv, filepath=filepath)
     assert np.all(a == np.array([[jl] * klev for jl in range(1, klon+1)], order='F'))
     assert np.all(b == np.array([[[jl + jm for jm in range(1, nclv+1)]] * klev
                                 for jl in range(1, klon+1)], order='F'))
@@ -1109,11 +1110,11 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
 
     # Test transformation
-    klon, klev, nclv = 32, 100, 5
+    klon, klev, nclv = 16, 37, 5
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev, nclv), order='F', dtype=np.int32)
     jit_compile_and_run(
-        routine, a=a, b=b, klon=klon, klev=klev, nclv=nclv, filepath=fissioned_filepath, isolated=False
+        routine, a=a, b=b, klon=klon, klev=klev, nclv=nclv, filepath=fissioned_filepath
     )
     assert np.all(a == np.array([[jl] * klev for jl in range(1, klon+1)], order='F'))
     assert np.all(b == np.array([[[jl + jm for jm in range(1, nclv+1)]] * klev
