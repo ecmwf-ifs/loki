@@ -11,7 +11,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine
-from loki.jit_build import jit_compile, clean_test
+from loki.jit_build import jit_compile_and_run, clean_test
 from loki.frontend import available_frontends
 from loki.ir import (
     is_loki_pragma, pragmas_attached, FindNodes, Loop, Conditional,
@@ -618,13 +618,12 @@ end subroutine transform_loop_fuse_collapse_range
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev+1), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon+1, klev), order='F', dtype=np.int32)
-    function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=filepath)
     assert np.all(a == np.array([list(range(1, klev+2))] * klon, order='F'))
     assert np.all(b[..., 14:] == np.array([[jl + jk for jk in range(15, klev+1)]
                                            for jl in range(1, klon+2)], order='F'))
@@ -640,13 +639,12 @@ end subroutine transform_loop_fuse_collapse_range
     assert len(FindNodes(Conditional).visit(routine.body)) == 2
 
     fused_filepath = tmp_path/(f'{routine.name}_fused_{frontend}.f90')
-    fused_function = jit_compile(routine, filepath=fused_filepath, objname=routine.name)
 
     # Test transformation
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev+1), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon+1, klev), order='F', dtype=np.int32)
-    fused_function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=fused_filepath)
     assert np.all(a == np.array([list(range(1, klev+2))] * klon, order='F'))
     assert np.all(b[..., 14:] == np.array([[jl + jk for jk in range(15, klev+1)]
                                            for jl in range(1, klon+2)], order='F'))
@@ -827,13 +825,12 @@ end subroutine transform_loop_fission_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
     n = 100
     a = np.zeros(shape=(n,), dtype=np.int32)
     b = np.zeros(shape=(n,), dtype=np.int32)
-    function(a=a, b=b, n=n)
+    jit_compile_and_run(routine, a=a, b=b, n=n, filepath=filepath)
     assert np.all(a == range(1,n+1))
     assert np.all(b == range(n, 0, -1))
 
@@ -849,13 +846,12 @@ end subroutine transform_loop_fission_promote
     assert routine.variable_map['tmp'].shape == ('n',)
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
-    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
     n = 100
     a = np.zeros(shape=(n,), dtype=np.int32)
     b = np.zeros(shape=(n,), dtype=np.int32)
-    fissioned_function(a=a, b=b, n=n)
+    jit_compile_and_run(routine, a=a, b=b, n=n, filepath=fissioned_filepath)
     assert np.all(a == range(1,n+1))
     assert np.all(b == range(n, 0, -1))
 
@@ -1024,12 +1020,11 @@ end subroutine transform_loop_fission_promote_read_after_write
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    function(a=a, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, klon=klon, klev=klev, filepath=filepath)
     assert np.all(a == np.array([[jl + jk for jk in range(1, klev+1)]
                                 for jl in range(1, klon+1)], order='F'))
 
@@ -1045,12 +1040,11 @@ end subroutine transform_loop_fission_promote_read_after_write
     assert routine.variable_map['tmp'].shape == ('klev',)
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
-    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    fissioned_function(a=a, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, klon=klon, klev=klev, filepath=fissioned_filepath)
     assert np.all(a == np.array([[jl + jk for jk in range(1, klev+1)]
                                 for jl in range(1, klon+1)], order='F'))
 
@@ -1062,6 +1056,7 @@ end subroutine transform_loop_fission_promote_read_after_write
 def test_transform_loop_fission_promote_multiple_read_after_write(tmp_path, frontend):
     fcode = """
 subroutine transform_loop_fission_promote_mult_r_a_w(a, b, klon, klev, nclv)
+  implicit none
   integer, intent(inout) :: a(klon, klev), b(klon, klev, nclv)
   integer, intent(in) :: klon, klev, nclv
   integer :: jm, jk, jl, zsupsat(klon), zqxn(nclv, klon)
@@ -1089,13 +1084,12 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
-    klon, klev, nclv = 32, 100, 5
+    klon, klev, nclv = 16, 37, 5
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev, nclv), order='F', dtype=np.int32)
-    function(a=a, b=b, klon=klon, klev=klev, nclv=nclv)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, nclv=nclv, filepath=filepath)
     assert np.all(a == np.array([[jl] * klev for jl in range(1, klon+1)], order='F'))
     assert np.all(b == np.array([[[jl + jm for jm in range(1, nclv+1)]] * klev
                                 for jl in range(1, klon+1)], order='F'))
@@ -1114,13 +1108,14 @@ end subroutine transform_loop_fission_promote_mult_r_a_w
     assert routine.variable_map['zqxn'].shape == ('nclv', 'klon', 'klev')
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
-    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
-    klon, klev, nclv = 32, 100, 5
+    klon, klev, nclv = 16, 37, 5
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev, nclv), order='F', dtype=np.int32)
-    fissioned_function(a=a, b=b, klon=klon, klev=klev, nclv=nclv)
+    jit_compile_and_run(
+        routine, a=a, b=b, klon=klon, klev=klev, nclv=nclv, filepath=fissioned_filepath
+    )
     assert np.all(a == np.array([[jl] * klev for jl in range(1, klon+1)], order='F'))
     assert np.all(b == np.array([[[jl + jm for jm in range(1, nclv+1)]] * klev
                                 for jl in range(1, klon+1)], order='F'))
@@ -1156,13 +1151,12 @@ end subroutine transform_loop_fusion_fission
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=filepath)
     assert np.all(a == np.array([list(range(1, klev+1))] * klon, order='F'))
     assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
                                 for jl in range(1, klon+1)], order='F'))
@@ -1181,13 +1175,12 @@ end subroutine transform_loop_fusion_fission
     assert routine.variable_map['zsupsat'].shape == ('klon', 'klev')
 
     fissioned_filepath = tmp_path/(f'{routine.name}_fissioned_{frontend}.f90')
-    fissioned_function = jit_compile(routine, filepath=fissioned_filepath, objname=routine.name)
 
     # Test transformation
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    fissioned_function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=fissioned_filepath)
     assert np.all(a == np.array([list(range(1, klev+1))] * klon, order='F'))
     assert np.all(b == np.array([[jl + jk for jk in range(1, klev+1)]
                                 for jl in range(1, klon+1)], order='F'))
@@ -1394,11 +1387,10 @@ end subroutine test_transform_loop_unroll_nested_counters
  """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path / f'{routine.name}_{frontend}.f90'
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     # Test the reference solution
     s = np.array(0)
-    function(s=s)
+    jit_compile_and_run(routine, s=s, filepath=filepath)
     tuples = [a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a]
     assert s == sum(tuples)
 
@@ -1409,11 +1401,10 @@ end subroutine test_transform_loop_unroll_nested_counters
            len(FindNodes(Assignment).visit(routine.body)) == len(tuples)
 
     unrolled_filepath = tmp_path / f'{routine.name}_unrolled_{frontend}.f90'
-    unrolled_function = jit_compile(routine, filepath=unrolled_filepath, objname=routine.name)
 
     # Test transformation
     s = np.array(0)
-    unrolled_function(s=s)
+    jit_compile_and_run(routine, s=s, filepath=unrolled_filepath)
     assert s == sum(a + b + 1 for (a, b) in itertools.product(range(1, 11), range(1, 11)) if b <= a)
 
     clean_test(filepath)

@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine
-from loki.jit_build import jit_compile
+from loki.jit_build import jit_compile_and_run
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -64,11 +64,9 @@ end subroutine member_routines
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     filepath = tmp_path/(f'ref_transform_inline_member_routines_{frontend}.f90')
-    reference = jit_compile(routine, filepath=filepath, objname='member_routines')
-
     a = np.array([1., 2., 3.], order='F')
     b = np.array([3., 3., 3.], order='F')
-    reference(a, b)
+    jit_compile_and_run(routine, a, b, filepath=filepath)
 
     assert (a == [6., 7., 8.]).all()
     assert (b == [3., 3., 3.]).all()
@@ -83,11 +81,9 @@ end subroutine member_routines
 
     # An verify compiled behaviour
     filepath = tmp_path/(f'transform_inline_member_routines_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='member_routines')
-
     a = np.array([1., 2., 3.], order='F')
     b = np.array([3., 3., 3.], order='F')
-    function(a, b)
+    jit_compile_and_run(routine, a, b, filepath=filepath)
 
     assert (a == [6., 7., 8.]).all()
     assert (b == [3., 3., 3.]).all()
@@ -136,12 +132,10 @@ end subroutine member_functions
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
     filepath = tmp_path/(f'ref_transform_inline_member_functions_{frontend}.f90')
-    reference = jit_compile(routine, filepath=filepath, objname='member_functions')
-
     a = np.array([1., 2., 3.], order='F')
     b = np.array([3., 3., 3.], order='F')
     c = np.array([0., 0., 0.], order='F')
-    reference(a, b, c)
+    jit_compile_and_run(routine, a, b, c, filepath=filepath)
 
     assert (a == [3., 4., 5.]).all()
     assert (b == [3., 3., 3.]).all()
@@ -156,12 +150,10 @@ end subroutine member_functions
 
     # An verify compiled behaviour
     filepath = tmp_path/(f'transform_inline_member_functions_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname='member_functions')
-
     a = np.array([1., 2., 3.], order='F')
     b = np.array([3., 3., 3.], order='F')
     c = np.array([0., 0., 0.], order='F')
-    function(a, b, c)
+    jit_compile_and_run(routine, a, b, c, filepath=filepath)
 
     assert (a == [3., 4., 5.]).all()
     assert (b == [3., 3., 3.]).all()

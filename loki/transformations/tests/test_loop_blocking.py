@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine
-from loki.jit_build import jit_compile, clean_test
+from loki.jit_build import jit_compile_and_run, clean_test
 from loki.expression import symbols as sym, Array
 from loki.frontend import available_frontends
 from loki.ir import (
@@ -275,12 +275,11 @@ def test_3d_splitting(tmp_path, frontend, block_size, n):
     )
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     a = np.zeros(n, order='F')
     b = np.zeros((2,n), order='F')
     c = np.zeros((2,2,n), order='F')
-    function(a, b, c, n)
+    jit_compile_and_run(routine, a, b, c, n, filepath=filepath)
     a_ref = np.linspace(1, n, n)
     b_ref = np.tile(a_ref, (2, 1))
     c_ref = np.tile(a_ref, (2,2,1))
@@ -415,13 +414,12 @@ end subroutine test_1d_blocking_multi_intent
 
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     a = np.linspace(1, n, n)
     b = np.ones(n, order='F')
     a_ref = np.linspace(1, n, n)
     b_ref = b + a*a
-    function(a, b, n)
+    jit_compile_and_run(routine, a, b, n, filepath=filepath, isolated=False)
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
     assert np.array_equal(b, b_ref), "b should equal to (2, 5, ..., 1 + n^2)"
     clean_test(filepath)
@@ -474,11 +472,10 @@ def test_2d_blocking(tmp_path, frontend, block_size, n):
                 assert idx not in var.dimensions, "The variable should be blocked and the local variable used"
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
     a = np.zeros(n, order='F')
     b = np.zeros((n,n), order='F')
-    function(a, b, n)
+    jit_compile_and_run(routine, a, b, n, filepath=filepath, isolated=False)
     a_ref = np.linspace(1, n, n)
     b_ref = np.tile(a_ref, (n,1))
     assert np.array_equal(a, a_ref), "a should be equal to a_ref=(1, 2, ..., n)"
@@ -534,13 +531,12 @@ def test_3d_blocking(tmp_path, frontend, block_size, n):
                 assert idx not in var.dimensions, "The variable should be blocked and the local variable used"
 
     filepath = tmp_path / (f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
 
 
     a = np.zeros(n, order='F')
     b = np.zeros((2,n), order='F')
     c = np.zeros((2,2,n), order='F')
-    function(a, b, c, n)
+    jit_compile_and_run(routine, a, b, c, n, filepath=filepath)
     a_ref = np.linspace(1, n, n)
     b_ref = np.tile(a_ref, (2, 1))
     c_ref = np.tile(a_ref, (2,2,1))

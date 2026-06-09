@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 
 from loki import Scheduler, fgen, Subroutine
-from loki.jit_build import jit_compile
+from loki.jit_build import jit_compile, run_isolated
 from loki.expression import symbols as sym, parse_expr
 from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
@@ -56,14 +56,10 @@ def fixture_config():
     }
 
 
-def compile_and_test(scheduler, tmp_path, a=5, b=1):
+def _compile_and_test(path_source_map, driver_path_map, tmp_path, a, b):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
     """
-    # Pick out the source files to compile
-    driver_path_map = {item: item.source.path.stem for item in scheduler.items if 'driver' in item.name}
-    path_source_map = {item.source.path.stem: item.source for item in driver_path_map}
-
     # Compile each file only once
     path_module_map = {
         stem: jit_compile(source, filepath=tmp_path/f'{stem}.F90', objname=stem)
@@ -71,18 +67,33 @@ def compile_and_test(scheduler, tmp_path, a=5, b=1):
     }
 
     # Run and validate each driver
-    for item, stem in driver_path_map.items():
+    for driver_name, stem in driver_path_map:
         c = np.zeros((a, b), dtype=np.int32, order='F')
         d = np.zeros((b,), dtype=np.int32, order='F')
-        if item.local_name == 'driver':
+        if driver_name == 'driver':
             path_module_map[stem].driver(a, b, c, d)
             assert (c == 11).all()
             assert (d == 42).all()
-        elif item.local_name == 'another_driver':
+        elif driver_name == 'another_driver':
             path_module_map[stem].another_driver(a, b, c)
             assert (c == 11).all()
         else:
-            assert False, f'Unknown driver name {item.local_name}'
+            assert False, f'Unknown driver name {driver_name}'
+
+
+def compile_and_test(scheduler, tmp_path, a=5, b=1):
+    """
+    Run JIT compilation and execution in a short-lived subprocess.
+    """
+    driver_path_map = [(item.local_name, item.source.path.stem) for item in scheduler.items if 'driver' in item.name]
+    path_source_map = {item.source.path.stem: fgen(item.source) for item in scheduler.items if 'driver' in item.name}
+    try:
+        run_isolated(
+            _compile_and_test, path_source_map, driver_path_map, tmp_path, a, b,
+            multiprocessing_context='spawn', exit_after_result=True
+        )
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
 
 
 def check_arguments_and_parameter(scheduler, subroutine_arguments, call_arguments, parameter_variables):

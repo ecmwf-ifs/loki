@@ -8,6 +8,9 @@
 Utilities to facilitate Just-in-Time compilation for testing purposes.
 """
 from pathlib import Path
+from multiprocessing import get_context
+import os
+import traceback
 
 from loki.backend import fgen
 from loki.jit_build.builder import Builder
@@ -21,10 +24,146 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple, gettempdir, filehash
 
 
-__all__ = ['jit_compile', 'jit_compile_lib', 'clean_test']
+__all__ = ['jit_compile', 'jit_compile_and_run', 'jit_compile_lib', 'run_isolated', 'clean_test']
 
 
 _f90wrap_kind_map = Path(__file__).parent.parent/'tests/kind_map'
+
+
+def _run_isolated_worker(conn, target, args, kwargs, exit_after_result):
+    """
+    Execute a callable in a subprocess and report the outcome through a queue.
+    """
+    try:
+        conn.send(('result', target(*args, **kwargs)))
+    except Exception:  # pylint: disable=broad-exception-caught
+        conn.send(('exception', traceback.format_exc()))
+    finally:
+        conn.close()
+    if exit_after_result:
+        os._exit(0)  # pylint: disable=protected-access
+
+
+def run_isolated(target, *args, multiprocessing_context='fork', exit_after_result=False,
+                 timeout=None, **kwargs):
+    """
+    Execute ``target`` in a short-lived subprocess and return its result.
+
+    This is useful for tests that JIT-compile and import native extension modules,
+    where unloading all linked Fortran/Python wrapper state from the current process
+    is not reliable. Python exceptions raised by ``target`` are re-raised as
+    :any:`RuntimeError` with the child traceback; native crashes or explicit
+    non-zero exits are reported via the child process exit code.
+
+    Parameters
+    ----------
+    target : callable
+        The callable to execute in the child process.
+    multiprocessing_context : str, optional
+        Multiprocessing start method. Use ``'fork'`` for low-overhead isolation
+        when inherited process state is safe, or ``'spawn'`` when the child must
+        start without inherited native extension modules.
+    exit_after_result : bool, optional
+        Exit the child process immediately after reporting the result, bypassing
+        interpreter shutdown. This is useful for native extension tests where
+        finalizers can crash after successful execution.
+    timeout : int or float, optional
+        Maximum time in seconds to wait for the isolated child process.
+    """
+    ctx = get_context(multiprocessing_context)
+    parent_conn, child_conn = ctx.Pipe(duplex=False)
+    process = ctx.Process(
+        target=_run_isolated_worker, args=(child_conn, target, args, kwargs, exit_after_result)
+    )
+    process.start()
+    child_conn.close()
+    process.join(timeout=timeout)
+
+    if process.is_alive():
+        process.terminate()
+        process.join()
+        parent_conn.close()
+        raise RuntimeError(f'Isolated process timed out after {timeout} seconds')
+
+    try:
+        has_payload = parent_conn.poll()
+        kind, payload = parent_conn.recv() if has_payload else (None, None)
+    except EOFError:
+        kind = payload = None
+    parent_conn.close()
+
+    if kind == 'exception':
+        raise RuntimeError(payload)
+    if process.exitcode != 0:
+        raise RuntimeError(f'Isolated process failed with exit code {process.exitcode}')
+    if kind == 'result':
+        return payload
+    raise RuntimeError('Unexpected return form child process - something has gone terribly wrong!')
+
+
+def _jit_compile_and_run(source, args, kwargs, filepath, objname):
+    """
+    JIT-compile ``source`` and execute the selected entry point.
+    """
+    function = jit_compile(source, filepath=filepath, objname=objname)
+    result = function(*args, **kwargs)
+    return result, args, kwargs
+
+
+def _copy_back_arguments(original, updated):
+    """
+    Copy updated array-like argument values back into the caller objects.
+    """
+    for original_value, updated_value in zip(original, updated):
+        if hasattr(original_value, '__setitem__') and hasattr(original_value, 'shape'):
+            original_value[...] = updated_value
+
+
+def jit_compile_and_run(source, *args, filepath=None, objname=None, isolated=True,
+                        multiprocessing_context='fork', exit_after_result=False,
+                        timeout=10, **kwargs):
+    """
+    JIT-compile a source item and execute the selected entry point.
+
+    The complete compile, load, and execution cycle can optionally run in a
+    short-lived subprocess to isolate native extension module state from the
+    parent test process. See :any:`run_isolated` for available options for arguments.
+
+    Parameters
+    ----------
+    source : :any:`Sourcefile` or :any:`Module` or :any:`Subroutine`
+        The item to compile and load.
+    *args : tuple
+        Positional arguments passed to the compiled entry point.
+    filepath : str or :any:`Path`, optional
+        Path of the source file to write.
+    objname : str, optional
+        Name of the compiled object to execute. Defaults to ``source.name``
+        when available.
+    isolated : bool, optional
+        Run the compile-and-execute cycle via :any:`run_isolated` when enabled
+        (default: ``True``).
+    multiprocessing_context : str, optional
+        Multiprocessing start method used for isolated execution.
+    exit_after_result : bool, optional
+        Exit the isolated child immediately after reporting the result.
+    timeout : int or float, optional
+        Maximum time in seconds to wait for isolated execution (default: 10).
+    **kwargs : dict
+        Keyword arguments passed to the compiled entry point.
+    """
+    objname = objname or getattr(source, 'name', None)
+    if isolated:
+        result, updated_args, updated_kwargs = run_isolated(
+            _jit_compile_and_run, source, args, kwargs, filepath, objname,
+            multiprocessing_context=multiprocessing_context, exit_after_result=exit_after_result,
+            timeout=timeout
+        )
+        _copy_back_arguments(args, updated_args)
+        _copy_back_arguments(kwargs.values(), updated_kwargs.values())
+        return result
+    result, _, _ = _jit_compile_and_run(source, args, kwargs, filepath, objname)
+    return result
 
 
 def jit_compile(source, filepath=None, objname=None):

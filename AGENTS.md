@@ -24,6 +24,18 @@ pylint --rcfile .pylintrc <relevant paths>
 For broader validation, keep using the same activated environment and local `.pylintrc`.
 
 
+## Commit Message Style
+
+When creating commits in this repository:
+
+- Use a sub-package or area marker in the subject, followed by a colon.
+- Keep the subject concise and imperative, for example:
+  `JIT: Add isolated JIT execution helper`
+  `Transformations: Isolate parametrise JIT test execution`
+- Wrap commit body lines like Python docstrings, preferably around 72 characters.
+- Use the body to explain why the change is needed and what behavior it protects.
+
+
 ## Loki Test Assertions
 
 When editing or adding tests, prefer assertions that match Loki's native IR and expression semantics rather than assertions that depend on rendered source formatting.

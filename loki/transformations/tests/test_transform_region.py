@@ -9,7 +9,7 @@ import pytest
 import numpy as np
 
 from loki import Subroutine, FindNodes, Loop
-from loki.jit_build import jit_compile
+from loki.jit_build import jit_compile_and_run
 from loki.expression import symbols as sym
 from loki.ir import Assignment
 from loki.frontend import available_frontends
@@ -99,7 +99,6 @@ end subroutine transform_region_hoist_inlined_pragma
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
     klon, klev = 32, 100
     ref_a = np.array([[jl + 1] * klev for jl in range(klon)], order='F')
     ref_b = np.array([[jk + 1 for jk in range(klev)] for _ in range(klon)], order='F')
@@ -107,7 +106,7 @@ end subroutine transform_region_hoist_inlined_pragma
     # Test the reference solution
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=filepath)
     assert np.all(a == ref_a)
     assert np.all(b == ref_b)
 
@@ -123,13 +122,12 @@ end subroutine transform_region_hoist_inlined_pragma
     assert loop_variables(routine.body) == ['jk', 'jl', 'jk', 'jl', 'jk', 'jl']
 
     hoisted_filepath = tmp_path/(f'{routine.name}_hoisted_{frontend}.f90')
-    hoisted_function = jit_compile(routine, filepath=hoisted_filepath, objname=routine.name)
 
     # Test transformation
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    hoisted_function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=hoisted_filepath)
     assert np.all(a == ref_a)
     assert np.all(b == ref_b)
 
@@ -282,7 +280,6 @@ end subroutine transform_region_hoist_promote
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
     klon, klev = 32, 100
     ref_a = np.array([[jl + 1] * klev for jl in range(klon)], order='F')
     ref_b = np.array([[jk + 1 for jk in range(klev)] for _ in range(klon)], order='F')
@@ -290,7 +287,7 @@ end subroutine transform_region_hoist_promote
     # Test the reference solution
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=filepath)
     assert np.all(a == ref_a)
     assert np.all(b == ref_b)
 
@@ -312,12 +309,11 @@ end subroutine transform_region_hoist_promote
     assert b_tmp.type.shape[0] == 'klev'
 
     hoisted_filepath = tmp_path/(f'{routine.name}_hoisted_{frontend}.f90')
-    hoisted_function = jit_compile(routine, filepath=hoisted_filepath, objname=routine.name)
 
     # Test transformation
     klon, klev = 32, 100
     a = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
     b = np.zeros(shape=(klon, klev), order='F', dtype=np.int32)
-    hoisted_function(a=a, b=b, klon=klon, klev=klev)
+    jit_compile_and_run(routine, a=a, b=b, klon=klon, klev=klev, filepath=hoisted_filepath)
     assert np.all(a == ref_a)
     assert np.all(b == ref_b)

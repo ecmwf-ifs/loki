@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 
 from loki import Module, Subroutine, fgen
-from loki.jit_build import jit_compile, jit_compile_lib, clean_test, Builder, Obj
+from loki.jit_build import jit_compile, jit_compile_and_run, jit_compile_lib, clean_test, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables
@@ -215,9 +215,8 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     # Test the original implementation
     routine = Subroutine.from_source(fcode, frontend=frontend)
     filepath = tmp_path/(f'{routine.name}_{start_index}_{frontend}.f90')
-    function = jit_compile(routine, filepath=filepath, objname=routine.name)
     orig_x1, orig_x2, orig_x3, orig_x4 = init_arguments(l1, l2, l3, l4)
-    function(orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4)
+    jit_compile_and_run(routine, orig_x1, orig_x2, orig_x3, orig_x4, l1, l2, l3, l4, filepath=filepath)
     clean_test(filepath)
 
     # Test flattening order='F'
@@ -225,9 +224,8 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     normalize_array_shape_and_access(f_routine)
     flatten_arrays(routine=f_routine, order='F', start_index=1)
     filepath = tmp_path/(f'{f_routine.name}_{start_index}_flattened_F_{frontend}.f90')
-    function = jit_compile(f_routine, filepath=filepath, objname=routine.name)
     f_x1, f_x2, f_x3, f_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
-    function(f_x1, f_x2, f_x3, f_x4, l1, l2, l3, l4)
+    jit_compile_and_run(f_routine, f_x1, f_x2, f_x3, f_x4, l1, l2, l3, l4, filepath=filepath)
     validate_routine(f_routine)
     clean_test(filepath)
 
@@ -242,9 +240,8 @@ def test_transform_flatten_arrays(tmp_path, frontend, builder, start_index):
     invert_array_indices(c_routine)
     flatten_arrays(routine=c_routine, order='C', start_index=1)
     filepath = tmp_path/(f'{c_routine.name}_{start_index}_flattened_C_{frontend}.f90')
-    function = jit_compile(c_routine, filepath=filepath, objname=routine.name)
     c_x1, c_x2, c_x3, c_x4 = init_arguments(l1, l2, l3, l4, flattened=True)
-    function(c_x1, c_x2, c_x3, c_x4, l1, l2, l3, l4)
+    jit_compile_and_run(c_routine, c_x1, c_x2, c_x3, c_x4, l1, l2, l3, l4, filepath=filepath)
     validate_routine(c_routine)
     clean_test(filepath)
 
