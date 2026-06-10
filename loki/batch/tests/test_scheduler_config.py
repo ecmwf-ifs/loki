@@ -824,7 +824,6 @@ def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_sch
             'subroutine_3_loki_m1_mod#subroutine_3_loki_m1',
             'nested_subroutine_1_loki_m1_mod#nested_subroutine_1_loki_m1',
             'nested_subroutine_3_loki_m1_mod#nested_subroutine_3_loki_m1',
-            'nested_subroutine_3_mod#nested_subroutine_3',
         },
         'm2': {
             'driver_2_mod#driver_2',
@@ -890,7 +889,7 @@ def test_scheduler_multi_modes(testdir, tmp_path, multi_modes_config, reinit_sch
         'driver_0_mod.m1', 'driver_1_mod.m1', 'driver_2_mod.m2', 'driver_3_mod.m3',
         'driver_4_mod.m3', 'nested_subroutine_1_loki_m1_mod.m1',
         'nested_subroutine_1_loki_m3_mod.m3', 'nested_subroutine_2_loki_m2_mod.m2',
-        'nested_subroutine_3_mod.m1', 'nested_subroutine_3_loki_m1_mod.m1',
+        'nested_subroutine_3_loki_m1_mod.m1',
         'nested_subroutine_3_loki_m2_mod.m2', 'nested_subroutine_3_loki_m3_mod.m3',
         'subroutine_1_loki_m1_mod.m1', 'subroutine_2_loki_m2_mod.m2',
         'subroutine_3_loki_m1_mod.m1', 'subroutine_3_loki_m3_mod.m3'
@@ -1059,3 +1058,320 @@ end module test_multi_modes_kernel2
             item_imports = item_ir.imports
             imported_modules = {imp.module for imp in item_imports}
             assert imported_modules == imports
+
+
+def _write_shared_kernel_multi_mode_sources(src_dir):
+    """
+    Create a minimal multi-mode graph with two drivers sharing one kernel that
+    calls a downstream leaf.
+    """
+    fcode_driver_small = """
+subroutine driver_small
+    use shared_kernel_mod, only: shared_kernel
+    implicit none
+    call shared_kernel
+end subroutine driver_small
+    """.strip()
+
+    fcode_driver_stack = """
+subroutine driver_stack
+    use shared_kernel_mod, only: shared_kernel
+    implicit none
+    call shared_kernel
+end subroutine driver_stack
+    """.strip()
+
+    fcode_shared_kernel = """
+module shared_kernel_mod
+implicit none
+contains
+subroutine shared_kernel
+    use leaf_mod, only: leaf
+    call leaf
+end subroutine shared_kernel
+end module shared_kernel_mod
+    """.strip()
+
+    fcode_leaf = """
+module leaf_mod
+implicit none
+contains
+subroutine leaf
+end subroutine leaf
+end module leaf_mod
+    """.strip()
+
+    (src_dir/'driver_small.F90').write_text(fcode_driver_small)
+    (src_dir/'driver_stack.F90').write_text(fcode_driver_stack)
+    (src_dir/'shared_kernel_mod.F90').write_text(fcode_shared_kernel)
+    (src_dir/'leaf_mod.F90').write_text(fcode_leaf)
+
+
+def _shared_kernel_multi_mode_config():
+    return SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': False, 'mode': 'm_small', 'replicate': True},
+        'routines': {
+            'driver_small': {'role': 'driver', 'mode': 'm_small', 'replicate': False},
+            'driver_stack': {'role': 'driver', 'mode': 'm_stack', 'replicate': False},
+        },
+        'transformations': {
+            'IdemSmall': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+            'IdemStack': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+        },
+        'pipelines': {
+            'm_small': {'transformations': {'IdemSmall'}},
+            'm_stack': {'transformations': {'IdemStack'}},
+        },
+    })
+
+
+def _shared_kernel_multi_mode_override_config():
+    return SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': False, 'mode': 'm_small', 'replicate': True},
+        'routines': {
+            'driver_small': {'role': 'driver', 'mode': 'm_small', 'replicate': False},
+            'driver_stack': {'role': 'driver', 'mode': 'm_stack', 'replicate': False},
+            'shared_kernel': {'role': 'kernel'},
+            'leaf': {'role': 'kernel'},
+        },
+        'transformations': {
+            'IdemSmall': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+            'IdemStack': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+        },
+        'pipelines': {
+            'm_small': {'transformations': {'IdemSmall'}},
+            'm_stack': {'transformations': {'IdemStack'}},
+        },
+    })
+
+
+def _shared_kernel_multi_mode_seed_override_config():
+    return SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': False, 'mode': 'm_small', 'replicate': True},
+        'routines': {
+            'driver_small': {'role': 'driver', 'mode': 'm_small', 'replicate': False},
+            'driver_stack': {'role': 'driver', 'mode': 'm_stack', 'replicate': False},
+            'shared_kernel': {'role': 'kernel', 'seed_routine': True},
+            'leaf': {'role': 'kernel', 'seed_routine': True},
+        },
+        'transformations': {
+            'IdemSmall': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+            'IdemStack': {'classname': 'IdemTransformation', 'module': 'loki.transformations'},
+        },
+        'pipelines': {
+            'm_small': {'transformations': {'IdemSmall'}},
+            'm_stack': {'transformations': {'IdemStack'}},
+        },
+    })
+
+
+def test_scheduler_multi_modes_shared_kernel_plan_variants(tmp_path):
+    """
+    Document current multi-mode planning behaviour for a shared kernel.
+
+    Without explicit per-routine config entries, the original shared kernel is
+    replaced entirely by renamed per-mode variants.
+    """
+    scheduler_config = _shared_kernel_multi_mode_config()
+
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    _write_shared_kernel_multi_mode_sources(src_dir)
+
+    out_dir = tmp_path/'output'
+    out_dir.mkdir()
+
+    scheduler = Scheduler(paths=src_dir, config=scheduler_config, xmods=[tmp_path], output_dir=out_dir)
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.process(scheduler_config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+
+    plan_trafo = CMakePlanTransformation(rootpath=src_dir)
+    scheduler.process(transformation=plan_trafo, proc_strategy=ProcessingStrategy.PLAN)
+    planfile = tmp_path/'planfile'
+    plan_trafo.write_plan(planfile)
+
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(planfile.read_text())}
+    append_stems = [Path(s).stem for s in plan_dict['LOKI_SOURCES_TO_APPEND']]
+
+    assert len(plan_dict['LOKI_SOURCES_TO_APPEND']) == len(set(plan_dict['LOKI_SOURCES_TO_APPEND']))
+
+    assert 'shared_kernel_mod.m_small' not in append_stems
+    assert append_stems.count('shared_kernel_loki_m_small_mod.m_small') == 1
+    assert append_stems.count('shared_kernel_loki_m_stack_mod.m_stack') == 1
+
+    assert 'leaf_mod.m_small' not in append_stems
+    assert append_stems.count('leaf_loki_m_small_mod.m_small') == 1
+    assert append_stems.count('leaf_loki_m_stack_mod.m_stack') == 1
+
+
+def test_scheduler_multi_modes_shared_kernel_plan_variants_with_routine_override(tmp_path):
+    """
+    Explicit per-routine config entries change the current behaviour: the
+    original shared kernel remains and same-mode clones are emitted in addition.
+    """
+    scheduler_config = _shared_kernel_multi_mode_override_config()
+
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    _write_shared_kernel_multi_mode_sources(src_dir)
+
+    out_dir = tmp_path/'output'
+    out_dir.mkdir()
+
+    scheduler = Scheduler(
+        paths=src_dir, config=scheduler_config,
+        seed_routines=['driver_small', 'driver_stack', 'shared_kernel', 'leaf'],
+        xmods=[tmp_path], output_dir=out_dir
+    )
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.process(scheduler_config.pipelines, proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+
+    plan_trafo = CMakePlanTransformation(rootpath=src_dir)
+    scheduler.process(transformation=plan_trafo, proc_strategy=ProcessingStrategy.PLAN)
+    planfile = tmp_path/'planfile'
+    plan_trafo.write_plan(planfile)
+
+    plan_pattern = re.compile(r'set\(\s*(\w+)\s*(.*?)\s*\)', re.DOTALL)
+    plan_dict = {k: v.split() for k, v in plan_pattern.findall(planfile.read_text())}
+    append_stems = [Path(s).stem for s in plan_dict['LOKI_SOURCES_TO_APPEND']]
+
+    assert len(plan_dict['LOKI_SOURCES_TO_APPEND']) == len(set(plan_dict['LOKI_SOURCES_TO_APPEND']))
+
+    # This matches the semantic duplication pattern seen in the real-world case.
+    assert append_stems.count('shared_kernel_mod.m_small') == 1
+    assert append_stems.count('shared_kernel_loki_m_small_mod.m_small') == 1
+    assert append_stems.count('shared_kernel_loki_m_stack_mod.m_stack') == 1
+
+    assert append_stems.count('leaf_mod.m_small') == 1
+    assert append_stems.count('leaf_loki_m_small_mod.m_small') == 1
+    assert append_stems.count('leaf_loki_m_stack_mod.m_stack') == 1
+
+
+def test_scheduler_multi_modes_shared_kernel_call_import_rewrite_consistency(tmp_path):
+    """
+    Document how call and import rewrites currently behave for shared kernels.
+
+    Both drivers are rewired to mode-specific clones, while the original shared
+    kernel and leaf remain in the scheduler with their original call/import chain.
+    """
+    scheduler_config = _shared_kernel_multi_mode_override_config()
+
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    _write_shared_kernel_multi_mode_sources(src_dir)
+
+    out_dir = tmp_path/'output'
+    out_dir.mkdir()
+
+    scheduler = Scheduler(
+        paths=src_dir, config=scheduler_config,
+        seed_routines=['driver_small', 'driver_stack', 'shared_kernel', 'leaf'],
+        xmods=[tmp_path], output_dir=out_dir
+    )
+    scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.DEFAULT)
+    scheduler.process(scheduler_config.pipelines, proc_strategy=ProcessingStrategy.DEFAULT)
+
+    expected_items = {
+        '#driver_small',
+        '#driver_stack',
+        'shared_kernel_mod#shared_kernel',
+        'shared_kernel_loki_m_small_mod#shared_kernel_loki_m_small',
+        'shared_kernel_loki_m_stack_mod#shared_kernel_loki_m_stack',
+        'leaf_mod#leaf',
+        'leaf_loki_m_small_mod#leaf_loki_m_small',
+        'leaf_loki_m_stack_mod#leaf_loki_m_stack',
+    }
+    assert expected_items <= {item.name for item in scheduler.items}
+
+    def calls_for(item_name):
+        routine = scheduler[item_name].ir
+        return tuple(str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body))
+
+    def imports_for(item_name):
+        routine = scheduler[item_name].ir
+        return {imp.module.lower() for imp in routine.imports}
+
+    assert calls_for('#driver_small') == ('shared_kernel_loki_m_small',)
+    assert imports_for('#driver_small') == {'shared_kernel_loki_m_small_mod'}
+
+    assert calls_for('#driver_stack') == ('shared_kernel_loki_m_stack',)
+    assert imports_for('#driver_stack') == {'shared_kernel_loki_m_stack_mod'}
+
+    assert calls_for('shared_kernel_loki_m_small_mod#shared_kernel_loki_m_small') == ('leaf_loki_m_small',)
+    assert imports_for('shared_kernel_loki_m_small_mod#shared_kernel_loki_m_small') == {'leaf_loki_m_small_mod'}
+
+    assert calls_for('shared_kernel_loki_m_stack_mod#shared_kernel_loki_m_stack') == ('leaf_loki_m_stack',)
+    assert imports_for('shared_kernel_loki_m_stack_mod#shared_kernel_loki_m_stack') == {'leaf_loki_m_stack_mod'}
+
+    # The original shared kernel remains active with the original import/call chain.
+    assert calls_for('shared_kernel_mod#shared_kernel') == ('leaf',)
+    assert imports_for('shared_kernel_mod#shared_kernel') == {'leaf_mod'}
+
+
+def test_scheduler_multi_modes_explicit_routine_entries_do_not_become_seeds(tmp_path):
+    """
+    Explicit routine config entries alone do not become scheduler seeds when
+    seed_routines is not provided.
+    """
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    _write_shared_kernel_multi_mode_sources(src_dir)
+
+    no_override_scheduler = Scheduler(
+        paths=src_dir, config=_shared_kernel_multi_mode_config(),
+        xmods=[tmp_path], output_dir=tmp_path/'out-no-override'
+    )
+    override_scheduler = Scheduler(
+        paths=src_dir, config=_shared_kernel_multi_mode_override_config(), xmods=[tmp_path],
+        output_dir=tmp_path/'out-override'
+    )
+
+    assert no_override_scheduler.seeds == ('driver_small', 'driver_stack')
+    assert override_scheduler.seeds == ('driver_small', 'driver_stack')
+
+    no_override_scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.DEFAULT)
+    override_scheduler.propagate_and_separate_modes(proc_strategy=ProcessingStrategy.DEFAULT)
+
+    assert 'shared_kernel_mod#shared_kernel' not in {item.name for item in no_override_scheduler.items}
+    assert 'shared_kernel_mod#shared_kernel' not in {item.name for item in override_scheduler.items}
+
+
+def test_scheduler_implicit_seeds_include_seed_routine_entries(tmp_path):
+    """
+    Non-driver routines explicitly marked with ``seed_routine = true`` are added
+    to the implicit seed set alongside driver routines.
+    """
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    _write_shared_kernel_multi_mode_sources(src_dir)
+
+    scheduler = Scheduler(
+        paths=src_dir, config=_shared_kernel_multi_mode_seed_override_config(),
+        xmods=[tmp_path], output_dir=tmp_path/'output'
+    )
+
+    assert scheduler.seeds == ('driver_small', 'driver_stack', 'shared_kernel', 'leaf')
+
+
+def test_scheduler_requires_implicit_seed_or_explicit_seed_routines(tmp_path):
+    """
+    When no explicit seeds are provided, the scheduler requires at least one
+    implicit seed via a driver role or ``seed_routine = true``.
+    """
+    src_dir = tmp_path/'sources'
+    src_dir.mkdir()
+    _write_shared_kernel_multi_mode_sources(src_dir)
+
+    config = SchedulerConfig.from_dict({
+        'default': {'role': 'kernel', 'expand': True, 'strict': False},
+        'routines': {
+            'shared_kernel': {'role': 'kernel'},
+            'leaf': {'role': 'kernel'},
+        },
+    })
+
+    with pytest.raises(RuntimeError, match='No seed routines provided and no implicit seeds found'):
+        Scheduler(paths=src_dir, config=config, xmods=[tmp_path], output_dir=tmp_path/'output')
