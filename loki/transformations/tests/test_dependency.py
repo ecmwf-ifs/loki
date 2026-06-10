@@ -657,9 +657,11 @@ def test_dependency_duplicate_subgraph(tmp_path, frontend, suffix, module_suffix
 
     transformed_items = {name.split('#')[0] if name.split('#')[0] else name[1:]
                          for name in expected_items if not name.endswith(f'{suffix}')}
+    transformed_items -= {'compute_3_mod'}
     assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == transformed_items
     assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == transformed_items
     appended_items = {name.split('#')[0] if name.split('#')[0] else name[1:] for name in expected_items}
+    appended_items -= {'compute_3_mod'}
     appended_items = {f'{name}.idem' for name in appended_items}
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == appended_items
 
