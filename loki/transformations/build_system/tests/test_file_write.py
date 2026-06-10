@@ -269,7 +269,9 @@ end subroutine d
         },
         'routines': {
             'b_mod': {'replicate': False},
-            'not_c': {'replicate': False},
+            # either keep this seed routine or remove the have_non_replicate_conflict in
+            # the caplog assertion below
+            'not_c': {'replicate': False, 'seed_routine': True},
             'd': {'role': 'driver', 'replicate': False},
         }
     })

@@ -512,7 +512,7 @@ def test_linter_lint_files_scheduler(testdir, rules, routines, files):
             'expand': True,
             'strict': True,
         },
-        'routines': {'other_routine': {}}
+        'routines': {'other_routine': {'seed_routine': True}}
     }},
     {'include': ['linter_lint_files_fix.F90']}
 ])
@@ -584,7 +584,7 @@ end subroutine OTHER_ROUTINE
             'expand': True,
             'strict': True
         },
-        'routines': {'other_routine': {}}
+        'routines': {'other_routine': {'seed_routine': True}}
     }},
     {'include': ['*.F90']}
 ])

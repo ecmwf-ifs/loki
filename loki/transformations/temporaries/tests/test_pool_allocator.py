@@ -1193,7 +1193,9 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
         }
     }
     scheduler = Scheduler(
-        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        seed_routines=['kernel'],
+        frontend=frontend, xmods=[tmp_path]
     )
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
