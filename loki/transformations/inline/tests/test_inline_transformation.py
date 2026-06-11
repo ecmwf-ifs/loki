@@ -487,6 +487,7 @@ end module innermost_mod
 
     scheduler = Scheduler(
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        seed_routines=['outermost'],
         frontend=frontend, xmods=[tmp_path]
     )
 

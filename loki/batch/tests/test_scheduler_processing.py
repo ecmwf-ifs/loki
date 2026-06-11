@@ -232,6 +232,7 @@ def test_scheduler_dependencies_ignore(tmp_path, testdir, preprocess, frontend):
 
     schedulerB = Scheduler(
         paths=projB, includes=projB/'include', config=configB,
+        seed_routines=['ext_driver'],
         frontend=frontend, preprocess=preprocess, xmods=[tmp_path]
     )
 
@@ -288,10 +289,10 @@ def test_scheduler_dependencies_ignore(tmp_path, testdir, preprocess, frontend):
         # Apply dependency injection transformation and ensure only the root driver is not transformed
         schedulerA.process(transformation)
 
-    assert schedulerA.items[0].source.all_subroutines[0].name == 'driverB'
-    assert schedulerA.items[1].source.all_subroutines[0].name == 'kernelB_test'
-    assert schedulerA.items[4].source.all_subroutines[0].name == 'compute_l1_test'
-    assert schedulerA.items[5].source.all_subroutines[0].name == 'compute_l2_test'
+    assert schedulerA['driverb_mod#driverb'].source.all_subroutines[0].name == 'driverB'
+    assert schedulerA['kernelb_test_mod#kernelb_test'].source.all_subroutines[0].name == 'kernelB_test'
+    assert schedulerA['compute_l1_test_mod#compute_l1_test'].source.all_subroutines[0].name == 'compute_l1_test'
+    assert schedulerA['compute_l2_test_mod#compute_l2_test'].source.all_subroutines[0].name == 'compute_l2_test'
 
     # Note that 'ext_driver' and 'ext_kernel' are no longer part of the dependency graph because the
     # renaming makes it impossible to discover the non-transformed routines
