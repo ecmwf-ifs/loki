@@ -343,11 +343,12 @@ function( loki_download_python_wheels )
 
         message( STATUS "Downloading dependency wheels for ${_PAR_REQUIREMENT_SPEC} to ${WHEELS_DIR}" )
 
-        # Download typical build dependencies for wheels: setuptools and wheel
+        # Download typical build dependencies for wheels. Keep in sync with
+        # the build-system constraints in loki's pyproject.toml.
         set( _CMD
             ${Python3_EXECUTABLE} -m pip download
             --disable-pip-version-check --dest "${WHEELS_DIR}"
-            ${PIP_OPTIONS} setuptools>=75.0.0 wheel
+            ${PIP_OPTIONS} setuptools>=75.0.0 wheel setuptools_scm[toml]>=6.2
         )
         execute_process(
             COMMAND ${_CMD}
