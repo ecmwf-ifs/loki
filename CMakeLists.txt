@@ -35,7 +35,7 @@
 # though, and use 3.17 for conda support anyway)
 # Version 3.19 for support of find_package version range and file(CHMOD)
 cmake_minimum_required( VERSION 3.19 FATAL_ERROR )
-find_package( ecbuild 3.7 REQUIRED )
+find_package( ecbuild 3.11 REQUIRED )
 
 # Specify project and configuration options
 project( loki LANGUAGES NONE )
