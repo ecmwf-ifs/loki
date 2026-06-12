@@ -54,15 +54,21 @@ function( loki_find_python_venv )
     # Change the context of the search to only find the venv
     set( Python3_FIND_VIRTUALENV ONLY )
 
-    # Unset Python3_EXECUTABLE because it is also an input variable
+    # Python3_EXECUTABLE is also an input variable. Set it explicitly because
+    # super-builds may already have a system interpreter cached from another project.
     # see https://cmake.org/cmake/help/latest/module/FindPython.html#artifacts-specification
-    unset( Python3_EXECUTABLE )
+    set( Python3_EXECUTABLE "${_PAR_VENV_PATH}/bin/python3" )
     # To allow cmake to discover the newly created venv if Python3_ROOT_DIR
     # was passed as an argument at build-time
     set( Python3_ROOT_DIR "${_PAR_VENV_PATH}" )
 
     # Launch a new search
     find_package( Python3 ${_PAR_PYTHON_VERSION} COMPONENTS Interpreter REQUIRED )
+
+    cmake_path( IS_PREFIX _PAR_VENV_PATH "${Python3_EXECUTABLE}" NORMALIZE _IS_VENV_INTERPRETER )
+    if( NOT _IS_VENV_INTERPRETER )
+        ecbuild_error( "The discovered Python interpreter is not within the virtual environment" )
+    endif()
 
     # Find the binary directory of the virtual environment
     execute_process(
@@ -132,7 +138,7 @@ function( loki_create_python_venv )
 
     # Create a virtualenv
     message( STATUS "Create Python virtual environment ${VENV_PATH}" )
-    execute_process( COMMAND ${Python3_EXECUTABLE} -m venv "${VENV_PATH}" )
+    execute_process( COMMAND ${Python3_EXECUTABLE} -m venv "${VENV_PATH}" COMMAND_ERROR_IS_FATAL ANY )
     set( Python3_VENV_NAME "${_PAR_VENV_NAME}" PARENT_SCOPE )
 
     # Upon installation, we create an equivalent Python venv in the installation directory
@@ -413,7 +419,7 @@ endfunction()
 function( loki_build_python_wheels )
 
     set( options "" )
-    set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR BUILD_DIR )
+    set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR BUILD_DIR PYTHON_VERSION )
     set( multiValueArgs "" )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
@@ -426,7 +432,7 @@ function( loki_build_python_wheels )
         message( FATAL_ERROR "No REQUIREMENT_SPEC provided to loki_build_python_wheels()" )
     endif()
 
-    message( STATUS "Building wheel for ${REQUIREMENT_SPEC}" )
+    message( STATUS "Building wheel for ${_PAR_REQUIREMENT_SPEC}" )
 
     # Check for a suitable python interpreter
     find_package( Python3 ${_PAR_PYTHON_VERSION} COMPONENTS Interpreter REQUIRED QUIET )
@@ -499,7 +505,7 @@ endfunction()
 function( loki_install_python_package )
 
     set( options EDITABLE )
-    set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR )
+    set( oneValueArgs REQUIREMENT_SPEC WHEELS_DIR PYTHON_VERSION )
     set( multiValueArgs "" )
 
     cmake_parse_arguments( _PAR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN} )
@@ -555,7 +561,7 @@ function( loki_install_python_package )
         endif()
         install(
             CODE
-                "execute_process( COMMAND \${CMAKE_INSTALL_PREFIX}/var/${Python3_VENV_NAME}/bin/python -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC} )"
+                "execute_process( COMMAND \${CMAKE_INSTALL_PREFIX}/var/${Python3_VENV_NAME}/bin/python -m pip install ${INSTALL_OPTS} ${_PAR_REQUIREMENT_SPEC} COMMAND_ERROR_IS_FATAL ANY )"
         )
     endif()
 
