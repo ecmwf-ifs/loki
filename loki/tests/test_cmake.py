@@ -114,7 +114,14 @@ def fixture_ecbuild(tmp_dir):
     ecbuilddir = tmp_dir/'ecbuild'
     if ecbuilddir.exists():
         shutil.rmtree(ecbuilddir)
-    execute(['git', 'clone', 'https://github.com/ecmwf/ecbuild.git', str(ecbuilddir)])
+    ecbuild_version = '3.14.2'
+    execute([
+        'git', 'clone',
+        '--depth', '1',
+        '-b', ecbuild_version,
+        'https://github.com/ecmwf/ecbuild.git',
+        str(ecbuilddir)
+    ])
     yield ecbuilddir
     shutil.rmtree(ecbuilddir)
 
