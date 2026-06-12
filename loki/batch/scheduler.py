@@ -25,7 +25,6 @@ from loki.frontend import FP, REGEX, RegexParserClass
 from loki.tools import as_tuple, CaseInsensitiveDict, flatten
 
 from loki.logging import info, perf, warning, error
-from loki.transformations.dependency import SeparateModesKernel
 
 __all__ = ['ProcessingStrategy', 'Scheduler']
 
@@ -204,6 +203,7 @@ class Scheduler:
             self._enrich()
 
     def propagate_and_separate_modes(self, proc_strategy=ProcessingStrategy.DEFAULT):
+        from loki.transformations.dependency import SeparateModesKernel
         self._propagate_modes()
         self.process_transformation(SeparateModesKernel(), proc_strategy=proc_strategy)
         self._propagate_modes_set()
@@ -608,7 +608,9 @@ class Scheduler:
                 if isinstance(_item, ExternalItem):
                     if kwargs['plan_mode'] and _item.is_generated:
                         continue
-                    raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    # raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    print(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    continue
 
                 transformation.apply(
                     _item.transformation_ir, item=_item, items=_get_definition_items(_item, sgraph_items),
