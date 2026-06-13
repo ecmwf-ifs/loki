@@ -14,6 +14,7 @@ IFS-specific source-to-source recipes that target GPUs.
 
 from loki.transformations.array_indexing import * # noqa
 from loki.transformations.build_system import * # noqa
+from loki.transformations.constant_propagation import * # noqa
 from loki.transformations.argument_shape import * # noqa
 from loki.transformations.data_offload import * # noqa
 from loki.transformations.drhook import * # noqa
