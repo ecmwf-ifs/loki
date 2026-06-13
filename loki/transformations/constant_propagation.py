@@ -33,32 +33,17 @@ def _pop_array_accesses(lhs, **kwargs):
     computable_dimension_mask = [is_constant(extent) for extent in new_shape]
 
     masked_indices = []
-    ignore_mask = []
-    partial = False
     for literal, computable, dimension in zip(literal_mask, computable_dimension_mask, lhs.dimensions):
         if literal:
             masked_indices.append(dimension)
-            ignore_mask.append(False)
         elif computable:
             masked_indices.append(sym.RangeIndex((None, None, None)))
-            ignore_mask.append(False)
         else:
-            partial = True
             masked_indices.append(-1)
-            ignore_mask.append(True)
 
     possible_accesses = _array_indices_to_accesses(masked_indices, new_shape)
-    keys = tuple(constants_map.keys())
     for access in possible_accesses:
-        if partial:
-            for key in keys:
-                if key[0] == lhs.name and all(
-                        current == candidate or ignore
-                        for current, candidate, ignore in zip(key[1], access, ignore_mask)
-                ):
-                    constants_map.pop(key, None)
-        else:
-            constants_map.pop((lhs.basename, access), None)
+        constants_map.pop((lhs.basename, access), None)
 
 
 def update_constants_map(lhs, value, constants_map):
@@ -82,7 +67,6 @@ def _separate_literals(children):
         else:
             separated[1].append(child)
     return separated
-
 
 
 def _array_indices_to_accesses(dimensions, shape):
@@ -207,15 +191,9 @@ class ConstantPropagationTransformer(Transformer):
             and is_constant(new_bounds.stop)
             and (is_constant(new_bounds.step) or new_bounds.step is None)
         )
-        bounds_has_steps = bounds_are_const and len(
-            get_pyrange(sym.LoopRange((new_bounds.start, new_bounds.stop, new_bounds.step)))
-        ) > 0
 
         if bounds_are_const:
-            if bounds_has_steps:
-                loop_constants_map = constants_map
-            else:
-                loop_constants_map = deepcopy(constants_map)
+            loop_constants_map = constants_map
 
             for assign in assignments:
                 if not set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
