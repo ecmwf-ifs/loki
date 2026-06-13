@@ -7,7 +7,6 @@
 
 """Collection of utility routines that provide loop transformations."""
 
-# pylint: disable=cyclic-import
 import functools
 from collections import defaultdict
 import operator as op
