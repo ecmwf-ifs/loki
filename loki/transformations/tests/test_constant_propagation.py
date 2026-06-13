@@ -40,6 +40,7 @@ def test_constant_propagation_mapper_folds_expressions():
     assert mapper(sym.Sum((sym.IntLiteral(1), sym.IntLiteral(2)))) == sym.IntLiteral(3)
     assert mapper(sym.Quotient(sym.IntLiteral(7), sym.IntLiteral(2))) == sym.IntLiteral(3)
     assert mapper(sym.Quotient(sym.IntLiteral(-7), sym.IntLiteral(2))) == sym.IntLiteral(-3)
+    assert mapper(sym.Quotient(sym.IntLiteral(7), sym.IntLiteral(-2))) == sym.IntLiteral(-3)
     assert mapper(sym.Power(sym.IntLiteral(2), sym.IntLiteral(3))) == sym.IntLiteral(8)
     assert mapper(sym.LogicalAnd((sym.LogicLiteral(True), sym.LogicLiteral(False)))) == sym.LogicLiteral(False)
     assert mapper(sym.StringConcat((sym.StringLiteral('foo'), sym.StringLiteral('bar')))) == sym.StringLiteral('foobar')
@@ -238,7 +239,8 @@ end subroutine test_constant_propagation_conditional_basic
     assert 'Assignment:: c = 5' in assignments
     assert 'Assignment:: c = 3' in assignments
     assert 'Assignment:: c = c' in assignments
-    assert 'Assignment:: c = 5' in assignments
+    assert 'Assignment:: d = 5' in assignments
+    assert not 'Assignment:: d = d' in assignments
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

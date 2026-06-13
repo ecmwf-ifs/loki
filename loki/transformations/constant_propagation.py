@@ -256,7 +256,7 @@ class ConstantPropagationTransformer(Transformer):
 
 
 def do_constant_propagation(routine, unroll_loops=False):
-    """ Apply constant-propagation gover the body of a :any:`Subroutine`. """
+    """ Apply constant-propagation over the body of a :any:`Subroutine`. """
 
     assert isinstance(routine, Subroutine), \
         f'[Loki] Constant propagation can only be applied to Subroutine, but found {routine}'
