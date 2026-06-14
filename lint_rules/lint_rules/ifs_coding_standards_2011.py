@@ -219,9 +219,6 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
         ir.Deallocation, ir.Nullify, ir.CallStatement
     )
 
-    # Pattern for intrinsic nodes that are allowed as non-executable statements
-    match_non_exec_intrinsic_node = re.compile(r'\s*(?:PRINT|FORMAT)', re.I)
-
     @classmethod
     def check_subroutine(cls, subroutine, rule_report, config, **kwargs):
         '''Count the number of nodes in the subroutine and check if they exceed
@@ -231,9 +228,8 @@ class LimitSubroutineStatementsRule(GenericRule):  # Coding standards 2.2
         nodes = FindNodes(cls.exec_nodes).visit(subroutine.ir)
         num_nodes = len(nodes)
         # Subtract number of non-exec intrinsic nodes
-        intrinsic_nodes = filter(lambda node: isinstance(node, ir.GenericStmt), nodes)
-        num_nodes -= sum(1 for _ in filter(
-            lambda node: cls.match_non_exec_intrinsic_node.match(node.text), intrinsic_nodes))
+        intrinsic_nodes = list(filter(lambda node: isinstance(node, (ir.PrintStmt, ir.FormatStmt)), nodes))
+        num_nodes -= len(intrinsic_nodes)
 
         if num_nodes > config['max_num_statements']:
             msg = (f'Subroutine has {num_nodes} executable statements '
