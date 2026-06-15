@@ -275,7 +275,7 @@ def flatten_expr(expr):
     return sym.Sum(as_tuple(done))
 
 
-def sum_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
+def sum_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Sum up the values of all numeric literals in the sum and return the reduced sum.
 
@@ -373,7 +373,7 @@ def separate_coefficients(expr, int_arithmetic=True, fp_arithmetic=False):
     return value, has_float, remaining_components
 
 
-def mul_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
+def mul_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     """
     Multiply all `IntLiteral` in the given `Product` and return the reduced expression.
 
@@ -409,7 +409,7 @@ def mul_int_literals(expr, int_arithmetic=True, fp_arithmetic=False):
     return ret
 
 
-def div_int_literals(expr, fp_arithmetic=False):
+def div_literals(expr, fp_arithmetic=False):
     """
     Reduce fractions where the denominator is a `IntLiteral`.
 
@@ -425,11 +425,11 @@ def div_int_literals(expr, fp_arithmetic=False):
 
     if is_minus_prefix(expr.numerator):
         q = sym.Quotient(strip_minus_prefix(expr.numerator), expr.denominator)
-        return sym.Product((-1, div_int_literals(q, fp_arithmetic=fp_arithmetic)))
+        return sym.Product((-1, div_literals(q, fp_arithmetic=fp_arithmetic)))
 
     if is_minus_prefix(expr.denominator):
         q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
-        return sym.Product((-1, div_int_literals(q, fp_arithmetic=fp_arithmetic)))
+        return sym.Product((-1, div_literals(q, fp_arithmetic=fp_arithmetic)))
 
     if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
         if not fp_arithmetic:
@@ -447,7 +447,7 @@ def div_int_literals(expr, fp_arithmetic=False):
     elif isinstance(expr.numerator, sym.Product):
         value, _, remaining_components = separate_coefficients(expr.numerator, fp_arithmetic=fp_arithmetic)
         div = gcd(value, expr.denominator.value)
-        numerator = mul_int_literals(
+        numerator = mul_literals(
             sym.Product((sym.IntLiteral(value / div), *remaining_components)), fp_arithmetic=fp_arithmetic
         )
         denominator = sym.IntLiteral(expr.denominator.value / div)
@@ -589,7 +589,7 @@ class SimplifyMapper(LokiIdentityMapper):
             new_expr = flatten_expr(new_expr)
 
         if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
-            new_expr = sum_int_literals(
+            new_expr = sum_literals(
                 new_expr,
                 int_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
                 fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
@@ -609,7 +609,7 @@ class SimplifyMapper(LokiIdentityMapper):
             new_expr = flatten_expr(new_expr)
 
         if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
-            new_expr = mul_int_literals(
+            new_expr = mul_literals(
                 new_expr,
                 int_arithmetic=self.enabled_simplifications & Simplification.IntegerArithmetic,
                 fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
@@ -628,7 +628,7 @@ class SimplifyMapper(LokiIdentityMapper):
             new_expr = flatten_expr(new_expr)
 
         if self.enabled_simplifications & (Simplification.IntegerArithmetic | Simplification.FloatingPointArithmetic):
-            new_expr = div_int_literals(
+            new_expr = div_literals(
                 new_expr, fp_arithmetic=self.enabled_simplifications & Simplification.FloatingPointArithmetic
             )
 
