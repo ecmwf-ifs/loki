@@ -321,7 +321,8 @@ class Subroutine(ProgramUnit):
     @property
     def argnames(self):
         """
-        Return names of arguments in order of the defined signature (dummy list)
+        Return names of dummy arguments as list of lower-case strings 
+        in order of the defined signature
         """
         return tuple(a.name.lower() for a in self.arguments)
 
