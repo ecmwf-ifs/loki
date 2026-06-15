@@ -11,7 +11,7 @@ import numpy as np
 from loki import Module, Subroutine
 from loki.jit_build import jit_compile_lib, Builder, Obj
 from loki.frontend import available_frontends
-from loki.ir import FindNodes, Assignment, CallStatement
+from loki.ir import nodes as ir, FindNodes
 from loki.types import BasicType
 
 from loki.transformations.extract.outline import outline_pragma_regions
@@ -24,11 +24,11 @@ def fixture_builder(tmp_path):
 
 
 def assignment_symbols(node):
-    return [(assign.lhs, assign.rhs) for assign in FindNodes(Assignment).visit(node)]
+    return [(assign.lhs, assign.rhs) for assign in FindNodes(ir.Assignment).visit(node)]
 
 
 def call_symbols(node):
-    return [(call.name, call.arguments) for call in FindNodes(CallStatement).visit(node)]
+    return [(call.name, call.arguments) for call in FindNodes(ir.CallStatement).visit(node)]
 
 
 def argument_symbols(routine):
@@ -60,16 +60,16 @@ end subroutine test_outline
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 4
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 4
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 0
     assert assignment_symbols(routine.body) == [('a', 5), ('a', 1), ('b', 'a'), ('c', 'a + b')]
 
     routines = outline_pragma_regions(routine)
     assert len(routines) == 1 and routines[0].name == f'{routine.name}_outlined_0'
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 3
-    assert len(FindNodes(Assignment).visit(routines[0].body)) == 1
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 1
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(routines[0].body)) == 1
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 1
     assert assignment_symbols(routine.body) == [('a', 5), ('a', 1), ('c', 'a + b')]
     assert assignment_symbols(routines[0].body) == [('b', 'a')]
     assert call_symbols(routine.body) == [(f'{routine.name}_outlined_0', ('a', 'b'))]
@@ -105,8 +105,8 @@ end subroutine test_outline_mult
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 7
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 7
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 0
     assert assignment_symbols(routine.body) == [
         ('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1'),
         ('a', 'a + 1'), ('b', 'a'), ('c', 'a + b')
@@ -117,9 +117,9 @@ end subroutine test_outline_mult
     assert routines[0].name == 'oiwjfklsf'
     assert all(routines[i].name == f'{routine.name}_outlined_{i}' for i in (1,2))
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 4
-    assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 4
+    assert all(len(FindNodes(ir.Assignment).visit(r.body)) == 1 for r in routines)
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 3
     assert assignment_symbols(routine.body) == [('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1')]
     assert [assignment_symbols(r.body) for r in routines] == [[('a', 'a + 1')], [('b', 'a')], [('c', 'a + b')]]
     assert call_symbols(routine.body) == [
@@ -165,8 +165,8 @@ end subroutine test_outline_args
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 7
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 7
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 0
     assert assignment_symbols(routine.body) == [
         ('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1'),
         ('a', 'a + 1'), ('b', 'a'), ('c', 'a + b')
@@ -188,9 +188,9 @@ end subroutine test_outline_args
     assert routines[2].variable_map['b'].type.intent == 'inout'
     assert routines[2].variable_map['c'].type.intent == 'out'
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 4
-    assert all(len(FindNodes(Assignment).visit(r.body)) == 1 for r in routines)
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 4
+    assert all(len(FindNodes(ir.Assignment).visit(r.body)) == 1 for r in routines)
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 3
     assert assignment_symbols(routine.body) == [('a', 1), ('a', 'a + 1'), ('a', 'a + 1'), ('a', 'a + 1')]
     assert [assignment_symbols(r.body) for r in routines] == [[('a', 'a + 1')], [('b', 'a')], [('c', 'a + b')]]
     assert call_symbols(routine.body) == [('func_a', ('a',)), ('func_b', ('a', 'b')), ('func_c', ('a', 'b', 'c'))]
@@ -229,16 +229,16 @@ end subroutine test_outline_arr
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 4
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 4
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 0
     assert assignment_symbols(routine.body) == [
         ('a(j)', 'j'), ('b(j)', 'j'), ('b(j)', 'b(j + 1) - a(j)'), ('b(n)', 1)
     ]
 
     routines = outline_pragma_regions(routine)
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 0
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 0
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 3
 
     assert len(routines) == 3
 
@@ -315,14 +315,14 @@ end module test_outline_imps_mod
     assert np.all(b == range(1,11))
     (tmp_path/f'{module.name}.f90').unlink()
 
-    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 4
-    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(module.subroutines[0].body)) == 4
+    assert len(FindNodes(ir.CallStatement).visit(module.subroutines[0].body)) == 0
 
     # Apply transformation
     routines = outline_pragma_regions(module.subroutines[0])
 
-    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 1
-    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 3
+    assert len(FindNodes(ir.Assignment).visit(module.subroutines[0].body)) == 1
+    assert len(FindNodes(ir.CallStatement).visit(module.subroutines[0].body)) == 3
 
     assert len(routines) == 3
 
@@ -393,14 +393,14 @@ end module test_outline_dertype_mod
     assert np.all(b == 42)
     (tmp_path/f'{module.name}.f90').unlink()
 
-    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 6
-    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(module.subroutines[0].body)) == 6
+    assert len(FindNodes(ir.CallStatement).visit(module.subroutines[0].body)) == 0
 
     # Apply transformation
     routines = outline_pragma_regions(module.subroutines[0])
 
-    assert len(FindNodes(Assignment).visit(module.subroutines[0].body)) == 4
-    assert len(FindNodes(CallStatement).visit(module.subroutines[0].body)) == 1
+    assert len(FindNodes(ir.Assignment).visit(module.subroutines[0].body)) == 4
+    assert len(FindNodes(ir.CallStatement).visit(module.subroutines[0].body)) == 1
 
     # Check for a single derived-type argument
     assert len(routines) == 1
@@ -476,14 +476,14 @@ end module test_outline_assoc_mod
     assert np.all(b == 42)
     (tmp_path/f'{module.name}.f90').unlink()
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 6
-    assert len(FindNodes(CallStatement).visit(routine.body)) == 0
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 6
+    assert len(FindNodes(ir.CallStatement).visit(routine.body)) == 0
 
     # Apply transformation
     outlined = outline_pragma_regions(routine)
 
-    assert len(FindNodes(Assignment).visit(routine.body)) == 4
-    calls = FindNodes(CallStatement).visit(routine.body)
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 4
+    calls = FindNodes(ir.CallStatement).visit(routine.body)
     assert len(calls) == 1
     assert calls[0].arguments == ('c', 'd')
 

@@ -42,12 +42,12 @@ solutions_default_parameters = {
             "3": "<VariableDeclaration:: score>",
             "4": "<Section::>",
             "5": "<MultiConditional:: score>",
-            "6": "<Intrinsic:: PRINT *, A>",
-            "7": "<Intrinsic:: PRINT *, B>",
-            "8": "<Intrinsic:: PRINT *, C>",
-            "9": "<Intrinsic:: PRINT *, D>",
-            "10": "<Intrinsic:: PRINT *, F>",
-            "11": "<Intrinsic:: PRINT *, Inv...>",
+            "6": "<Print:: *, 'A'>",
+            "7": "<Print:: *, 'B'>",
+            "8": "<Print:: *, 'C'>",
+            "9": "<Print:: *, 'D'>",
+            "10": "<Print:: *, 'F'>",
+            "11": "<Print:: *, 'Invalid s...>",
         },
         "connectivity_list": {
             "0": ["1"],
@@ -67,8 +67,8 @@ solutions_default_parameters = {
             "3": "<VariableDeclaration:: x>",
             "4": "<Section::>",
             "5": "x > 0.0",
-            "6": "<Intrinsic:: PRINT *, The...>",
-            "7": "<Intrinsic:: PRINT *, The...>",
+            "6": "<Print:: *, 'The numbe...>",
+            "7": "<Print:: *, 'The numbe...>",
         },
         "connectivity_list": {
             "0": ["1"],
@@ -85,9 +85,9 @@ solutions_default_parameters = {
             "0": "<Section::>",
             "1": "<Module:: math_operations>",
             "2": "<Section::>",
-            "3": "<Intrinsic:: IMPLICIT NONE>",
+            "3": "<Implicit:: NONE>",
             "4": "<Section::>",
-            "5": "<Intrinsic:: CONTAINS>",
+            "5": "<Contains::>",
             "6": "<Subroutine:: add>",
             "7": "<Section::>",
             "8": "<VariableDeclaration:: x, y>",
@@ -134,11 +134,11 @@ solutions_default_parameters = {
             "4": "<Section::>",
             "5": "x > 0",
             "6": "y > 0",
-            "7": "<Intrinsic:: PRINT *, Bot...>",
-            "8": "<Intrinsic:: PRINT *, x i...>",
+            "7": "<Print:: *, 'Both x an...>",
+            "8": "<Print:: *, 'x is posi...>",
             "9": "y > 0",
-            "10": "<Intrinsic:: PRINT *, x i...>",
-            "11": "<Intrinsic:: PRINT *, Bot...>",
+            "10": "<Print:: *, 'x is not ...>",
+            "11": "<Print:: *, 'Both x an...>",
         },
         "connectivity_list": {
             "0": ["1"],
@@ -287,7 +287,7 @@ def find_node_id_inside_nodes(input_text):
 
 
 def find_label_content_inside_nodes(input_text):
-    pattern = re.compile(r'label="([^"]*"|\'[^\']*\'|[^\'"]*)"', re.IGNORECASE)
+    pattern = re.compile(r'label="([^"]*)"', re.IGNORECASE)
     return re.findall(pattern, input_text)
 
 

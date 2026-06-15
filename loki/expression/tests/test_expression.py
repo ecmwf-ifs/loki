@@ -590,20 +590,18 @@ end subroutine output_intrinsics
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    ref = ['format(1x, 2i10, 1x, i4, \' : \', i10)',
-           'write(0, 1002) numomp, ngptot, - 1, int(tdiff * 1000.0_jprb)']
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
+    assert len(intrinsics) == 2
 
     if frontend == OMNI:
-        ref[0] = ref[0].replace("'", '"')
-        ref[1] = ref[1].replace('0, 1002', 'unit=0, fmt=1002')
-        ref[1] = ref[1].replace(' * ', '*')
-        ref[1] = ref[1].replace('- 1', '-1')
-
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
-    assert len(intrinsics) == 2
-    assert intrinsics[0].text.lower() == ref[0]
-    assert intrinsics[1].text.lower() == ref[1]
-    assert fgen(intrinsics).lower() == '{} {}\n{}'.format('1002', *ref)
+        assert intrinsics[0].text == "1x, 2i10, 1x, i4, \' : \', i10"
+        assert fgen(intrinsics[0]) == "FORMAT(1x, 2i10, 1x, i4, \' : \', i10)"
+        assert fgen(intrinsics[1]) == "write(unit=0, fmt=1002) numomp, ngptot, -1, int(tdiff*1000.0_jprb)"
+    else:
+        assert intrinsics[0].text == "1X, 2I10, 1X, I4, \' : \', I10"
+        assert fgen(intrinsics[0]) == "FORMAT(1X, 2I10, 1X, I4, \' : \', I10)"
+        assert intrinsics[1].text == "WRITE(0, 1002) numomp, ngptot, - 1, INT(tdiff * 1000.0_jprb)"
+        assert fgen(intrinsics[1]) == "WRITE(0, 1002) numomp, ngptot, - 1, INT(tdiff * 1000.0_jprb)"
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

@@ -142,12 +142,12 @@ end subroutine do_while_routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_cycle_exit(frontend):
+def test_control_flow_statements(frontend):
     """
-    Test `CYCLE` and `EXIT` in loop bodies.
+    Test Fortran statements that define control flow in loop bodies.
     """
     fcode = """
-subroutine cycle_exit_routine(n, out)
+subroutine control_flow_routine(n, out)
   implicit none
   integer, intent(in) :: n
   integer, intent(out) :: out
@@ -156,20 +156,29 @@ subroutine cycle_exit_routine(n, out)
   out = 0
   do i=1, n
     if (i == 2) cycle
-    if (i == 5) exit
+    if (i == 3) continue
+    if (i == 4) go to 42
+    if (i == 5) then
+42    exit
+    end if
+    if (i == 6) stop
     out = out + i
   end do
-end subroutine cycle_exit_routine
+end subroutine control_flow_routine
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     loops = FindNodes(ir.Loop).visit(routine.body)
     assert len(loops) == 1
-    intrinsics = [
-        intr for intr in FindNodes(ir.Intrinsic).visit(loops[0].body)
-        if intr.text.lower() in ('cycle', 'exit')
-    ]
-    assert len(intrinsics) == 2
+    statements = FindNodes(ir.GenericStmt).visit(loops[0].body)
+
+    assert len(statements) == 5
+    assert isinstance(statements[0], ir.CycleStmt)
+    assert isinstance(statements[1], ir.ContinueStmt)
+    assert isinstance(statements[2], ir.GotoStmt)
+    assert statements[2].text == '42'
+    assert isinstance(statements[3], ir.ExitStmt)
+    assert isinstance(statements[4], ir.StopStmt)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

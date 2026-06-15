@@ -189,27 +189,60 @@ end module test_intrinsics_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_empty_print_statement(frontend):
-    """
-    Test if an empty print statement (PRINT *) is parsed correctly.
-    """
+def test_output_statements(frontend):
+    """ Test parsing of various output statement types. """
+
     fcode = """
-SUBROUTINE test_routine()
-    IMPLICIT NONE
-    print *
+subroutine test_routine(unit)
+    implicit none
+    integer, intent(in) :: unit
+
+    ! Check legality of empty print statement
+101 print *
+
     ! Using single quotes to simplify the test comparison (see below)
-    print *, 'test_text'
-END SUBROUTINE test_routine
+102  print *, 'test_text'
+
+    ! Format identifier with a mised list of arguments
+103 format(4X, 'Ma=', I0, 'Pa=', I0, 'Baby=', I0, 'Goldilocks=', I0)
+1003 format(5x,'NUMPROC=',i0,', NUMOMP=',i0,', NGPTOTG=',i0,', NPROMA=',i0,', NGPBLKS=',i0)
+end subroutine test_routine
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    print_stmts = [
-        intr for intr in FindNodes(ir.Intrinsic).visit(routine.ir)
-        if 'print' in intr.text.lower()
-    ]
-    assert print_stmts[0].text.lower() == 'print *'
-    # NOTE: OMNI always uses single quotes ('') to represent string data in PRINT statements
-    #       while fparser will mimic the quotes used in the parsed source code
-    assert print_stmts[1].text.lower() == "print *, 'test_text'"
+
+    stmts = FindNodes(ir.GenericStmt).visit(routine.ir)
+    assert len(stmts) == 5
+    assert isinstance(stmts[0], ir.ImplicitStmt)
+    assert isinstance(stmts[1], ir.PrintStmt)
+    assert stmts[1].values == ('*',)
+    assert isinstance(stmts[2], ir.PrintStmt)
+    assert stmts[2].values == ('*', sym.StringLiteral('test_text'))
+    assert isinstance(stmts[3], ir.FormatStmt)
+    if frontend == OMNI:
+        assert stmts[3].values == (
+            '4x', sym.StringLiteral('Ma='), 'i0', sym.StringLiteral('Pa='), 'i0',
+            sym.StringLiteral('Baby='), 'i0', sym.StringLiteral('Goldilocks='), 'i0'
+        )
+    else:
+        assert stmts[3].values == (
+            '4X', sym.StringLiteral('Ma='), 'I0', sym.StringLiteral('Pa='), 'I0',
+            sym.StringLiteral('Baby='), 'I0', sym.StringLiteral('Goldilocks='), 'I0'
+        )
+
+    assert isinstance(stmts[4], ir.FormatStmt)
+    assert stmts[4].label == '1003'
+    if frontend == OMNI:
+        assert stmts[4].values == (
+            '5x', sym.StringLiteral('NUMPROC='), 'i0', sym.StringLiteral(', NUMOMP='), 'i0',
+            sym.StringLiteral(', NGPTOTG='), 'i0', sym.StringLiteral(', NPROMA='), 'i0',
+            sym.StringLiteral(', NGPBLKS='), 'i0'
+        )
+    else:
+        assert stmts[4].values == (
+            '5X', sym.StringLiteral('NUMPROC='), 'I0', sym.StringLiteral(', NUMOMP='), 'I0',
+            sym.StringLiteral(', NGPTOTG='), 'I0', sym.StringLiteral(', NPROMA='), 'I0',
+            sym.StringLiteral(', NGPBLKS='), 'I0'
+        )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -366,7 +399,7 @@ end subroutine inquire_routine
     """.strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    intrinsics = [intr for intr in FindNodes(ir.Intrinsic).visit(routine.body) if 'inquire' in intr.text.lower()]
+    intrinsics = [intr for intr in FindNodes(ir.GenericStmt).visit(routine.body) if 'inquire' in intr.text.lower()]
     assert len(intrinsics) == 1
     assert 'inquire' in intrinsics[0].text.lower()
     assert 'unit' in intrinsics[0].text.lower()
