@@ -13,6 +13,7 @@ from subprocess import CalledProcessError
 
 import pytest
 
+from loki.logging import WARNING
 from loki import Array, Dimension, FindNodes, Literal, Sourcefile
 from loki.batch import Pipeline, ProcessingStrategy, Scheduler, SchedulerConfig, Transformation
 from loki.frontend import HAVE_FP, HAVE_OMNI, OMNI, available_frontends
@@ -1356,7 +1357,7 @@ def test_scheduler_implicit_seeds_include_seed_routine_entries(tmp_path):
     assert scheduler.seeds == ('driver_small', 'driver_stack', 'shared_kernel', 'leaf')
 
 
-def test_scheduler_requires_implicit_seed_or_explicit_seed_routines(tmp_path):
+def test_scheduler_requires_implicit_seed_or_explicit_seed_routines(tmp_path, caplog):
     """
     When no explicit seeds are provided, the scheduler requires at least one
     implicit seed via a driver role or ``seed_routine = true``.
@@ -1373,5 +1374,12 @@ def test_scheduler_requires_implicit_seed_or_explicit_seed_routines(tmp_path):
         },
     })
 
-    with pytest.raises(RuntimeError, match='No seed routines provided and no implicit seeds found'):
-        Scheduler(paths=src_dir, config=config, xmods=[tmp_path], output_dir=tmp_path/'output')
+    caplog.set_level(WARNING)
+
+    # Once deprecated:
+    # with pytest.raises(RuntimeError, match='No seed routines provided and no implicit seeds found'):
+    scheduler = Scheduler(paths=src_dir, config=config, xmods=[tmp_path], output_dir=tmp_path/'output')
+    # however, rn for backwards compability only expect warning and old behaviour
+    assert set(scheduler.seeds) == {'shared_kernel', 'leaf'}
+    assert len(caplog.records) == 1
+    assert "Using implicit or unspecified seed routines is deprecated and will" in caplog.records[0].message

@@ -174,11 +174,13 @@ class Scheduler:
             or config.create_item_config(name).get('seed_routine', False)
         )
         if not implicit_seeds:
-            raise RuntimeError(
-                'No seed routines provided and no implicit seeds found in the scheduler config. '
-                'Set `seed_routines`, mark routines with `role = "driver"`, or set '
-                '`seed_routine = true`.'
-            )
+            implicit_seeds = tuple(seed.lower() for seed in config.routines.keys())
+            warning("[Loki]: "
+                "Using implicit or unspecified seed routines is deprecated and will be removed in a future release. "
+                "Currently, no seed routines were provided and none were discovered in the scheduler config. "
+                "Please update your configuration by setting `seed_routines`, "
+                "marking routines with `role = \"driver\"`, "
+                "or setting `seed_routine = true`.")
         return implicit_seeds
 
     def __init__(self, paths, config=None, seed_routines=None, preprocess=False,
@@ -196,8 +198,12 @@ class Scheduler:
 
         # Build-related arguments to pass to the sources
         self.paths = [Path(p) for p in as_tuple(paths)]
-        self.seeds = tuple(seed.lower() for seed in as_tuple(seed_routines)) if seed_routines else \
-            self._get_implicit_seeds(self.config)
+        if seed_routines:
+            info('Initializing Scheduler graph from list of seed routines provided in the config')
+            self.seeds = tuple(seed.lower() for seed in as_tuple(seed_routines))
+        else:
+            info('Initializing Scheduler graph from driver routines')
+            self.seeds = self._get_implicit_seeds(self.config)
 
         # Accumulate all build arguments to pass to `Sourcefile` constructors
         self.build_args = {
