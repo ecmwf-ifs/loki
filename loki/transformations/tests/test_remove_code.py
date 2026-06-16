@@ -827,7 +827,7 @@ end subroutine test_remove_unused_vars
     do_remove_unused_vars(routine, remove_only_arrays=remove_only_arrays)
 
     expected_args = ('a', 'b', 'c', 'len', 'flag')
-    routine_args = [arg.name.lower() for arg in routine.arguments]
+    routine_args = routine.argnames
     for arg in expected_args:
         assert arg in routine_args
     if remove_only_arrays:

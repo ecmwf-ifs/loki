@@ -308,7 +308,7 @@ end subroutine rename_variables_extended
     symbol_map = {'klon': 'ncol', 'tt': 'arg_tt'}
     rename_variables(routine, symbol_map=symbol_map)
     # check arguments
-    arguments = [arg.name.lower() for arg in routine.arguments]
+    arguments = routine.argnames
     assert 'ncol' in arguments
     assert 'klon' not in arguments
     assert 'arg_tt' in arguments

@@ -140,7 +140,7 @@ end module compute_mod
     # nested_kernel
     nested_kernel = nested_kernel_mod['compute']
     nested_kernel_vars = nested_kernel.variable_map
-    nested_kernel_args = [arg.name.lower() for arg in nested_kernel.arguments]
+    nested_kernel_args = nested_kernel.argnames
     # it's always 'b_var' as a rename would clash with the already "used" variable "var"
     nested_kernel_var_name = 'b_var'
     if recurse_to_kernels:

@@ -288,7 +288,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
         See :meth:`expand_derived_type_member` for more details on how
         the expansion is performed.
         """
-        trafo_data = {'orig_argnames': tuple(arg.lower() for arg in routine.argnames)}
+        trafo_data = {'orig_argnames': routine.argnames}
 
         # All derived type arguments are candidates for expansion
         candidates = []

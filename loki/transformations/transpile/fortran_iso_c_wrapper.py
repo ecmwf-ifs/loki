@@ -347,8 +347,8 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
             casts_out += [ir.Assignment(lhs=arg, rhs=cast_out)]
             local_arg_map[arg.name] = cvar
 
-    arguments = tuple(local_arg_map[a] if a in local_arg_map else sym.Variable(name=a)
-                      for a in routine.argnames)
+    arguments = tuple(local_arg_map[a.name] if a.name in local_arg_map else sym.Variable(name=a.name)
+                      for a in routine.arguments)
     use_device_addr = []
     if use_c_ptr:
         arg_map = {}

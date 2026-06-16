@@ -213,8 +213,8 @@ class Subroutine(ProgramUnit):
             The cloned subroutine object.
         """
         # Collect all properties bespoke to Subroutine
-        if self.argnames and 'args' not in kwargs:
-            kwargs['args'] = self.argnames
+        if self.arguments and 'args' not in kwargs:
+            kwargs['args'] = tuple(a.name for a in self.arguments)
         if self.body and 'body' not in kwargs:
             kwargs['body'] = self.body
         if self.prefix and 'prefix' not in kwargs:
@@ -321,9 +321,10 @@ class Subroutine(ProgramUnit):
     @property
     def argnames(self):
         """
-        Return names of arguments in order of the defined signature (dummy list)
+        Return names of dummy arguments as list of lower-case strings 
+        in order of the defined signature
         """
-        return [a.name for a in self.arguments]
+        return tuple(a.name.lower() for a in self.arguments)
 
     members = ProgramUnit.subroutines
 
