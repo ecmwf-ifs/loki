@@ -1480,7 +1480,7 @@ class OMNI2IR(GenericVisitor):
         return ir.GotoStmt(text=label, source=kwargs['source'])
 
     def visit_FstopStatement(self, o, **kwargs):
-        return ir.StopStmt(**kwargs)
+        return ir.StopStmt(o.attrib.get('code'), **kwargs)
 
     def visit_statementLabel(self, o, **kwargs):
         return ir.Comment('__STATEMENT_LABEL__', label=o.attrib['label_name'], source=kwargs['source'])

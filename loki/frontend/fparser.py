@@ -3502,7 +3502,7 @@ class FParser2IR(GenericVisitor):
         return ir.ExitStmt(o.items[1], **kwargs)
 
     def visit_Stop_Stmt(self, o, **kwargs):
-        return ir.StopStmt(**kwargs)
+        return ir.StopStmt(o.items[1], **kwargs)
 
     def visit_Print_Stmt(self, o, **kwargs):
         children = [self.visit(c, **kwargs) for c in o.children]

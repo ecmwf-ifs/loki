@@ -558,8 +558,8 @@ def test_stmt_nodes(n, i):
         ir.ContinueStmt(n)
 
     assert fgen(ir.StopStmt()) == 'STOP'
-    with pytest.raises(ValidationError):
-        ir.StopStmt(n)
+    assert fgen(ir.StopStmt(1)) == 'STOP 1'
+    assert fgen(ir.StopStmt("'all done'")) == "STOP 'all done'"
 
     assert fgen(ir.ExitStmt()) == 'EXIT'
     assert fgen(ir.ExitStmt(1)) == 'EXIT 1'
