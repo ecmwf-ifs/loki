@@ -293,21 +293,24 @@ class StopStmt(GenericStmt):
 
     Parameters
     ----------
+    text : str, optional
+        The optional error code (integer or character) returned on stopping.
     **kwargs : optional
         Other parameters that are passed on to the parent class constructor.
     """
 
     keyword = 'STOP'
 
-    text: Optional[None] = None
+    text: Optional[Union[Expression, str]] = ''
 
-    def __post_init__(self):
-        super().__post_init__()
-        if not self.text is None:
-            raise ValidationError('[Loki] StopStmt takes no constructor arguments')
+    @field_validator('text', mode='before')
+    @classmethod
+    def ensure_literal(cls, value):
+        from loki.expression import symbols as sym  # pylint: disable=import-outside-toplevel
+        return sym.Literal(value) if value else ''
 
     def __repr__(self):
-        return 'Stop::'
+        return f'Stop::{self.text if self.text else ""}'
 
 
 @dataclass_strict(frozen=True)
