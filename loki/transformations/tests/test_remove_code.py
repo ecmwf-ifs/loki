@@ -8,7 +8,7 @@
 import shutil
 import pytest
 
-from loki import Subroutine, Module, Sourcefile, gettempdir
+from loki import Subroutine, Module, Sourcefile, gettempdir, fgen
 from loki.batch import Scheduler, SchedulerConfig
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindInlineCalls
@@ -577,6 +577,9 @@ subroutine never_gonna_give(dave)
 
     if (lhook) call dr_hook('never_gonna_give',1,zhook_handle)
 
+    stop
+    stop 1
+
 end subroutine
     """
 
@@ -606,10 +609,17 @@ end subroutine
     conditionals = FindNodes(ir.Conditional).visit(routine.body)
     assert len(conditionals) == (4 if frontend == OMNI else 0)
 
-    # Check that all intrinsic calls to WRITE have been removed
+    # Check that all intrinsic calls to WRITE have been removed, while
+    # the PRINT and STOP statements survive (StopStmt is a GenericStmt)
     intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
-    assert len(intrinsics) == 1
+    assert len(intrinsics) == 3
     assert 'never gonna let you down' in intrinsics[0].text
+
+    # Ensure STOP statements survive, both with and without an error code
+    stops = FindNodes(ir.StopStmt).visit(routine.body)
+    assert len(stops) == 2
+    assert fgen(stops[0]) == 'STOP'
+    assert fgen(stops[1]) == 'STOP 1'
 
     # Check that the repsective imports have also been stripped
     imports = FindNodes(ir.Import).visit(routine.spec)

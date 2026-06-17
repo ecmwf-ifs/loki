@@ -633,7 +633,7 @@ class RemoveCallsTransformer(Transformer):
     def visit_GenericStmt(self, o, **kwargs):
         """ Match and remove :any:`GenericStmt` nodes against name patterns """
         if self.intrinsic_names:
-            if any(str(c).lower() in o.text.lower() for c in self.intrinsic_names):
+            if any(str(c).lower() in str(o.text).lower() for c in self.intrinsic_names):
                 return None
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
