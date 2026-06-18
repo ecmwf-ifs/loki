@@ -9,11 +9,14 @@ from functools import partial
 
 from loki.batch import Pipeline
 
+from loki.transformations.block_index_transformations import InjectBlockIndexTransformation
+from loki.transformations.block_index_transformations_sk import LowerBlockIndexSKTransformation
 from loki.transformations.temporaries import (
         HoistTemporaryArraysAnalysis, TemporariesPoolAllocatorTransformation,
         TemporariesRawStackTransformation,
         FtrPtrStackTransformation, DirectIdxStackTransformation,
-        EcstackPoolAllocatorTransformation
+        EcstackPoolAllocatorTransformation,
+        TemporariesPoolAllocatorPerDrvLoopTransformation
 )
 
 from loki.transformations.single_column.base import SCCBaseTransformation
@@ -24,6 +27,10 @@ from loki.transformations.single_column.devector import SCCDevectorTransformatio
 from loki.transformations.single_column.revector import (
     SCCVecRevectorTransformation, SCCSeqRevectorTransformation
 )
+from loki.transformations.single_column.block import (
+    SCCBlockSectionTransformation, SCCBlockSectionToLoopTransformation
+)
+from loki.transformations.single_column.local_copies import CreateLocalCopiesTransformation
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
@@ -35,7 +42,8 @@ __all__ = [
     'SCCStackFtrPtrPipeline', 'SCCVStackFtrPtrPipeline', 'SCCSStackFtrPtrPipeline',
     'SCCStackDirectIdxPipeline', 'SCCVStackDirectIdxPipeline', 'SCCSStackDirectIdxPipeline',
     'SCCRawStackPipeline', 'SCCVRawStackPipeline', 'SCCSRawStackPipeline',
-    'SCCSEcStackPipeline'
+    'SCCSEcStackPipeline',
+    'SCCSmallKernelsPipeline'
 ]
 
 
@@ -785,4 +793,48 @@ demote_local_arrays : bool
 check_bounds : bool, optional
     Insert bounds-checks in the kernel to make sure the allocated
     stack size is not exceeded (default: `True`)
+"""
+
+
+SCCSmallKernelsPipeline = partial(
+    Pipeline, classes=(
+        LowerBlockIndexSKTransformation,
+        InjectBlockIndexTransformation,
+        SCCBaseTransformation,
+        SCCDevectorTransformation,
+        SCCDemoteTransformation,
+        SCCVecRevectorTransformation,
+        SCCBlockSectionTransformation,
+        SCCBlockSectionToLoopTransformation,
+        SCCAnnotateTransformation,
+        TemporariesPoolAllocatorPerDrvLoopTransformation,
+        CreateLocalCopiesTransformation,
+        PragmaModelTransformation
+    )
+)
+"""
+Small-kernels SCC pipeline.
+
+This pipeline converts driver + kernel pairs from block-loop form
+into the small-kernels GPU form.  It applies the following steps:
+
+1. Lower block-index access patterns
+   (:any:`LowerBlockIndexSKTransformation`)
+2. Inject block-index loop variable
+   (:any:`InjectBlockIndexTransformation`)
+3. Base SCC transformations (:any:`SCCBaseTransformation`)
+4. Devectorise horizontal loops (:any:`SCCDevectorTransformation`)
+5. Demote local arrays (:any:`SCCDemoteTransformation`)
+6. Re-vectorise selected sections
+   (:any:`SCCVecRevectorTransformation`)
+7. Extract block sections (:any:`SCCBlockSectionTransformation`)
+8. Wrap block sections in loops
+   (:any:`SCCBlockSectionToLoopTransformation`)
+9. Annotate with OpenACC directives
+   (:any:`SCCAnnotateTransformation`)
+10. Per-driver-loop pool allocation
+    (:any:`TemporariesPoolAllocatorPerDrvLoopTransformation`)
+11. Create local copies of index variables
+    (:any:`CreateLocalCopiesTransformation`)
+12. Apply pragma model (:any:`PragmaModelTransformation`)
 """

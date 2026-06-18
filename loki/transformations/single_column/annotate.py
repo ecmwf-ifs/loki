@@ -129,6 +129,15 @@ class SCCAnnotateTransformation(Transformation):
         routine.spec.append(routine_pragmas)
         routine.body = Transformer({pragma: None for pragma in routine_pragmas}).visit(routine.body)
 
+        # Keep explicit ACC data regions as-is. Adding a generic device-present
+        # wrapper on top of an existing ACC data region leads to duplicated
+        # ``acc data`` pragmas after PragmaModelTransformation.
+        if any(
+            pragma.keyword.lower() == 'acc' and 'data' in pragma.content.lower()
+            for pragma in FindNodes(ir.Pragma).visit(routine.body)
+        ):
+            return
+
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
         args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
@@ -180,6 +189,14 @@ class SCCAnnotateTransformation(Transformation):
             # ensure all arguments are device-resident.
             self.annotate_kernel_routine(routine)
 
+            # For nested-driver kernels (those containing driver loops),
+            # annotate the driver loops with gang-parallel pragmas
+            with pragma_regions_attached(routine):
+                with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+                    acc_vars = self.find_kernel_acc_vars(routine)
+                    driver_loops = find_driver_loops(section=routine.body, targets=targets)
+                    for loop in driver_loops:
+                        self.annotate_driver_loop(loop, acc_vars, privatise_derived_types=True)
 
         if role == 'driver':
             # Mark all parallel vector loops as `!$loki loop vector`
@@ -196,6 +213,61 @@ class SCCAnnotateTransformation(Transformation):
                     driver_loops = find_driver_loops(section=routine.body, targets=targets)
                     for loop in driver_loops:
                         self.annotate_driver_loop(loop, acc_vars.get(loop, []))
+
+    def find_kernel_acc_vars(self, routine):
+        """
+        Find variables already specified in loki/acc data clauses within a kernel routine.
+
+        Unlike :meth:`find_acc_vars`, this returns a flat list (not keyed by loop)
+        since kernel routines may not have an explicit driver-loop structure.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to search for existing data clauses.
+
+        Returns
+        -------
+        list of str
+            Lower-cased variable names found in data clauses.
+        """
+        acc_vars = []
+
+        for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+            pragma_keyword = region.pragma.keyword.lower()
+            if pragma_keyword not in ('loki', 'acc'):
+                continue
+
+            if pragma_keyword == 'acc':
+                parameters = get_pragma_parameters(
+                    region.pragma, starts_with='data', only_loki_pragmas=False
+                )
+            elif 'device-present' in region.pragma.content.lower():
+                parameters = get_pragma_parameters(
+                    region.pragma, starts_with='device-present', only_loki_pragmas=False
+                )
+            else:
+                parameters = get_pragma_parameters(
+                    region.pragma, starts_with='structured-data', only_loki_pragmas=False
+                )
+                if not parameters:
+                    parameters = get_pragma_parameters(
+                        region.pragma, starts_with='data', only_loki_pragmas=False
+                    )
+
+            if parameters is not None:
+                parameters = {key: ', '.join(as_tuple(value)) for key, value in parameters.items()}
+                if (default := parameters.get('default', None)):
+                    if 'none' not in [p.strip().lower() for p in default.split(',')]:
+                        acc_vars += [var.name.lower() for var in FindVariables(unique=True).visit(routine.body)]
+                else:
+                    acc_vars += [
+                        p.strip().lower()
+                        for category in ('present', 'copy', 'copyin', 'copyout', 'deviceptr', 'vars')
+                        for p in parameters.get(category, '').split(',')
+                    ]
+
+        return acc_vars
 
     def find_acc_vars(self, routine, targets):
         """
@@ -220,6 +292,9 @@ class SCCAnnotateTransformation(Transformation):
                 else:
                     parameters = get_pragma_parameters(region.pragma, starts_with='structured-data',
                             only_loki_pragmas=False)
+                    if not parameters:
+                        parameters = get_pragma_parameters(region.pragma, starts_with='data',
+                                only_loki_pragmas=False)
                 if parameters is not None:
                     driver_loops = find_driver_loops(section=region.body, targets=targets)
                     if not driver_loops:
@@ -267,7 +342,7 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-    def annotate_driver_loop(self, loop, acc_vars):
+    def annotate_driver_loop(self, loop, acc_vars, privatise_derived_types=None):
         """
         Annotate driver block loop with generic Loki pragmas.
 
@@ -277,7 +352,13 @@ class SCCAnnotateTransformation(Transformation):
             Driver :any:`Loop` to wrap in generic Loki pragmas.
         acc_vars : list
             Variables already declared in generic Loki data directives.
+        privatise_derived_types : bool, optional
+            Whether to privatise derived-type objects. If ``None``
+            (default), falls back to ``self.privatise_derived_types``.
         """
+        if privatise_derived_types is None:
+            privatise_derived_types = self.privatise_derived_types
+
         sizes = self.block_dim.size_expressions
 
         # Mark driver loop as "gang parallel".
@@ -289,13 +370,26 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
         private_sym = arrays
 
-        if self.privatise_derived_types:
+        if privatise_derived_types:
             # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
             # standards and have the same implicit data attributes as arrays. Therefore, local derived-type
             # scalars must also be privatised.
             structs = [v for v in loop_vars if isinstance(v.type.dtype, sym.DerivedType)]
             structs = [v for v in structs if not v.name_parts[0].lower() in acc_vars]
             structs = [v for v in structs if not v.type.intent]
+
+            # Exclude derived-type variables whose root is non-local: a
+            # subroutine argument (has intent) or a module import.
+            def _is_non_local_root(v):
+                root_name = v.name_parts[0]
+                if v.scope:
+                    root_type = v.scope.symbol_attrs.lookup(root_name)
+                    if root_type is not None:
+                        if root_type.intent or root_type.imported:
+                            return True
+                return False
+
+            structs = [v for v in structs if not _is_non_local_root(v)]
             structs = [v for v in structs if not v in arrays]
 
             # only privatise derived-type parent
