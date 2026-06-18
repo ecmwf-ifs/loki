@@ -110,23 +110,36 @@ class ReplaceKernels(Transformation):
         self.replace_kernels_map = CaseInsensitiveDict(replace_kernels_map or {})
 
     @staticmethod
-    def _get_replacement_item_from_cache(replacement_name, item_factory):
+    def _get_replacement_item_from_cache(replacement_name, item_factory, config):
         """Return a cached procedure item for the requested replacement name."""
         item_cache = item_factory.item_cache
+        replacement_name = replacement_name.lower()
 
         if replacement_name in item_cache and isinstance(item_cache[replacement_name], ProcedureItem):
             return item_cache[replacement_name]
 
         qualified_matches = [
             item for item in item_cache.values()
-            if isinstance(item, ProcedureItem) and item.local_name.lower() == replacement_name.lower()
+            if isinstance(item, ProcedureItem) and item.local_name.lower() == replacement_name
         ]
         if len(qualified_matches) == 1:
             return qualified_matches[0]
 
-        for key, item in item_cache.items():
-            if isinstance(item, ProcedureItem) and replacement_name.lower() in key.lower():
+        for key, item in tuple(item_cache.items()):
+            # relevant procedure item can be found in item_cache
+            if isinstance(item, ProcedureItem) and replacement_name in key.lower():
                 return item
+            # relevant module item can be found and corresponding procedure item can
+            # be reused, but only if the module actually defines the procedure.
+            if isinstance(item, ModuleItem) and replacement_name in key.lower():
+                module_item = item
+                definition_items = module_item.create_definition_items(item_factory, config=config)
+                for definition_item in definition_items:
+                    if (
+                        isinstance(definition_item, ProcedureItem)
+                        and definition_item.local_name.lower() == replacement_name
+                    ):
+                        return definition_item
 
         return None
 
@@ -168,7 +181,8 @@ class ReplaceKernels(Transformation):
                     if isinstance(definition_item, ModuleItem):
                         definition_item.create_definition_items(item_factory=item_factory, config=scheduler_config)
 
-                replacement_item = self._get_replacement_item_from_cache(replacement_name, item_factory)
+                replacement_item = self._get_replacement_item_from_cache(replacement_name, item_factory,
+                        config=scheduler_config)
                 if replacement_item is not None:
                     return replacement_item
 
@@ -180,12 +194,13 @@ class ReplaceKernels(Transformation):
         scheduler_config = kwargs.get('scheduler_config')
         build_args = dict(kwargs.get('build_args', {}))
 
-        replacement_item = self._get_replacement_item_from_cache(replacement_name, item_factory)
+        replacement_item = self._get_replacement_item_from_cache(replacement_name, item_factory,
+                config=scheduler_config)
         if replacement_item is None:
             replacement_item = self._load_replacement_item_from_source(
                 replacement_name, item_factory, scheduler_config, build_args
             )
-        if replacement_item is None:
+        if replacement_item is None or replacement_item.source is None:
             return None
 
         self._complete_replacement_source(replacement_item, scheduler_config, build_args)
@@ -197,12 +212,13 @@ class ReplaceKernels(Transformation):
         scheduler_config = kwargs.get('scheduler_config')
         build_args = dict(kwargs.get('build_args', {}))
 
-        routine_item = self._get_replacement_item_from_cache(routine_name, item_factory)
+        routine_item = self._get_replacement_item_from_cache(routine_name, item_factory,
+                config=scheduler_config)
         if routine_item is None:
             routine_item = self._load_replacement_item_from_source(
                 routine_name, item_factory, scheduler_config, build_args
             )
-        if routine_item is None:
+        if routine_item is None or routine_item.source is None:
             return None
 
         self._complete_replacement_source(routine_item, scheduler_config, build_args)
