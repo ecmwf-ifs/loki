@@ -7,7 +7,7 @@
 
 import pytest
 
-from loki import Module
+from loki import Module, Sourcefile
 from loki.frontend import OMNI, available_frontends
 from loki.ir import FindNodes, nodes as ir
 from loki.transformations import SanitiseUnusedRoutineTransformation
@@ -55,8 +55,8 @@ end module legacy_unused_mod
     zoper = next(sym for sym in zoper_decl.symbols if sym.name.lower() == 'zoper')
     zbuffer = next(sym for sym in zbuffer_decl.symbols if sym.name.lower() == 'zbuffer')
     declared_names = {sym.name.lower() for decl in decls for sym in decl.symbols}
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
-    untouched_intrinsics = FindNodes(ir.Intrinsic).visit(untouched.body)
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
+    untouched_intrinsics = FindNodes(ir.GenericStmt).visit(untouched.body)
 
     assert pout.type.shape == (':', ':', ':')
     assert pout.dimensions == (':', ':', ':')
@@ -91,7 +91,7 @@ end module another_legacy_mod
     )
     trafo.apply(routine)
 
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
     assert len(intrinsics) == 1
     assert 'error stop "sanitised unused routine keep_me was called"' in intrinsics[0].text.lower()
 
@@ -115,7 +115,7 @@ end module empty_stub_mod
     trafo.apply(routine)
 
     assert routine.body.body == ()
-    assert not FindNodes(ir.Intrinsic).visit(routine.body)
+    assert not FindNodes(ir.GenericStmt).visit(routine.body)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
@@ -137,10 +137,53 @@ end module no_match_mod
     trafo.apply(routine)
 
     assignments = FindNodes(ir.Assignment).visit(routine.body)
-    intrinsics = FindNodes(ir.Intrinsic).visit(routine.body)
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
 
     assert len(assignments) == 1
     assert not intrinsics
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI skips C imports in the frontend')]))
+def test_sanitise_unused_routine_removes_c_imports(frontend, tmp_path):
+    """Drop C-style include imports while preserving ordinary Fortran imports."""
+    filepath = tmp_path/'unused_c_import.F90'
+    include_path = tmp_path/'legacy_unused.intfb.h'
+    include_path.write_text('! interface intentionally empty\n')
+    filepath.write_text(
+        """
+module helper_mod
+  implicit none
+  integer, parameter :: rk = kind(1.0)
+end module helper_mod
+
+module c_import_unused_mod
+contains
+  subroutine legacy_unused(a)
+    use helper_mod, only: rk
+    real(kind=rk), intent(inout) :: a(:)
+#include "legacy_unused.intfb.h"
+    a = 0.0_rk
+  end subroutine legacy_unused
+end module c_import_unused_mod
+""".strip()
+    )
+    source = Sourcefile.from_file(filepath, frontend=frontend, includes=[tmp_path], xmods=[tmp_path])
+    routine = source['c_import_unused_mod']['legacy_unused']
+
+    before_imports = FindNodes(ir.Import).visit((routine.spec, routine.body))
+    assert any(imp.c_import for imp in before_imports)
+    assert any(not imp.c_import and imp.module == 'helper_mod' for imp in before_imports)
+
+    trafo = SanitiseUnusedRoutineTransformation(routines=('legacy_unused',), stub_kind='error_stop')
+    trafo.apply(routine)
+
+    imports = FindNodes(ir.Import).visit((routine.spec, routine.body))
+    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
+
+    assert not any(imp.c_import for imp in imports)
+    assert any(not imp.c_import and imp.module == 'helper_mod' for imp in imports)
+    assert len(intrinsics) == 1
+    assert 'error stop "sanitised unused routine legacy_unused was called"' in intrinsics[0].text.lower()
 
 
 def test_sanitise_unused_routine_rejects_unknown_stub_kind():
