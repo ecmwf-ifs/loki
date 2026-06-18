@@ -99,12 +99,20 @@ class SanitiseUnusedRoutineTransformation(Transformation):
             elif new_symbols != decl.symbols:
                 decl_map[decl] = decl.clone(symbols=new_symbols)
 
+        imp_map = {}
+        for imp in FindNodes(ir.Import).visit(routine.ir):
+            if imp.c_import:
+                imp_map[imp] = None
+        if imp_map:
+            routine.spec = Transformer(imp_map).visit(routine.spec)
+            routine.body = Transformer(imp_map).visit(routine.body)
+
         if decl_map:
             routine.spec = Transformer(decl_map).visit(routine.spec)
 
         if self.stub_kind == 'error_stop':
             routine.body = ir.Section(body=(
-                ir.Intrinsic(text=f'error stop "Sanitised unused routine {routine.name} was called"'),
+                ir.GenericStmt(text=f'error stop "Sanitised unused routine {routine.name} was called"'),
             ))
         else:
             routine.body = ir.Section(body=())
