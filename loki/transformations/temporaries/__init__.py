@@ -14,3 +14,4 @@ from loki.transformations.temporaries.hoist_variables import * # noqa
 from loki.transformations.temporaries.pool_allocator import * # noqa
 from loki.transformations.temporaries.stack_allocator import * # noqa
 from loki.transformations.temporaries.raw_stack_allocator import * # noqa
+from loki.transformations.temporaries.pool_allocator_per_drv_loop import * # noqa
