@@ -10,6 +10,8 @@ Tests for :any:`LowerBlockIndexSKTransformation` and the extended
 :any:`InjectBlockIndexTransformation.get_block_index` with ``loop=`` parameter.
 """
 
+# pylint: disable=redefined-outer-name
+
 import pytest
 
 from loki import Dimension, Module, Subroutine

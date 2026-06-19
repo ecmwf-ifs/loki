@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 """
 End-to-end tests for ``SCCSmallKernelsPipeline``.
 
@@ -20,10 +22,7 @@ import pytest
 from loki import Dimension, Module, Sourcefile, fgen
 from loki.batch import Pipeline, ProcedureItem, SGraph
 from loki.frontend import OMNI, available_frontends
-from loki.ir import (
-    Allocation, Assignment, CallStatement, Deallocation,
-    FindNodes, Intrinsic, Loop, Pragma,
-)
+from loki.ir import nodes as ir, FindNodes
 from loki.transformations import (
     BlockViewToFieldViewTransformation, DataOffloadDeepcopyAnalysis,
     DataOffloadDeepcopyTransformation, InlineTransformation,
@@ -301,7 +300,7 @@ def _build_and_apply_4level_full_pipeline(
 
 def _has_block_loop(routine, block_dim):
     """Return True if ``routine`` contains a loop over a block_dim index."""
-    for loop in FindNodes(Loop).visit(routine.body):
+    for loop in FindNodes(ir.Loop).visit(routine.body):
         var = str(loop.variable).lower().replace('local_', '')
         if var in [idx.lower() for idx in block_dim.indices]:
             return True
@@ -311,7 +310,7 @@ def _has_block_loop(routine, block_dim):
 def _get_block_loops(routine, block_dim):
     """Return all loops whose variable matches a block_dim index."""
     result = []
-    for loop in FindNodes(Loop).visit(routine.body):
+    for loop in FindNodes(ir.Loop).visit(routine.body):
         var = str(loop.variable).lower().replace('local_', '')
         if var in [idx.lower() for idx in block_dim.indices]:
             result.append(loop)
@@ -325,7 +324,7 @@ def _routine_var_names(routine):
 
 def _find_calls_by_name(routine, callee_name):
     """Find all CallStatements in routine.body matching callee_name."""
-    return [c for c in FindNodes(CallStatement).visit(routine.body)
+    return [c for c in FindNodes(ir.CallStatement).visit(routine.body)
             if callee_name.lower() in str(c.name).lower()]
 
 
@@ -438,8 +437,8 @@ def test_top_driver_pool_allocator_removed(frontend, horizontal, block_dim, tmp_
     assert 'istsz' not in var_names
     assert 'zstack' not in var_names
 
-    allocs = FindNodes(Allocation).visit(driver.body)
-    deallocs = FindNodes(Deallocation).visit(driver.body)
+    allocs = FindNodes(ir.Allocation).visit(driver.body)
+    deallocs = FindNodes(ir.Deallocation).visit(driver.body)
     assert not any('zstack' in str(a).lower() for a in allocs)
     assert not any('zstack' in str(d).lower() for d in deallocs)
 
@@ -685,8 +684,8 @@ def test_leaf_kernel_temp_promotion(frontend, horizontal, block_dim, tmp_path):
     # ztmp should be promoted and have data directives
     # (The pool allocator may convert it to Cray pointer instead;
     # either approach is valid)
-    all_pragmas = FindNodes(Pragma).visit(leaf.body)
-    cray_ptrs = FindNodes(Intrinsic).visit(leaf.spec)
+    all_pragmas = FindNodes(ir.Pragma).visit(leaf.body)
+    cray_ptrs = FindNodes(ir.GenericStmt).visit(leaf.spec)
     has_cray = any('ztmp' in i.text.lower() for i in cray_ptrs
                     if 'pointer' in i.text.lower())
 
@@ -1266,8 +1265,8 @@ def test_real_pipeline_conditional_acc_prologue_outside_first_block_loop(
     assert block_loops, f"Expected block loop in transformed sub-kernel.\nCode:\n{fgen(sub)}"
     first_loop = block_loops[0]
 
-    pragmas = FindNodes(Pragma).visit(first_loop.body)
-    assignments = FindNodes(Assignment).visit(first_loop.body)
+    pragmas = FindNodes(ir.Pragma).visit(first_loop.body)
+    assignments = FindNodes(ir.Assignment).visit(first_loop.body)
     enter_data_inside = [
         p for p in pragmas
         if p.keyword.lower() == 'acc'
@@ -1744,7 +1743,7 @@ def test_multi_driver_loop_max_istsz(frontend, horizontal, block_dim, tmp_path):
         f"Code:\n{fgen(driver)}"
     )
 
-    allocs = FindNodes(Allocation).visit(driver.body)
+    allocs = FindNodes(ir.Allocation).visit(driver.body)
     assert any('zstack' in str(a).lower() for a in allocs), (
         f"Driver must ALLOCATE ZSTACK.\n"
         f"Allocations: {[fgen(a) for a in allocs]}\n"
@@ -1752,7 +1751,7 @@ def test_multi_driver_loop_max_istsz(frontend, horizontal, block_dim, tmp_path):
     )
 
     # ISTSZ should use MAX (aggregating across loops)
-    assigns = FindNodes(Assignment).visit(driver.body)
+    assigns = FindNodes(ir.Assignment).visit(driver.body)
     istsz_assigns = [a for a in assigns if str(a.lhs).lower() == 'istsz']
     assert istsz_assigns, f"Driver must have ISTSZ assignment.\nCode:\n{fgen(driver)}"
 
@@ -1799,10 +1798,10 @@ def test_multi_driver_loop_loc_assigns(frontend, horizontal, block_dim, tmp_path
     )
 
     # Find LOC(ZSTACK) assignments inside driver loops
-    driver_loops = FindNodes(Loop).visit(driver.body)
+    driver_loops = FindNodes(ir.Loop).visit(driver.body)
     loc_count = 0
     for dl in driver_loops:
-        loop_assigns = FindNodes(Assignment).visit(dl.body)
+        loop_assigns = FindNodes(ir.Assignment).visit(dl.body)
         loc_assigns = [a for a in loop_assigns
                        if 'ylstack_l' in str(a.lhs).lower()
                        and 'loc' in str(a.rhs).lower()
@@ -2023,7 +2022,7 @@ def test_acc_exit_data_outside_block_loop(frontend, horizontal, block_dim, tmp_p
 
     # Check that !$acc enter/exit data are NOT inside the block loop
     for bl in block_loops:
-        block_pragmas = FindNodes(Pragma).visit(bl.body)
+        block_pragmas = FindNodes(ir.Pragma).visit(bl.body)
         enter_inside = [p for p in block_pragmas
                         if p.keyword.lower() == 'acc'
                         and 'enter' in p.content.lower()
@@ -2079,7 +2078,7 @@ def test_real_pipeline_explicit_acc_data_regions_not_duplicated(
         '#explicit_acc_data_sub_kernel', '#explicit_acc_data_leaf_kernel'
     )
 
-    acc_pragmas = [p for p in FindNodes(Pragma).visit(sub.body) if p.keyword.lower() == 'acc']
+    acc_pragmas = [p for p in FindNodes(ir.Pragma).visit(sub.body) if p.keyword.lower() == 'acc']
     acc_data = [p for p in acc_pragmas if p.content.lower().startswith('data ')]
     acc_end_data = [p for p in acc_pragmas if p.content.lower() == 'end data']
     acc_enter_data = [p for p in acc_pragmas if p.content.lower().startswith('enter data')]
