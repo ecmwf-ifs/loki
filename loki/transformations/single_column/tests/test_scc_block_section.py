@@ -9,6 +9,8 @@
 Tests for :mod:`loki.transformations.single_column.block`.
 """
 
+# pylint: disable=redefined-outer-name
+
 import pytest
 
 from loki import Dimension, Sourcefile, fgen
@@ -577,7 +579,7 @@ end subroutine sub_kernel
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full module header')]
 ))
-def test_block_section_nested_conditional_array_ref_block_index(frontend, block_dim):
+def test_block_section_nested_conditional_array_ref_block_index(frontend):
     """
     Reproduce a nested-call pattern where block-index usage appears only
     inside array references in pre/post-call loop regions.
