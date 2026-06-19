@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 import pytest
 
 from loki.expression.parser import parse_expr
@@ -854,10 +856,10 @@ end subroutine kernel
 
     pointers = [
         intrinsic.text.split(',')[1].replace(')', '').replace(' ', '')
-        for intrinsic in FindNodes(Intrinsic).visit(routine.spec)
+        for intrinsic in FindNodes(ir.GenericStmt).visit(routine.spec)
         if 'pointer' in intrinsic.text.lower()
     ]
-    assignments = FindNodes(Assignment).visit(routine.body)
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
 
     assert 'work' not in pointers
     assert all('ip_work' not in assignment.lhs for assignment in assignments)
@@ -1465,7 +1467,8 @@ end module kernel_mod
 
     # check stack size allocation
     allocations = FindNodes(ir.Allocation).visit(driver.body)
-    assert len(allocations) == 1 and 'zstack(istsz,geom%blk_dim%nb)' in allocations[0].variables
+    assert len(allocations) == 1
+    assert allocations[0].variables[0] == 'zstack(max(istsz, 1), geom%blk_dim%nb)'
 
     # check that array size was imported to the driver
     assert 'n' in driver.imported_symbols

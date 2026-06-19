@@ -15,7 +15,7 @@ from loki import Dimension, Subroutine
 from loki.batch import ProcedureItem
 from loki.expression import IntLiteral, InlineCall, Literal, Variable
 from loki.frontend import available_frontends, OMNI
-from loki.ir import FindNodes, Assignment, CallStatement, Loop, Intrinsic
+from loki.ir import nodes as ir, FindNodes
 
 from loki.transformations.temporaries import TemporariesPoolAllocatorPerDrvLoopTransformation
 
@@ -117,10 +117,10 @@ end subroutine driver
     assert driver.variable_map['zstack'].type.allocatable
 
     # Verify: stack pointer assignment inside driver loop
-    loops = FindNodes(Loop).visit(driver.body)
+    loops = FindNodes(ir.Loop).visit(driver.body)
     driver_loop = [l for l in loops if l.variable == 'b']
     assert len(driver_loop) == 1
-    assignments = FindNodes(Assignment).visit(driver_loop[0].body)
+    assignments = FindNodes(ir.Assignment).visit(driver_loop[0].body)
     stack_ptr_assigns = [a for a in assignments if 'ylstack_l' in str(a.lhs).lower()]
     assert len(stack_ptr_assigns) >= 1
 
@@ -129,7 +129,7 @@ end subroutine driver
     assert 'ydstack_u' in kernel.variable_map
 
     # Verify: kernel call has stack kwargs
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     kernel_calls = [c for c in calls if c.name == 'kernel']
     assert len(kernel_calls) == 1
     kwarg_names = [kw[0].lower() for kw in kernel_calls[0].kwarguments]
@@ -137,7 +137,7 @@ end subroutine driver
     assert 'ydstack_u' in kwarg_names
 
     # Verify: Cray pointers in kernel
-    intrinsics = FindNodes(Intrinsic).visit(kernel.spec)
+    intrinsics = FindNodes(ir.GenericStmt).visit(kernel.spec)
     pointer_decls = [i for i in intrinsics if 'POINTER' in i.text]
     assert len(pointer_decls) == 2  # tmp1 and tmp2
 
@@ -209,9 +209,9 @@ end subroutine driver_loc
         sub_sgraph=sgraph
     )
 
-    loops = FindNodes(Loop).visit(driver.body)
+    loops = FindNodes(ir.Loop).visit(driver.body)
     driver_loop = [loop for loop in loops if loop.variable == 'jkglo'][0]
-    assignments = [node for node in driver_loop.body if isinstance(node, Assignment)]
+    assignments = [node for node in driver_loop.body if isinstance(node, ir.Assignment)]
 
     ibl_assign_pos = next(
         idx for idx, assignment in enumerate(assignments)
@@ -337,17 +337,17 @@ end subroutine driver
     assert 'zstack' in driver.variable_map
 
     # Verify: both driver loops have stack pointer assignments
-    loops = FindNodes(Loop).visit(driver.body)
+    loops = FindNodes(ir.Loop).visit(driver.body)
     driver_loops = [l for l in loops if l.variable == 'b']
     assert len(driver_loops) == 2
 
     for loop in driver_loops:
-        assignments = FindNodes(Assignment).visit(loop.body)
+        assignments = FindNodes(ir.Assignment).visit(loop.body)
         stack_assigns = [a for a in assignments if 'ylstack_l' in str(a.lhs).lower()]
         assert len(stack_assigns) >= 1
 
     # Verify: both kernel calls have stack kwargs
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     for call in calls:
         kwarg_names = [kw[0].lower() for kw in call.kwarguments]
         assert 'ydstack_l' in kwarg_names
@@ -452,7 +452,7 @@ end subroutine driver
     )
 
     # The ISTSZ assignment should use MAX of the two sizes
-    assignments = FindNodes(Assignment).visit(driver.body)
+    assignments = FindNodes(ir.Assignment).visit(driver.body)
     istsz_assigns = [a for a in assignments if str(a.lhs).lower() == 'istsz']
     assert len(istsz_assigns) == 1
     # The RHS should be a MAX(...) call since both loops have different sizes
@@ -535,10 +535,10 @@ end subroutine outer_kernel
     assert 'zstack' in outer.variable_map
 
     # Verify: stack pointer assignment in driver loop
-    loops = FindNodes(Loop).visit(outer.body)
+    loops = FindNodes(ir.Loop).visit(outer.body)
     block_loops = [l for l in loops if l.variable == 'b']
     assert len(block_loops) == 1
-    assignments = FindNodes(Assignment).visit(block_loops[0].body)
+    assignments = FindNodes(ir.Assignment).visit(block_loops[0].body)
     stack_assigns = [a for a in assignments if 'ylstack_l' in str(a.lhs).lower()]
     assert len(stack_assigns) >= 1
 
@@ -692,16 +692,16 @@ end subroutine driver_loc
     assert kernel_zstack.type.intent == 'inout'
 
     # Verify: driver stack pointer uses integer 1 (not LOC)
-    loops = FindNodes(Loop).visit(driver.body)
+    loops = FindNodes(ir.Loop).visit(driver.body)
     driver_loop = [l for l in loops if l.variable == 'b'][0]
-    assignments = FindNodes(Assignment).visit(driver_loop.body)
+    assignments = FindNodes(ir.Assignment).visit(driver_loop.body)
     stack_ptr_assigns = [a for a in assignments if 'ylstack_l' in str(a.lhs).lower()]
     assert len(stack_ptr_assigns) >= 1
     # In cray_ptr_loc_rhs mode, YLSTACK_L = 1
     assert stack_ptr_assigns[0].rhs == 1
 
     # Verify: kernel call has ZSTACK kwarg
-    calls = FindNodes(CallStatement).visit(driver.body)
+    calls = FindNodes(ir.CallStatement).visit(driver.body)
     kernel_calls = [c for c in calls if c.name == 'kernel_loc']
     assert len(kernel_calls) == 1
     kwarg_names = [kw[0].lower() for kw in kernel_calls[0].kwarguments]
@@ -709,6 +709,6 @@ end subroutine driver_loc
     assert 'ydstack_l' in kwarg_names
 
     # Verify: kernel uses LOC(ZSTACK(...)) for pointer assignment
-    kernel_assigns = FindNodes(Assignment).visit(kernel.body)
+    kernel_assigns = FindNodes(ir.Assignment).visit(kernel.body)
     loc_assigns = [a for a in kernel_assigns if 'LOC' in str(a.rhs)]
     assert len(loc_assigns) >= 1
