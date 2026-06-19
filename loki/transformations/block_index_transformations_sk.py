@@ -363,7 +363,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
                 insert_pos = next(
                     (
                         idx + 1 for idx, node in enumerate(spec_body)
-                        if isinstance(node, ir.Intrinsic) and node.text.upper() == 'IMPLICIT NONE'
+                        if isinstance(node, ir.ImplicitStmt) and str(node.text).upper() == 'NONE'
                     ),
                     0
                 )
