@@ -19,13 +19,13 @@ from loki.ir import (
     FindNodes, FindVariables, FindInlineCalls, Transformer, GenericStmt,
     Assignment, Conditional, CallStatement, Import, Allocation,
     Deallocation, Loop, Pragma, Interface, get_pragma_parameters,
-    SubstituteExpressions
+    SubstituteExpressions, pragmas_attached
 )
 from loki.logging import warning, debug
 from loki.tools import as_tuple, OrderedSet
 from loki.types import SymbolAttributes, BasicType, DerivedType
 
-from loki.transformations.utilities import recursive_expression_map_update
+from loki.transformations.utilities import recursive_expression_map_update, find_driver_loops
 
 
 __all__ = ['TemporariesPoolAllocatorTransformation', 'EcstackPoolAllocatorTransformation']
@@ -244,7 +244,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if item:
                 # import variable type specifiers used in stack allocations
                 self.import_allocation_types(routine, item)
-            self.create_pool_allocator(routine, stack_size)
+            self.create_pool_allocator(routine, stack_size, targets)
 
         self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
@@ -771,7 +771,21 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         return stack_size
 
-    def create_pool_allocator(self, routine, stack_size):
+    @staticmethod
+    def _is_driver_loop_pragma(pragma):
+        """
+        Check whether an attached pragma identifies a driver loop that needs
+        pool allocator stack-pointer initialisation.
+        """
+        keyword = pragma.keyword.lower()
+        content = pragma.content.lower()
+        if 'loop gang' in content or 'teams distribute' in content:
+            return True
+        if keyword == 'omp' and content.startswith(('parallel', 'do')):
+            return True
+        return False
+
+    def create_pool_allocator(self, routine, stack_size, targets):
         """
         Create a pool allocator in the driver
         """
@@ -815,9 +829,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if pragma_map:
             routine.body = Transformer(pragma_map).visit(routine.body)
 
-        # Find first block loop and assign local stack pointers there
+        # Find driver/parallel block loops and assign local stack pointers there
         loop_map = {}
-        for loop in FindNodes(Loop).visit(routine.body):
+        with pragmas_attached(routine, Loop):
+            driver_loops = find_driver_loops(routine.body, targets)
+            annotated_loops = [
+                loop for loop in FindNodes(Loop).visit(routine.body)
+                if any(
+                    self._is_driver_loop_pragma(pragma)
+                    for pragma in as_tuple(loop.pragma)
+                )
+            ]
+            loops = OrderedSet(as_tuple(driver_loops) + as_tuple(annotated_loops))
+
+        for loop in loops:
             assignments = FindNodes(Assignment).visit(loop.body)
             if loop.variable != self.block_dim.index:
                 # Check if block variable is assigned in loop body
