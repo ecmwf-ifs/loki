@@ -44,17 +44,15 @@ class DependencyTransformation(Transformation):
     first. This restores the behaviour of the ``module`` mode in an earlier
     version of this transformation.
 
-    When applying the transformation to a source object, one of two
-    "roles" can be specified via the ``role`` keyword:
+    Renaming of the transformed definition is governed by the item's
+    replication policy: replicated items are renamed to coexist with the
+    original implementation, whereas non-replicated items keep their
+    original name and act as a replacement.
 
-    * ``'driver'``: Only renames imports and calls to kernel routines
-    * ``'kernel'``: Renames routine or enclosing modules, as well as
-      renaming any further imports and calls.
-
-    Note that ``routine.apply(transformation, role='driver')`` entails
-    that the ``routine`` still mimicks its original counterpart and
-    can therefore be used as a drop-in replacement during compilation
-    that then diverts the dependency tree to the modified sub-tree.
+    When no :any:`Item` is available (for example when applying the
+    transformation directly to IR objects), the legacy ``role='kernel'``
+    behaviour is used as a fallback to decide whether the transformed
+    definition itself should be renamed.
 
     Parameters
     ----------
@@ -108,19 +106,27 @@ class DependencyTransformation(Transformation):
             )
         )
 
+    @staticmethod
+    def rename_item(item, role):
+        """Determine whether the transformed definition itself should be renamed."""
+        if item is not None:
+            return item.replicate
+        return role == 'kernel'
+
     def transform_module(self, module, **kwargs):
         """
-        Rename kernel modules and re-point module-level imports.
+        Rename replicated modules and re-point module-level imports.
         """
         role = kwargs.get('role')
+        item = kwargs.get('item')
 
         # remember/keep track of the module subroutines (even if some of those are removed)
         routines = tuple(routine.name.lower() for routine in module.subroutines)
-        if role == 'kernel':
-            # Change the name of kernel modules
+        if self.rename_item(item, role):
+            # Change the name of replicated modules
             module.name = self.derive_module_name(module.name)
 
-            if (item := kwargs.get('item')) and item.name != module.name.lower():
+            if item and item.name != module.name.lower():
                 item.name = module.name.lower()
 
             if module.contains:
@@ -131,9 +137,12 @@ class DependencyTransformation(Transformation):
                 )
 
         targets = tuple(str(t).lower() for t in as_tuple(kwargs.get('targets')))
-        if self.replace_ignore_items and (item := kwargs.get('item')):
+        if self.replace_ignore_items and item:
             targets += tuple(str(i).lower() for i in item.ignore)
-        self.rename_imports(module, imports=module.imports, targets=targets)
+        self.rename_imports(
+            module, imports=module.imports, targets=targets,
+            item_factory=kwargs.get('item_factory')
+        )
         active_nodes = None
         if self.remove_inactive_items and not kwargs.get('items') is None:
             active_nodes = [item.scope_ir.name.lower() for item in kwargs['items']]
@@ -151,7 +160,7 @@ class DependencyTransformation(Transformation):
 
     def transform_subroutine(self, routine, **kwargs):
         """
-        Rename kernel subroutine and all imports and calls to target routines
+        Rename replicated subroutines and all imports and calls to replicated target routines.
 
         For subroutines that are not wrapped in a module, re-generate the interface
         block.
@@ -162,13 +171,13 @@ class DependencyTransformation(Transformation):
         if self.replace_ignore_items and item:
             targets += tuple(str(i).lower() for i in item.ignore)
 
-        if role == 'kernel':
+        if self.rename_item(item, role):
             if routine.name.endswith(self.suffix):
                 # This is to ensure that the transformation is idempotent if
                 # applied more than once to a routine
                 return
 
-            # Change the name of kernel routines
+            # Change the name of replicated routines
             routine.name += self.suffix
             if item:
                 item.name += self.suffix.lower()
@@ -177,13 +186,16 @@ class DependencyTransformation(Transformation):
 
         # Note, C-style imports can be in the body, so use whole IR
         imports = FindNodes(Import).visit(routine.ir)
-        self.rename_imports(routine, imports=imports, targets=targets)
+        self.rename_imports(
+            routine, imports=imports, targets=targets,
+            item_factory=kwargs.get('item_factory')
+        )
 
         # Interface blocks can only be in the spec
         intfs = FindNodes(Interface).visit(routine.spec)
         self.rename_interfaces(intfs, targets=targets)
 
-        if role == 'kernel' and not routine.parent and self.include_path:
+        if self.rename_item(item, role) and not routine.parent and self.include_path:
             # Re-generate C-style interface header
             self.generate_interfaces(routine)
 
@@ -280,7 +292,7 @@ class DependencyTransformation(Transformation):
                 call.function = call.function.clone(name=new_name, type=new_type)
                 _update_item(orig_name, str(call.name))
 
-    def rename_imports(self, source, imports, targets=None):
+    def rename_imports(self, source, imports, targets=None, item_factory=None):
         """
         Update imports of actively transformed subroutines.
 
@@ -315,6 +327,16 @@ class DependencyTransformation(Transformation):
         calls = {replace_last(call, f'{self.suffix.lower()}', '') for call in calls}
         call_targets = {call for call in calls if call in as_tuple(targets)}
 
+        def should_rename_imported_module(module_name):
+            if item_factory is None:
+                return True
+
+            module_item = item_factory.item_cache.get(str(module_name).lower())
+            if module_item is None:
+                return True
+
+            return module_item.replicate
+
         # We go through the IR, as C-imports can be attributed to the body
         import_map = {}
         for im in imports:
@@ -328,7 +350,10 @@ class DependencyTransformation(Transformation):
             else:
                 # Modify module import if it imports any call targets
                 if targets and im.symbols and any(s in call_targets for s in im.symbols):
-                    new_module_name = self.derive_module_name(im.module)
+                    new_module_name = (
+                        self.derive_module_name(im.module)
+                        if should_rename_imported_module(im.module) else im.module
+                    )
                     if not all(s in call_targets for s in im.symbols):
                         # Mixed import: We need to split the import, retaining the original name for
                         # non-target imports and using the new name for target imports
