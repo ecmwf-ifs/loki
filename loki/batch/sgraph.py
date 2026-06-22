@@ -210,9 +210,13 @@ class SGraph:
         if new_items:
             self.add_nodes(new_items)
 
-        # propagate 'lib' attribute (the compile unit the item belongs to)
+        # Propagate the parent lib unless the child has an explicit routine-level
+        # library override in the scheduler config.
         for new_item in new_items:
-            new_item.config['lib'] = item.config.get('lib', None)
+            keys = config.match_item_keys(new_item.name, config.routines)
+            has_explicit_lib = any('lib' in config.routines[key] for key in keys)
+            if not has_explicit_lib:
+                new_item.config['lib'] = item.config.get('lib', None)
 
         # Careful not to include cycles (from recursive TypeDefs)
         self.add_edges((item, item_) for item_ in dependencies if not item == item_)
