@@ -57,9 +57,9 @@ jobs:
       - name: Clone ECWAM
         uses: actions/checkout@v4
         with:
-          repository: ecmwf-ifs/ecwam
+          repository: MichaelSt98/ecwam
           path: ecwam
-          ref: develop
+          ref: nams_loki_seed_policiy 
 
       - name: Set up Fortran compiler ${{ matrix.toolchain.compiler }} ${{ matrix.toolchain.version }}
         uses: fortran-lang/setup-fortran@v1

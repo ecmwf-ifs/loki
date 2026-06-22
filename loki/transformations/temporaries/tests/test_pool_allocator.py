@@ -5,6 +5,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+# pylint: disable=too-many-lines
+
 import pytest
 
 from loki.expression.parser import parse_expr
@@ -58,7 +60,7 @@ def check_stack_created_in_driver(
 
     # Is there an allocation and deallocation for the stack storage?
     allocations = FindNodes(ir.Allocation).visit(driver.body)
-    assert len(allocations) == 1 and 'zstack(istsz,nb)' in allocations[0].variables
+    assert len(allocations) == 1 and 'zstack(max(istsz, 1),nb)' in allocations[0].variables
     deallocations = FindNodes(ir.Deallocation).visit(driver.body)
     assert len(deallocations) == 1 and 'zstack' in deallocations[0].variables
 
@@ -130,7 +132,7 @@ def test_pool_allocator_temporaries(tmp_path, frontend, generate_driver_stack, b
 
         istsz = {stack_size_str}
 
-        {'ALLOCATE(ZSTACK(ISTSZ, nb))' if trafo == TemporariesPoolAllocatorTransformation else 'CALL ECSTACK%GET_STACK_PTR(ZSTACK, ISTSZ, nb)'}
+        {'ALLOCATE(ZSTACK(MAX(ISTSZ, 1), nb))' if trafo == TemporariesPoolAllocatorTransformation else 'CALL ECSTACK%GET_STACK_PTR(ZSTACK, ISTSZ, nb)'}
     """
     if cray_ptr_loc_rhs:
         fcode_stack_assign = """
@@ -826,6 +828,45 @@ end module kernel_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_pool_allocator_skips_explicit_acc_managed_temporary(frontend, block_dim, horizontal):
+    fcode = """
+subroutine kernel(start, end, klon, klev, nb, field)
+    implicit none
+    integer, intent(in) :: start, end, klon, klev, nb
+    real, intent(inout) :: field(klon, klev, nb)
+    real :: work(klon, nb)
+    integer :: jl, jk
+
+    !$acc enter data create(work)
+    do jk=1,klev
+        do jl=start,end
+            work(jl, 1) = field(jl, jk, 1)
+        end do
+    end do
+    !$acc exit data delete(work)
+end subroutine kernel
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    trafo = TemporariesPoolAllocatorTransformation(
+        block_dim=block_dim, horizontal=horizontal, check_bounds=False
+    )
+
+    stack_size = trafo.apply_pool_allocator_to_temporaries(routine)
+
+    pointers = [
+        intrinsic.text.split(',')[1].replace(')', '').replace(' ', '')
+        for intrinsic in FindNodes(ir.GenericStmt).visit(routine.spec)
+        if 'pointer' in intrinsic.text.lower()
+    ]
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert 'work' not in pointers
+    assert all('ip_work' not in assignment.lhs for assignment in assignments)
+    assert stack_size == 0
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [False, 'openmp', 'openacc'])
 @pytest.mark.parametrize('cray_ptr_loc_rhs', [False, True])
 def test_pool_allocator_temporaries_kernel_nested(tmp_path, frontend, block_dim, directive, cray_ptr_loc_rhs):
@@ -1193,7 +1234,9 @@ def test_pool_allocator_more_call_checks(tmp_path, frontend, block_dim, caplog, 
         }
     }
     scheduler = Scheduler(
-        paths=[tmp_path], config=SchedulerConfig.from_dict(config), frontend=frontend, xmods=[tmp_path]
+        paths=[tmp_path], config=SchedulerConfig.from_dict(config),
+        seed_routines=['kernel'],
+        frontend=frontend, xmods=[tmp_path]
     )
 
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim, horizontal=horizontal,
@@ -1426,7 +1469,8 @@ end module kernel_mod
 
     # check stack size allocation
     allocations = FindNodes(ir.Allocation).visit(driver.body)
-    assert len(allocations) == 1 and 'zstack(istsz,geom%blk_dim%nb)' in allocations[0].variables
+    assert len(allocations) == 1
+    assert allocations[0].variables[0] == 'zstack(max(istsz, 1), geom%blk_dim%nb)'
 
     # check that array size was imported to the driver
     assert 'n' in driver.imported_symbols
@@ -1451,3 +1495,38 @@ end subroutine driver
     transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
 
     assert transformation.get_block_index(routine, routine.variable_map) == 'geom%blk_dim%ib'
+
+
+def test_pool_allocator_resolves_second_block_size_expression():
+    """Use the first resolvable block-size expression when the first one is absent."""
+    fcode = """
+subroutine driver(ydgeo)
+  use iso_fortran_env, only: real64
+  implicit none
+  type dim_type
+    integer :: ngpblks
+  end type dim_type
+  type geo_type
+    type(dim_type) :: yrdim
+  end type geo_type
+  type(geo_type), intent(in) :: ydgeo
+end subroutine driver
+    """.strip()
+
+    routine = Subroutine.from_source(fcode)
+    block_dim = Dimension(
+        name='block_dim',
+        size=('ydgeometry%yrdim%ngpblks', 'ydgeo%yrdim%ngpblks'),
+        index='ibl'
+    )
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+
+    stack_storage, stack_size_var = transformation._get_stack_storage_and_size_var(
+        routine, parse_expr('0')
+    )
+
+    assert stack_size_var == 'istsz'
+    assert stack_storage == 'zstack(:, :)'
+    allocations = FindNodes(ir.Allocation).visit(routine.body)
+    assert len(allocations) == 1
+    assert allocations[0].variables[0] == 'zstack(max(istsz, 1), ydgeo%yrdim%ngpblks)'
