@@ -593,7 +593,8 @@ end subroutine
     # Note that OMNI enforces keyword-arg passing for intrinsic
     # call to ``write``, so we match both conventions.
     do_remove_calls(
-        routine, call_names=('ABOR1', 'DR_HOOK'),
+        body=routine.body, spec=routine.spec,
+        call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT', 'write(unit=nulout'),
         remove_imports=remove_imports
     )
@@ -631,6 +632,78 @@ end subroutine
         assert imports[0].symbols == ('lhook', 'dr_hook')
         assert imports[1].module == 'abor1_mod'
         assert imports[1].symbols == ('abor1',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_remove_calls_glob_patterns(frontend):
+    """Test removal of calls matched by glob-style call name patterns."""
+
+    fcode = """
+subroutine driver(n, state)
+    implicit none
+    type state_type
+      integer :: value
+    end type state_type
+    integer, intent(in) :: n
+    type(state_type), intent(inout) :: state
+
+    call state%update_view(n)
+    call state%other_call(n)
+end subroutine driver
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    do_remove_calls(body=routine.body, call_names=('*%update_view',), remove_imports=False)
+
+    call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+    assert call_names == ['state%other_call']
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_remove_code_transformation_driver_loop_calls(frontend):
+    """Test kernel-only call removal also applies to driver-loop bodies."""
+
+    fcode = """
+subroutine driver(n, state)
+    implicit none
+    type state_type
+      integer :: value
+    end type state_type
+    integer, intent(in) :: n
+    type(state_type), intent(inout) :: state
+    integer :: ibl
+
+    call state%update_view(0)
+
+    !$loki driver-loop
+    do ibl=1, n
+      call state%update_view(ibl)
+      if (ibl > 1) call state%update_view(ibl - 1)
+      call kernel(ibl)
+    end do
+
+    call state%update_view(n + 1)
+end subroutine driver
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    transformation = RemoveCodeTransformation(
+        call_names=('*%update_view',), kernel_only=True,
+        remove_marked_regions=False
+    )
+    transformation.apply(routine, role='driver', targets=('kernel',))
+
+    call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+    assert call_names.count('state%update_view') == 2
+    assert 'kernel' in call_names
+
+    loop = FindNodes(ir.Loop).visit(routine.body)[0]
+    loop_call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(loop.body)]
+    assert loop_call_names == ['kernel']
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
