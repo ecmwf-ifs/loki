@@ -480,12 +480,12 @@ end subroutine test_remove_code
 
     if replace_with_abort:
         do_remove_marked_regions(
-            routine, mark_with_comment=mark_with_comment,
+            body=routine.body, scope=routine, mark_with_comment=mark_with_comment,
             replacement_call='ABOR1', replacement_module='ABOR1_MOD',
             replacement_msg='Unsupported code path in {}',
         )
     else:
-        do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+        do_remove_marked_regions(body=routine.body, scope=routine, mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -679,9 +679,16 @@ subroutine driver(n, state)
 
     call state%update_view(0)
 
+    !$loki remove
+    call should_stay_outside()
+    !$loki end remove
+
     !$loki driver-loop
     do ibl=1, n
       call state%update_view(ibl)
+      !$loki remove
+      call should_be_removed()
+      !$loki end remove
       if (ibl > 1) call state%update_view(ibl - 1)
       call kernel(ibl)
     end do
@@ -692,13 +699,14 @@ end subroutine driver
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     transformation = RemoveCodeTransformation(
-        call_names=('*%update_view',), kernel_only=True,
-        remove_marked_regions=False
+        call_names=('*%update_view',), kernel_only=True
     )
     transformation.apply(routine, role='driver', targets=('kernel',))
 
     call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
     assert call_names.count('state%update_view') == 2
+    assert 'should_stay_outside' in call_names
+    assert 'should_be_removed' not in call_names
     assert 'kernel' in call_names
 
     loop = FindNodes(ir.Loop).visit(routine.body)[0]

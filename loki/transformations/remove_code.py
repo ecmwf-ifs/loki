@@ -22,7 +22,8 @@ from loki.ir import (
     SubstituteExpressions, pragmas_attached
 )
 from loki.ir.pragma_utils import (
-    is_loki_pragma, pragma_regions_attached, get_pragma_parameters
+    is_loki_pragma, attach_pragma_regions, detach_pragma_regions,
+    get_pragma_parameters
 )
 from loki.program_unit import ProgramUnit
 from loki.tools import flatten, as_tuple, OrderedSet
@@ -132,15 +133,24 @@ class RemoveCodeTransformation(Transformation):
         role = kwargs.get('role')
 
         if role == 'driver' and self.kernel_only:
-            # Apply named node removal to driver loops, while preserving the
+            # Apply code removal to driver loops, while preserving the
             # non-transformed setup/teardown parts of driver routines.
-            if self.call_names:
+            if self.call_names or self.remove_marked_regions:
                 with pragmas_attached(routine, ir.Loop):
                     driver_loops = find_driver_loops(section=routine.body, targets=kwargs.get('targets', ()))
                     for loop in driver_loops:
-                        do_remove_calls(
-                            body=loop, call_names=self.call_names, remove_imports=False
-                        )
+                        if self.call_names:
+                            do_remove_calls(
+                                body=loop, call_names=self.call_names, remove_imports=False
+                            )
+                        if self.remove_marked_regions:
+                            do_remove_marked_regions(
+                                body=loop, scope=routine,
+                                mark_with_comment=self.mark_with_comment,
+                                replacement_call=self.replacement_call,
+                                replacement_msg=self.replacement_msg,
+                                replacement_module=self.replacement_module
+                            )
 
         if role == 'kernel' or not self.kernel_only:
             # Apply named node removal to strip specific calls
@@ -154,7 +164,8 @@ class RemoveCodeTransformation(Transformation):
             # Apply marked region removal
             if self.remove_marked_regions:
                 do_remove_marked_regions(
-                    routine, mark_with_comment=self.mark_with_comment,
+                    body=routine.body, scope=routine,
+                    mark_with_comment=self.mark_with_comment,
                     replacement_call=self.replacement_call,
                     replacement_msg=self.replacement_msg,
                     replacement_module=self.replacement_module
@@ -428,12 +439,12 @@ class RemoveDeadCodeTransformer(Transformer):
 
 
 def do_remove_marked_regions(
-        routine, mark_with_comment=True, replacement_call=None,
+        body, scope=None, mark_with_comment=True, replacement_call=None,
         replacement_msg=None, replacement_module=None
 ):
     """
     Utility routine to remove code regions marked with
-    ``!$loki remove`` pragmas from a subroutine's body.
+    ``!$loki remove`` pragmas from a given IR body.
 
     Optionally, any removed region might be marked with a
     comment and/or a simple single-argument "abort" call. For this,
@@ -445,8 +456,11 @@ def do_remove_marked_regions(
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
-        The subroutine to which to apply dead code elimination.
+    body : :any:`Node`
+        The IR node whose body should be searched for marked regions.
+    scope : :any:`Subroutine`, optional
+        The surrounding subroutine scope to use for replacement calls and
+        optional replacement imports.
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
@@ -467,22 +481,26 @@ def do_remove_marked_regions(
         mark_with_comment=mark_with_comment,
         replacement_call=replacement_call,
         replacement_msg=replacement_msg,
+        inplace=True
     )
 
-    with pragma_regions_attached(routine, keyword='loki'):
-        routine.body = transformer.visit(routine.body, scope=routine)
+    attach_pragma_regions(body, keyword='loki')
+    try:
+        transformer.visit(body, scope=scope)
+    finally:
+        detach_pragma_regions(body)
 
-    if transformer.replacement_done and replacement_module:
+    if scope and transformer.replacement_done and replacement_module:
         # Get newly inject procedure symbol for the replacement call
-        callsym = sym.ProcedureSymbol(replacement_call, scope=routine)
+        callsym = sym.ProcedureSymbol(replacement_call, scope=scope)
 
         # Inject import of replacement module if it does not exist
-        import_map = {i.module: i for i in routine.imports}
+        import_map = {i.module: i for i in scope.imports}
         if imprt := import_map.get(replacement_module):
             if not any(s == replacement_call for s in imprt.symbols):
                 imprt._update(symbols=imprt.symbols + (callsym,))
         else:
-            routine.spec.prepend(ir.Import(
+            scope.spec.prepend(ir.Import(
                 module=f'{replacement_module}', symbols=(callsym,), c_import=False)
             )
 
@@ -537,7 +555,7 @@ class RemoveRegionTransformer(Transformer):
             if self.mark_with_comment:
                 replacement.append(ir.Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
-            if self.replacement_call and not bypass:
+            if self.replacement_call and not bypass and kwargs.get('scope'):
                 # Get the outer scope, to avoid picking associates
                 routine = kwargs['scope']
                 while not isinstance(routine, ProgramUnit):
