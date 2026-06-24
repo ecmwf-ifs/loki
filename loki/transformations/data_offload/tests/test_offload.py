@@ -15,7 +15,9 @@ from loki.ir import (
     pragma_regions_attached, get_pragma_parameters
 )
 
-from loki.transformations import DataOffloadTransformation, PragmaModelTransformation
+from loki.transformations import (
+    DataOffloadTransformation, PragmaModelTransformation, do_remove_openmp_pragmas
+)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -189,6 +191,57 @@ def test_data_offload_region_complex_remove_openmp(frontend):
     assert 'copyin( a )' in transformed
     assert 'copy( b, c )' in transformed
     assert '!$omp' not in transformed
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_do_remove_openmp_pragmas_driver_loop_region(frontend):
+    """
+    Test removing OpenMP pragmas from an explicitly selected ``!$loki data``
+    region with a pragma-marked driver loop but no target kernel call.
+    """
+
+    fcode_driver = """
+  SUBROUTINE driver_routine(ngptot, nproma, arr)
+    INTEGER, INTENT(IN) :: ngptot, nproma
+    REAL, INTENT(INOUT) :: arr(ngptot)
+    INTEGER :: jkglo, ibl
+
+    !$loki data
+    !$omp parallel do private(ibl)
+    !$loki driver-loop
+    do jkglo=1, ngptot, nproma
+      ibl = (jkglo - 1)/nproma + 1
+      arr(jkglo) = real(ibl)
+    end do
+    !$omp end parallel do
+    !$loki end data
+  END SUBROUTINE driver_routine
+"""
+    driver = Sourcefile.from_source(fcode_driver, frontend=frontend)['driver_routine']
+
+    with pragma_regions_attached(driver):
+        data_regions = [
+            region for region in FindNodes(PragmaRegion).visit(driver.body)
+            if region.pragma.keyword.lower() == 'loki' and 'data' in region.pragma.content.lower()
+        ]
+        assert len(data_regions) == 1
+
+    do_remove_openmp_pragmas(driver, data_regions)
+
+    pragmas = FindNodes(Pragma).visit(driver.body)
+    assert not any(p.keyword.lower() == 'omp' for p in pragmas)
+    assert any(p.keyword.lower() == 'loki' and 'driver-loop' in p.content.lower() for p in pragmas)
+
+    with pragma_regions_attached(driver):
+        regions = FindNodes(PragmaRegion).visit(driver.body)
+        assert len(regions) == 1
+        loops = FindNodes(Loop).visit(regions[0])
+        assert len(loops) == 1
+        assert loops[0].variable == 'jkglo'
+
+    transformed = driver.to_fortran().lower()
+    assert '!$omp' not in transformed
+    assert '!$loki data' in transformed
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

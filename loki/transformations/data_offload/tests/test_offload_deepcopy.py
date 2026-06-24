@@ -1017,6 +1017,49 @@ def test_offload_deepcopy_simple_driver(frontend, config, deepcopy_code, tmp_pat
     check_other_variable_type('offload', conds, calls, pragmas, driver)
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('remove_openmp', [False, True])
+def test_offload_deepcopy_transformation_remove_openmp_guard(frontend, remove_openmp):
+    """Test that deepcopy OpenMP removal is guarded by the constructor option."""
+
+    fcode_driver = """
+  SUBROUTINE driver_routine(ngptot, nproma, arr)
+    INTEGER, INTENT(IN) :: ngptot, nproma
+    REAL, INTENT(INOUT) :: arr(ngptot)
+    INTEGER :: jkglo, ibl
+
+    !$loki data
+    !$omp parallel do private(ibl)
+    !$loki driver-loop
+    do jkglo=1, ngptot, nproma
+      ibl = (jkglo - 1)/nproma + 1
+      arr(jkglo) = real(ibl)
+    end do
+    !$omp end parallel do
+    !$loki end data
+  END SUBROUTINE driver_routine
+"""
+    source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    item = Item(name='#driver_routine', source=source)
+    driver = item.ir
+
+    class NoOpDeepcopyTransformation(DataOffloadDeepcopyTransformation):
+        """Skip deepcopy generation to test only the OpenMP cleanup gate."""
+
+        def process_driver(self, routine, analyses, typedef_configs, targets):  # pylint: disable=unused-argument
+            pass
+
+    transformation = NoOpDeepcopyTransformation(mode='offload', remove_openmp=remove_openmp)
+    item.trafo_data[transformation._key] = {'analysis': {}, 'typedef_configs': {}}
+
+    transformation.transform_subroutine(driver, item=item, role='driver', targets=())
+
+    omp_pragmas = [
+        pragma for pragma in FindNodes(ir.Pragma).visit(driver.body) if pragma.keyword.lower() == 'omp'
+    ]
+    assert bool(omp_pragmas) is not remove_openmp
+
+
 def test_deepcopy_dataflow_analysis_ignore_calls_skips_unenriched_call():
     scope = Scope()
     _name = 'ABOR1_ACC'

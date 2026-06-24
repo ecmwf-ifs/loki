@@ -34,6 +34,7 @@ from loki.transformations.field_api import (
         FieldAPIAccessorType
 )
 from loki.transformations.utilities import find_driver_loops, get_integer_variable
+from loki.transformations.data_offload.offload import do_remove_openmp_pragmas
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -449,8 +450,9 @@ class DataOffloadDeepcopyTransformation(Transformation):
     _key = 'DataOffloadDeepcopyAnalysis'
     field_array_match_pattern = re.compile('^field_[0-9][a-z][a-z]_array')
 
-    def __init__(self, mode):
+    def __init__(self, mode, remove_openmp=False):
         self.mode = mode
+        self.remove_openmp = remove_openmp
 
     def transform_subroutine(self, routine, **kwargs):
 
@@ -465,6 +467,17 @@ class DataOffloadDeepcopyTransformation(Transformation):
         targets = kwargs['targets']
 
         if role == 'driver':
+            if self.remove_openmp:
+                data_regions = []
+                with pragma_regions_attached(routine):
+                    for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+                        if not is_loki_pragma(region.pragma, starts_with='data'):
+                            continue
+                        with pragmas_attached(routine, ir.Loop):
+                            driver_loops = find_driver_loops(region.body, targets)
+                        if driver_loops:
+                            data_regions.append(region)
+                do_remove_openmp_pragmas(routine, data_regions)
             self.process_driver(routine, item.trafo_data[self._key]['analysis'],
                                 item.trafo_data[self._key]['typedef_configs'], targets)
 

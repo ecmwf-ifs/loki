@@ -13,7 +13,33 @@ from loki.ir import (
 )
 from loki.logging import warning, error
 from loki.tools import as_tuple
-__all__ = ['DataOffloadTransformation']
+__all__ = ['do_remove_openmp_pragmas', 'DataOffloadTransformation']
+
+
+def do_remove_openmp_pragmas(routine, regions):
+    """
+    Remove existing OpenMP pragmas from the given pragma regions.
+
+    Parameters
+    ----------
+    routine : `Subroutine`
+        Subroutine whose body will be updated.
+    regions : `PragmaRegion` or tuple of `PragmaRegion`
+        Region(s) from which OpenMP pragmas should be removed.
+    """
+    pragma_map = {}
+    for loki_region in as_tuple(regions):
+        for pragma in FindNodes(Pragma).visit(loki_region.body):
+            if pragma.keyword.lower() == 'omp':
+                pragma_map[pragma] = None
+        for omp_region in FindNodes(PragmaRegion).visit(loki_region):
+            if omp_region.pragma.keyword.lower() == 'omp':
+                pragma_map[omp_region.pragma] = None
+                if omp_region.pragma_post:
+                    pragma_map[omp_region.pragma_post] = None
+
+    if pragma_map:
+        routine.body = Transformer(pragma_map).visit(routine.body)
 
 
 class DataOffloadTransformation(Transformation):
@@ -200,19 +226,11 @@ class DataOffloadTransformation(Transformation):
             List of subroutines that are to be considered as part of
             the transformation call tree.
         """
-        pragma_map = {}
+        active_regions = []
         with pragma_regions_attached(routine):
             for region in FindNodes(PragmaRegion).visit(routine.body):
                 # Only work on active `!$loki data` regions
-                if not self._is_active_loki_data_region(region, targets):
-                    continue
+                if self._is_active_loki_data_region(region, targets):
+                    active_regions.append(region)
 
-                for p in FindNodes(Pragma).visit(routine.body):
-                    if p.keyword.lower() == 'omp':
-                        pragma_map[p] = None
-                for r in FindNodes(PragmaRegion).visit(region):
-                    if r.pragma.keyword.lower() == 'omp':
-                        pragma_map[r.pragma] = None
-                        pragma_map[r.pragma_post] = None
-
-        routine.body = Transformer(pragma_map).visit(routine.body)
+        do_remove_openmp_pragmas(routine, active_regions)
