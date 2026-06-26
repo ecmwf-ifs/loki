@@ -246,10 +246,14 @@ end module kernel_mod
     if frontend == FP and not generate_driver_stack:
         # Patch "LOC" intrinsic into fparser. This is not strictly needed (it will just represent it
         # as Array instead of an InlineCall) but makes for a more coherent check further down
-        from fparser.two import Fortran2003  # pylint: disable=import-outside-toplevel
-        Fortran2003.Intrinsic_Name.other_inquiry_names.update({"LOC": {'min': 1, 'max': 1}})
-        Fortran2003.Intrinsic_Name.generic_function_names.update({"LOC": {'min': 1, 'max': 1}})
-        Fortran2003.Intrinsic_Name.function_names += ["LOC"]
+        try:
+            from fparser.two.Fortran2008 import Intrinsic_Name  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            from fparser.two.Fortran2003 import Intrinsic_Name  # pylint: disable=import-outside-toplevel
+
+        Intrinsic_Name.other_inquiry_names.update({"LOC": {'min': 1, 'max': 1}})
+        Intrinsic_Name.generic_function_names.update({"LOC": {'min': 1, 'max': 1}})
+        Intrinsic_Name.function_names += ["LOC"]
 
     scheduler = Scheduler(
         paths=[tmp_path], config=SchedulerConfig.from_dict(config),
