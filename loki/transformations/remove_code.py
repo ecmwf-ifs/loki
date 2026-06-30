@@ -135,13 +135,13 @@ class RemoveCodeTransformation(Transformation):
 
         if self.call_names or self.intrinsic_names:
             do_remove_calls(
-                body=internal_node, spec=spec,
+                internal_node=internal_node, spec=spec,
                 call_names=self.call_names, intrinsic_names=self.intrinsic_names,
                 remove_imports=remove_imports
             )
         if self.remove_marked_regions:
             do_remove_marked_regions(
-                body=internal_node, scope=scope,
+                internal_node=internal_node, scope=scope,
                 mark_with_comment=self.mark_with_comment,
                 replacement_call=self.replacement_call,
                 replacement_msg=self.replacement_msg,
@@ -434,12 +434,12 @@ class RemoveDeadCodeTransformer(Transformer):
 
 
 def do_remove_marked_regions(
-        body, scope=None, mark_with_comment=True, replacement_call=None,
+        internal_node, scope=None, mark_with_comment=True, replacement_call=None,
         replacement_msg=None, replacement_module=None
 ):
     """
     Utility routine to remove code regions marked with
-    ``!$loki remove`` pragmas from a given IR body.
+    ``!$loki remove`` pragmas from a given :any:`InternalNode`.
 
     Optionally, any removed region might be marked with a
     comment and/or a simple single-argument "abort" call. For this,
@@ -451,7 +451,7 @@ def do_remove_marked_regions(
 
     Parameters
     ----------
-    body : :any:`Node`
+    internal_node : :any:`InternalNode`
         The IR node whose body should be searched for marked regions.
     scope : :any:`Subroutine`, optional
         The surrounding subroutine scope to use for replacement calls and
@@ -479,11 +479,11 @@ def do_remove_marked_regions(
         inplace=True
     )
 
-    attach_pragma_regions(body, keyword='loki')
+    attach_pragma_regions(internal_node, keyword='loki')
     try:
-        transformer.visit(body, scope=scope)
+        transformer.visit(internal_node, scope=scope)
     finally:
-        detach_pragma_regions(body)
+        detach_pragma_regions(internal_node)
 
     if scope and transformer.replacement_done and replacement_module:
         # Get newly inject procedure symbol for the replacement call
@@ -572,20 +572,20 @@ class RemoveRegionTransformer(Transformer):
 
 
 def do_remove_calls(
-        body, spec=None, call_names=None, intrinsic_names=None,
+        internal_node, spec=None, call_names=None, intrinsic_names=None,
         remove_imports=True
 ):
     """
     Utility routine to remove all :any:`CallStatement` nodes
     matching specific named subroutines or glob-style name patterns in a
-    given IR body.
+    given :any:`InternalNode`.
 
     For more information, see :any:`RemoveCallsTransformer`.
 
     Parameters
     ----------
-    body : :any:`Node` or tuple of :any:`Node`
-        Body section to transform in-place.
+    internal_node : :any:`Node` or tuple of :any:`Node`
+        :any:`InternalNode` to transform in-place.
     spec : :any:`Node` or tuple of :any:`Node`, optional
         Spec section to transform in-place when ``remove_imports`` is
         enabled.
@@ -606,8 +606,8 @@ def do_remove_calls(
     )
     if remove_imports and spec:
         transformer.visit(spec)
-    if body:
-        transformer.visit(body)
+    if internal_node:
+        transformer.visit(internal_node)
 
 
 class RemoveCallsTransformer(Transformer):

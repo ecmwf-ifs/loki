@@ -480,12 +480,13 @@ end subroutine test_remove_code
 
     if replace_with_abort:
         do_remove_marked_regions(
-            body=routine.body, scope=routine, mark_with_comment=mark_with_comment,
+            internal_node=routine.body, scope=routine, mark_with_comment=mark_with_comment,
             replacement_call='ABOR1', replacement_module='ABOR1_MOD',
             replacement_msg='Unsupported code path in {}',
         )
     else:
-        do_remove_marked_regions(body=routine.body, scope=routine, mark_with_comment=mark_with_comment)
+        do_remove_marked_regions(internal_node=routine.body, scope=routine,
+                                 mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -593,7 +594,7 @@ end subroutine
     # Note that OMNI enforces keyword-arg passing for intrinsic
     # call to ``write``, so we match both conventions.
     do_remove_calls(
-        body=routine.body, spec=routine.spec,
+        internal_node=routine.body, spec=routine.spec,
         call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT', 'write(unit=nulout'),
         remove_imports=remove_imports
@@ -655,7 +656,7 @@ end subroutine driver
     """
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
-    do_remove_calls(body=routine.body, call_names=('*%update_view',), remove_imports=False)
+    do_remove_calls(internal_node=routine.body, call_names=('*%update_view',), remove_imports=False)
 
     call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
     assert call_names == ['state%other_call']
