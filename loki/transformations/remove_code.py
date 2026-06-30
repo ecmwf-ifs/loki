@@ -11,17 +11,23 @@ section and to perform Dead Code Elimination.
 """
 
 import operator as op
+from fnmatch import fnmatchcase
 from itertools import chain
 
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import simplify, symbols as sym, symbolic_op
-from loki.ir import nodes as ir, Transformer, FindNodes, FindVariables, FindInlineCalls, SubstituteExpressions
+from loki.ir import (
+    nodes as ir, Transformer, FindNodes, FindVariables, FindInlineCalls,
+    SubstituteExpressions, pragmas_attached
+)
 from loki.ir.pragma_utils import (
-    is_loki_pragma, pragma_regions_attached, get_pragma_parameters
+    is_loki_pragma, attach_pragma_regions, detach_pragma_regions,
+    get_pragma_parameters
 )
 from loki.program_unit import ProgramUnit
 from loki.tools import flatten, as_tuple, OrderedSet
+from loki.transformations.utilities import find_driver_loops
 __all__ = [
     'RemoveCodeTransformation',
     'do_remove_dead_code', 'RemoveDeadCodeTransformer',
@@ -67,8 +73,8 @@ class RemoveCodeTransformation(Transformation):
         Use :any:`simplify` when branch pruning in during
         :meth:`remove_dead_code`.
     call_names : list of str
-        List of subroutine names against which to match
-        :any:`CallStatement` nodes during :meth:`remove_calls`.
+        List of subroutine names or glob-style name patterns against which
+        to match :any:`CallStatement` nodes during :meth:`remove_calls`.
     intrinsic_names : list of str
         List of module names against which to match :any:`GenericStmt`
         nodes during :meth:`remove_calls`.
@@ -77,7 +83,8 @@ class RemoveCodeTransformation(Transformation):
         objects during :meth:`remove_calls`; default: ``True``
     kernel_only : boolean
         Only apply the configured removal to subroutines marked as
-        "kernel"; default: ``False``
+        "kernel" and to driver-loop bodies in routines marked as
+        "driver"; default: ``False``
     remove_unused_args : boolean
         Remove unused dummy arguments from routines.
     remove_unused_vars : boolean
@@ -121,25 +128,43 @@ class RemoveCodeTransformation(Transformation):
         self.remove_unused_vars = remove_unused_vars
         self.remove_only_arrays = remove_only_arrays
 
+    def _apply_to_ir(self, internal_node, scope, spec=None, remove_imports=False):
+        """
+        Internal utility to apply code removal transformations.
+        """
+
+        if self.call_names or self.intrinsic_names:
+            do_remove_calls(
+                internal_node=internal_node, spec=spec,
+                call_names=self.call_names, intrinsic_names=self.intrinsic_names,
+                remove_imports=remove_imports
+            )
+        if self.remove_marked_regions:
+            do_remove_marked_regions(
+                internal_node=internal_node, scope=scope,
+                mark_with_comment=self.mark_with_comment,
+                replacement_call=self.replacement_call,
+                replacement_msg=self.replacement_msg,
+                replacement_module=self.replacement_module
+            )
+
     def transform_subroutine(self, routine, **kwargs):
 
-        if kwargs.get('role') == 'kernel' or not self.kernel_only:
-            # Apply named node removal to strip specific calls
-            if self.call_names or self.intrinsic_names:
-                do_remove_calls(
-                    routine, call_names=self.call_names,
-                    intrinsic_names=self.intrinsic_names,
-                    remove_imports=self.remove_imports
-                )
+        role = kwargs.get('role')
 
-            # Apply marked region removal
-            if self.remove_marked_regions:
-                do_remove_marked_regions(
-                    routine, mark_with_comment=self.mark_with_comment,
-                    replacement_call=self.replacement_call,
-                    replacement_msg=self.replacement_msg,
-                    replacement_module=self.replacement_module
-                )
+        if role == 'driver' and self.kernel_only:
+            # Apply code removal to driver loops, while preserving the
+            # non-transformed setup/teardown parts of driver routines.
+            if self.call_names or self.remove_marked_regions:
+                with pragmas_attached(routine, ir.Loop):
+                    driver_loops = find_driver_loops(section=routine.body, targets=kwargs.get('targets', ()))
+                    for loop in driver_loops:
+                        self._apply_to_ir(loop, scope=routine, remove_imports=False)
+
+        if role == 'kernel' or not self.kernel_only:
+            # Apply named node removal to strip specific calls
+            self._apply_to_ir(routine.body, scope=routine, spec=routine.spec,
+                              remove_imports=self.remove_imports)
 
             # Apply Dead Code Elimination
             if self.remove_dead_code:
@@ -409,12 +434,12 @@ class RemoveDeadCodeTransformer(Transformer):
 
 
 def do_remove_marked_regions(
-        routine, mark_with_comment=True, replacement_call=None,
+        internal_node, scope=None, mark_with_comment=True, replacement_call=None,
         replacement_msg=None, replacement_module=None
 ):
     """
     Utility routine to remove code regions marked with
-    ``!$loki remove`` pragmas from a subroutine's body.
+    ``!$loki remove`` pragmas from a given :any:`InternalNode`.
 
     Optionally, any removed region might be marked with a
     comment and/or a simple single-argument "abort" call. For this,
@@ -426,8 +451,11 @@ def do_remove_marked_regions(
 
     Parameters
     ----------
-    routine : :any:`Subroutine`
-        The subroutine to which to apply dead code elimination.
+    internal_node : :any:`InternalNode`
+        The IR node whose body should be searched for marked regions.
+    scope : :any:`Subroutine`, optional
+        The surrounding subroutine scope to use for replacement calls and
+        optional replacement imports.
     mark_with_comment : boolean
         Flag to trigger the insertion of a marker comment when
         removing a region; default: ``True``.
@@ -448,22 +476,26 @@ def do_remove_marked_regions(
         mark_with_comment=mark_with_comment,
         replacement_call=replacement_call,
         replacement_msg=replacement_msg,
+        inplace=True
     )
 
-    with pragma_regions_attached(routine, keyword='loki'):
-        routine.body = transformer.visit(routine.body, scope=routine)
+    attach_pragma_regions(internal_node, keyword='loki')
+    try:
+        transformer.visit(internal_node, scope=scope)
+    finally:
+        detach_pragma_regions(internal_node)
 
-    if transformer.replacement_done and replacement_module:
+    if scope and transformer.replacement_done and replacement_module:
         # Get newly inject procedure symbol for the replacement call
-        callsym = sym.ProcedureSymbol(replacement_call, scope=routine)
+        callsym = sym.ProcedureSymbol(replacement_call, scope=scope)
 
         # Inject import of replacement module if it does not exist
-        import_map = {i.module: i for i in routine.imports}
+        import_map = {i.module: i for i in scope.imports}
         if imprt := import_map.get(replacement_module):
             if not any(s == replacement_call for s in imprt.symbols):
                 imprt._update(symbols=imprt.symbols + (callsym,))
         else:
-            routine.spec.prepend(ir.Import(
+            scope.spec.prepend(ir.Import(
                 module=f'{replacement_module}', symbols=(callsym,), c_import=False)
             )
 
@@ -518,7 +550,7 @@ class RemoveRegionTransformer(Transformer):
             if self.mark_with_comment:
                 replacement.append(ir.Comment(text='! [Loki] Removed content of pragma-marked region!'))
 
-            if self.replacement_call and not bypass:
+            if self.replacement_call and not bypass and kwargs.get('scope'):
                 # Get the outer scope, to avoid picking associates
                 routine = kwargs['scope']
                 while not isinstance(routine, ProgramUnit):
@@ -540,19 +572,26 @@ class RemoveRegionTransformer(Transformer):
 
 
 def do_remove_calls(
-        routine, call_names=None, intrinsic_names=None, remove_imports=True
+        internal_node, spec=None, call_names=None, intrinsic_names=None,
+        remove_imports=True
 ):
     """
     Utility routine to remove all :any:`CallStatement` nodes
-    to specific named subroutines in a :any:`Subroutine`.
+    matching specific named subroutines or glob-style name patterns in a
+    given :any:`InternalNode`.
 
     For more information, see :any:`RemoveCallsTransformer`.
 
     Parameters
     ----------
+    internal_node : :any:`Node` or tuple of :any:`Node`
+        :any:`InternalNode` to transform in-place.
+    spec : :any:`Node` or tuple of :any:`Node`, optional
+        Spec section to transform in-place when ``remove_imports`` is
+        enabled.
     call_names : list of str
-        List of subroutine names against which to match
-        :any:`CallStatement` nodes.
+        List of subroutine names or glob-style name patterns against which
+        to match :any:`CallStatement` nodes.
     intrinsic_names : list of str
         List of module names against which to match :any:`GenericStmt`
         nodes.
@@ -563,16 +602,18 @@ def do_remove_calls(
 
     transformer = RemoveCallsTransformer(
         call_names=call_names, intrinsic_names=intrinsic_names,
-        remove_imports=remove_imports
+        remove_imports=remove_imports, inplace=True
     )
-    routine.spec = transformer.visit(routine.spec)
-    routine.body = transformer.visit(routine.body)
+    if remove_imports and spec:
+        transformer.visit(spec)
+    if internal_node:
+        transformer.visit(internal_node)
 
 
 class RemoveCallsTransformer(Transformer):
     """
     A :any:`Transformer` that removes all :any:`CallStatement` nodes
-    to specific named subroutines.
+    matching specific named subroutines or glob-style name patterns.
 
     This :any:`Transformer` will by default also remove the enclosing
     inline-conditional when encountering calls of the form ```if
@@ -590,8 +631,8 @@ class RemoveCallsTransformer(Transformer):
     Parameters
     ----------
     call_names : list of str
-        List of subroutine names against which to match
-        :any:`CallStatement` nodes.
+        List of subroutine names or glob-style name patterns against which
+        to match :any:`CallStatement` nodes.
     intrinsic_names : list of str
         List of module names against which to match :any:`GenericStmt`
         nodes.
@@ -606,13 +647,18 @@ class RemoveCallsTransformer(Transformer):
     ):
         super().__init__(**kwargs)
 
-        self.call_names = as_tuple(call_names)
+        self.call_names = tuple(str(name).lower() for name in as_tuple(call_names))
         self.intrinsic_names = as_tuple(intrinsic_names)
         self.remove_imports = remove_imports
 
+    def matches_call_name(self, name):
+        """Return ``True`` if ``name`` matches any configured call name pattern."""
+        name = str(name).lower()
+        return any(fnmatchcase(name, pattern) for pattern in self.call_names)
+
     def visit_CallStatement(self, o, **kwargs):
         """ Match and remove :any:`CallStatement` nodes against name patterns """
-        if o.name in self.call_names:
+        if self.matches_call_name(o.name):
             return None
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)
@@ -642,9 +688,9 @@ class RemoveCallsTransformer(Transformer):
     def visit_Import(self, o, **kwargs):
         """ Remove the symbol of any named calls from Import nodes """
 
-        symbols_found = any(s in self.call_names for s in o.symbols)
+        symbols_found = any(self.matches_call_name(s) for s in o.symbols)
         if self.remove_imports and symbols_found:
-            new_symbols = tuple(s for s in o.symbols if s not in self.call_names)
+            new_symbols = tuple(s for s in o.symbols if not self.matches_call_name(s))
             return o.clone(symbols=new_symbols) if new_symbols else None
 
         rebuilt = tuple(self.visit(i, **kwargs) for i in o.children)

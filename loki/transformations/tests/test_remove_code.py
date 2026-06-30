@@ -480,12 +480,13 @@ end subroutine test_remove_code
 
     if replace_with_abort:
         do_remove_marked_regions(
-            routine, mark_with_comment=mark_with_comment,
+            internal_node=routine.body, scope=routine, mark_with_comment=mark_with_comment,
             replacement_call='ABOR1', replacement_module='ABOR1_MOD',
             replacement_msg='Unsupported code path in {}',
         )
     else:
-        do_remove_marked_regions(routine, mark_with_comment=mark_with_comment)
+        do_remove_marked_regions(internal_node=routine.body, scope=routine,
+                                 mark_with_comment=mark_with_comment)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 3
@@ -593,7 +594,8 @@ end subroutine
     # Note that OMNI enforces keyword-arg passing for intrinsic
     # call to ``write``, so we match both conventions.
     do_remove_calls(
-        routine, call_names=('ABOR1', 'DR_HOOK'),
+        internal_node=routine.body, spec=routine.spec,
+        call_names=('ABOR1', 'DR_HOOK'),
         intrinsic_names=('WRITE(NULOUT', 'write(unit=nulout'),
         remove_imports=remove_imports
     )
@@ -631,6 +633,92 @@ end subroutine
         assert imports[0].symbols == ('lhook', 'dr_hook')
         assert imports[1].module == 'abor1_mod'
         assert imports[1].symbols == ('abor1',)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_remove_calls_glob_patterns(frontend):
+    """Test removal of calls matched by glob-style call name patterns."""
+
+    fcode = """
+subroutine driver(n, state)
+    implicit none
+    type state_type
+      integer :: value
+    end type state_type
+    integer, intent(in) :: n
+    type(state_type), intent(inout) :: state
+
+    call state%update_view(n)
+    call state%other_call(n)
+end subroutine driver
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    do_remove_calls(internal_node=routine.body, call_names=('*%update_view',), remove_imports=False)
+
+    call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+    assert call_names == ['state%other_call']
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI needs full type definitions for derived types')]
+))
+def test_remove_code_transformation_driver_loop_calls(frontend):
+    """Test kernel-only call removal also applies to driver-loop bodies."""
+
+    fcode = """
+subroutine driver(n, state)
+    implicit none
+    type state_type
+      integer :: value
+    end type state_type
+    integer, intent(in) :: n
+    type(state_type), intent(inout) :: state
+    integer :: ibl
+
+    call state%update_view(0)
+
+    !$loki remove
+    call should_stay_outside()
+    !$loki end remove
+
+    !$loki driver-loop
+    do ibl=1, n
+      call state%update_view(ibl)
+      !$loki remove
+      call should_be_removed()
+      !$loki end remove
+      if (ibl > 1) call state%update_view(ibl - 1)
+      call kernel(ibl)
+      write(nulout,*) "I should be deleted."
+      write(*,*) "But please keep me."
+    end do
+
+    call state%update_view(n + 1)
+end subroutine driver
+    """
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    transformation = RemoveCodeTransformation(
+        call_names=('*%update_view',), intrinsic_names=('write(nulout',), kernel_only=True
+    )
+    transformation.apply(routine, role='driver', targets=('kernel',))
+
+    call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)]
+    assert call_names.count('state%update_view') == 2
+    assert 'should_stay_outside' in call_names
+    assert 'should_be_removed' not in call_names
+    assert 'kernel' in call_names
+
+    loop = FindNodes(ir.Loop).visit(routine.body)[0]
+    loop_call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(loop.body)]
+    assert loop_call_names == ['kernel']
+
+    writes = FindNodes(ir.GenericStmt).visit(loop.body)
+    assert len(writes) == 1
+    assert 'please keep me' in writes[0].text
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
