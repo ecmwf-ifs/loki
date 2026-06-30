@@ -772,17 +772,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         return stack_size
 
     @staticmethod
-    def _is_driver_loop_pragma(pragma):
+    def _is_driver_loop(loop):
         """
         Check whether an attached pragma identifies a driver loop that needs
         pool allocator stack-pointer initialisation.
         """
-        keyword = pragma.keyword.lower()
-        content = pragma.content.lower()
-        if 'loop gang' in content or 'teams distribute' in content:
-            return True
-        if keyword == 'omp' and content.startswith(('parallel', 'do')):
-            return True
+        for pragma in as_tuple(loop.pragma):
+            keyword = pragma.keyword.lower()
+            content = pragma.content.lower()
+            if 'loop gang' in content or 'teams distribute' in content:
+                return True
+            if keyword == 'omp' and content.startswith(('parallel', 'do')):
+                return True
         return False
 
     def create_pool_allocator(self, routine, stack_size, targets):
@@ -832,15 +833,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Find driver/parallel block loops and assign local stack pointers there
         loop_map = {}
         with pragmas_attached(routine, Loop):
-            driver_loops = find_driver_loops(routine.body, targets)
-            annotated_loops = [
-                loop for loop in FindNodes(Loop).visit(routine.body)
-                if any(
-                    self._is_driver_loop_pragma(pragma)
-                    for pragma in as_tuple(loop.pragma)
-                )
-            ]
-            loops = OrderedSet(as_tuple(driver_loops) + as_tuple(annotated_loops))
+            loops = find_driver_loops(routine.body, targets, self._is_driver_loop)
 
         for loop in loops:
             assignments = FindNodes(Assignment).visit(loop.body)
