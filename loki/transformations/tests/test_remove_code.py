@@ -692,6 +692,8 @@ subroutine driver(n, state)
       !$loki end remove
       if (ibl > 1) call state%update_view(ibl - 1)
       call kernel(ibl)
+      write(nulout,*) "I should be deleted."
+      write(*,*) "But please keep me."
     end do
 
     call state%update_view(n + 1)
@@ -700,7 +702,7 @@ end subroutine driver
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     transformation = RemoveCodeTransformation(
-        call_names=('*%update_view',), kernel_only=True
+        call_names=('*%update_view',), intrinsic_names=('write(nulout',), kernel_only=True
     )
     transformation.apply(routine, role='driver', targets=('kernel',))
 
@@ -713,6 +715,10 @@ end subroutine driver
     loop = FindNodes(ir.Loop).visit(routine.body)[0]
     loop_call_names = [str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(loop.body)]
     assert loop_call_names == ['kernel']
+
+    writes = FindNodes(ir.GenericStmt).visit(loop.body)
+    assert len(writes) == 1
+    assert 'please keep me' in writes[0].text
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
