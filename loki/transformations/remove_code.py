@@ -128,6 +128,26 @@ class RemoveCodeTransformation(Transformation):
         self.remove_unused_vars = remove_unused_vars
         self.remove_only_arrays = remove_only_arrays
 
+    def _apply_to_ir(self, internal_node, scope, spec=None, remove_imports=False):
+        """
+        Internal utility to apply code removal transformations.
+        """
+
+        if self.call_names or self.intrinsic_names:
+            do_remove_calls(
+                body=internal_node, spec=spec,
+                call_names=self.call_names, intrinsic_names=self.intrinsic_names,
+                remove_imports=remove_imports
+            )
+        if self.remove_marked_regions:
+            do_remove_marked_regions(
+                body=internal_node, scope=scope,
+                mark_with_comment=self.mark_with_comment,
+                replacement_call=self.replacement_call,
+                replacement_msg=self.replacement_msg,
+                replacement_module=self.replacement_module
+            )
+
     def transform_subroutine(self, routine, **kwargs):
 
         role = kwargs.get('role')
@@ -139,37 +159,12 @@ class RemoveCodeTransformation(Transformation):
                 with pragmas_attached(routine, ir.Loop):
                     driver_loops = find_driver_loops(section=routine.body, targets=kwargs.get('targets', ()))
                     for loop in driver_loops:
-                        if self.call_names:
-                            do_remove_calls(
-                                body=loop, call_names=self.call_names, remove_imports=False
-                            )
-                        if self.remove_marked_regions:
-                            do_remove_marked_regions(
-                                body=loop, scope=routine,
-                                mark_with_comment=self.mark_with_comment,
-                                replacement_call=self.replacement_call,
-                                replacement_msg=self.replacement_msg,
-                                replacement_module=self.replacement_module
-                            )
+                        self._apply_to_ir(loop, scope=routine, remove_imports=False)
 
         if role == 'kernel' or not self.kernel_only:
             # Apply named node removal to strip specific calls
-            if self.call_names or self.intrinsic_names:
-                do_remove_calls(
-                    body=routine.body, spec=routine.spec,
-                    call_names=self.call_names, intrinsic_names=self.intrinsic_names,
-                    remove_imports=self.remove_imports
-                )
-
-            # Apply marked region removal
-            if self.remove_marked_regions:
-                do_remove_marked_regions(
-                    body=routine.body, scope=routine,
-                    mark_with_comment=self.mark_with_comment,
-                    replacement_call=self.replacement_call,
-                    replacement_msg=self.replacement_msg,
-                    replacement_module=self.replacement_module
-                )
+            self._apply_to_ir(routine.body, scope=routine, spec=routine.spec,
+                              remove_imports=self.remove_imports)
 
             # Apply Dead Code Elimination
             if self.remove_dead_code:
