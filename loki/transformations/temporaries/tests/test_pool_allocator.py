@@ -8,7 +8,7 @@
 import pytest
 
 from loki.expression.parser import parse_expr
-from loki import Dimension
+from loki import Dimension, Subroutine
 from loki.batch import Scheduler, SchedulerConfig
 from loki.expression import (
         InlineCall, RangeIndex, simplify, Sum,
@@ -87,6 +87,57 @@ def check_stack_created_in_driver(
                     assignments[1].rhs == 'ylstack_l + istsz * c_sizeof(real(1, kind=real64))')
     # Check that stack assignment happens before kernel call
     assert all(loops[0].body.index(a) < loops[0].body.index(first_kernel_call) for a in assignments)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('loop_pragma, loop_end_pragma, increment', [
+    ('!$omp parallel do private(b)', '!$omp end parallel do', '1.0'),
+    (
+        '!$omp parallel default(shared) private(b)\n    marker = marker + 1\n'
+        '    !$omp do',
+        '!$omp end do\n    !$omp end parallel',
+        'marker'
+    ),
+    ('!$acc parallel loop gang', '!$acc end parallel loop', '1.0'),
+    ('!$omp target teams distribute', '!$omp end target teams distribute', '1.0'),
+])
+def test_pool_allocator_annotated_driver_loops_without_targets(
+        frontend, block_dim, loop_pragma, loop_end_pragma, increment
+):
+    """
+    Parallel loops may already be present without Loki driver-loop annotations.
+    Treat OpenMP CPU, OpenACC gang, and OpenMP target teams loops as annotated
+    driver loops.
+    """
+    fcode = f"""
+subroutine driver(NLON, NB, FIELD, nouter_loop)
+    implicit none
+    integer, intent(in) :: nlon, nb, nouter_loop
+    real, intent(inout) :: field(nlon, nb)
+    integer :: b, marker, it
+
+    marker = 0
+
+    do it=1,nouter_loop
+      {loop_pragma}
+      do b=1,nb
+          field(1,b) = field(1,b) + {increment}
+      end do
+      {loop_end_pragma}
+    enddo
+end subroutine driver
+    """.strip()
+
+    driver = Subroutine.from_source(fcode, frontend=frontend)
+    transformation = TemporariesPoolAllocatorTransformation(block_dim=block_dim)
+    transformation.transform_subroutine(driver, role='driver', targets=())
+
+    loops = FindNodes(ir.Loop).visit(driver.body)
+    assert len(loops) == 2
+
+    assignments = tuple(stmt for stmt in loops[1].body if isinstance(stmt, ir.Assignment))
+    assert assignments[0].lhs == 'ylstack_l'
+    assert assignments[1].lhs == 'ylstack_u'
 
 
 @pytest.mark.parametrize('generate_driver_stack', [True, False])
