@@ -76,13 +76,15 @@ class SCCBaseTransformation(Transformation):
 
         Notes
         -----
-        The per-routine item config key ``resolve_vector_notation`` (bool,
-        default ``True``) can be set to ``False`` to skip vector notation
-        resolution for a specific routine.  Example scheduler config::
+        The per-routine item config keys ``resolve_vector_notation`` and
+        ``resolve_implicit_rhs_ranges`` (both bool, default ``True``) can be
+        used to control vector notation resolution for a specific routine.
+        Example scheduler config::
 
             [routines.my_routine]
             role = "kernel"
             resolve_vector_notation = false
+            resolve_implicit_rhs_ranges = false
 
         Parameters
         ----------
@@ -96,23 +98,33 @@ class SCCBaseTransformation(Transformation):
         item = kwargs.get('item', None)
         rename_indices = kwargs.get('rename_index_aliases', self.rename_indices)
         do_resolve_vector_notation = True
+        do_resolve_implicit_rhs_ranges = True
         if item:
             rename_indices = item.config.get('rename_index_aliases', rename_indices)
             do_resolve_vector_notation = item.config.get(
                 'resolve_vector_notation', do_resolve_vector_notation
             )
+            do_resolve_implicit_rhs_ranges = item.config.get(
+                'resolve_implicit_rhs_ranges', do_resolve_implicit_rhs_ranges
+            )
 
         if role == 'kernel':
             self.process_kernel(
                 routine, rename_indices=rename_indices,
-                do_resolve_vector_notation=do_resolve_vector_notation
+                do_resolve_vector_notation=do_resolve_vector_notation,
+                do_resolve_implicit_rhs_ranges=do_resolve_implicit_rhs_ranges,
             )
         if role == 'driver':
             self.process_driver(
-                routine, do_resolve_vector_notation=do_resolve_vector_notation
+                routine,
+                do_resolve_vector_notation=do_resolve_vector_notation,
+                do_resolve_implicit_rhs_ranges=do_resolve_implicit_rhs_ranges,
             )
 
-    def process_kernel(self, routine, rename_indices=False, do_resolve_vector_notation=True):
+    def process_kernel(
+            self, routine, rename_indices=False, do_resolve_vector_notation=True,
+            do_resolve_implicit_rhs_ranges=True
+    ):
         """
         Applies the SCCBase utilities to a "kernel". This consists of
         resolving associates, masked statements and vector notation.
@@ -132,6 +144,10 @@ class SCCBaseTransformation(Transformation):
             regardless of this flag, so that downstream SCC
             transformations find scalar loop indices instead of range
             notation.  Default is ``True``.
+        do_resolve_implicit_rhs_ranges : bool, optional
+            Whether to resolve assignments and masked statements whose RHS
+            arrays use bare ``:`` ranges while resolving vector notation.
+            Default is ``True``.
         """
 
         # Bail if routine is marked as sequential or routine has already been processed
@@ -163,13 +179,19 @@ class SCCBaseTransformation(Transformation):
         # loop indices instead of range notation, even when full vector notation
         # resolution is disabled.
         resolve_vector_dimension(
-            routine, dimension=self.horizontal, derive_qualified_ranges=True
+            routine, dimension=self.horizontal, derive_qualified_ranges=True,
+            resolve_implicit_rhs_ranges=do_resolve_implicit_rhs_ranges,
         )
 
         if do_resolve_vector_notation:
-            resolve_vector_notation(routine)
+            resolve_vector_notation(
+                routine, resolve_implicit_rhs_ranges=do_resolve_implicit_rhs_ranges
+            )
 
-    def process_driver(self, routine, do_resolve_vector_notation=True):
+    def process_driver(
+            self, routine, do_resolve_vector_notation=True,
+            do_resolve_implicit_rhs_ranges=True
+    ):
         """
         Applies the SCCBase utilities to a "driver". This consists of
         resolving associates and, by default, vector notation.
@@ -183,6 +205,10 @@ class SCCBaseTransformation(Transformation):
             Set to ``False`` to skip this step for driver routines
             where generated loop bounds may not be available on device.
             Default is ``True``.
+        do_resolve_implicit_rhs_ranges : bool, optional
+            Whether to resolve assignments and masked statements whose RHS
+            arrays use bare ``:`` ranges while resolving vector notation.
+            Default is ``True``.
         """
 
         # Resolve associates, since the PGI compiler cannot deal with
@@ -194,5 +220,10 @@ class SCCBaseTransformation(Transformation):
             resolve_vector_dimension(
                 routine, dimension=self.horizontal, derive_qualified_ranges=True,
                 substitute_derived_type_bounds=True,
+                resolve_implicit_rhs_ranges=do_resolve_implicit_rhs_ranges,
             )
-            resolve_vector_notation(routine, substitute_derived_type_bounds=True)
+            resolve_vector_notation(
+                routine,
+                resolve_implicit_rhs_ranges=do_resolve_implicit_rhs_ranges,
+                substitute_derived_type_bounds=True,
+            )
