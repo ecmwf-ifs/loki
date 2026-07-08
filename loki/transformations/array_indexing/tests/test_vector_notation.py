@@ -10,11 +10,11 @@
 import pytest
 import numpy as np
 
-from loki import Module, Subroutine, Dimension
+from loki import Module, Subroutine, Dimension, Sourcefile
 from loki.jit_build import jit_compile_and_run, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
-from loki.ir import nodes as ir, FindNodes, FindVariables
+from loki.ir import nodes as ir, FindNodes, FindVariables, FindInlineCalls
 
 from loki.transformations.array_indexing.vector_notation import (
     resolve_vector_notation, resolve_vector_dimension,
@@ -791,6 +791,95 @@ end subroutine test_ifs_patterns
     p8_loops = [l for l in loops if l.variable.name.startswith('i_zremap_')]
     assert len(p8_loops) >= 2, \
         f"Pattern 8: expected 2 nested loops for zremap, got {len(p8_loops)}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_statements_nested_condition(frontend):
+    """
+    Resolve sequential WHERE blocks nested inside an outer scalar IF.
+
+    This covers the ecRad-style pattern where the mask contains a mix of
+    scalar and vector terms, such as ``ssa_total > 0.0 .and. od_total(:) > 0.0``.
+    """
+
+    fcode = """
+subroutine test_masked_nested(flag, ncol, od_total, ssa_total, g_total, ssa, g, cloud)
+  implicit none
+  logical, intent(in) :: flag
+  integer, intent(in) :: ncol
+  real, intent(inout) :: ssa_total(ncol), g_total(ncol)
+  real, intent(in) :: od_total(ncol), ssa(ncol), g(ncol), cloud(ncol)
+
+  if (flag) then
+    where (od_total(:) > 0.0)
+      ssa_total = (ssa(:) + cloud(:)) / od_total(:)
+    end where
+    where (ssa_total > 0.0 .and. od_total(:) > 0.0)
+      g_total = (g(:) + cloud(:)) / ssa_total
+    end where
+  end if
+end subroutine test_masked_nested
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    dim = Dimension(name='horizontal', index='jl', lower='1', upper='ncol')
+    resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
+
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+
+    outer_cond = next(c for c in conds if c.condition == 'flag')
+    nested_conds = [c for c in FindNodes(ir.Conditional).visit(outer_cond.body) if c.condition != 'flag']
+    assert len(nested_conds) == 2
+    assert len(loops) == 2
+    assert all(loop.variable == 'jl' for loop in loops)
+    assert all(loop.bounds == '1:ncol' for loop in loops)
+
+    first_assign = FindNodes(ir.Assignment).visit(loops[0].body)[0]
+    assert first_assign.lhs == 'ssa_total(jl)'
+    assert first_assign.rhs == '(ssa(jl) + cloud(jl))/od_total(jl)'
+
+    second_assign = FindNodes(ir.Assignment).visit(loops[1].body)[0]
+    assert second_assign.lhs == 'g_total(jl)'
+    assert second_assign.rhs == '(g(jl) + cloud(jl))/ssa_total(jl)'
+
+    second_inner_cond = next(c for c in FindNodes(ir.Conditional).visit(loops[1].body))
+    second_cond = str(second_inner_cond.condition).replace(' ', '').lower()
+    assert 'ssa_total(jl)>0.0' in second_cond
+    assert 'od_total(jl)>0.0' in second_cond
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_statements_fallback_unresolved_rhs(frontend):
+    """
+    Keep unsupported masked statements unchanged when RHS bare ranges are not
+    allowed to resolve.
+    """
+
+    fcode = """
+subroutine test_masked_fallback(start, end, n, a, b)
+  implicit none
+  integer, intent(in) :: start, end, n
+  real, intent(inout) :: a(n), b(n)
+
+  where (a(start:end) > 0.0)
+    a(start:end) = b(:)
+  end where
+end subroutine test_masked_fallback
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    dim = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+    resolve_vector_dimension(routine, dimension=dim, resolve_implicit_rhs_ranges=False)
+
+    masked = FindNodes(ir.MaskedStatement).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+
+    assert len(masked) == 1
+    assert not loops
+    assert not conds
+    assert masked[0].conditions[0] == 'a(start:end) > 0.0'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1626,27 +1715,36 @@ def test_resolve_vector_notation_shifted_range_multi_arg(frontend):
     alone must produce ``frac(jcol, 1 + i_...)`` (not ``1 + (1:nlev-1)``).
     """
     fcode = """
-subroutine test_shifted_multi(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
-  implicit none
-  integer, intent(in) :: kstart, kend, nlev, jcol
-  real, intent(inout) :: overlap_alpha(kend, nlev-1)
-  real, intent(in)    :: overlap_param(kend, nlev)
-  real, intent(in)    :: frac(kend, nlev)
-  do jcol = kstart, kend
-    overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
-         frac(jcol,1:nlev-1), frac(jcol,2:nlev))
-  end do
-end subroutine test_shifted_multi
+module test_shifted_multi_mod
+contains
+  elemental real function beta2alpha(p, x, y)
+    implicit none
+    real, intent(in) :: p, x, y
+    beta2alpha = p + x + y
+  end function beta2alpha
+
+  subroutine test_shifted_multi(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
+    implicit none
+    integer, intent(in) :: kstart, kend, nlev, jcol
+    real, intent(inout) :: overlap_alpha(kend, nlev-1)
+    real, intent(in)    :: overlap_param(kend, nlev)
+    real, intent(in)    :: frac(kend, nlev)
+    do jcol = kstart, kend
+      overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+           frac(jcol,1:nlev-1), frac(jcol,2:nlev))
+    end do
+  end subroutine test_shifted_multi
+end module test_shifted_multi_mod
     """.strip()
 
     # --- Approach 1: resolve_vector_dimension + resolve_vector_notation ---
-    routine1 = Subroutine.from_source(fcode, frontend=frontend)
+    routine1 = Sourcefile.from_source(fcode, frontend=frontend)['test_shifted_multi']
     dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
     resolve_vector_dimension(routine1, dimension=dim, derive_qualified_ranges=True)
     resolve_vector_notation(routine1)
 
     # --- Approach 2: resolve_vector_notation only ---
-    routine2 = Subroutine.from_source(fcode, frontend=frontend)
+    routine2 = Sourcefile.from_source(fcode, frontend=frontend)['test_shifted_multi']
     resolve_vector_notation(routine2)
 
     for label, routine in [('pipeline', routine1), ('notation-only', routine2)]:
@@ -1678,6 +1776,208 @@ end subroutine test_shifted_multi
         # One frac should be accessed with the plain loop index, the other with +1 offset
         assert any('1+' in d or '+1' in d for d in frac_dims), \
             f'[{label}] Expected one frac dim to have +1 offset, got: {frac_dims}'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI cannot parse unresolved external function some_func')]
+))
+def test_resolve_vector_notation_non_elemental_inline_call_is_conservative(frontend):
+    """
+    Do not scalarize array actual arguments to unknown/non-elemental inline
+    calls, even if the LHS uses vector notation.
+    """
+
+    fcode = """
+subroutine test_non_elemental_inline(jl, n, lhs, arr)
+  implicit none
+  integer, intent(in) :: jl, n
+  real, intent(inout) :: lhs(n)
+  real, intent(in)    :: arr(n)
+
+  lhs(1:n) = some_func(arr(:), n)
+end subroutine test_non_elemental_inline
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    inline_calls = FindInlineCalls().visit(routine.body)
+
+    assert len(assigns) == 1
+    assert not loops
+    assert str(assigns[0].lhs) == 'lhs(1:n)'
+    assert not inline_calls
+    rhs_text = str(assigns[0].rhs).replace(' ', '')
+    assert rhs_text == 'some_func(arr(:),n)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_elemental_inline_mixed_arguments(frontend):
+    """
+    Elemental inline calls with mixed argument shapes should resolve only the
+    participating vector dimensions and leave scalar/broadcast arguments alone.
+    """
+
+    fcode = """
+module test_elemental_inline_mixed_mod
+contains
+  elemental real function beta2alpha(p, x, y, n)
+    implicit none
+    integer, intent(in) :: n
+    real, intent(in) :: p, x, y
+    beta2alpha = p + x + y + n
+  end function beta2alpha
+
+  subroutine test_elemental_inline_mixed(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
+    implicit none
+    integer, intent(in) :: kstart, kend, nlev, jcol
+    real, intent(inout) :: overlap_alpha(kend, nlev-1)
+    real, intent(in)    :: overlap_param(kend, nlev)
+    real, intent(in)    :: frac(kend, nlev)
+    do jcol = kstart, kend
+      overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+           frac(jcol,1:nlev-1), frac(jcol,2:nlev), nlev)
+    end do
+  end subroutine test_elemental_inline_mixed
+end module test_elemental_inline_mixed_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test_elemental_inline_mixed']
+    dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
+    resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 2
+
+    assign = FindNodes(ir.Assignment).visit(loops[1].body)[0]
+    inline_call = FindInlineCalls().visit(assign.rhs)[0]
+    call_text = str(inline_call).replace(' ', '')
+
+    assert 'overlap_param(jcol,' in call_text
+    assert 'frac(jcol,' in call_text
+    assert 'nlev' in call_text
+    assert 'RangeIndex' not in call_text
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_lower_only_slice(frontend):
+    """
+    Lower-only slices such as ``arr(2:)`` must be qualified from shape before
+    vector resolution.
+    """
+
+    fcode = """
+subroutine test_lower_only_slice(n, arr, out)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(in) :: arr(n)
+  real, intent(inout) :: out(n)
+
+  out(2:) = arr(2:)
+end subroutine test_lower_only_slice
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert len(loops) == 1
+    assert loops[0].bounds == '2:n'
+    assert len(assigns) == 1
+    assert assigns[0].lhs == 'out(i_out_0)'
+    assert assigns[0].rhs == 'arr(i_out_0)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_indirect_rhs_index(frontend):
+    """
+    Indirect/derived-type index expressions on the RHS must be preserved while
+    other vector dimensions are resolved.
+    """
+
+    fcode = """
+module test_indirect_rhs_index_mod
+  implicit none
+  type config_type
+    integer :: band(3)
+  end type config_type
+contains
+  subroutine test_indirect_rhs_index(config, jlev, ncol, od_cloud, od_scaling, od_cloud_new)
+    implicit none
+    type(config_type), intent(in) :: config
+    integer, intent(in) :: jlev, ncol
+    real, intent(in) :: od_cloud(3, 4, ncol), od_scaling(2, 4, ncol)
+    real, intent(out) :: od_cloud_new(ncol)
+    integer :: jreg
+
+    jreg = 1
+    od_cloud_new(:) = od_cloud(config%band(1), jlev, :) * od_scaling(jreg, jlev, :)
+  end subroutine test_indirect_rhs_index
+end module test_indirect_rhs_index_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test_indirect_rhs_index']
+    dim = Dimension(name='horizontal', index='jcol', lower='1', upper='ncol')
+    resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert len(loops) == 1
+    assert loops[0].variable == 'jcol'
+    assert loops[0].bounds == '1:ncol'
+    assert len(assigns) == 2
+
+    vector_assign = next(a for a in assigns if a.lhs == 'od_cloud_new(jcol)')
+    rhs_text = str(vector_assign.rhs).replace(' ', '')
+    assert 'od_cloud(config%band(1),jlev,jcol)' in rhs_text
+    assert 'od_scaling(jreg,jlev,jcol)' in rhs_text
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_vector_valued_rhs_subscript_is_conservative(frontend):
+    """
+    Do not resolve a vector dimension when a RHS array subscript is itself
+    vector-valued, e.g. ``arr(config%band, jlev, jcol)``.
+    """
+
+    fcode = """
+module test_vector_rhs_subscript_mod
+  implicit none
+  type config_type
+    integer :: band(3)
+  end type config_type
+contains
+  subroutine test_vector_rhs_subscript(config, jlev, jcol, od_cloud, od_cloud_new)
+    implicit none
+    type(config_type), intent(in) :: config
+    integer, intent(in) :: jlev, jcol
+    real, intent(in) :: od_cloud(3, 4, 5)
+    real, intent(out) :: od_cloud_new(3, 5)
+
+    od_cloud_new(:, jcol) = od_cloud(config%band, jlev, jcol)
+  end subroutine test_vector_rhs_subscript
+end module test_vector_rhs_subscript_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test_vector_rhs_subscript']
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert not loops
+    assert len(assigns) == 1
+    assert str(assigns[0].lhs) == 'od_cloud_new(:, jcol)'
+    assert str(assigns[0].rhs) == 'od_cloud(config%band, jlev, jcol)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
