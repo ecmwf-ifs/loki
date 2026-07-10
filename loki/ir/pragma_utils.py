@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from codetiming import Timer
 
 #from loki.backend.fgen import fgen
-from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion
+from loki.ir.nodes import VariableDeclaration, Pragma, PragmaRegion, InternalNode
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.ir.visitor import Visitor
@@ -652,7 +652,7 @@ def detach_pragma_regions(ir):
 
 
 @contextmanager
-def pragma_regions_attached(module_or_routine, keyword=None):
+def pragma_regions_attached(ir_or_internal_node, keyword=None):
     """
     Create a context in which :any:`PragmaRegion` node objects are
     inserted into the IR to define code regions marked by matching
@@ -689,23 +689,29 @@ def pragma_regions_attached(module_or_routine, keyword=None):
 
     Parameters
     ----------
-    module_or_routine : :any:`Module` or :any:`Subroutine` in
-        which :any:`PragmaRegion` objects are to be inserted.
+    ir_or_internal_node : :any:`Module`, :any:`Subroutine` or :any:`InternalNode`
+        in which :any:`PragmaRegion` objects are to be inserted.
     keyword : str, optional
         Limit pragma attachment to pragmas with the given keyword
     """
-    if hasattr(module_or_routine, 'spec'):
-        module_or_routine.spec = attach_pragma_regions(module_or_routine.spec, keyword=keyword)
-    if hasattr(module_or_routine, 'body'):
-        module_or_routine.body = attach_pragma_regions(module_or_routine.body, keyword=keyword)
+    if isinstance(ir_or_internal_node, InternalNode):
+        ir_or_internal_node = attach_pragma_regions(ir_or_internal_node, keyword=keyword)
+    else:
+        if hasattr(ir_or_internal_node, 'spec'):
+            ir_or_internal_node.spec = attach_pragma_regions(ir_or_internal_node.spec, keyword=keyword)
+        if hasattr(ir_or_internal_node, 'body'):
+            ir_or_internal_node.body = attach_pragma_regions(ir_or_internal_node.body, keyword=keyword)
 
     try:
-        yield module_or_routine
+        yield ir_or_internal_node
     finally:
-        if hasattr(module_or_routine, 'spec'):
-            module_or_routine.spec = detach_pragma_regions(module_or_routine.spec)
-        if hasattr(module_or_routine, 'body'):
-            module_or_routine.body = detach_pragma_regions(module_or_routine.body)
+        if isinstance(ir_or_internal_node, InternalNode):
+            ir_or_internal_node = detach_pragma_regions(ir_or_internal_node)
+        else:
+            if hasattr(ir_or_internal_node, 'spec'):
+                ir_or_internal_node.spec = detach_pragma_regions(ir_or_internal_node.spec)
+            if hasattr(ir_or_internal_node, 'body'):
+                ir_or_internal_node.body = detach_pragma_regions(ir_or_internal_node.body)
 
 
 class SubstitutePragmaStrings(Transformer):
