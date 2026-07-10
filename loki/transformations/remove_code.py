@@ -22,8 +22,7 @@ from loki.ir import (
     SubstituteExpressions, pragmas_attached
 )
 from loki.ir.pragma_utils import (
-    is_loki_pragma, attach_pragma_regions, detach_pragma_regions,
-    get_pragma_parameters
+    is_loki_pragma, pragma_regions_attached, get_pragma_parameters
 )
 from loki.program_unit import ProgramUnit
 from loki.tools import flatten, as_tuple, OrderedSet
@@ -479,11 +478,8 @@ def do_remove_marked_regions(
         inplace=True
     )
 
-    attach_pragma_regions(internal_node, keyword='loki')
-    try:
+    with pragma_regions_attached(internal_node, keyword='loki'):
         transformer.visit(internal_node, scope=scope)
-    finally:
-        detach_pragma_regions(internal_node)
 
     if scope and transformer.replacement_done and replacement_module:
         # Get newly inject procedure symbol for the replacement call
