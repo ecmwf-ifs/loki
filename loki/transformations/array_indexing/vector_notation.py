@@ -313,6 +313,18 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
             (s.lower, s.upper, s.step) if isinstance(s, sym.Range) else (sym.IntLiteral(1), s)
         )
 
+    @staticmethod
+    def _shape_lower(s):
+        return s.lower if isinstance(s, sym.Range) else sym.IntLiteral(1)
+
+    @staticmethod
+    def _shape_upper(s):
+        return s.upper if isinstance(s, sym.Range) else s
+
+    @staticmethod
+    def _shape_step(s):
+        return s.step if isinstance(s, sym.Range) else None
+
     def map_array(self, expr, *args, **kwargs):
         """ Replace ``:`` range indices with ``1:shape`` vector indices """
 
@@ -327,7 +339,11 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
                 new_dims += (self._shape_to_range(s),)
             elif isinstance(d, sym.RangeIndex) and d.upper is None:
                 new_dims += (sym.RangeIndex(
-                    (d.lower, s.upper, s.step) if isinstance(s, sym.Range) else (d.lower, s)
+                    (d.lower, self._shape_upper(s), self._shape_step(s))
+                ),)
+            elif isinstance(d, sym.RangeIndex) and d.lower is None:
+                new_dims += (sym.RangeIndex(
+                    (self._shape_lower(s), d.upper, d.step)
                 ),)
             else:
                 new_dims += (d,)
@@ -425,12 +441,56 @@ class ResolveVectorNotationTransformer(Transformer):
         Return ordinal indices into ``range_positions`` whose corresponding
         dimension is *not* a bare ``(:)`` (i.e. ``RangeIndex((None, None))``).
         """
+        return ResolveVectorNotationTransformer._find_resolvable_range_positions(dims, range_positions)
+
+    @staticmethod
+    def _has_explicit_range_bounds(dim):
+        return isinstance(dim, sym.RangeIndex) and dim.lower is not None and dim.upper is not None
+
+    @staticmethod
+    def _is_scalarizable_bound_expr(bound):
+        return not isinstance(bound, (sym.Array, sym.DeferredTypeSymbol))
+
+    @classmethod
+    def _is_resolvable_range_dim(cls, dim):
+        return (
+            cls._has_explicit_range_bounds(dim)
+            and cls._is_scalarizable_bound_expr(dim.lower)
+            and cls._is_scalarizable_bound_expr(dim.upper)
+        )
+
+    @classmethod
+    def _find_resolvable_range_positions(cls, dims, range_positions):
+        """
+        Return ordinal indices into ``range_positions`` that have explicit,
+        scalarizable bounds.
+        """
         return [
             i for i, j in enumerate(range_positions)
-            if dims[j] != sym.RangeIndex((None, None)) and
-            dims[j].upper is not None and not isinstance(dims[j], sym.Array)
-            and not isinstance(dims[j], sym.DeferredTypeSymbol)
+            if cls._is_resolvable_range_dim(dims[j])
         ]
+
+    def _get_range_resolution_info(
+            self, lhs_dims, rhs_arrays, qualification_lhs_dims=None,
+            qualification_rhs_arrays=None
+    ):
+        """
+        Collect range positions and resolvable dimension ordinals for a set of arrays.
+        """
+        rhs_dims_per_array = [array.dimensions for array in rhs_arrays]
+        qualification_rhs_dims_per_array = None
+        if qualification_rhs_arrays is not None:
+            qualification_rhs_dims_per_array = [array.dimensions for array in qualification_rhs_arrays]
+
+        lhs_range_positions, resolvable_dim_indices = self._get_resolvable_dim_indices(
+            lhs_dims, rhs_dims_per_array,
+            qualification_lhs_dims=qualification_lhs_dims,
+            qualification_rhs_dims_per_array=qualification_rhs_dims_per_array,
+        )
+        rhs_range_positions_per_array = [
+            self._find_range_positions(dims) for dims in rhs_dims_per_array
+        ]
+        return lhs_range_positions, rhs_dims_per_array, rhs_range_positions_per_array, resolvable_dim_indices
 
     def _get_resolvable_dim_indices(
             self, lhs_dims, rhs_dims_per_array, qualification_lhs_dims=None,
@@ -442,14 +502,14 @@ class ResolveVectorNotationTransformer(Transformer):
         lhs_range_positions = self._find_range_positions(lhs_dims)
 
         if self.resolve_implicit_rhs_ranges:
-            lhs_qualified_positions = self._find_qualified_range_positions(
+            lhs_qualified_positions = self._find_resolvable_range_positions(
                 lhs_dims, lhs_range_positions
             )
             return lhs_range_positions, lhs_qualified_positions
 
         qualification_lhs_dims = lhs_dims if qualification_lhs_dims is None else qualification_lhs_dims
         qualification_lhs_positions = self._find_range_positions(qualification_lhs_dims)
-        lhs_qualified_positions = self._find_qualified_range_positions(
+        lhs_qualified_positions = self._find_resolvable_range_positions(
             qualification_lhs_dims, qualification_lhs_positions
         )
 
@@ -461,15 +521,18 @@ class ResolveVectorNotationTransformer(Transformer):
             self._find_range_positions(dims) for dims in qualification_rhs_dims_per_array
         ]
         rhs_qualified_positions_per_array = [
-            self._find_qualified_range_positions(rhs_dims, rhs_pos)
+            self._find_resolvable_range_positions(rhs_dims, rhs_pos)
             for rhs_dims, rhs_pos in zip(
                 qualification_rhs_dims_per_array, qualification_rhs_positions_per_array
             )
         ]
 
+        if not rhs_qualified_positions_per_array:
+            return lhs_range_positions, lhs_qualified_positions
+
         resolvable_dim_indices = [
             j for j in lhs_qualified_positions
-            if rhs_qualified_positions_per_array and all(
+            if all(
                 j in rhs_qualified for rhs_qualified in rhs_qualified_positions_per_array
             )
         ]
@@ -507,6 +570,22 @@ class ResolveVectorNotationTransformer(Transformer):
         """Only known elemental inline calls are safe to scalarize."""
         if call.function.type and call.function.type.is_intrinsic:
             return True
+        if not call.function.type:
+            return False
+        procedure_dtype = getattr(call.function.type, 'dtype', None)
+        if procedure_dtype is None:
+            scope = getattr(call.function, 'scope', None)
+            if scope is not None and hasattr(scope, 'subroutines'):
+                routine = next(
+                    (routine for routine in scope.subroutines
+                     if routine.name.lower() == call.name.lower()),
+                    None
+                )
+                if routine is not None:
+                    return routine.procedure_type.is_elemental
+            return False
+        if hasattr(procedure_dtype, 'is_elemental'):
+            return procedure_dtype.is_elemental
         procedure_type = call.procedure_type
         return procedure_type is not BasicType.DEFERRED and procedure_type.is_elemental
 
@@ -616,9 +695,8 @@ class ResolveVectorNotationTransformer(Transformer):
         if not cond_arrays:
             return expr, {}, False
 
-        cond_dims_per_array = [array.dimensions for array in cond_arrays]
-        lhs_range_positions, resolvable_dim_indices = self._get_resolvable_dim_indices(
-            cond_dims_per_array[0], cond_dims_per_array
+        lhs_range_positions, cond_dims_per_array, _, resolvable_dim_indices = self._get_range_resolution_info(
+            cond_arrays[0].dimensions, cond_arrays
         )
         if not resolvable_dim_indices:
             return expr, {}, False
@@ -875,7 +953,6 @@ class ResolveVectorNotationTransformer(Transformer):
         orig_rhs_arrays, orig_unsafe_rhs_arrays = self._find_scalarizable_rhs_arrays(stmt.rhs)
         if orig_unsafe_rhs_arrays:
             return stmt
-        orig_rhs_dims_per_array = [array.dimensions for array in orig_rhs_arrays]
 
         # --- Step 3: Derive qualified ranges from shapes ---
         if self.derive_qualified_ranges:
@@ -888,19 +965,17 @@ class ResolveVectorNotationTransformer(Transformer):
         rhs_arrays, unsafe_rhs_arrays = self._find_scalarizable_rhs_arrays(stmt.rhs)
         if unsafe_rhs_arrays:
             return stmt
-        rhs_dims_per_array = [array.dimensions for array in rhs_arrays]
 
         # LHS array dimensions
         lhs_array = stmt.lhs
         lhs_dims = lhs_array.dimensions
-        lhs_range_positions, resolvable_dim_indices = self._get_resolvable_dim_indices(
-            lhs_dims, rhs_dims_per_array,
-            qualification_lhs_dims=orig_lhs_dims,
-            qualification_rhs_dims_per_array=orig_rhs_dims_per_array,
+        lhs_range_positions, rhs_dims_per_array, rhs_range_positions_per_array, resolvable_dim_indices = (
+            self._get_range_resolution_info(
+                lhs_dims, rhs_arrays,
+                qualification_lhs_dims=orig_lhs_dims,
+                qualification_rhs_arrays=orig_rhs_arrays,
+            )
         )
-        rhs_range_positions_per_array = [
-            self._find_range_positions(dims) for dims in rhs_dims_per_array
-        ]
 
         # --- Step 5: Filter to resolvable dimensions ---
         # Nothing to resolve
