@@ -1536,16 +1536,21 @@ def test_resolve_vector_notation_no_implicit_rhs(frontend):
     Only assignments where all RHS ranges are explicit should be resolved.
     """
     fcode = """
-subroutine test_no_implicit_rhs(start, end, n, a, b, c)
+subroutine test_no_implicit_rhs(start, end, n, a, b, c, scalar)
   implicit none
   integer, intent(in) :: start, end, n
   real, intent(inout) :: a(n), b(n), c(n)
+  real, intent(in) :: scalar
 
   ! RHS uses bare ':' -- should NOT be resolved with resolve_implicit_rhs_ranges=False
   a(start:end) = b(:)
 
   ! Both sides use explicit range -- SHOULD be resolved
   a(start:end) = c(start:end)
+
+  ! Scalar RHS should still resolve
+  a(start:end) = 0.0
+  a(start:end) = scalar
 
 end subroutine test_no_implicit_rhs
     """.strip()
@@ -1556,36 +1561,46 @@ end subroutine test_no_implicit_rhs
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
 
-    # Exactly one loop should be generated (for the explicit-range assignment only)
-    assert len(loops) == 1, \
-        f"Expected exactly 1 loop (for explicit-range assignment), got {len(loops)}"
+    # Three loops should be generated: explicit-range assignment plus two scalar RHS cases.
+    assert len(loops) == 3, \
+        f"Expected exactly 3 loops (explicit-range + scalar RHS assignments), got {len(loops)}"
 
     # The unresolved assignment (bare RHS ':') should remain as a vector assignment
     unresolved = [a for a in assigns if isinstance(a.lhs, sym.Array)
                   and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
-    assert len(unresolved) >= 1, \
-        "Assignment with bare RHS ':' should remain unresolved (LHS still has RangeIndex)"
+    assert len(unresolved) == 1, \
+        "Only the assignment with bare RHS ':' should remain unresolved"
+    assert 'b(:)' in str(unresolved[0].rhs), \
+        f"Unexpected unresolved assignment: {unresolved[0]}"
 
-    # The resolved loop should contain the explicit-range assignment (c)
-    loop_assigns = FindNodes(ir.Assignment).visit(loops[0].body)
-    assert len(loop_assigns) == 1
-    assert 'c(' in str(loop_assigns[0].rhs), \
-        f"Expected resolved c(...) in loop body, got: {loop_assigns[0].rhs}"
+    # The resolved loops should cover explicit-range and scalar RHS assignments.
+    loop_assigns = [FindNodes(ir.Assignment).visit(loop.body)[0] for loop in loops]
+    rhs_texts = {str(assign.rhs).replace(' ', '') for assign in loop_assigns}
+    assert any('c(' in rhs for rhs in rhs_texts), \
+        f"Expected resolved c(...) assignment, got: {rhs_texts}"
+    assert '0.0' in rhs_texts, f"Expected scalar literal assignment, got: {rhs_texts}"
+    assert 'scalar' in rhs_texts, f"Expected scalar variable assignment, got: {rhs_texts}"
+    assert all(str(assign.lhs) == 'a(jl)' for assign in loop_assigns)
 
     # --- Part 2: range dimension NOT in the first position ---
     # Ensures that qualified-position tracking works when the range
     # dimension sits at a non-leading position in the index tuple.
     fcode2 = """
-subroutine test_no_implicit_rhs_pos(start, end, m, n, a, b, c)
+subroutine test_no_implicit_rhs_pos(start, end, m, n, a, b, c, scalar)
   implicit none
   integer, intent(in) :: start, end, m, n
   real, intent(inout) :: a(m, n), b(m, n), c(m, n)
+  real, intent(in) :: scalar
 
   ! RHS bare ':' in second dim -- should NOT be resolved
   a(1, start:end) = b(1, :)
 
   ! Both sides explicit in second dim -- SHOULD be resolved
   a(1, start:end) = c(1, start:end)
+
+  ! Scalar RHS in second dim should still resolve
+  a(1, start:end) = 0.0
+  a(1, start:end) = scalar
 
 end subroutine test_no_implicit_rhs_pos
     """.strip()
@@ -1596,21 +1611,65 @@ end subroutine test_no_implicit_rhs_pos
     loops2 = FindNodes(ir.Loop).visit(routine2.body)
     assigns2 = FindNodes(ir.Assignment).visit(routine2.body)
 
-    # Exactly one loop for the explicit-range assignment
-    assert len(loops2) == 1, \
-        f"Expected exactly 1 loop, got {len(loops2)}"
+    # Three loops for explicit-range plus two scalar RHS assignments.
+    assert len(loops2) == 3, \
+        f"Expected exactly 3 loops, got {len(loops2)}"
 
     # The unresolved assignment should still have a RangeIndex
     unresolved2 = [a for a in assigns2 if isinstance(a.lhs, sym.Array)
                    and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
-    assert len(unresolved2) >= 1, \
-        "Assignment with bare RHS ':' should remain unresolved"
+    assert len(unresolved2) == 1, \
+        "Only the assignment with bare RHS ':' should remain unresolved"
+    assert 'b(1, :)' in str(unresolved2[0].rhs), \
+        f"Unexpected unresolved assignment: {unresolved2[0]}"
 
-    # The resolved loop body should reference c
-    loop_assigns2 = FindNodes(ir.Assignment).visit(loops2[0].body)
-    assert len(loop_assigns2) == 1
-    assert 'c(' in str(loop_assigns2[0].rhs), \
-        f"Expected resolved c(...) in loop body, got: {loop_assigns2[0].rhs}"
+    # The resolved loop bodies should reference explicit-range and scalar RHS cases.
+    loop_assigns2 = [FindNodes(ir.Assignment).visit(loop.body)[0] for loop in loops2]
+    rhs_texts2 = {str(assign.rhs).replace(' ', '') for assign in loop_assigns2}
+    assert any('c(' in rhs for rhs in rhs_texts2), \
+        f"Expected resolved c(...) assignment, got: {rhs_texts2}"
+    assert '0.0' in rhs_texts2, f"Expected scalar literal assignment, got: {rhs_texts2}"
+    assert 'scalar' in rhs_texts2, f"Expected scalar variable assignment, got: {rhs_texts2}"
+    assert all(str(assign.lhs) == 'a(1, jl)' for assign in loop_assigns2)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_statements_scalar_rhs_with_no_implicit_rhs(frontend):
+    """
+    Scalar RHS masked assignments should still lower when
+    ``resolve_implicit_rhs_ranges=False``.
+    """
+
+    fcode = """
+subroutine test_masked_scalar_rhs(start, end, n, a)
+  implicit none
+  integer, intent(in) :: start, end, n
+  real, intent(inout) :: a(n)
+
+  where (a(start:end) > 0.0)
+    a(start:end) = 0.0
+  end where
+end subroutine test_masked_scalar_rhs
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    dim = Dimension(name='horizontal', index='jl', lower='start', upper='end')
+    resolve_vector_dimension(routine, dimension=dim, resolve_implicit_rhs_ranges=False)
+
+    masked = FindNodes(ir.MaskedStatement).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    conds = FindNodes(ir.Conditional).visit(routine.body)
+
+    assert not masked
+    assert len(loops) == 1
+    assert loops[0].variable == 'jl'
+    assert loops[0].bounds == 'start:end'
+    assert len(conds) == 1
+    assert 'a(jl) > 0.0' in str(conds[0].condition)
+
+    loop_assign = FindNodes(ir.Assignment).visit(loops[0].body)[0]
+    assert loop_assign.lhs == 'a(jl)'
+    assert loop_assign.rhs == '0.0'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1977,6 +2036,37 @@ end subroutine test_lower_only_slice
 
     assert len(loops) == 1
     assert loops[0].bounds == '2:n'
+    assert len(assigns) == 1
+    assert assigns[0].lhs == 'out(i_out_0)'
+    assert assigns[0].rhs == 'arr(i_out_0)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_upper_only_slice(frontend):
+    """
+    Upper-only slices such as ``arr(:n-1)`` must be qualified from shape before
+    vector resolution.
+    """
+
+    fcode = """
+subroutine test_upper_only_slice(n, arr, out)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(in) :: arr(n)
+  real, intent(inout) :: out(n)
+
+  out(:n-1) = arr(:n-1)
+end subroutine test_upper_only_slice
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert len(loops) == 1
+    assert loops[0].bounds == '1:n - 1'
     assert len(assigns) == 1
     assert assigns[0].lhs == 'out(i_out_0)'
     assert assigns[0].rhs == 'arr(i_out_0)'
