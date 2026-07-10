@@ -3,7 +3,7 @@ import pytest
 
 from loki import Module, Subroutine, FindNodes, flatten, pprint, fgen
 from loki.frontend import available_frontends, FP
-from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion
+from loki.ir import Pragma, Loop, VariableDeclaration, PragmaRegion, Assignment
 from loki.ir.pragma_utils import (
     is_loki_pragma, get_pragma_parameters, attach_pragmas, detach_pragmas,
     pragmas_attached, pragma_regions_attached, SubstitutePragmaStrings
@@ -462,7 +462,9 @@ subroutine test_tools_pragmas_attached_region (in, out, n)
 
 !$foo bar
   do i=1,n
+!$foo_inner bar
     out(i) = in(i)
+!$foo_inner end bar
   end do
 !$foo end bar
 end subroutine test_tools_pragmas_attached_region
@@ -472,13 +474,13 @@ end subroutine test_tools_pragmas_attached_region
     loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 3
     assert all(loop.pragma is None for loop in loops)
-    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+    assert len(FindNodes(Pragma).visit(routine.body)) == 7
 
     with pragma_regions_attached(routine):
         assert len(FindNodes(Pragma).visit(routine.body)) == 1
-        assert len(FindNodes(PragmaRegion).visit(routine.body)) == 2
-        # Find loops inside regions
         regions = FindNodes(PragmaRegion).visit(routine.body)
+        assert len(regions) == 3
+        # Find loops inside regions
         region_loops = flatten(FindNodes(Loop).visit(r) for r in regions)
         assert len(region_loops) == 2
         assert all(l in loops for l in region_loops)
@@ -486,12 +488,19 @@ end subroutine test_tools_pragmas_attached_region
     # Verify that loops from context are still valid
     assert all(l in loops for l in region_loops)
 
+    # Verify pragma region inside loop body
+    with pragma_regions_attached(loops[2]):
+        regions = FindNodes(PragmaRegion).visit(loops[2].body)
+        assert len(regions) == 1
+        assert len(regions[0].body) == 1
+        assert isinstance(regions[0].body[0], Assignment)
+
     # Ensure that everything is back to where it was
     loops_after = FindNodes(Loop).visit(routine.body)
     assert len(loops_after) == 3
     assert loops_after == loops
     assert all(loop.pragma is None for loop in loops_after)
-    assert len(FindNodes(Pragma).visit(routine.body)) == 5
+    assert len(FindNodes(Pragma).visit(routine.body)) == 7
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
