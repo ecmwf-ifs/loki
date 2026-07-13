@@ -657,7 +657,7 @@ def is_driver_loop(loop, targets):
     return False
 
 
-def find_driver_loops(section, targets):
+def find_driver_loops(section, targets, additional_identifier=None):
     """
     Find and return all driver loops in a given `section`.
 
@@ -676,8 +676,17 @@ def find_driver_loops(section, targets):
     targets : list or string
         List of subroutines that are to be considered as part of
         the transformation call tree.
+    additional_identifier : callable, optional
+        An optional callback that receives a :any:`Loop` and returns
+        ``True`` if it should be treated as a driver loop. This is checked
+        in addition to the pragma and target-call based identification.
     """
     targets = [str(t).lower() for t in as_tuple(targets)]
+
+    def _is_marked_driver_loop(loop):
+        if is_pragma_driver_loop(loop):
+            return True
+        return additional_identifier and additional_identifier(loop)
 
     class FindDriverLoops(Visitor):
         """
@@ -718,7 +727,7 @@ def find_driver_loops(section, targets):
 
         def visit_Loop(self, loop, **kwargs):
             depth = kwargs.pop('depth', 0)
-            if is_pragma_driver_loop(loop):
+            if _is_marked_driver_loop(loop):
                 # Propagate the presence of the pragma only if inside a loop nest
                 self.driver_loops.append(loop)
                 return depth > 0, False, []
