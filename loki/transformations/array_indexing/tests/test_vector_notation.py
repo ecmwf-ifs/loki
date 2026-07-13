@@ -16,6 +16,7 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables, FindInlineCalls
 from loki.types import ProcedureType
+from loki.logging import WARNING
 
 from loki.transformations.array_indexing.vector_notation import (
     resolve_vector_notation, resolve_vector_dimension,
@@ -448,7 +449,7 @@ subroutine test_extended(klon, klev, ngpblks, nproma)
     ! B1: 2D array zeroing (both dims implicit)
     local_var1(:, :, ibl) = 0
 
-    ! B2: Literal list assignment -- should NOT be resolved
+    ! B2: Literal list assignment -- should be unrolled into scalars
     local_var1(1:2, 1, ibl) = (/ 2.739, 4.043 /)
 
     ! B3: Multi-term RHS with matching ranges
@@ -494,16 +495,27 @@ end subroutine test_extended
                           for a in FindNodes(ir.Assignment).visit(l.body))]
     assert len(b1_jl_loops) >= 1, "Expected jl loop containing local_var1 assignment"
 
-    # B2: Literal list assignment should be unchanged (no loop wrapping)
+    # B2: Literal list assignment should be unrolled into one scalar
+    # assignment per element; no LiteralList should survive, and the
+    # unrolled assignments should not be wrapped in a generated loop.
     generated_loop_bodies = []
     for l in loops:
         if l.variable.name.startswith('i_'):
             generated_loop_bodies.extend(FindNodes(ir.Assignment).visit(l.body))
+    literal_assigns = [a for a in assigns
+                       if hasattr(a.rhs, 'elements') or 'LiteralList' in type(a.rhs).__name__]
+    assert not literal_assigns, "Literal list RHS should have been unrolled"
     b2_assigns = [a for a in assigns
-                  if hasattr(a.rhs, 'elements') or 'LiteralList' in type(a.rhs).__name__]
+                  if str(a.lhs).startswith('local_var1(') and str(a.lhs).endswith('1, ibl)')
+                  and not isinstance(a.rhs, sym.LiteralList)
+                  and str(a.rhs) in ('2.739', '4.043')]
+    assert len(b2_assigns) == 2, \
+        f"Expected 2 unrolled scalar assignments, got {len(b2_assigns)}"
     for b2a in b2_assigns:
         assert b2a not in generated_loop_bodies, \
-            "Literal list assignment should not be inside a generated loop"
+            "Unrolled literal-list assignment should not be inside a generated loop"
+        assert not any(isinstance(d, sym.RangeIndex) for d in b2a.lhs.dimensions), \
+            "Unrolled LHS should not contain a RangeIndex"
 
     # B3: Multi-term RHS arrays should all have loop indices, no RangeIndex left
     b3_assigns = [a for a in assigns
@@ -887,18 +899,13 @@ end subroutine test_masked_fallback
 def test_resolve_vector_notation_early_exits(frontend, caplog):
     """
     Test that certain patterns are correctly skipped by the resolver:
-    literal list assignments, SUM intrinsic, scalar assignments, and
-    assumed-shape arrays whose LHS ``:`` cannot be qualified.
+    SUM intrinsic, scalar assignments, and assumed-shape arrays whose
+    LHS ``:`` cannot be qualified.
 
-    Also check that the literal-list and unqualified-':' bailouts
-    each emit a warning naming the offending statement and routine,
-    matching the production messages
-    ``[ResolveVectorNotationTransformer] Literal list on RHS of ...``
-    and
+    Also check that the unqualified-':' bailout emits a warning naming
+    the offending statement and routine, matching the production message
     ``[ResolveVectorNotationTransformer] Unqualified ":" on LHS of ...``.
     """
-    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
-
     fcode = """
 subroutine test_early_exits(n, arr, arr2, scalar, arr_assumed)
   implicit none
@@ -907,9 +914,6 @@ subroutine test_early_exits(n, arr, arr2, scalar, arr_assumed)
   real, intent(inout) :: scalar
   real, intent(inout) :: arr_assumed(:,:)
   real :: total
-
-  ! Skip: literal list assignment
-  arr(1:3) = (/ 1.0, 2.0, 3.0 /)
 
   ! Skip: SUM intrinsic in RHS
   total = sum(arr(1:n))
@@ -929,15 +933,7 @@ end subroutine test_early_exits
     caplog.set_level(WARNING)
     resolve_vector_notation(routine)
 
-    # The literal-list bailout should have emitted a warning identifying
-    # the offending statement.
-    literal_warnings = [r for r in caplog.records
-                        if 'Literal list on RHS' in r.message
-                        and 'ResolveVectorNotationTransformer' in r.message]
-    assert literal_warnings
-    assert any('test_early_exits' in r.message for r in literal_warnings)
-
-    # The unqualified-':' bailout should have emitted a warning too.
+    # The unqualified-':' bailout should have emitted a warning.
     unqualified_warnings = [r for r in caplog.records
                             if 'Unqualified ":"' in r.message
                             and 'ResolveVectorNotationTransformer' in r.message]
@@ -946,16 +942,6 @@ end subroutine test_early_exits
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
-
-    # Literal list assignment should remain unchanged
-    literal_assigns = [a for a in assigns
-                       if hasattr(a.rhs, 'elements') or 'LiteralList' in type(a.rhs).__name__]
-    assert len(literal_assigns) >= 1, "Literal list assignment should still exist"
-    # It should NOT be inside any generated loop
-    for la in literal_assigns:
-        for l in loops:
-            assert la not in FindNodes(ir.Assignment).visit(l.body), \
-                "Literal list assignment should not be inside a generated loop"
 
     # SUM assignment should remain unchanged (total = sum(...))
     sum_assigns = [a for a in assigns if str(a.lhs) == 'total']
@@ -990,6 +976,64 @@ end subroutine test_early_exits
     # LHS should have loop index, not RangeIndex
     assert not any(isinstance(d, sym.RangeIndex) for d in resolved_assigns[0].lhs.dimensions), \
         "Resolved assignment LHS should not have RangeIndex"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_literal_list(frontend, caplog):
+    """
+    A literal-list RHS assigned to an array section should be *unrolled*
+    into one scalar assignment per element rather than bailing out.
+
+    The exception is an assumed-shape LHS, whose ``:`` has no derivable
+    lower bound: it cannot be unrolled and must be left unchanged with a
+    warning.
+    """
+    fcode = """
+subroutine test_literal_list(arr, brr, crr, n)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: arr(n), brr(0:n)
+  real, intent(inout) :: crr(:)
+
+  ! Simple, one-based range
+  arr(1:3) = (/ 1.0, 2.0, 3.0 /)
+
+  ! Shifted (non-one) lower bound
+  brr(2:4) = (/ 4.0, 5.0, 6.0 /)
+
+  ! Assumed-shape LHS: ':' cannot be qualified, so cannot be unrolled
+  crr(:) = (/ 7.0, 8.0, 9.0 /)
+end subroutine test_literal_list
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    caplog.set_level(WARNING)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # The qualified ranges are unrolled into one scalar assignment per element.
+    arr_map = {str(a.lhs): str(a.rhs) for a in assigns
+               if 'arr' in a.lhs.name}
+    assert arr_map == {'arr(1)': '1.0', 'arr(2)': '2.0', 'arr(3)': '3.0'}
+
+    brr_map = {str(a.lhs): str(a.rhs) for a in assigns
+               if 'brr' in a.lhs.name}
+    assert brr_map == {'brr(2)': '4.0', 'brr(3)': '5.0', 'brr(4)': '6.0'}
+
+    # The assumed-shape assignment is left unchanged: its LiteralList RHS and
+    # unqualified ':' LHS survive, and a warning naming the routine is emitted.
+    crr_assigns = [a for a in assigns if 'crr' in a.lhs.name]
+    assert len(crr_assigns) == 1
+    assert isinstance(crr_assigns[0].rhs, sym.LiteralList), \
+        "LiteralList RHS should be preserved when it cannot be unrolled"
+    assert any(isinstance(d, sym.RangeIndex) for d in crr_assigns[0].lhs.dimensions), \
+        "Unqualifiable ':' should remain a RangeIndex on the LHS"
+
+    literal_warnings = [r for r in caplog.records
+                        if 'Literal list on RHS' in r.message
+                        and 'ResolveVectorNotationTransformer' in r.message]
+    assert literal_warnings
+    assert any('test_literal_list' in r.message for r in literal_warnings)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1652,8 +1696,6 @@ def test_resolve_vector_dimension_empty_bounds_warning(frontend, caplog):
     lower/upper bounds are not present in the routine's scope, it should
     emit a warning and leave the routine unchanged.
     """
-    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
-
     fcode = """
 subroutine test_empty_bounds(n, a)
   implicit none

@@ -939,6 +939,55 @@ class ResolveVectorNotationTransformer(Transformer):
 
         return new_index_range_map, pre_stmts, new_vars
 
+    def _resolve_literal_list(self, stmt):
+        """
+        Resolve an assignment whose RHS is a literal list by *unrolling* it
+        into one scalar assignment per element.
+
+        For example ``A(1:3) = (/ 1.0, 2.0, 3.0 /)`` becomes::
+
+            A(1) = 1.0
+            A(2) = 2.0
+            A(3) = 3.0
+
+        Only the simple case of a pure literal-list RHS assigned to an LHS
+        array with a single, explicitly bounded, range dimension is handled.
+        Mixed RHS expressions and bare ``:`` ranges are not supported.
+
+        Returns the unrolled scalar assignments, or ``None`` if the assignment
+        cannot be unrolled (so the caller can fall back to warn-and-bail).
+        """
+        # Only handle a pure literal-list RHS (no mixed expressions).
+        if not isinstance(stmt.rhs, sym.LiteralList):
+            return None
+
+        lhs_array = stmt.lhs
+        # A LiteralList RHS is always a rank-1 initialiser (multi-dimensional
+        # initialisers require RESHAPE, which Loki treats as an InlineCall, not
+        # a LiteralList), so the LHS has exactly one range dimension (though not
+        # necessarily the leading one, e.g. foo(j, 1:3)).
+        range_pos = self._find_range_positions(lhs_array.dimensions)[0]
+        lhs_range = lhs_array.dimensions[range_pos]
+
+        lower = lhs_range.lower
+        step = lhs_range.step
+        # A bare ``:`` (unknown lower bound) cannot be turned into concrete
+        # element indices.
+        if lower is None:
+            return None
+        step_expr = step if step else sym.IntLiteral(1)
+
+        # Emit one scalar assignment per element, with LHS index ``lower + k*step``.
+        assignments = []
+        for k, element in enumerate(stmt.rhs.elements):
+            index = simplify(sym.Sum((lower, sym.Product((sym.IntLiteral(k), step_expr)))))
+            new_dims = list(lhs_array.dimensions)
+            new_dims[range_pos] = index
+            new_lhs = lhs_array.clone(dimensions=as_tuple(new_dims))
+            assignments.append(ir.Assignment(lhs=new_lhs, rhs=element))
+
+        return as_tuple(assignments)
+
     def visit_Assignment(self, stmt, **kwargs):  # pylint: disable=unused-argument
 
         # --- Step 1: Early exits ---
@@ -949,15 +998,6 @@ class ResolveVectorNotationTransformer(Transformer):
 
         # LHS is not an array
         if not isinstance(stmt.lhs, sym.Array):
-            return stmt
-
-        # RHS contains a literal list (e.g., (/ 1.0, 2.0 /))
-        if FindLiteralLists().visit(stmt.rhs):
-            scope_str = f' in routine "{self.scope.name}"' if self.scope is not None else ''
-            warning(
-                f'[ResolveVectorNotationTransformer] Literal list on RHS of '
-                f'"{stmt}"{scope_str} prevents vector notation resolution. '
-            )
             return stmt
 
         create_loops = kwargs.get('create_loops', True)
@@ -986,6 +1026,21 @@ class ResolveVectorNotationTransformer(Transformer):
         if self.derive_qualified_ranges:
             shape_mapper = IterationRangeShapeMapper()
             stmt._update(lhs=shape_mapper(stmt.lhs), rhs=shape_mapper(stmt.rhs))
+
+        # --- Resolve literal-list RHS by unrolling ---
+        # This runs after Step 2 so the LHS range has explicit bounds.
+        # Falls back to the previous warn-and-bail behaviour when unrolling is
+        # not possible (mixed RHS, unknown ranges).
+        if FindLiteralLists().visit(stmt.rhs):
+            resolved = self._resolve_literal_list(stmt)
+            if resolved:
+                return resolved
+            scope_str = f' in routine "{self.scope.name}"' if self.scope is not None else ''
+            warning(
+                f'[ResolveVectorNotationTransformer] Literal list on RHS of '
+                f'"{stmt}"{scope_str} prevents vector notation resolution. '
+            )
+            return stmt
 
         # --- Step 4: Identify range-indexed dimensions ---
 
