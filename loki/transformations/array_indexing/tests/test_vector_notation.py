@@ -947,6 +947,53 @@ end subroutine test_literal_list
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_literal_list_unsupported(frontend, caplog):
+    """
+    Only literal-list elements that are scalar variables or literals are
+    unrolled.  Any other element leaves the assignment unchanged, with a
+    warning.
+    """
+    fcode = """
+subroutine test_literal_list_unsupported(arr, brr)
+  implicit none
+  integer, intent(inout) :: arr(3), brr(3)
+  integer :: i
+
+  ! Implied-do array constructor: a LiteralList with a single InlineDo element
+  arr(1:3) = [(i, i=1,3)]
+
+  ! Arithmetic expression elements are not scalar variables or literals
+  brr(1:3) = (/ 2*i, 2*i, 2*i /)
+end subroutine test_literal_list_unsupported
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    caplog.set_level(WARNING)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Both assignments are left unchanged: their LiteralList RHS and qualified
+    # range LHS survive rather than being (wrongly / unsupportedly) unrolled.
+    assert len(assigns) == 2
+    for assign in assigns:
+        assert isinstance(assign.rhs, sym.LiteralList), \
+            "LiteralList RHS should be preserved when it cannot be unrolled"
+        assert any(isinstance(d, sym.RangeIndex) for d in assign.lhs.dimensions), \
+            "The range LHS should remain a RangeIndex"
+
+    arr_assign = next(a for a in assigns if 'arr' in a.lhs.name)
+    assert any(isinstance(el, sym.InlineDo) for el in arr_assign.rhs.elements), \
+        "The InlineDo element should be preserved on the RHS"
+
+    literal_warnings = [r for r in caplog.records
+                        if 'not scalar variables or literals' in r.message
+                        and 'ResolveVectorNotationTransformer' in r.message]
+    # One warning per unsupported assignment.
+    assert len(literal_warnings) == 2
+    assert any('test_literal_list_unsupported' in r.message for r in literal_warnings)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_notation_broadcast_and_nesting(frontend):
     """
     Test 1D-to-2D broadcasts and nested full-colon resolution,
