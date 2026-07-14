@@ -955,10 +955,17 @@ class ResolveVectorNotationTransformer(Transformer):
         Mixed RHS expressions and bare ``:`` ranges are not supported.
 
         Returns the unrolled scalar assignments, or ``None`` if the assignment
-        cannot be unrolled (so the caller can fall back to warn-and-bail).
+        cannot be unrolled (in which case a warning describing the failure mode
+        has already been emitted).
         """
+        scope_str = f' in routine "{self.scope.name}"' if self.scope is not None else ''
+
         # Only handle a pure literal-list RHS (no mixed expressions).
         if not isinstance(stmt.rhs, sym.LiteralList):
+            warning(
+                f'[ResolveVectorNotationTransformer] Mixed literal-list RHS of '
+                f'"{stmt}"{scope_str} prevents vector notation resolution. '
+            )
             return None
 
         lhs_array = stmt.lhs
@@ -974,6 +981,10 @@ class ResolveVectorNotationTransformer(Transformer):
         # A bare ``:`` (unknown lower bound) cannot be turned into concrete
         # element indices.
         if lower is None:
+            warning(
+                f'[ResolveVectorNotationTransformer] Unqualified ":" on LHS of '
+                f'"{stmt}"{scope_str} prevents literal-list unrolling (shape unknown). '
+            )
             return None
         step_expr = step if step else sym.IntLiteral(1)
 
@@ -1035,11 +1046,6 @@ class ResolveVectorNotationTransformer(Transformer):
             resolved = self._resolve_literal_list(stmt)
             if resolved:
                 return resolved
-            scope_str = f' in routine "{self.scope.name}"' if self.scope is not None else ''
-            warning(
-                f'[ResolveVectorNotationTransformer] Literal list on RHS of '
-                f'"{stmt}"{scope_str} prevents vector notation resolution. '
-            )
             return stmt
 
         # --- Step 4: Identify range-indexed dimensions ---
