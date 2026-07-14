@@ -940,7 +940,7 @@ end subroutine test_literal_list
         "Unqualifiable ':' should remain a RangeIndex on the LHS"
 
     literal_warnings = [r for r in caplog.records
-                        if 'Literal list on RHS' in r.message
+                        if 'prevents literal-list unrolling' in r.message
                         and 'ResolveVectorNotationTransformer' in r.message]
     assert literal_warnings
     assert any('test_literal_list' in r.message for r in literal_warnings)
