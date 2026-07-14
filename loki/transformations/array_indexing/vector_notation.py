@@ -636,6 +636,17 @@ class ResolveVectorNotationTransformer(Transformer):
             )
             return None
 
+        # Only unroll when every element is a scalar variable or a literal,
+        # so that each element is rank-0 and the RHS element count trivially
+        # matches the LHS range extent without further shape introspection.
+        if not all(isinstance(el, (sym.Scalar, sym._Literal)) for el in stmt.rhs.elements):
+            warning(
+                f'[ResolveVectorNotationTransformer] Literal-list RHS of '
+                f'"{stmt}"{scope_str} has elements that are not scalar '
+                f'variables or literals; literal-list unrolling not supported. '
+            )
+            return None
+
         lhs_array = stmt.lhs
         # A LiteralList RHS is always a rank-1 initialiser (multi-dimensional
         # initialisers require RESHAPE, which Loki treats as an InlineCall, not
