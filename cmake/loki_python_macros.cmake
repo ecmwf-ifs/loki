@@ -131,10 +131,15 @@ function( loki_create_python_venv )
     set( Python3_FIND_VIRTUALENV STANDARD )
     find_package( Python3 ${_PAR_PYTHON_VERSION} COMPONENTS Interpreter REQUIRED )
 
-    # Ensure the activate script is writable in case the venv exists already
-    if( EXISTS "${VENV_PATH}/bin/activate" )
-        file( CHMOD "${VENV_PATH}/bin/activate" FILE_PERMISSIONS OWNER_READ OWNER_WRITE )
-    endif()
+    # Ensure the activate scripts are writable in case the venv exists already
+    file( GLOB activate_SCRIPTS "${VENV_PATH}/bin/activate*" )
+    file( GLOB Activate_SCRIPTS "${VENV_PATH}/bin/Activate*" )
+    foreach( _SCRIPT ${activate_SCRIPTS} ${Activate_SCRIPTS} )
+        if( EXISTS "${_SCRIPT}" )
+            message( STATUS "Making activate script ${_SCRIPT} writable" )
+            file( CHMOD "${_SCRIPT}" FILE_PERMISSIONS OWNER_READ OWNER_WRITE )
+        endif()
+    endforeach()
 
     # Create a virtualenv
     message( STATUS "Create Python virtual environment ${VENV_PATH}" )
