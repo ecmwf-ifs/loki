@@ -15,6 +15,7 @@ from loki.jit_build import jit_compile_and_run, jit_compile_lib, Builder, Obj
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables, FindInlineCalls
+from loki.types import ProcedureType
 
 from loki.transformations.array_indexing.vector_notation import (
     resolve_vector_notation, resolve_vector_dimension,
@@ -1920,6 +1921,65 @@ end module test_elemental_inline_mixed_mod
     assert 'frac(jcol,' in call_text
     assert 'nlev' in call_text
     assert 'RangeIndex' not in call_text
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_elemental_inline_unlinked_procedure_type(frontend):
+    """
+    Elemental inline calls should still be scalarized when the ProcedureType
+    exists but its link to the contained routine has been dropped.
+    """
+
+    fcode = """
+module test_elemental_inline_unlinked_mod
+contains
+  elemental real function beta2alpha(p, x, y)
+    implicit none
+    real, intent(in) :: p, x, y
+    beta2alpha = p + x + y
+  end function beta2alpha
+
+  subroutine test_elemental_inline_unlinked(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
+    implicit none
+    integer, intent(in) :: kstart, kend, nlev, jcol
+    real, intent(inout) :: overlap_alpha(kend, nlev-1)
+    real, intent(in)    :: overlap_param(kend, nlev)
+    real, intent(in)    :: frac(kend, nlev)
+    do jcol = kstart, kend
+      overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+           frac(jcol,1:nlev-1), frac(jcol,2:nlev))
+    end do
+  end subroutine test_elemental_inline_unlinked
+end module test_elemental_inline_unlinked_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test_elemental_inline_unlinked']
+    dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
+    resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
+
+    inline_call = next(iter(FindInlineCalls().visit(routine.body)))
+    inline_call.function.type = inline_call.function.type.clone(dtype=ProcedureType(
+        name=inline_call.name, is_function=True,
+        return_type=inline_call.function.type.dtype.return_type
+    ))
+
+    assert not inline_call.procedure_type.is_elemental
+
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 2
+
+    assign = FindNodes(ir.Assignment).visit(loops[1].body)[0]
+    resolved_inline_call = next(iter(FindInlineCalls().visit(assign.rhs)))
+    call_text = str(resolved_inline_call).replace(' ', '')
+
+    assert 'overlap_param(jcol,' in call_text
+    assert 'frac(jcol,' in call_text
+    assert 'RangeIndex' not in call_text
+    assert any('1+' in str(dim).replace(' ', '') or '+1' in str(dim).replace(' ', '')
+               for dim in resolved_inline_call.parameters[2].dimensions)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
