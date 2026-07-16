@@ -1924,7 +1924,7 @@ end module test_elemental_inline_mixed_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_elemental_inline_unlinked_procedure_type(frontend):
+def test_resolve_vector_notation_elemental_inline_unlinked_procedure_type(frontend, tmp_path):
     """
     Elemental inline calls should still be scalarized when the ProcedureType
     exists but its link to the contained routine has been dropped.
@@ -1953,7 +1953,7 @@ contains
 end module test_elemental_inline_unlinked_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test_elemental_inline_unlinked']
     dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
     resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
@@ -2045,7 +2045,7 @@ end subroutine test_upper_only_slice
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_scalar_array_element_slice_bounds(frontend):
+def test_resolve_vector_notation_scalar_array_element_slice_bounds(frontend, tmp_path):
     """
     Slice bounds derived from scalar array elements should remain resolvable.
     """
@@ -2062,7 +2062,7 @@ subroutine test_scalar_array_element_slice_bounds(n, bounds, arr1, out)
 end subroutine test_scalar_array_element_slice_bounds
     """.strip()
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     resolve_vector_notation(routine)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
@@ -2076,7 +2076,45 @@ end subroutine test_scalar_array_element_slice_bounds
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_indirect_rhs_index(frontend):
+def test_resolve_vector_notation_scalar_derived_type_slice_bounds(frontend, tmp_path):
+    """
+    Scalar derived-type members should remain valid slice bounds.
+    """
+
+    fcode = """
+module test_scalar_derived_slice_bounds_mod
+  implicit none
+  type dims_type
+    integer :: klon
+  end type dims_type
+contains
+  subroutine test_scalar_derived_slice_bounds(dims, arr, out)
+    implicit none
+    type(dims_type), intent(in) :: dims
+    real, intent(in) :: arr(5)
+    real, intent(out) :: out(5)
+
+    out(1:dims%klon) = arr(1:dims%klon)
+  end subroutine test_scalar_derived_slice_bounds
+end module test_scalar_derived_slice_bounds_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['test_scalar_derived_slice_bounds']
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert len(loops) == 1
+    assert loops[0].bounds == '1:dims%klon'
+    assert len(assigns) == 1
+    assert assigns[0].lhs == 'out(i_out_0)'
+    assert assigns[0].rhs == 'arr(i_out_0)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_indirect_rhs_index(frontend, tmp_path):
     """
     Indirect/derived-type index expressions on the RHS must be preserved while
     other vector dimensions are resolved.
@@ -2103,7 +2141,7 @@ contains
 end module test_indirect_rhs_index_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test_indirect_rhs_index']
     dim = Dimension(name='horizontal', index='jcol', lower='1', upper='ncol')
     resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
@@ -2123,7 +2161,7 @@ end module test_indirect_rhs_index_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_vector_valued_rhs_subscript_is_conservative(frontend):
+def test_resolve_vector_notation_vector_valued_rhs_subscript_is_conservative(frontend, tmp_path):
     """
     Do not resolve a vector dimension when a RHS array subscript is itself
     vector-valued, e.g. ``arr(config%band, jlev, jcol)``.
@@ -2148,7 +2186,7 @@ contains
 end module test_vector_rhs_subscript_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test_vector_rhs_subscript']
     resolve_vector_notation(routine)
 
@@ -2162,7 +2200,7 @@ end module test_vector_rhs_subscript_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_vector_valued_slice_bounds_are_conservative(frontend):
+def test_resolve_vector_notation_vector_valued_slice_bounds_are_conservative(frontend, tmp_path):
     """
     Do not resolve vector notation when the slice bounds are themselves
     vector-valued, e.g. ``out(config%band:)``.
@@ -2186,7 +2224,7 @@ contains
 end module test_vector_slice_bounds_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test_vector_slice_bounds']
     resolve_vector_notation(routine)
 
@@ -2197,6 +2235,38 @@ end module test_vector_slice_bounds_mod
     assert len(assigns) == 1
     assert str(assigns[0].lhs) == 'out(config%band:5)'
     assert str(assigns[0].rhs) == 'arr(config%band:5)'
+
+
+@pytest.mark.parametrize(
+    'frontend',
+    available_frontends(skip=[(OMNI, 'Hard to force unresolved bound members with OMNI')])
+)
+def test_resolve_vector_notation_unresolved_scalar_bound_warning(frontend, caplog):
+    """
+    Unresolved derived-type members in accepted slice bounds should emit a
+    warning because Loki cannot distinguish scalar from array-valued members.
+    """
+    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
+
+    fcode = """
+subroutine test_unresolved_scalar_bound_warning(arr, out)
+  implicit none
+  real, intent(in) :: arr(5)
+  real, intent(out) :: out(5)
+
+  out(1:dims%klon) = arr(1:dims%klon)
+end subroutine test_unresolved_scalar_bound_warning
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    caplog.set_level(WARNING)
+    resolve_vector_notation(routine)
+
+    assert any(
+        'Treating unresolved bound expression as scalar' in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
