@@ -572,19 +572,28 @@ class ResolveVectorNotationTransformer(Transformer):
             return True
         if not call.function.type:
             return False
-        procedure_dtype = getattr(call.function.type, 'dtype', None)
-        if procedure_dtype is None:
+
+        def resolve_routine_from_scope():
             scope = getattr(call.function, 'scope', None)
             if scope is not None and hasattr(scope, 'subroutines'):
-                routine = next(
+                return next(
                     (routine for routine in scope.subroutines
                      if routine.name.lower() == call.name.lower()),
                     None
                 )
-                if routine is not None:
-                    return routine.procedure_type.is_elemental
+            return None
+
+        procedure_dtype = getattr(call.function.type, 'dtype', None)
+        if procedure_dtype is None or procedure_dtype is BasicType.DEFERRED:
+            routine = resolve_routine_from_scope()
+            if routine is not None:
+                return routine.procedure_type.is_elemental
             return False
         if hasattr(procedure_dtype, 'is_elemental'):
+            if getattr(procedure_dtype, 'procedure', BasicType.DEFERRED) is BasicType.DEFERRED:
+                routine = resolve_routine_from_scope()
+                if routine is not None:
+                    return routine.procedure_type.is_elemental
             return procedure_dtype.is_elemental
         procedure_type = call.procedure_type
         return procedure_type is not BasicType.DEFERRED and procedure_type.is_elemental
