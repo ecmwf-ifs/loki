@@ -448,19 +448,27 @@ class ResolveVectorNotationTransformer(Transformer):
         return isinstance(dim, sym.RangeIndex) and dim.lower is not None and dim.upper is not None
 
     @staticmethod
-    def _is_scalarizable_bound_expr(bound):
-        for var in FindVariables(unique=False).visit(bound):
-            if isinstance(var, sym.Array):
-                if not var.dimensions:
-                    return False
-                if any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
-                    return False
-                if any(ResolveVectorNotationTransformer._expr_contains_vector_array(dim)
-                       for dim in var.dimensions):
-                    return False
-            elif isinstance(var, sym.DeferredTypeSymbol) and var.parent is not None:
-                return False
-        return True
+    def _warn_on_unresolved_scalarizable_bound(bound):
+        if any(isinstance(var, sym.DeferredTypeSymbol) and var.parent is not None
+               for var in FindVariables(unique=False).visit(bound)):
+            warning(
+                '[Loki::ResolveVectorNotation] Treating unresolved bound expression '
+                'as scalar: %s. This may miss vector-valued derived-type members.',
+                bound
+            )
+
+    @classmethod
+    def _is_scalarizable_bound_expr(cls, bound):
+        # This intentionally keys off vector-valuedness only. Unresolved
+        # derived-type members may still be scalar bounds (e.g. DIMS%KLON), so
+        # rejecting DeferredTypeSymbol conservatively regresses valid cases. The
+        # tradeoff is that unresolved array-valued members cannot be recognised
+        # here; warn when we accept such a bound so callers know the decision is
+        # best-effort.
+        is_scalarizable = not cls._expr_contains_vector_array(bound)
+        if is_scalarizable:
+            cls._warn_on_unresolved_scalarizable_bound(bound)
+        return is_scalarizable
 
     @classmethod
     def _is_resolvable_range_dim(cls, dim):
