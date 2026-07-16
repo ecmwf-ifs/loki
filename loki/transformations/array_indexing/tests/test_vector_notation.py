@@ -2045,6 +2045,37 @@ end subroutine test_upper_only_slice
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_scalar_array_element_slice_bounds(frontend):
+    """
+    Slice bounds derived from scalar array elements should remain resolvable.
+    """
+
+    fcode = """
+subroutine test_scalar_array_element_slice_bounds(n, bounds, arr1, out)
+  implicit none
+  integer, intent(in) :: n
+  integer, intent(in) :: bounds(2)
+  real, intent(in) :: arr1(n)
+  real, intent(inout) :: out(n)
+
+  out(bounds(1):bounds(2)) = arr1(bounds(1):bounds(2))
+end subroutine test_scalar_array_element_slice_bounds
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert len(loops) == 1
+    assert loops[0].bounds == 'bounds(1):bounds(2)'
+    assert len(assigns) == 1
+    assert assigns[0].lhs == 'out(i_out_0)'
+    assert assigns[0].rhs == 'arr1(i_out_0)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_notation_indirect_rhs_index(frontend):
     """
     Indirect/derived-type index expressions on the RHS must be preserved while
@@ -2128,6 +2159,44 @@ end module test_vector_rhs_subscript_mod
     assert len(assigns) == 1
     assert str(assigns[0].lhs) == 'od_cloud_new(:, jcol)'
     assert str(assigns[0].rhs) == 'od_cloud(config%band, jlev, jcol)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_vector_valued_slice_bounds_are_conservative(frontend):
+    """
+    Do not resolve vector notation when the slice bounds are themselves
+    vector-valued, e.g. ``out(config%band:)``.
+    """
+
+    fcode = """
+module test_vector_slice_bounds_mod
+  implicit none
+  type config_type
+    integer :: band(3)
+  end type config_type
+contains
+  subroutine test_vector_slice_bounds(config, arr, out)
+    implicit none
+    type(config_type), intent(in) :: config
+    real, intent(in) :: arr(5)
+    real, intent(out) :: out(5)
+
+    out(config%band:5) = arr(config%band:5)
+  end subroutine test_vector_slice_bounds
+end module test_vector_slice_bounds_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['test_vector_slice_bounds']
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    assert not loops
+    assert len(assigns) == 1
+    assert str(assigns[0].lhs) == 'out(config%band:5)'
+    assert str(assigns[0].rhs) == 'arr(config%band:5)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

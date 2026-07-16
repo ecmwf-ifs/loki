@@ -449,7 +449,18 @@ class ResolveVectorNotationTransformer(Transformer):
 
     @staticmethod
     def _is_scalarizable_bound_expr(bound):
-        return not isinstance(bound, (sym.Array, sym.DeferredTypeSymbol))
+        for var in FindVariables(unique=False).visit(bound):
+            if isinstance(var, sym.Array):
+                if not var.dimensions:
+                    return False
+                if any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
+                    return False
+                if any(ResolveVectorNotationTransformer._expr_contains_vector_array(dim)
+                       for dim in var.dimensions):
+                    return False
+            elif isinstance(var, sym.DeferredTypeSymbol) and var.parent is not None:
+                return False
+        return True
 
     @classmethod
     def _is_resolvable_range_dim(cls, dim):
