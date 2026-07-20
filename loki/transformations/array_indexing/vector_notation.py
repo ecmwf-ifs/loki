@@ -321,10 +321,6 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
     def _shape_upper(s):
         return s.upper if isinstance(s, sym.Range) else s
 
-    @staticmethod
-    def _shape_step(s):
-        return s.step if isinstance(s, sym.Range) else None
-
     def map_array(self, expr, *args, **kwargs):
         """ Replace ``:`` range indices with ``1:shape`` vector indices """
 
@@ -339,7 +335,7 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
                 new_dims += (self._shape_to_range(s),)
             elif isinstance(d, sym.RangeIndex) and d.upper is None:
                 new_dims += (sym.RangeIndex(
-                    (d.lower, self._shape_upper(s), self._shape_step(s))
+                    (d.lower, self._shape_upper(s), d.step)
                 ),)
             elif isinstance(d, sym.RangeIndex) and d.lower is None:
                 new_dims += (sym.RangeIndex(
@@ -447,28 +443,12 @@ class ResolveVectorNotationTransformer(Transformer):
     def _has_explicit_range_bounds(dim):
         return isinstance(dim, sym.RangeIndex) and dim.lower is not None and dim.upper is not None
 
-    @staticmethod
-    def _warn_on_unresolved_scalarizable_bound(bound):
-        if any(isinstance(var, sym.DeferredTypeSymbol) and var.parent is not None
-               for var in FindVariables(unique=False).visit(bound)):
-            warning(
-                '[Loki::ResolveVectorNotation] Treating unresolved bound expression '
-                'as scalar: %s. This may miss vector-valued derived-type members.',
-                bound
-            )
-
     @classmethod
     def _is_scalarizable_bound_expr(cls, bound):
         # This intentionally keys off vector-valuedness only. Unresolved
         # derived-type members may still be scalar bounds (e.g. DIMS%KLON), so
-        # rejecting DeferredTypeSymbol conservatively regresses valid cases. The
-        # tradeoff is that unresolved array-valued members cannot be recognised
-        # here; warn when we accept such a bound so callers know the decision is
-        # best-effort.
-        is_scalarizable = not cls._expr_contains_vector_array(bound)
-        if is_scalarizable:
-            cls._warn_on_unresolved_scalarizable_bound(bound)
-        return is_scalarizable
+        # rejecting DeferredTypeSymbol conservatively regresses valid cases.
+        return not cls._expr_contains_vector_array(bound)
 
     @classmethod
     def _is_resolvable_range_dim(cls, dim):

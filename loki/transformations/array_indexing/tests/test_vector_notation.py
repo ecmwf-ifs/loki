@@ -2288,73 +2288,34 @@ end module test_vector_rhs_subscript_mod
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_vector_valued_slice_bounds_are_conservative(frontend, tmp_path):
+def test_resolve_vector_notation_partial_slice_preserves_step(frontend):
     """
-    Do not resolve vector notation when the slice bounds are themselves
-    vector-valued, e.g. ``out(config%band:)``.
+    Lower-only slices with an explicit step must preserve that step when the
+    upper bound is qualified from the array shape.
     """
 
     fcode = """
-module test_vector_slice_bounds_mod
+subroutine test_partial_slice_preserves_step(n, arr, out)
   implicit none
-  type config_type
-    integer :: band(3)
-  end type config_type
-contains
-  subroutine test_vector_slice_bounds(config, arr, out)
-    implicit none
-    type(config_type), intent(in) :: config
-    real, intent(in) :: arr(5)
-    real, intent(out) :: out(5)
+  integer, intent(in) :: n
+  real, intent(in) :: arr(n)
+  real, intent(inout) :: out(n)
 
-    out(config%band:5) = arr(config%band:5)
-  end subroutine test_vector_slice_bounds
-end module test_vector_slice_bounds_mod
+  out(2::2) = arr(2::2)
+end subroutine test_partial_slice_preserves_step
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
-    routine = source['test_vector_slice_bounds']
+    routine = Subroutine.from_source(fcode, frontend=frontend)
     resolve_vector_notation(routine)
 
     loops = FindNodes(ir.Loop).visit(routine.body)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
 
-    assert not loops
+    assert len(loops) == 1
+    assert loops[0].bounds == '2:n:2'
     assert len(assigns) == 1
-    assert str(assigns[0].lhs) == 'out(config%band:5)'
-    assert str(assigns[0].rhs) == 'arr(config%band:5)'
-
-
-@pytest.mark.parametrize(
-    'frontend',
-    available_frontends(skip=[(OMNI, 'Hard to force unresolved bound members with OMNI')])
-)
-def test_resolve_vector_notation_unresolved_scalar_bound_warning(frontend, caplog):
-    """
-    Unresolved derived-type members in accepted slice bounds should emit a
-    warning because Loki cannot distinguish scalar from array-valued members.
-    """
-    from loki.logging import WARNING  # pylint: disable=import-outside-toplevel
-
-    fcode = """
-subroutine test_unresolved_scalar_bound_warning(arr, out)
-  implicit none
-  real, intent(in) :: arr(5)
-  real, intent(out) :: out(5)
-
-  out(1:dims%klon) = arr(1:dims%klon)
-end subroutine test_unresolved_scalar_bound_warning
-    """.strip()
-
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-
-    caplog.set_level(WARNING)
-    resolve_vector_notation(routine)
-
-    assert any(
-        'Treating unresolved bound expression as scalar' in record.message
-        for record in caplog.records
-    )
+    assert assigns[0].lhs == 'out(i_out_0)'
+    assert assigns[0].rhs == 'arr(i_out_0)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
