@@ -431,13 +431,13 @@ class ResolveVectorNotationTransformer(Transformer):
         """Return list of positions in ``dims`` that are :any:`RangeIndex`."""
         return [i for i, dim in enumerate(dims) if isinstance(dim, sym.RangeIndex)]
 
-    @staticmethod
-    def _find_qualified_range_positions(dims, range_positions):
+    @classmethod
+    def _find_qualified_range_positions(cls, dims, range_positions):
         """
         Return ordinal indices into ``range_positions`` whose corresponding
         dimension is *not* a bare ``(:)`` (i.e. ``RangeIndex((None, None))``).
         """
-        return ResolveVectorNotationTransformer._find_resolvable_range_positions(dims, range_positions)
+        return cls._find_resolvable_range_positions(dims, range_positions)
 
     @staticmethod
     def _has_explicit_range_bounds(dim):
@@ -550,9 +550,9 @@ class ResolveVectorNotationTransformer(Transformer):
             loop = ir.Loop(variable=ivar, body=as_tuple(wrapped_body), bounds=bounds)
             wrapped_body = loop
 
-        if insert_comments and loop is not None:
+        if insert_comments and loop:
             return (ir.Comment('! loki resolved vector notation'), loop)
-        if loop is not None:
+        if loop:
             return (loop,)
         return body
 
@@ -583,7 +583,7 @@ class ResolveVectorNotationTransformer(Transformer):
             return None
 
         procedure_dtype = getattr(call.function.type, 'dtype', None)
-        if procedure_dtype is None or procedure_dtype is BasicType.DEFERRED:
+        if not procedure_dtype:
             routine = resolve_routine_from_scope()
             if routine is not None:
                 return routine.procedure_type.is_elemental
