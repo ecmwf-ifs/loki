@@ -431,10 +431,12 @@ def div_literals(expr, fp_arithmetic=False):
         q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
         return sym.Product((-1, div_literals(q, fp_arithmetic=fp_arithmetic)))
 
-    if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
-        if not fp_arithmetic:
-            return expr
-        return sym.Literal(float(expr.numerator.value) / float(expr.denominator.value))
+    literal_types = (sym.IntLiteral, sym.FloatLiteral)
+    if isinstance(expr.numerator, literal_types) and isinstance(expr.denominator, literal_types):
+        if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
+            if not fp_arithmetic:
+                return expr
+            return sym.Literal(float(expr.numerator.value) / float(expr.denominator.value))
 
     if not isinstance(expr.denominator, sym.IntLiteral):
         return expr

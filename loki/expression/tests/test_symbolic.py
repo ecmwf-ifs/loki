@@ -200,6 +200,13 @@ def test_simplify_floating_point_arithmetic(source, ref):
     assert str(expr) == ref
 
 
+def test_simplify_floating_point_arithmetic_keeps_symbolic_division():
+    scope = Scope()
+    expr = parse_expr('1.0/a', scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.FloatingPointArithmetic)
+    assert str(expr) == '1.0 / a'
+
+
 @pytest.mark.parametrize('source, ref', [
     ('a + a + a', '3*a'),
     ('2*a + 1*a + a*3', '6*a'),
