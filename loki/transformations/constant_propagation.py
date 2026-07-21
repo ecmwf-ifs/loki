@@ -196,10 +196,13 @@ class ConstantPropagationTransformer(Transformer):
             loop_constants_map = constants_map
 
             for assign in assignments:
-                if not set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
-                    assign_kwargs = dict(kwargs)
-                    assign_kwargs['constants_map'] = loop_constants_map
-                    self.visit_Assignment(assign, **assign_kwargs)
+                if set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
+                    invalidate_constants_map(assign.lhs, loop_constants_map)
+                    continue
+
+                assign_kwargs = dict(kwargs)
+                assign_kwargs['constants_map'] = loop_constants_map
+                self.visit_Assignment(assign, **assign_kwargs)
         else:
             for assign in assignments:
                 invalidate_constants_map(assign.lhs, constants_map)
