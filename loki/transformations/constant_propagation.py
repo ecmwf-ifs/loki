@@ -220,7 +220,7 @@ class ConstantPropagationTransformer(Transformer):
 
         declarations_map = {}
         for symbol in getattr(routine, 'symbols', ()):
-            if isinstance(symbol, sym.DeferredTypeSymbol) or symbol.initial is None:
+            if isinstance(symbol, sym.DeferredTypeSymbol) or hasattr(symbol, 'initial') and symbol.initial is None:
                 continue
 
             if isinstance(symbol, sym.Array):
@@ -231,7 +231,8 @@ class ConstantPropagationTransformer(Transformer):
                     )
                 })
             else:
-                declarations_map[(symbol.basename, ())] = symbol.initial
+                if hasattr(symbol, 'initial'):
+                    declarations_map[(symbol.basename, ())] = symbol.initial
         return declarations_map
 
 
