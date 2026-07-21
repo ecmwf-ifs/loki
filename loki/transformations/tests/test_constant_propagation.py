@@ -82,6 +82,26 @@ end subroutine const_prop_dynamic_array
     assert ('a', (sym.IntLiteral(3),)) not in constants_map
 
 
+def test_constant_propagation_analysis_skips_symbols_without_initial():
+    fcode = """
+subroutine const_prop_symbols_without_initial()
+  type wrapper
+    integer :: value
+  end type wrapper
+  type(wrapper) :: state
+  integer :: a = 1
+
+  a = a + state%value
+end subroutine const_prop_symbols_without_initial
+    """.strip()
+    routine = Subroutine.from_source(fcode)
+
+    declarations_map = ConstantPropagationTransformer().generate_declarations_map(routine)
+
+    assert declarations_map[('a', ())] == sym.IntLiteral(1)
+    assert not any(k for k in declarations_map if k[0] == 'state')
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_constant_propagation_literals_expected_future(frontend):
     fcode = """
