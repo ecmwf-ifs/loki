@@ -1865,11 +1865,11 @@ def test_resolve_vector_notation_shifted_range_multi_arg(frontend):
     fcode = """
 module test_shifted_multi_mod
 contains
-  elemental real function beta2alpha(p, x, y)
+  elemental real function shifted_multi_beta2alpha(p, x, y)
     implicit none
     real, intent(in) :: p, x, y
-    beta2alpha = p + x + y
-  end function beta2alpha
+    shifted_multi_beta2alpha = p + x + y
+  end function shifted_multi_beta2alpha
 
   subroutine test_shifted_multi(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
     implicit none
@@ -1878,7 +1878,7 @@ contains
     real, intent(in)    :: overlap_param(kend, nlev)
     real, intent(in)    :: frac(kend, nlev)
     do jcol = kstart, kend
-      overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+      overlap_alpha(jcol,1:nlev-1) = shifted_multi_beta2alpha(overlap_param(jcol,:), &
            frac(jcol,1:nlev-1), frac(jcol,2:nlev))
     end do
   end subroutine test_shifted_multi
@@ -1886,13 +1886,15 @@ end module test_shifted_multi_mod
     """.strip()
 
     # --- Approach 1: resolve_vector_dimension + resolve_vector_notation ---
-    routine1 = Sourcefile.from_source(fcode, frontend=frontend)['test_shifted_multi']
+    source1 = Sourcefile.from_source(fcode, frontend=frontend)
+    routine1 = source1['test_shifted_multi']
     dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
     resolve_vector_dimension(routine1, dimension=dim, derive_qualified_ranges=True)
     resolve_vector_notation(routine1)
 
     # --- Approach 2: resolve_vector_notation only ---
-    routine2 = Sourcefile.from_source(fcode, frontend=frontend)['test_shifted_multi']
+    source2 = Sourcefile.from_source(fcode, frontend=frontend)
+    routine2 = source2['test_shifted_multi']
     resolve_vector_notation(routine2)
 
     for label, routine in [('pipeline', routine1), ('notation-only', routine2)]:
@@ -1962,7 +1964,7 @@ end subroutine test_non_elemental_inline
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_vector_notation_elemental_inline_mixed_arguments(frontend):
+def test_resolve_vector_notation_elemental_inline_mixed_arguments(frontend, tmp_path):
     """
     Elemental inline calls with mixed argument shapes should resolve only the
     participating vector dimensions and leave scalar/broadcast arguments alone.
@@ -1971,12 +1973,12 @@ def test_resolve_vector_notation_elemental_inline_mixed_arguments(frontend):
     fcode = """
 module test_elemental_inline_mixed_mod
 contains
-  elemental real function beta2alpha(p, x, y, n)
+  elemental real function mixed_beta2alpha(p, x, y, n)
     implicit none
     integer, intent(in) :: n
     real, intent(in) :: p, x, y
-    beta2alpha = p + x + y + n
-  end function beta2alpha
+    mixed_beta2alpha = p + x + y + n
+  end function mixed_beta2alpha
 
   subroutine test_elemental_inline_mixed(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
     implicit none
@@ -1985,14 +1987,14 @@ contains
     real, intent(in)    :: overlap_param(kend, nlev)
     real, intent(in)    :: frac(kend, nlev)
     do jcol = kstart, kend
-      overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+      overlap_alpha(jcol,1:nlev-1) = mixed_beta2alpha(overlap_param(jcol,:), &
            frac(jcol,1:nlev-1), frac(jcol,2:nlev), nlev)
     end do
   end subroutine test_elemental_inline_mixed
 end module test_elemental_inline_mixed_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test_elemental_inline_mixed']
     dim = Dimension(name='horizontal', index='jcol', lower='kstart', upper='kend')
     resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
@@ -2021,11 +2023,11 @@ def test_resolve_vector_notation_elemental_inline_unlinked_procedure_type(fronte
     fcode = """
 module test_elemental_inline_unlinked_mod
 contains
-  elemental real function beta2alpha(p, x, y)
+  elemental real function unlinked_beta2alpha(p, x, y)
     implicit none
     real, intent(in) :: p, x, y
-    beta2alpha = p + x + y
-  end function beta2alpha
+    unlinked_beta2alpha = p + x + y
+  end function unlinked_beta2alpha
 
   subroutine test_elemental_inline_unlinked(jcol, kstart, kend, nlev, overlap_alpha, overlap_param, frac)
     implicit none
@@ -2034,7 +2036,7 @@ contains
     real, intent(in)    :: overlap_param(kend, nlev)
     real, intent(in)    :: frac(kend, nlev)
     do jcol = kstart, kend
-      overlap_alpha(jcol,1:nlev-1) = beta2alpha(overlap_param(jcol,:), &
+      overlap_alpha(jcol,1:nlev-1) = unlinked_beta2alpha(overlap_param(jcol,:), &
            frac(jcol,1:nlev-1), frac(jcol,2:nlev))
     end do
   end subroutine test_elemental_inline_unlinked
