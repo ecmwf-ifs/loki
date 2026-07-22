@@ -14,7 +14,7 @@ from loki.batch import ProcedureItem, TransformationError
 from loki.expression import Scalar, Array, IntLiteral
 from loki.frontend import available_frontends, OMNI, HAVE_FP
 from loki.ir import (
-    FindNodes, Assignment, CallStatement, Conditional, Loop,
+    FindNodes, Assignment, CallStatement, Conditional, Loop, MaskedStatement,
     Pragma, PragmaRegion, pragmas_attached, is_loki_pragma,
     pragma_regions_attached, FindInlineCalls
 )
@@ -202,6 +202,151 @@ def test_scc_base_resolve_vector_notation_config(frontend, horizontal):
     assert len(z_assigns2) == 1
     assert ':' not in fgen(z_assigns2[0]).lower(), \
         f"z(:) should be resolved, got: {fgen(z_assigns2[0])}"
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_resolve_implicit_rhs_ranges_config(frontend, horizontal):
+    """
+    Test that per-routine config key ``resolve_implicit_rhs_ranges`` controls
+    whether masked statements with bare RHS ranges are lowered.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_masked(start, end, nlon, q, t)
+    INTEGER, INTENT(IN) :: start, end, nlon
+    REAL, INTENT(INOUT) :: q(nlon), t(nlon)
+
+    WHERE (q(start:end) > 0.)
+      q(start:end) = t(:)
+    END WHERE
+  END SUBROUTINE compute_masked
+"""
+
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel = kernel_source.subroutines[0]
+    kernel_item = ProcedureItem(
+        name='#compute_masked', source=kernel_source,
+        config={
+            'resolve_vector_notation': False,
+            'resolve_implicit_rhs_ranges': False,
+        }
+    )
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel', item=kernel_item)
+
+    assert len(FindNodes(MaskedStatement).visit(kernel.body)) == 1
+    assert not FindNodes(Loop).visit(kernel.body)
+
+    kernel_source2 = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel2 = kernel_source2.subroutines[0]
+    kernel_item2 = ProcedureItem(
+        name='#compute_masked', source=kernel_source2,
+        config={
+            'resolve_vector_notation': False,
+            'resolve_implicit_rhs_ranges': True,
+        }
+    )
+
+    scc_transform2 = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform2.apply(kernel2, role='kernel', item=kernel_item2)
+
+    assert 'jl' in kernel2.variables
+    assert not FindNodes(MaskedStatement).visit(kernel2.body)
+    loops = FindNodes(Loop).visit(kernel2.body)
+    assert len(loops) == 1
+    assert loops[0].variable == 'jl'
+    assert loops[0].bounds == 'start:end'
+
+    conds = FindNodes(Conditional).visit(kernel2.body)
+    assert len(conds) == 1
+    assert conds[0].condition == 'q(jl) > 0.'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_base_resolve_implicit_rhs_ranges_scalar_rhs(frontend, horizontal):
+    """
+    ``resolve_implicit_rhs_ranges = False`` must not block mandatory horizontal
+    resolution when the RHS is scalar-only.
+    """
+
+    fcode_kernel = """
+  SUBROUTINE compute_scalar_rhs(start, end, nlon, q, scalar)
+    INTEGER, INTENT(IN) :: start, end, nlon
+    REAL, INTENT(INOUT) :: q(nlon)
+    REAL, INTENT(IN) :: scalar
+
+    q(start:end) = 0.
+    q(start:end) = scalar
+  END SUBROUTINE compute_scalar_rhs
+"""
+
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    kernel = kernel_source.subroutines[0]
+    kernel_item = ProcedureItem(
+        name='#compute_scalar_rhs', source=kernel_source,
+        config={
+            'resolve_vector_notation': False,
+            'resolve_implicit_rhs_ranges': False,
+        }
+    )
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(kernel, role='kernel', item=kernel_item)
+
+    assert 'jl' in kernel.variables
+    loops = FindNodes(Loop).visit(kernel.body)
+    assert len(loops) == 2
+    assert all(loop.variable == 'jl' for loop in loops)
+    assert all(loop.bounds == 'start:end' for loop in loops)
+
+    loop_assigns = [FindNodes(Assignment).visit(loop.body)[0] for loop in loops]
+    rhs_texts = {str(assign.rhs).replace(' ', '') for assign in loop_assigns}
+    assert rhs_texts == {'0.', 'scalar'}
+    assert all(str(assign.lhs) == 'q(jl)' for assign in loop_assigns)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_driver_resolve_implicit_rhs_ranges_scalar_rhs(frontend, horizontal):
+    """
+    Driver-side horizontal resolution should also preserve scalar RHS lowering
+    when ``resolve_implicit_rhs_ranges = False``.
+    """
+
+    fcode_driver = """
+  SUBROUTINE drive_scalar_rhs(start, end, nlon, q, scalar)
+    INTEGER, INTENT(IN) :: start, end, nlon
+    REAL, INTENT(INOUT) :: q(nlon)
+    REAL, INTENT(IN) :: scalar
+
+    q(start:end) = 0.
+    q(start:end) = scalar
+  END SUBROUTINE drive_scalar_rhs
+"""
+
+    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    driver = driver_source.subroutines[0]
+    driver_item = ProcedureItem(
+        name='#drive_scalar_rhs', source=driver_source,
+        config={
+            'resolve_vector_notation': True,
+            'resolve_implicit_rhs_ranges': False,
+        }
+    )
+
+    scc_transform = SCCBaseTransformation(horizontal=horizontal)
+    scc_transform.apply(driver, role='driver', item=driver_item)
+
+    assert 'jl' in driver.variables
+    loops = FindNodes(Loop).visit(driver.body)
+    assert len(loops) == 2
+    assert all(loop.variable == 'jl' for loop in loops)
+    assert all(loop.bounds == 'start:end' for loop in loops)
+
+    loop_assigns = [FindNodes(Assignment).visit(loop.body)[0] for loop in loops]
+    rhs_texts = {str(assign.rhs).replace(' ', '') for assign in loop_assigns}
+    assert rhs_texts == {'0.', 'scalar'}
+    assert all(str(assign.lhs) == 'q(jl)' for assign in loop_assigns)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

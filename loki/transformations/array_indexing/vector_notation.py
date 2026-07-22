@@ -313,6 +313,18 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
             (s.lower, s.upper, s.step) if isinstance(s, sym.Range) else (sym.IntLiteral(1), s)
         )
 
+    @staticmethod
+    def _shape_lower(s):
+        return s.lower if isinstance(s, sym.Range) else sym.IntLiteral(1)
+
+    @staticmethod
+    def _shape_upper(s):
+        return s.upper if isinstance(s, sym.Range) else s
+
+    @staticmethod
+    def _shape_step(s):
+        return s.step if isinstance(s, sym.Range) else None
+
     def map_array(self, expr, *args, **kwargs):
         """ Replace ``:`` range indices with ``1:shape`` vector indices """
 
@@ -321,10 +333,20 @@ class IterationRangeShapeMapper(LokiIdentityMapper):
             expr = expr.clone(dimensions=tuple(sym.RangeIndex((None, None)) for _ in expr.shape))
 
         # Derive fully qualified bounds for ``:``
-        new_dims = tuple(
-            self._shape_to_range(s) if isinstance(d, sym.RangeIndex) and d == ':' else d
-            for i, d, s in zip(count(), expr.dimensions, as_tuple(expr.shape))
-        )
+        new_dims = ()
+        for d, s in zip(expr.dimensions, as_tuple(expr.shape)):
+            if isinstance(d, sym.RangeIndex) and d == ':':
+                new_dims += (self._shape_to_range(s),)
+            elif isinstance(d, sym.RangeIndex) and d.upper is None:
+                new_dims += (sym.RangeIndex(
+                    (d.lower, self._shape_upper(s), self._shape_step(s))
+                ),)
+            elif isinstance(d, sym.RangeIndex) and d.lower is None:
+                new_dims += (sym.RangeIndex(
+                    (self._shape_lower(s), d.upper, d.step)
+                ),)
+            else:
+                new_dims += (d,)
         # make sure it is not a inline call that was misread as array access ...
         if new_dims:
             return expr.clone(dimensions=new_dims)
@@ -419,10 +441,320 @@ class ResolveVectorNotationTransformer(Transformer):
         Return ordinal indices into ``range_positions`` whose corresponding
         dimension is *not* a bare ``(:)`` (i.e. ``RangeIndex((None, None))``).
         """
+        return ResolveVectorNotationTransformer._find_resolvable_range_positions(dims, range_positions)
+
+    @staticmethod
+    def _has_explicit_range_bounds(dim):
+        return isinstance(dim, sym.RangeIndex) and dim.lower is not None and dim.upper is not None
+
+    @staticmethod
+    def _warn_on_unresolved_scalarizable_bound(bound):
+        if any(isinstance(var, sym.DeferredTypeSymbol) and var.parent is not None
+               for var in FindVariables(unique=False).visit(bound)):
+            warning(
+                '[Loki::ResolveVectorNotation] Treating unresolved bound expression '
+                'as scalar: %s. This may miss vector-valued derived-type members.',
+                bound
+            )
+
+    @classmethod
+    def _is_scalarizable_bound_expr(cls, bound):
+        # This intentionally keys off vector-valuedness only. Unresolved
+        # derived-type members may still be scalar bounds (e.g. DIMS%KLON), so
+        # rejecting DeferredTypeSymbol conservatively regresses valid cases. The
+        # tradeoff is that unresolved array-valued members cannot be recognised
+        # here; warn when we accept such a bound so callers know the decision is
+        # best-effort.
+        is_scalarizable = not cls._expr_contains_vector_array(bound)
+        if is_scalarizable:
+            cls._warn_on_unresolved_scalarizable_bound(bound)
+        return is_scalarizable
+
+    @classmethod
+    def _is_resolvable_range_dim(cls, dim):
+        return (
+            cls._has_explicit_range_bounds(dim)
+            and cls._is_scalarizable_bound_expr(dim.lower)
+            and cls._is_scalarizable_bound_expr(dim.upper)
+        )
+
+    @classmethod
+    def _find_resolvable_range_positions(cls, dims, range_positions):
+        """
+        Return ordinal indices into ``range_positions`` that have explicit,
+        scalarizable bounds.
+        """
         return [
             i for i, j in enumerate(range_positions)
-            if dims[j] != sym.RangeIndex((None, None))
+            if cls._is_resolvable_range_dim(dims[j])
         ]
+
+    def _get_range_resolution_info(
+            self, lhs_dims, rhs_arrays, qualification_lhs_dims=None,
+            qualification_rhs_arrays=None
+    ):
+        """
+        Collect range positions and resolvable dimension ordinals for a set of arrays.
+        """
+        rhs_dims_per_array = [array.dimensions for array in rhs_arrays]
+        qualification_rhs_dims_per_array = None
+        if qualification_rhs_arrays is not None:
+            qualification_rhs_dims_per_array = [array.dimensions for array in qualification_rhs_arrays]
+
+        lhs_range_positions, resolvable_dim_indices = self._get_resolvable_dim_indices(
+            lhs_dims, rhs_dims_per_array,
+            qualification_lhs_dims=qualification_lhs_dims,
+            qualification_rhs_dims_per_array=qualification_rhs_dims_per_array,
+        )
+        rhs_range_positions_per_array = [
+            self._find_range_positions(dims) for dims in rhs_dims_per_array
+        ]
+        return lhs_range_positions, rhs_dims_per_array, rhs_range_positions_per_array, resolvable_dim_indices
+
+    def _get_resolvable_dim_indices(
+            self, lhs_dims, rhs_dims_per_array, qualification_lhs_dims=None,
+            qualification_rhs_dims_per_array=None
+    ):
+        """
+        Return ordinal positions into the LHS range list that are safe to resolve.
+        """
+        lhs_range_positions = self._find_range_positions(lhs_dims)
+
+        if self.resolve_implicit_rhs_ranges:
+            lhs_qualified_positions = self._find_resolvable_range_positions(
+                lhs_dims, lhs_range_positions
+            )
+            return lhs_range_positions, lhs_qualified_positions
+
+        qualification_lhs_dims = lhs_dims if qualification_lhs_dims is None else qualification_lhs_dims
+        qualification_lhs_positions = self._find_range_positions(qualification_lhs_dims)
+        lhs_qualified_positions = self._find_resolvable_range_positions(
+            qualification_lhs_dims, qualification_lhs_positions
+        )
+
+        qualification_rhs_dims_per_array = (
+            rhs_dims_per_array if qualification_rhs_dims_per_array is None
+            else qualification_rhs_dims_per_array
+        )
+        qualification_rhs_positions_per_array = [
+            self._find_range_positions(dims) for dims in qualification_rhs_dims_per_array
+        ]
+        rhs_qualified_positions_per_array = [
+            self._find_resolvable_range_positions(rhs_dims, rhs_pos)
+            for rhs_dims, rhs_pos in zip(
+                qualification_rhs_dims_per_array, qualification_rhs_positions_per_array
+            )
+        ]
+
+        if not rhs_qualified_positions_per_array:
+            return lhs_range_positions, lhs_qualified_positions
+
+        resolvable_dim_indices = [
+            j for j in lhs_qualified_positions
+            if all(
+                j in rhs_qualified for rhs_qualified in rhs_qualified_positions_per_array
+            )
+        ]
+        return lhs_range_positions, resolvable_dim_indices
+
+    @staticmethod
+    def _build_loop_nest(index_range_map, body, insert_comments=False):
+        """Wrap ``body`` in loops for all ranges from ``index_range_map``."""
+        loop = None
+        wrapped_body = body
+        for ivar, irange in index_range_map.items():
+            if isinstance(irange, sym.RangeIndex):
+                bounds = sym.LoopRange(irange.children)
+            else:
+                bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
+            loop = ir.Loop(variable=ivar, body=as_tuple(wrapped_body), bounds=bounds)
+            wrapped_body = loop
+
+        if insert_comments and loop is not None:
+            return (ir.Comment('! loki resolved vector notation'), loop)
+        if loop is not None:
+            return (loop,)
+        return body
+
+    @staticmethod
+    def _collect_range_arrays(expr):
+        return [
+            var for var in FindVariables(unique=False).visit(expr)
+            if isinstance(var, sym.Array)
+            and any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions)
+        ]
+
+    @staticmethod
+    def _is_scalarizable_inline_call(call):
+        """Only known elemental inline calls are safe to scalarize."""
+        if call.function.type and call.function.type.is_intrinsic:
+            return True
+        if not call.function.type:
+            return False
+
+        def resolve_routine_from_scope():
+            scope = getattr(call.function, 'scope', None)
+            if scope is not None and hasattr(scope, 'subroutines'):
+                return next(
+                    (routine for routine in scope.subroutines
+                     if routine.name.lower() == call.name.lower()),
+                    None
+                )
+            return None
+
+        procedure_dtype = getattr(call.function.type, 'dtype', None)
+        if procedure_dtype is None or procedure_dtype is BasicType.DEFERRED:
+            routine = resolve_routine_from_scope()
+            if routine is not None:
+                return routine.procedure_type.is_elemental
+            return False
+        if hasattr(procedure_dtype, 'is_elemental'):
+            if getattr(procedure_dtype, 'procedure', BasicType.DEFERRED) is BasicType.DEFERRED:
+                routine = resolve_routine_from_scope()
+                if routine is not None:
+                    return routine.procedure_type.is_elemental
+            return procedure_dtype.is_elemental
+        procedure_type = call.procedure_type
+        return procedure_type is not BasicType.DEFERRED and procedure_type.is_elemental
+
+    def _find_scalarizable_rhs_arrays(self, expr):
+        """Return RHS arrays that can be safely scalarized."""
+        scalarizable_arrays = []
+        unsafe_arrays = []
+
+        inline_calls = set(FindInlineCalls().visit(expr))
+        inline_call_arrays = set()
+        for call in inline_calls:
+            call_arrays = [
+                var for var in FindVariables(unique=False).visit(call)
+                if isinstance(var, sym.Array)
+                and any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions)
+            ]
+            inline_call_arrays.update(call_arrays)
+            if self._is_scalarizable_inline_call(call):
+                scalarizable_arrays.extend(call_arrays)
+            else:
+                unsafe_arrays.extend(call_arrays)
+
+        plain_arrays = [
+            var for var in self._collect_range_arrays(expr)
+            if var not in inline_call_arrays
+        ]
+        scalarizable_arrays.extend(plain_arrays)
+        return scalarizable_arrays, unsafe_arrays
+
+    @staticmethod
+    def _expr_contains_vector_array(expr):
+        """Return True if ``expr`` contains an array-valued expression."""
+        for var in FindVariables(unique=False).visit(expr):
+            if not isinstance(var, sym.Array):
+                continue
+            if not var.dimensions:
+                return True
+            if any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions):
+                return True
+        return False
+
+    @classmethod
+    def _has_vector_valued_rhs_subscript(cls, expr):
+        """
+        Return True if an RHS array uses a vector-valued subscript expression.
+
+        This conservatively rejects cases like ``arr(map, j)`` where ``map`` is
+        itself an array-valued expression. A more ambitious implementation could
+        scalarize that subscript elementwise with the resolved loop index.
+        """
+        for var in FindVariables(unique=False).visit(expr):
+            if not isinstance(var, sym.Array) or not var.dimensions:
+                continue
+            if var.type.dtype is BasicType.DEFERRED:
+                continue
+            for dim in var.dimensions:
+                if isinstance(dim, sym.RangeIndex):
+                    continue
+                if cls._expr_contains_vector_array(dim):
+                    return True
+        return False
+
+    def _has_unsafe_inline_call(self, expr):
+        """Return True if expr contains a non-scalarizable inline call with vector args."""
+        for call in FindInlineCalls().visit(expr):
+            if self._is_scalarizable_inline_call(call):
+                continue
+            if any(isinstance(arg, sym.Array) for arg in FindVariables(unique=False).visit(call)):
+                return True
+        for var in FindVariables(unique=False).visit(expr):
+            if not isinstance(var, sym.Array):
+                continue
+            if var.type.dtype is not BasicType.DEFERRED:
+                continue
+            if not var.dimensions:
+                continue
+            if any(isinstance(arg, sym.Array) for arg in var.dimensions):
+                return True
+        return False
+
+    @staticmethod
+    def _rhs_array_dim_map(resolved_dim_indices, rhs_range_positions):
+        """Map resolved LHS dimension ordinals to actual RHS range positions."""
+        return {
+            i: rhs_range_positions[i]
+            for i in resolved_dim_indices
+            if i < len(rhs_range_positions)
+        }
+
+    @staticmethod
+    def _has_unresolved_vector_ranges(nodes):
+        """Return True if any assignment still contains range notation."""
+        for assign in FindNodes(ir.Assignment).visit(nodes):
+            if (isinstance(assign.lhs, sym.Array)
+                    and any(isinstance(dim, sym.RangeIndex) for dim in assign.lhs.dimensions)):
+                return True
+            if ResolveVectorNotationTransformer._collect_range_arrays(assign.rhs):
+                return True
+        return False
+
+    def _resolve_mask_expr(self, expr):
+        """Resolve vector mask expressions to scalar indices when supported."""
+        if self.derive_qualified_ranges:
+            expr = IterationRangeShapeMapper()(expr)
+
+        cond_arrays = self._collect_range_arrays(expr)
+        if not cond_arrays:
+            return expr, {}, False
+
+        lhs_range_positions, cond_dims_per_array, _, resolvable_dim_indices = self._get_range_resolution_info(
+            cond_arrays[0].dimensions, cond_arrays
+        )
+        if not resolvable_dim_indices:
+            return expr, {}, False
+
+        resolved_ranges = [
+            cond_dims_per_array[0][lhs_range_positions[i]] for i in resolvable_dim_indices
+        ]
+        new_dims, index_range_map, _ = self._map_ranges_to_indices(
+            resolved_ranges, self.loop_map,
+            map_unknown_ranges=self.map_unknown_ranges,
+            scope=self.scope, basename='i_mask'
+        )
+
+        actually_resolved = [
+            (orig_i, new_dim) for orig_i, new_dim in zip(resolvable_dim_indices, new_dims)
+            if not isinstance(new_dim, sym.RangeIndex)
+        ]
+        if not actually_resolved:
+            return expr, {}, False
+
+        resolved_dim_indices, new_dims = zip(*actually_resolved)
+        subst_map = {}
+        for array in cond_arrays:
+            range_positions = self._find_range_positions(array.dimensions)
+            array_dims = list(array.dimensions)
+            for i, new_dim in enumerate(new_dims):
+                array_dims[range_positions[resolved_dim_indices[i]]] = new_dim
+            subst_map[array] = array.clone(dimensions=as_tuple(array_dims))
+
+        return SubstituteExpressions(subst_map).visit(expr), index_range_map, True
 
     @staticmethod
     def _compute_shifted_index(loop_var, lhs_range, rhs_range):
@@ -639,50 +971,41 @@ class ResolveVectorNotationTransformer(Transformer):
             if any(redux_op in FindExpressions().visit(stmt.rhs)
                    for redux_op in Fortran2003.Intrinsic_Name.array_reduction_names):
                 return stmt
+        if self._has_unsafe_inline_call(stmt.rhs):
+            return stmt
+        if self._has_vector_valued_rhs_subscript(stmt.rhs):
+            return stmt
 
-        # --- Step 2: Derive qualified ranges from shapes ---
+        # --- Step 2: Record original range usage before shape inference ---
+        orig_lhs_dims = stmt.lhs.dimensions
+        orig_rhs_arrays, orig_unsafe_rhs_arrays = self._find_scalarizable_rhs_arrays(stmt.rhs)
+        if orig_unsafe_rhs_arrays:
+            return stmt
+
+        # --- Step 3: Derive qualified ranges from shapes ---
         if self.derive_qualified_ranges:
             shape_mapper = IterationRangeShapeMapper()
             stmt._update(lhs=shape_mapper(stmt.lhs), rhs=shape_mapper(stmt.rhs))
 
-        # --- Step 3: Identify range-indexed dimensions ---
+        # --- Step 4: Identify range-indexed dimensions ---
 
         # RHS arrays that have at least one RangeIndex dimension
-        rhs_vars = FindVariables(unique=False).visit(stmt.rhs)
-        rhs_arrays = [
-            var for var in rhs_vars
-            if isinstance(var, sym.Array)
-            and any(isinstance(dim, sym.RangeIndex) for dim in var.dimensions)
-        ]
-        rhs_dims_per_array = [array.dimensions for array in rhs_arrays]
-        rhs_range_positions_per_array = [
-            self._find_range_positions(dims) for dims in rhs_dims_per_array
-        ]
+        rhs_arrays, unsafe_rhs_arrays = self._find_scalarizable_rhs_arrays(stmt.rhs)
+        if unsafe_rhs_arrays:
+            return stmt
 
         # LHS array dimensions
         lhs_array = stmt.lhs
         lhs_dims = lhs_array.dimensions
-        lhs_range_positions = self._find_range_positions(lhs_dims)
-        lhs_qualified_positions = self._find_qualified_range_positions(
-            lhs_dims, lhs_range_positions
+        lhs_range_positions, rhs_dims_per_array, rhs_range_positions_per_array, resolvable_dim_indices = (
+            self._get_range_resolution_info(
+                lhs_dims, rhs_arrays,
+                qualification_lhs_dims=orig_lhs_dims,
+                qualification_rhs_arrays=orig_rhs_arrays,
+            )
         )
 
-        # --- Step 4: Filter to resolvable dimensions ---
-        if self.resolve_implicit_rhs_ranges:
-            resolvable_dim_indices = lhs_qualified_positions
-        else:
-            rhs_qualified_positions_per_array = [
-                self._find_qualified_range_positions(rhs_dims, rhs_pos)
-                for rhs_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
-            ]
-            resolvable_dim_indices = [
-                j for j in lhs_qualified_positions
-                if all(
-                    j in rhs_qualified
-                    for rhs_qualified in rhs_qualified_positions_per_array
-                )
-            ]
-
+        # --- Step 5: Filter to resolvable dimensions ---
         # Nothing to resolve
         if not resolvable_dim_indices:
             if lhs_range_positions:
@@ -693,7 +1016,7 @@ class ResolveVectorNotationTransformer(Transformer):
                 )
             return stmt
 
-        # --- Step 5: Map LHS ranges to loop index variables ---
+        # --- Step 6: Map LHS ranges to loop index variables ---
         resolved_lhs_ranges = [
             lhs_dims[lhs_range_positions[i]] for i in resolvable_dim_indices
         ]
@@ -718,17 +1041,20 @@ class ResolveVectorNotationTransformer(Transformer):
             return stmt
         resolved_dim_indices, resolved_lhs_ranges, new_lhs_dims = zip(*actually_resolved)
 
-        # --- Step 6: Compute RHS index expressions (with offset) ---
-        resolved_rhs_ranges_per_array = [
-            [array_dims[rhs_pos[i]] for i in resolved_dim_indices]
-            for array_dims, rhs_pos in zip(rhs_dims_per_array, rhs_range_positions_per_array)
-        ]
+        # --- Step 7: Compute RHS index expressions (with offset) ---
         new_rhs_dims_per_array = []
-        for array, resolved_rhs_ranges in zip(rhs_arrays, resolved_rhs_ranges_per_array):
-            new_rhs_dims = []
-            for lhs_range, new_lhs_dim, rhs_range in zip(
-                resolved_lhs_ranges, new_lhs_dims, resolved_rhs_ranges
-            ):
+        rhs_dim_maps = [
+            self._rhs_array_dim_map(resolved_dim_indices, rhs_pos)
+            for rhs_pos in rhs_range_positions_per_array
+        ]
+        for array_dims, rhs_dim_map in zip(rhs_dims_per_array, rhs_dim_maps):
+            new_rhs_dims = {}
+            for i, (lhs_range, new_lhs_dim) in enumerate(zip(resolved_lhs_ranges, new_lhs_dims)):
+                resolved_dim_index = resolved_dim_indices[i]
+                rhs_pos = rhs_dim_map.get(resolved_dim_index)
+                if rhs_pos is None:
+                    continue
+                rhs_range = array_dims[rhs_pos]
                 is_aligned_dim = (
                     lhs_range == rhs_range or rhs_range == sym.RangeIndex((None, None))
                 ) or (
@@ -736,14 +1062,14 @@ class ResolveVectorNotationTransformer(Transformer):
                     lhs_range.lower == rhs_range.lower
                 )
                 if is_aligned_dim:
-                    new_rhs_dims.append(new_lhs_dim)
+                    new_rhs_dims[resolved_dim_index] = new_lhs_dim
                 else:
-                    new_rhs_dims.append(
+                    new_rhs_dims[resolved_dim_index] = (
                         self._compute_shifted_index(new_lhs_dim, lhs_range, rhs_range)
                     )
             new_rhs_dims_per_array.append(new_rhs_dims)
 
-        # --- Step 7: Build new array expressions ---
+        # --- Step 8: Build new array expressions ---
 
         # New LHS array with loop indices replacing ranges
         new_lhs_arr_dims = list(lhs_dims)
@@ -755,8 +1081,12 @@ class ResolveVectorNotationTransformer(Transformer):
         new_rhs_array_list = []
         for i_arr, _array in enumerate(rhs_arrays):
             new_arr_dims = list(rhs_dims_per_array[i_arr])
-            for i, d in enumerate(new_rhs_dims_per_array[i_arr]):
-                new_arr_dims[rhs_range_positions_per_array[i_arr][resolved_dim_indices[i]]] = d
+            rhs_dim_map = rhs_dim_maps[i_arr]
+            for resolved_dim_index, d in new_rhs_dims_per_array[i_arr].items():
+                rhs_pos = rhs_dim_map.get(resolved_dim_index)
+                if rhs_pos is None:
+                    continue
+                new_arr_dims[rhs_pos] = d
             new_rhs_array_list.append(_array.clone(dimensions=as_tuple(new_arr_dims)))
 
         # Update the statement in-place
@@ -769,7 +1099,7 @@ class ResolveVectorNotationTransformer(Transformer):
         # Record all newly created loop index variables for declaration
         self.index_vars.update(list(index_range_map.keys()))
 
-        # --- Step 8: Substitute derived-type members in synthesized bounds ---
+        # --- Step 9: Substitute derived-type members in synthesized bounds ---
         # For bounds that were derived from array shapes (not from explicit
         # source-code ranges), replace any derived-type member references
         # (e.g., KDIM%KLEVS) with existing or new plain scalar variables
@@ -788,21 +1118,9 @@ class ResolveVectorNotationTransformer(Transformer):
             if new_vars:
                 self.index_vars.update(new_vars)
 
-        # --- Step 9: Wrap in loop nest ---
+        # --- Step 10: Wrap in loop nest ---
         if create_loops and len(index_range_map):
-            loop = None
-            body = stmt
-            for ivar, irange in index_range_map.items():
-                if isinstance(irange, sym.RangeIndex):
-                    bounds = sym.LoopRange(irange.children)
-                else:
-                    bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
-                loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
-                body = loop
-
-            if self.insert_comments:
-                return (ir.Comment('! loki resolved vector notation'),) + (loop,)
-            return (loop,)
+            return self._build_loop_nest(index_range_map, stmt, insert_comments=self.insert_comments)
 
         # No vector dimensions encountered, return unchanged
         return stmt
@@ -831,59 +1149,28 @@ class ResolveVectorNotationTransformer(Transformer):
         return visited
 
     def visit_MaskedStatement(self, masked, **kwargs):  # pylint: disable=unused-argument
-        # TODO: Currently limited to simple, single-clause WHERE stmts
-        assert len(masked.conditions) == 1 and len(masked.bodies) == 1
+        if len(masked.conditions) != 1 or len(masked.bodies) != 1:
+            return masked
 
-        # Replace all unbounded ranges with bounded ranges based on array shape
-        conditions = masked.conditions
-        if self.derive_qualified_ranges:
-            conditions = IterationRangeShapeMapper()(conditions)
-
-        # Find arrays with RangeIndex dims in the condition
-        cond_vars = FindVariables(unique=False).visit(conditions)
-        cond_arrays = [
-            v for v in cond_vars
-            if isinstance(v, sym.Array)
-            and any(isinstance(d, sym.RangeIndex) for d in v.dimensions)
-        ]
-
-        # Map ranges to indices using the shared static method
-        index_range_map = {}
-        subst_map = {}
-        for array in cond_arrays:
-            new_dims, arr_index_map, _ = self._map_ranges_to_indices(
-                array.dimensions, self.loop_map,
-                map_unknown_ranges=self.map_unknown_ranges,
-                scope=self.scope
-            )
-            index_range_map.update(arr_index_map)
-            subst_map[array] = array.clone(dimensions=new_dims)
-
-        conditions = SubstituteExpressions(subst_map).visit(conditions)
+        condition, index_range_map, resolved = self._resolve_mask_expr(masked.conditions[0])
+        if not resolved:
+            return masked
 
         with dict_override(kwargs, {'create_loops': False}):
-            bodies = self.visit(masked.bodies, **kwargs)
+            body = self.visit(masked.bodies[0], **kwargs)
             else_body = self.visit(masked.default, **kwargs)
 
-        # Rebuild construct as an IF conditional inside a loop over the range bounds
-        if not index_range_map:
+        body_nodes = as_tuple(body)
+        else_nodes = as_tuple(else_body)
+
+        if (FindNodes(ir.MaskedStatement).visit(body_nodes)
+                or FindNodes(ir.MaskedStatement).visit(else_nodes)
+                or self._has_unresolved_vector_ranges(body_nodes)
+                or self._has_unresolved_vector_ranges(else_nodes)):
             return masked
 
         # Record all newly created loop index variables for declaration
         self.index_vars.update(list(index_range_map.keys()))
 
-        cond = ir.Conditional(
-            condition=conditions[0], body=bodies, else_body=else_body
-        )
-
-        # Recursively build new loop nest over all implicit dims
-        loop = None
-        body = cond
-        for ivar, irange in index_range_map.items():
-            if isinstance(irange, sym.RangeIndex):
-                bounds = sym.LoopRange(irange.children)
-            else:
-                bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
-            loop = ir.Loop(variable=ivar, body=as_tuple(body), bounds=bounds)
-            body = loop
-        return loop
+        cond = ir.Conditional(condition=condition, body=body_nodes, else_body=else_nodes)
+        return self._build_loop_nest(index_range_map, cond, insert_comments=self.insert_comments)
