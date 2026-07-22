@@ -622,8 +622,16 @@ class SimplifyMapper(LokiIdentityMapper):
         return expr
 
     def map_quotient(self, expr, *args, **kwargs):
+        from loki.expression import operations as op  # pylint: disable=import-outside-toplevel,cyclic-import
+
         numerator = self.rec(expr.numerator, *args, **kwargs)
         denominator = self.rec(expr.denominator, *args, **kwargs)
+
+        # Preserve explicit denominator product parentheses needed for correct code generation,
+        # while still normalising the surrounding arithmetic node types for symbolic simplify.
+        if isinstance(expr.denominator, op.ParenthesisedMul) and isinstance(denominator, sym.Product):
+            denominator = op.ParenthesisedMul(denominator.children)
+
         new_expr = sym.Quotient(numerator, denominator)
 
         if self.enabled_simplifications & Simplification.Flatten:
@@ -664,6 +672,7 @@ class SimplifyMapper(LokiIdentityMapper):
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_div = map_quotient
+    map_parenthesised_pow = map_power
 
     def map_comparison(self, expr, *args, **kwargs):
         def get_constant_value(expr):

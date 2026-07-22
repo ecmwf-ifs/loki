@@ -19,6 +19,7 @@ from loki import (
 )
 from loki.backend import cgen, fgen
 from loki.jit_build import jit_compile, clean_test
+from loki.expression import operations as op
 from loki.expression import symbols as sym, parse_expr, AttachScopesMapper, simplify
 from loki.frontend import (
     available_frontends, OMNI, HAVE_FP, parse_fparser_expression
@@ -489,6 +490,23 @@ end subroutine parenthesis_denominator_product_after_simplify
     expr = FindNodes(ir.Assignment).visit(routine.body)[0].rhs
 
     assert fgen(simplify(expr)) == '(1._jprb / (v1*v2))**1.5_jprb'
+
+
+def test_parenthesised_power_roundtrip():
+    scope = Scope()
+
+    expr_parenthesised = parse_expr('(a**b)**c', scope=scope)
+    expr_plain = parse_expr('a**b**c', scope=scope)
+
+    assert isinstance(expr_parenthesised, sym.Power)
+    assert isinstance(expr_parenthesised.base, op.ParenthesisedPow)
+    assert fgen(expr_parenthesised) == '(a**b)**c'
+
+    assert isinstance(expr_plain, sym.Power)
+    assert not isinstance(expr_plain.base, op.ParenthesisedPow)
+    assert isinstance(expr_plain.exponent, sym.Power)
+    assert not isinstance(expr_plain.exponent, op.ParenthesisedPow)
+    assert fgen(expr_plain) == 'a**b**c'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
