@@ -400,6 +400,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.loop_map = {} if loop_map is None else loop_map
         self.index_vars = OrderedSet()
         self.pre_body_stmts = []
+        self.active_loop_vars = set()
 
         self.map_unknown_ranges = map_unknown_ranges
         self.derive_qualified_ranges = derive_qualified_ranges
@@ -555,6 +556,13 @@ class ResolveVectorNotationTransformer(Transformer):
         if loop:
             return (loop,)
         return body
+
+    def visit_Loop(self, o, **kwargs):
+        self.active_loop_vars.add(o.variable)
+        try:
+            return self.visit_Node(o, **kwargs)
+        finally:
+            self.active_loop_vars.remove(o.variable)
 
     @staticmethod
     def _collect_range_arrays(expr):
@@ -712,8 +720,16 @@ class ResolveVectorNotationTransformer(Transformer):
         resolved_ranges = [
             cond_dims_per_array[0][lhs_range_positions[i]] for i in resolvable_dim_indices
         ]
+        cond_all_dims = cond_arrays[0].dimensions
+        reserved_ivars = {
+            d for i, d in enumerate(cond_all_dims)
+            if i not in lhs_range_positions and isinstance(d, sym.Scalar) and d in self.loop_map.values()
+        }
+        # Reusing an active outer loop variable here would create a nested loop
+        # that shadows the surrounding scalar context (e.g. an outer ``jk``).
+        reserved_ivars.update(self.active_loop_vars)
         new_dims, index_range_map, _ = self._map_ranges_to_indices(
-            resolved_ranges, self.loop_map,
+            resolved_ranges, self.loop_map, reserved_ivars=reserved_ivars,
             map_unknown_ranges=self.map_unknown_ranges,
             scope=self.scope, basename='i_mask'
         )
@@ -761,7 +777,8 @@ class ResolveVectorNotationTransformer(Transformer):
         return simplify(sym.Sum((loop_var, sym.Product((-1, lhs_range.lower)), rhs_range.lower)))
 
     @staticmethod
-    def _map_ranges_to_indices(dims, loop_map, map_unknown_ranges=True, basename='i', scope=None):
+    def _map_ranges_to_indices(dims, loop_map, map_unknown_ranges=True, basename='i',
+                              scope=None, reserved_ivars=None):
         """
         Map :any:`RangeIndex` dimensions to loop index variables.
 
@@ -783,6 +800,11 @@ class ResolveVectorNotationTransformer(Transformer):
             Base name for newly created index variables.
         scope : :any:`Subroutine` or :any:`Module`
             Scope for newly created variables.
+        reserved_ivars : set, optional
+            Set of index variables already in use as non-range scalar
+            subscripts in the same array reference.  If a loop variable
+            from ``loop_map`` collides with this set, a fresh variable
+            is synthesized to avoid aliasing.
 
         Returns
         -------
@@ -794,6 +816,8 @@ class ResolveVectorNotationTransformer(Transformer):
             that were newly created (as opposed to reused from
             ``loop_map``).
         """
+        if reserved_ivars is None:
+            reserved_ivars = set()
         index_range_map = {}
         shape_index_map = {}
         synthesized_ivars = set()
@@ -805,9 +829,13 @@ class ResolveVectorNotationTransformer(Transformer):
                     # Guard against arrays with duplicate range dimensions
                     # (e.g. arr(KLEVSN, KLEVSN)) where both positions map to
                     # the same loop variable.  If ivar is already in use for a
-                    # different position, create a fresh synthesized variable so
-                    # that each dimension gets its own distinct loop index.
-                    if ivar in index_range_map:
+                    # different position or already present as a scalar
+                    # subscript in the same array reference, or would shadow an
+                    # active outer loop variable, create a fresh synthesized
+                    # variable so that each dimension gets its own distinct
+                    # loop index and surrounding scalar references keep their
+                    # meaning.
+                    if ivar in index_range_map or ivar in reserved_ivars:
                         if not map_unknown_ranges:
                             continue
                         vtype = SymbolAttributes(BasicType.INTEGER)
@@ -1072,8 +1100,17 @@ class ResolveVectorNotationTransformer(Transformer):
         resolved_lhs_ranges = [
             lhs_dims[lhs_range_positions[i]] for i in resolvable_dim_indices
         ]
+        # Collect loop variables already present as fixed scalar subscripts so
+        # that _map_ranges_to_indices does not alias them with a resolved range.
+        reserved_ivars = {
+            d for i, d in enumerate(lhs_dims)
+            if i not in lhs_range_positions and isinstance(d, sym.Scalar) and d in self.loop_map.values()
+        }
+        # Keep existing scalar subscripts and active surrounding loop indices
+        # distinct from any new loop variable chosen for resolved ranges.
+        reserved_ivars.update(self.active_loop_vars)
         new_lhs_dims, index_range_map, synthesized_ivars = self._map_ranges_to_indices(
-            resolved_lhs_ranges, self.loop_map,
+            resolved_lhs_ranges, self.loop_map, reserved_ivars=reserved_ivars,
             map_unknown_ranges=self.map_unknown_ranges,
             scope=self.scope, basename=f'i_{stmt.lhs.basename}'
         )

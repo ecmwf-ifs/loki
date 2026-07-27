@@ -2377,3 +2377,97 @@ end subroutine test_dup_dims
         f"indicating only one loop variable was used for two distinct dimensions; "
         f"expected two distinct loop variables"
     )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_scalar_plus_range_duplicate(frontend):
+    """
+    Regression test: when a loop variable already appears as a fixed scalar
+    subscript in the same array reference, a range that maps to the same loop
+    variable must get a fresh index variable instead.
+
+    Example:  ``field(i,j,1:n)`` inside ``DO j=1,n`` must NOT produce
+    ``field(i,j,j)`` — the third subscript must be a distinct
+    synthesized loop variable.
+    """
+    fcode = """
+subroutine test_scalar_range_dup(nouter, ninner, field)
+  implicit none
+  integer, intent(in) :: nouter, ninner
+  real, intent(inout) :: field(nouter, ninner, ninner)
+  integer :: i, j
+
+  do i = 1, nouter
+    do j = 1, ninner
+      field(i, j, 1:ninner) = 0.0
+    enddo
+  enddo
+
+end subroutine test_scalar_range_dup
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+
+    # Find the resolved field assignment (no more RangeIndex dimensions)
+    resolved_assigns = [
+        a for a in assigns
+        if isinstance(a.lhs, sym.Array)
+        and 'field' in a.lhs.name.lower()
+        and not any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)
+        and len(a.lhs.dimensions) == 3
+    ]
+    assert len(resolved_assigns) == 1
+
+    assign = resolved_assigns[0]
+    dims = assign.lhs.dimensions
+    # dims[1] should be the original J; dims[2] must be different
+    assert dims[1] == 'j'
+    assert str(dims[2]).lower() != 'j', (
+        f"Third subscript of field is '{dims[2]}' which aliases the existing "
+        f"scalar subscript J; expected a distinct synthesized loop variable"
+    )
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_nested_loop_variable_shadowing(frontend):
+    """
+    Regression test: resolving a range inside an existing loop must not reuse
+    the active outer loop variable for the new inner loop, or scalar references
+    to that outer variable on the RHS become shadowed.
+    """
+    fcode = """
+subroutine test_nested_loop_shadowing(nouter, ninner, work, edge_hi, edge_lo)
+  implicit none
+  integer, intent(in) :: nouter, ninner
+  real, intent(inout) :: work(nouter, ninner)
+  real, intent(in) :: edge_hi(nouter, 0:ninner), edge_lo(nouter, 0:ninner)
+  integer :: i, j
+
+  do i = 1, nouter
+    do j = 1, ninner
+      work(i, 1:ninner) = max(edge_hi(i, j-1), edge_lo(i, 0:ninner-1))
+    enddo
+  enddo
+
+end subroutine test_nested_loop_shadowing
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 3
+
+    outer_j_loop = next(loop for loop in loops if loop.variable == 'j' and loop.bounds == '1:ninner')
+    inner_loops = FindNodes(ir.Loop).visit(outer_j_loop.body)
+    assert len(inner_loops) == 1
+    assert str(inner_loops[0].variable).lower() != 'j'
+
+    assign = FindNodes(ir.Assignment).visit(inner_loops[0].body)[0]
+    lhs_dims = assign.lhs.dimensions
+    assert lhs_dims[1] == inner_loops[0].variable
+
+    rhs_text = str(assign.rhs).replace(' ', '').lower()
+    assert 'edge_hi(i,j-1)' in rhs_text
+    assert f'edge_lo(i,-1+{str(inner_loops[0].variable).lower()})' in rhs_text
