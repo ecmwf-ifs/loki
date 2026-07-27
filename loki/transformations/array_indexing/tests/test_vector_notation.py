@@ -501,8 +501,7 @@ end subroutine test_extended
     for l in loops:
         if l.variable.name.startswith('i_'):
             generated_loop_bodies.extend(FindNodes(ir.Assignment).visit(l.body))
-    literal_assigns = [a for a in assigns
-                       if hasattr(a.rhs, 'elements') or 'LiteralList' in type(a.rhs).__name__]
+    literal_assigns = [a for a in assigns if isinstance(a.rhs, sym.LiteralList)]
     assert not literal_assigns, "Literal list RHS should have been unrolled"
     b2_assigns = [a for a in assigns
                   if str(a.lhs).startswith('local_var1(') and str(a.lhs).endswith('1, ibl)')
