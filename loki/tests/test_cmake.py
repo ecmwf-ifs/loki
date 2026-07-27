@@ -190,6 +190,11 @@ def fixture_loki_install(here, tmp_dir, ecbuild, loki_artifacts_and_env, silent,
 
     yield builddir, installdir
 
+    if builddir.exists():
+        shutil.rmtree(builddir)
+    if installdir.exists():
+        shutil.rmtree(installdir)
+
 
 @contextmanager
 def clean_builddir(builddir):
@@ -242,11 +247,6 @@ loki_transform_plan(
 
     yield projdir
 
-    filepath.unlink()
-    (projdir/'loki').unlink()
-    shutil.rmtree(projdir/'projA', ignore_errors=True)
-    shutil.rmtree(projdir/'projB', ignore_errors=True)
-
 
 def test_cmake_plan(tmp_dir, config, cmake_project, loki_install, ecbuild, silent):
     """
@@ -297,4 +297,11 @@ def test_cmake_plan(tmp_dir, config, cmake_project, loki_install, ecbuild, silen
                 f'{name}.idem' for name in expected_files
             }
 
-        shutil.rmtree(loki_root)
+
+def test_cmake_reconfigure(loki_install):
+    """
+    Verify that CMake reconfiguration works (e.g., doesn't throw up errors when recreating the ifsbench venv).
+    """
+    build_dir, _ = loki_install
+    # This will throw an exception if execution fails
+    execute(['cmake', str(build_dir)])
