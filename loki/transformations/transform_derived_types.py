@@ -619,6 +619,42 @@ def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_na
     return None
 
 
+def get_pass_attr_from_typebound_procedure_symbol(proc_symbol):
+    """
+    Determine the ``PASS``/``NOPASS`` attribute of a typebound procedure binding.
+
+    A binding declared with ``NOPASS`` does not implicitly pass the derived type
+    instance as the first argument, so calls to it must not have the parent
+    prepended when the type-bound call is resolved to a direct call.
+
+    Parameters
+    ----------
+    proc_symbol : :any:`ProcedureSymbol`
+        The typebound procedure symbol that is to be inspected
+
+    Returns
+    -------
+    bool or str or None
+        ``False`` if the binding is declared ``NOPASS``; ``True`` or the
+        pass-argument name if it uses ``PASS``; ``None`` if it cannot be
+        determined.
+    """
+    # The binding attribute may be directly available on the symbol's type
+    pass_attr = proc_symbol.type.pass_attr
+    if pass_attr is not None:
+        return pass_attr
+
+    # Otherwise, resolve the binding through the type definition, mirroring the
+    # nesting resolution in :any:`get_procedure_symbol_from_typebound_procedure_symbol`
+    try:
+        local_var = proc_symbol.parents[0]
+        for local_name in proc_symbol.name_parts[1:]:
+            local_var = local_var.type.dtype.typedef.variable_map[local_name]
+        return local_var.type.pass_attr
+    except (AttributeError, IndexError):
+        return None
+
+
 class TypeboundProcedureCallTransformer(Transformer):
     """
     Transformer to carry out the replacement of subroutine and inline function
@@ -667,8 +703,11 @@ class TypeboundProcedureCallTransformer(Transformer):
             new_proc_symbol = get_procedure_symbol_from_typebound_procedure_symbol(rebuilt['name'], self.routine_name)
 
             if new_proc_symbol:
-                # Add the derived type as first argument to the call
-                rebuilt['arguments'] = (rebuilt['name'].parent, ) + rebuilt['arguments']
+                # Add the derived type as first argument to the call, unless the
+                # binding is declared NOPASS, in which case the instance is not
+                # passed implicitly
+                if get_pass_attr_from_typebound_procedure_symbol(rebuilt['name']) is not False:
+                    rebuilt['arguments'] = (rebuilt['name'].parent, ) + rebuilt['arguments']
 
                 # Add the subroutine to the list of symbols that need to be imported
                 if isinstance(new_proc_symbol.scope, Module):
@@ -698,7 +737,13 @@ class TypeboundProcedureCallTransformer(Transformer):
             new_proc_symbol = get_procedure_symbol_from_typebound_procedure_symbol(call.function, self.routine_name)
 
             if new_proc_symbol:
-                new_arguments = (call.function.parent,) + call.parameters
+                # Add the derived type as first argument to the call, unless the
+                # binding is declared NOPASS, in which case the instance is not
+                # passed implicitly
+                if get_pass_attr_from_typebound_procedure_symbol(call.function) is not False:
+                    new_arguments = (call.function.parent,) + call.parameters
+                else:
+                    new_arguments = call.parameters
                 expr_map[call] = call.clone(
                     function=new_proc_symbol.rescope(scope=kwargs['scope']),
                     parameters=new_arguments
