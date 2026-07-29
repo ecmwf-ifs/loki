@@ -639,6 +639,7 @@ class Scheduler:
                     if kwargs['plan_mode'] and _item.is_generated:
                         continue
                     print(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
+                    continue
                     # raise RuntimeError(f'Cannot apply {trafo_name} to {_item.name}: Item is marked as external.')
 
                 transformation.apply(
