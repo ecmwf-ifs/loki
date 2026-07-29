@@ -9,6 +9,7 @@ from copy import deepcopy
 
 import itertools
 
+from loki import BasicType, ProcedureSymbol
 from loki.expression import (
     symbols as sym, get_pyrange, is_constant, SimplifyMapper
 )
@@ -218,7 +219,7 @@ class ConstantPropagationTransformer(Transformer):
 
         declarations_map = {}
         for symbol in getattr(routine, 'symbols', ()):
-            if isinstance(symbol, sym.DeferredTypeSymbol) or symbol.initial is None:
+            if isinstance(symbol, sym.DeferredTypeSymbol) or isinstance(symbol, ProcedureSymbol) or symbol.initial is None:
                 continue
 
             if isinstance(symbol, sym.Array):
