@@ -22,10 +22,8 @@ from loki.ir import (
     SubstituteExpressions
 )
 from loki.logging import warning, debug
-from loki.tools import as_tuple, OrderedSet
+from loki.tools import as_tuple, OrderedSet, CaseInsensitiveDict
 from loki.types import SymbolAttributes, BasicType, DerivedType
-
-from loki.transformations.utilities import recursive_expression_map_update
 
 
 __all__ = ['TemporariesPoolAllocatorTransformation', 'EcstackPoolAllocatorTransformation']
@@ -192,7 +190,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             self, block_dim, horizontal=None, stack_ptr_name='L', stack_end_name='U', stack_size_name='ISTSZ',
             stack_storage_name='ZSTACK', stack_argument_name='YDSTACK', stack_local_var_name='YLSTACK',
             local_ptr_var_name_pattern='IP_{name}', stack_int_type_kind=IntLiteral(8), directive=None,
-            check_bounds=True, cray_ptr_loc_rhs=False, stack_size_var_kind=None
+            check_bounds=True, cray_ptr_loc_rhs=False, stack_size_var_kind=None, optional_stack_arg=False
     ):
         self.block_dim = block_dim
         self.horizontal = horizontal
@@ -208,6 +206,12 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         self.check_bounds = check_bounds
         self.cray_ptr_loc_rhs = cray_ptr_loc_rhs
         self.stack_size_var_kind = stack_size_var_kind or self.stack_int_type_kind
+        # When True, the pool-allocator stack dummy arguments (YDSTACK_L/_U and the
+        # ZSTACK storage array) injected into kernels are declared OPTIONAL. This
+        # allows untransformed (e.g. config-disabled) callers of shared kernels to
+        # keep compiling against the modified interface without passing a stack,
+        # while transformed callers on the hot path always supply it.
+        self.optional_stack_arg = optional_stack_arg
 
         if self.stack_ptr_name == self.stack_end_name:
             raise ValueError(f'"stack_ptr_name": "{self.stack_ptr_name}" and '
@@ -233,7 +237,18 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         successors = as_tuple(sub_sgraph.successors(item)) if sub_sgraph is not None else ()
 
         if role == 'kernel':
-            stack_size = self.apply_pool_allocator_to_temporaries(routine, item=item)
+            # A routine only needs to receive (and forward) the pool-allocator stack
+            # argument if it either has local temporaries to place on the stack, or it
+            # calls a successor that itself requires the stack. Leaf routines with no
+            # stack demand (e.g. ELEMENTAL/PURE helpers with scalar-only locals) must
+            # not get the stack argument injected, as that would produce illegal array
+            # dummy arguments on ELEMENTAL procedures or non-INTENT(IN) dummies on PURE
+            # procedures. The call-site injection already guards on the callee having
+            # the stack argument, so skipping the injection here is self-consistent.
+            force_stack_arg = self._successors_need_stack(successors)
+            stack_size = self.apply_pool_allocator_to_temporaries(
+                routine, item=item, force_stack_arg=force_stack_arg
+            )
             if item:
                 stack_size = self._determine_stack_size(routine, successors, stack_size, item=item)
                 item.trafo_data[self._key]['stack_size'] = stack_size
@@ -246,10 +261,34 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 self.import_allocation_types(routine, item)
             self.create_pool_allocator(routine, stack_size)
 
-        self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
+        # Only inject the stack into calls if this routine actually participates in the
+        # pool allocator, i.e. it is the driver or a kernel that received the stack
+        # argument. Leaf routines that were deliberately left without a stack argument
+        # (no local temporaries and no stack-requiring successors) have nothing to
+        # forward, and calling the injection would erroneously create stack variables.
+        stack_arg_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+        if role == 'driver' or stack_arg_name in routine.arguments:
+            self.inject_pool_allocator_into_calls(routine, targets, ignore, driver=role=='driver')
 
     def add_driver_imports(self, routine):
         pass
+
+    def _successors_need_stack(self, successors):
+        """
+        Determine whether any successor routine requires the pool-allocator stack.
+
+        As the call tree is traversed in reverse, successors have already been
+        transformed by the time this routine is processed. A successor requires the
+        stack if and only if the stack argument was injected into its dummy argument
+        list. This is used to decide whether the current routine must receive and
+        forward the stack argument even if it has no local temporaries of its own.
+        """
+        stack_arg_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
+        for successor in successors:
+            callee = getattr(successor, 'ir', None)
+            if callee is not None and stack_arg_name in callee.arguments:
+                return True
+        return False
 
     @staticmethod
     def import_c_sizeof(routine):
@@ -338,7 +377,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if f'{self.stack_argument_name}_{self.stack_ptr_name}' in routine.arguments:
             return routine.variable_map[f'{self.stack_argument_name}_{self.stack_ptr_name}']
 
-        stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
+        stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind,
+                                      optional=self.optional_stack_arg)
         var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
         stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
         routine.arguments += (stack_arg,)
@@ -355,7 +395,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if f'{self.stack_argument_name}_{self.stack_end_name}' in routine.arguments:
             return routine.variable_map[f'{self.stack_argument_name}_{self.stack_end_name}']
 
-        stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
+        stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind,
+                                      optional=self.optional_stack_arg)
         var_name = f'{self.stack_argument_name}_{self.stack_end_name}'
         stack_arg_end = Variable(name=var_name, type=stack_type, scope=routine)
         routine.arguments += (stack_arg_end,)
@@ -538,14 +579,35 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         for call in FindNodes(CallStatement).visit(routine.body):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
-                # Replace any occurence of routine arguments in the stack size expression
-                arg_map = dict(call.arg_iter())
+                # Build the map that translates the callee's dummy argument names to
+                # the caller's actual argument expressions. Normally this uses the
+                # call's enriched target routine via ``call.arg_iter()``. However, some
+                # calls are not enriched with a routine link (e.g. NOPASS type-bound
+                # calls that were rewritten to plain procedure calls); in that case we
+                # reconstruct the mapping from the callee's declared arguments as known
+                # to the scheduler, mirroring the positional/keyword matching logic of
+                # ``CallStatement.arg_iter``.
+                if call.routine is not BasicType.DEFERRED:
+                    arg_map = dict(call.arg_iter())
+                else:
+                    callee = successor_map[call.name].ir
+                    r_args = CaseInsensitiveDict((a.name, a) for a in callee.arguments)
+                    arg_map = dict(zip(callee.arguments, call.arguments))
+                    arg_map.update({r_args[kw]: val for kw, val in as_tuple(call.kwarguments)})
                 expr_map = {
                     expr: DetachScopesMapper()(arg_map[expr]) for expr in FindVariables().visit(successor_stack_size)
                     if expr in arg_map
                 }
                 if expr_map:
-                    expr_map = recursive_expression_map_update(expr_map)
+                    # Note: This is a *simultaneous* substitution of the callee's dummy
+                    # argument names by the caller's actual argument expressions. We must
+                    # NOT resolve the map against itself (e.g. via
+                    # ``recursive_expression_map_update``): the callee dummy names (keys)
+                    # and the caller actual-argument variables (appearing inside the
+                    # values) live in different scopes but compare equal by name. Iterating
+                    # the map to a fixpoint would therefore re-substitute those collisions,
+                    # which is both semantically wrong and can diverge exponentially (a
+                    # replacement value that contains its own key doubles in size each pass).
                     successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
                 stack_sizes += [successor_stack_size]
 
@@ -560,15 +622,71 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         if not stack_sizes:
             # Return only the local stack size if there are no callees
-            return local_stack_size or Literal(0)
+            return self._resolve_local_symbols(routine, local_stack_size or Literal(0))
 
         if len(stack_sizes) == 1:
             # For a single successor, it is sufficient to add the local stack size to the expression
-            return stack_sizes[0]
+            return self._resolve_local_symbols(routine, stack_sizes[0])
 
         # Re-build the max expressions, taking into account the local stack size and calls to successors
         stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
-        return stack_size
+        return self._resolve_local_symbols(routine, stack_size)
+
+    def _resolve_local_symbols(self, routine, expr):
+        """
+        Resolve routine-local symbols appearing in a stack-size expression.
+
+        The per-routine stack size is expressed in terms of the dimensions of the
+        routine's local temporaries. Some of these dimensions are themselves
+        routine-local (e.g. a ``parameter`` such as ``nregions = 3`` or a scalar
+        assigned once from a derived-type member such as ``ng = config%n_g_lw``).
+        When the size expression is propagated up the call tree, these local
+        symbols are not visible in ancestor scopes and would appear undeclared in
+        the driver. This routine rewrites such symbols in terms of quantities that
+        *are* visible to callers, namely:
+
+        * constant ``parameter`` values are replaced by their literal initialiser;
+        * scalars with a single, unambiguous defining assignment are replaced by
+          the assigned right-hand side (typically a dummy-argument-derived
+          expression, e.g. ``config%n_g_lw``).
+
+        The substitution is iterated to a fixpoint (bounded) so that chained
+        definitions resolve fully.
+        """
+        if expr is None:
+            return expr
+
+        arg_names = {a.name.lower() for a in routine.arguments}
+
+        # Collect single, unambiguous defining assignments of local scalars.
+        assign_map = {}
+        for assign in FindNodes(Assignment).visit(routine.body):
+            lhs = assign.lhs
+            if isinstance(lhs, Array) or getattr(lhs, 'parent', None) is not None:
+                continue
+            name = lhs.name.lower()
+            # Mark ambiguous (multiple assignments) by mapping to ``None``.
+            assign_map[name] = None if name in assign_map else assign.rhs
+
+        for _ in range(16):
+            sub = {}
+            for v in FindVariables().visit(expr):
+                name = v.name.lower()
+                if name in arg_names or getattr(v, 'parent', None) is not None:
+                    continue
+                var = routine.variable_map.get(name)
+                if var is None:
+                    continue
+                if var.type.parameter and var.type.initial is not None:
+                    sub[v] = DetachScopesMapper()(var.type.initial)
+                elif assign_map.get(name) is not None:
+                    sub[v] = DetachScopesMapper()(assign_map[name])
+            if not sub:
+                break
+            expr = SubstituteExpressions(sub).visit(expr)
+
+        return simplify(expr)
+
 
     def _get_c_sizeof_arg(self, arr):
         """
@@ -665,7 +783,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return ([ptr_assignment, ptr_increment, stack_size_check], stack_size)
         return ([ptr_assignment, ptr_increment], stack_size)
 
-    def apply_pool_allocator_to_temporaries(self, routine, item=None):
+    def apply_pool_allocator_to_temporaries(self, routine, item=None, force_stack_arg=False):
         """
         Apply pool allocator to local temporary arrays
 
@@ -675,7 +793,22 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         are mapped via Cray pointers to the pool-allocated memory region.
 
         The cumulative size of all temporary arrays is determined and returned.
+
+        If :data:`force_stack_arg` is `False` and the routine has no local temporaries
+        to place on the stack, no stack argument is injected and a zero stack size is
+        returned. This avoids adding illegal stack arguments to leaf routines (e.g.
+        ELEMENTAL or PURE helpers) that neither allocate temporaries nor forward the
+        stack to a successor.
         """
+
+        # PURE and ELEMENTAL procedures cannot participate in the pool allocator: their
+        # dummy arguments must be INTENT(IN)/VALUE (so the INTENT(INOUT) stack arguments
+        # are illegal) and ELEMENTAL procedures may only have scalar dummy arguments.
+        # As PURE/ELEMENTAL procedures may only reference other PURE/ELEMENTAL
+        # procedures, the entire sub-tree is stack-free and their (typically small)
+        # temporaries are simply left as regular automatic arrays.
+        if any(p.upper() in ('PURE', 'ELEMENTAL') for p in as_tuple(routine.prefix)):
+            return Literal(0)
 
         # Find all temporary arrays
         arguments = routine.arguments
@@ -716,6 +849,24 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if not var.type.pointer or var.type.allocatable
         ]
 
+        # Filter out the function result variable. A function result cannot be
+        # associated via a Cray pointer (it is illegal to redefine the result symbol),
+        # and array-valued results must remain regular automatic arrays. Excluding it
+        # here also avoids adding stack arguments to PURE functions, whose dummy
+        # arguments would have to be INTENT(IN)/VALUE.
+        if routine.is_function and routine.result_name:
+            result_name = routine.result_name.lower()
+            temporary_arrays = [
+                var for var in temporary_arrays if var.name.lower() != result_name
+            ]
+
+        # If there are no temporaries to place on the stack and no successor requires
+        # the stack to be forwarded, this routine does not need a stack argument at all.
+        # Bail out early so that leaf routines (e.g. ELEMENTAL/PURE helpers) are left
+        # with their original signature intact.
+        if not temporary_arrays and not force_stack_arg:
+            return Literal(0)
+
         # Create stack argument and local stack var
         stack_var = self._get_local_stack_var(routine)
         stack_var_end = self._get_local_stack_var_end(routine) if self.check_bounds else None
@@ -728,15 +879,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     dtype=BasicType.REAL,
                     kind=Variable(name='REAL64', scope=routine),
                     shape=(RangeIndex((None, None)),), intent='inout', contiguous=True,
+                    optional=self.optional_stack_arg,
             )
             stack_storage = Variable(
                     name=self.stack_storage_name, type=stack_type,
                     dimensions=stack_type.shape, scope=routine,
             )
             arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
-            if arg_pos:
+            if arg_pos and not self.optional_stack_arg:
                 routine.arguments = routine.arguments[:arg_pos[0]] + (stack_storage,) + routine.arguments[arg_pos[0]:]
             else:
+                # When the stack storage is itself OPTIONAL it is passed by keyword and
+                # must be appended after any pre-existing (optional) arguments. Inserting
+                # it before them would shift a pre-existing optional argument that a caller
+                # passes positionally onto the stack dummy, causing an argument collision.
                 routine.arguments += (stack_storage,)
 
         allocations = [Assignment(lhs=stack_var, rhs=stack_arg)]
@@ -934,6 +1090,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         call_map = {}
         for call in FindInlineCalls().visit(routine.body):
             if call.name.lower() in [t.lower() for t in targets]:
+                # Only forward the stack to functions that actually received the stack
+                # argument. Functions left with their original signature (e.g. PURE
+                # functions returning an array) must not be passed the stack.
+                callee = call.routine
+                if callee is BasicType.DEFERRED or callee is None:
+                    continue
+                if stack_arg_name not in callee.arguments:
+                    continue
                 call_map[call] = call.clone(
                     kw_parameters=as_tuple(call.kw_parameters) + new_kwarguments
                 )

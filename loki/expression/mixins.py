@@ -40,7 +40,18 @@ class StrCompareMixin:
         return str(s).lower().replace(' ', '')
 
     def __hash__(self):
-        return hash(self._canonical(self))
+        # Cache the hash value, mirroring Pymbolic's ``Expression.__hash__``.
+        # Without caching, every hash (and every ``__eq__`` fall-through to
+        # Pymbolic's hash-based comparison) re-stringifies the entire
+        # expression tree via ``_canonical``, which is catastrophically slow
+        # for large nested expressions (e.g. pool-allocator stack sizes).
+        # Expression nodes are treated as immutable, so the canonical string
+        # (and thus the hash) is stable for the lifetime of the object.
+        try:
+            return self._hash_value
+        except AttributeError:
+            self._hash_value = hash(self._canonical(self))
+            return self._hash_value
 
     def __eq__(self, other):
         if isinstance(other, (str, type(self))):
