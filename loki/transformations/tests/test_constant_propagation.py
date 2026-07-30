@@ -343,3 +343,114 @@ end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 5' in assignments
     assert 'Assignment:: c = 3' in assignments
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_procedures(frontend):
+    fcode = """
+subroutine const_prop_procedures
+  integer :: a1, a2, b1, b2, c1, c2, d1, e1, e2, e3, f1, g1
+  integer :: a1_out, a2_out, b1_out, b2_out, c1_out, c2_out, d1_out, e1_out, e2_out, e3_out, f1_out, g1_out
+  integer :: f2(3), g2(3)
+  integer :: f2_1_out, f2_2_out, f2_3_out, g2_1_out, g2_2_out, g2_3_out
+
+  a1 = 1
+  a2 = 2
+  call contained_subroutine(a1,a_out=a2)
+  a1_out = a1
+  a2_out = a2
+
+  b1 = 1
+  b2 = 2
+  call deferred_subroutine(b1,b_out=b2)
+  b1_out = b1
+  b2_out = b2
+
+  c1 = 1
+  c2 = 2
+  call deferred_no_named_arg_subroutine(c1,c2)
+  c1_out = c1
+  c2_out = c2
+
+  d1 = 1
+  call deferred_lit_arg_subroutine(d1,2)
+  d1_out = d1
+
+  e1 = 1
+  e2 = 2
+  e3 = 3
+  e3=contained_function(e1,named=e2)
+  e1_out = e1
+  e2_out = e2
+  e3_out = e3
+
+  f1 = 1
+  f2(1) = 1
+  f2(2) = 2
+  f2(3) = 3
+  call deferred_array_arg_subroutine(f1,f2)
+  f1_out = f1
+  f2_1_out = f2(1)
+  f2_2_out = f2(2)
+  f2_3_out = f2(3)
+
+  g1 = 1
+  g2(1) = 1
+  g2(2) = 2
+  g2(3) = 3
+  call deferred_array_access_arg_subroutine(g1,g2(1))
+  g1_out = g1
+  g2_1_out = g2(1)
+  g2_2_out = g2(2)
+  g2_3_out = g2(3)
+
+  contains
+  subroutine contained_subroutine(a,a_out)
+    implicit none
+    integer, intent(in) :: a
+    integer, intent(out) :: a_out
+
+    a_out = a
+  end subroutine contained_subroutine
+  function contained_function(A,named) result(d_out)
+    implicit none
+    integer, intent(in) :: A
+    integer, intent(inout) :: named
+    integer, intent(out) :: d_out
+
+    d_out = A
+  end function contained_function
+
+end subroutine const_prop_procedures
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+
+    transformed = do_constant_propagation(routine)
+    assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
+
+    assert 'Assignment:: a1_out = 1' in assignments
+    assert 'Assignment:: a2_out = a2' in assignments
+
+    assert 'Assignment:: b1_out = b1' in assignments
+    assert 'Assignment:: b2_out = b2' in assignments
+
+    assert 'Assignment:: c1_out = c1' in assignments
+    assert 'Assignment:: c2_out = c2' in assignments
+
+    assert 'Assignment:: d1_out = d1' in assignments
+
+    assert 'Assignment:: e1_out = 1' in assignments
+    assert 'Assignment:: e2_out = e2' in assignments
+    assert 'Assignment:: e3_out = e3' in assignments
+
+    assert 'Assignment:: f1_out = f1' in assignments
+    assert 'Assignment:: f2_1_out = f2(1)' in assignments
+    assert 'Assignment:: f2_2_out = f2(2)' in assignments
+    assert 'Assignment:: f2_3_out = f2(3)' in assignments
+
+    assert 'Assignment:: g1_out = g1' in assignments
+    assert 'Assignment:: g2_1_out = g2(1)' in assignments
+    assert 'Assignment:: g2_2_out = 2' in assignments
+    assert 'Assignment:: g2_3_out = 3' in assignments
