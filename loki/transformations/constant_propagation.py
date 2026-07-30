@@ -84,6 +84,24 @@ def _array_indices_to_accesses(dimensions, shape):
     return itertools.product(*arg_lists)
 
 
+def _pop_procedure_accesses(procedure, **kwargs):
+    constants_map = kwargs.get('constants_map', {})
+
+    if procedure.procedure_type == BasicType.DEFERRED:
+        # If we can't get the intent, be conservative
+        args = list(procedure.arguments)
+        args.extend([arg for (kw, arg) in procedure.kwarguments])
+        for arg in args:
+            if isinstance(arg, (sym.Scalar, sym.Array)):
+                invalidate_constants_map(arg, constants_map)
+    else:
+        for (arg, intent) in [(call_arg, dummy_arg.type.intent) for (dummy_arg, call_arg) in procedure.arg_iter()]:
+            # Else invalidate only arguments that are not explicitly marked as intent `in` (i.e. read-only)
+            if intent != 'in':
+                invalidate_constants_map(arg, constants_map)
+
+
+
 class ConstantPropagationMapper(SimplifyMapper):
     """ Mapper for expression-level constant replacement and folding. """
 
