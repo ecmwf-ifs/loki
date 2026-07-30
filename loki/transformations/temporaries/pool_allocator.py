@@ -256,6 +256,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         elif role == 'driver':
             self.add_driver_imports(routine)
             stack_size = self._determine_stack_size(routine, successors, item=item)
+            # The stack is sized once, before the blocking loop. Bound the
+            # horizontal extent of promoted temporaries by the maximum (declared)
+            # horizontal size (NRPROMA) so the size is a valid upper bound over all
+            # blocks and independent of loop-carried variables.
+            stack_size = self._bound_horizontal_extent_to_size(routine, stack_size)
             if item:
                 # import variable type specifiers used in stack allocations
                 self.import_allocation_types(routine, item)
@@ -622,17 +627,19 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         if not stack_sizes:
             # Return only the local stack size if there are no callees
-            return self._resolve_local_symbols(routine, local_stack_size or Literal(0))
+            return self._resolve_local_symbols(routine, local_stack_size or Literal(0),
+                                               protect=self._horizontal_bound_names())
 
         if len(stack_sizes) == 1:
             # For a single successor, it is sufficient to add the local stack size to the expression
-            return self._resolve_local_symbols(routine, stack_sizes[0])
+            return self._resolve_local_symbols(routine, stack_sizes[0],
+                                               protect=self._horizontal_bound_names())
 
         # Re-build the max expressions, taking into account the local stack size and calls to successors
         stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
-        return self._resolve_local_symbols(routine, stack_size)
+        return self._resolve_local_symbols(routine, stack_size, protect=self._horizontal_bound_names())
 
-    def _resolve_local_symbols(self, routine, expr):
+    def _resolve_local_symbols(self, routine, expr, protect=()):
         """
         Resolve routine-local symbols appearing in a stack-size expression.
 
@@ -657,6 +664,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return expr
 
         arg_names = {a.name.lower() for a in routine.arguments}
+        protect = {str(p).lower() for p in as_tuple(protect)}
 
         # Collect single, unambiguous defining assignments of local scalars.
         assign_map = {}
@@ -672,7 +680,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             sub = {}
             for v in FindVariables().visit(expr):
                 name = v.name.lower()
-                if name in arg_names or getattr(v, 'parent', None) is not None:
+                if name in arg_names or name in protect or getattr(v, 'parent', None) is not None:
                     continue
                 var = routine.variable_map.get(name)
                 if var is None:
@@ -686,6 +694,84 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             expr = SubstituteExpressions(sub).visit(expr)
 
         return simplify(expr)
+
+
+    def _horizontal_bound_names(self):
+        """
+        Names (and aliases) of the horizontal iteration-space bound variables.
+
+        These are the lower/upper bound symbols of the horizontal :any:`Dimension`
+        (e.g. ``kidia``/``istartcol`` and ``kfdia``/``iendcol``). When a stack-size
+        expression is propagated up the call tree, the horizontal extent of a
+        promoted temporary appears as ``<upper> - <lower> + 1``. These bound
+        symbols must *not* be resolved to their per-iteration defining assignment
+        in the driver (which would introduce loop-carried, possibly still
+        undefined, variables such as the blocking index into a stack size that is
+        computed once, before the loop). Instead they are bounded by the maximum
+        (declared) horizontal size, see :meth:`_bound_horizontal_extent_to_size`.
+        """
+        if self.horizontal is None:
+            return set()
+        names = set()
+        for attr in (self.horizontal._lower, self.horizontal._upper):  # pylint: disable=protected-access
+            for n in as_tuple(attr):
+                if n is not None:
+                    names.add(str(n).lower())
+        return names
+
+    def _driver_horizontal_size(self, routine):
+        """
+        Determine the maximum horizontal size as seen by the driver.
+
+        This is the actual argument the driver passes for the horizontal size
+        dummy (e.g. ``klon``/``ncol``) of a successor kernel, i.e. the per-block
+        column count (``NRPROMA`` in the ecrad blocked driver). It provides a
+        safe, loop-invariant upper bound for the horizontal extent of promoted
+        temporaries.
+        """
+        if self.horizontal is None:
+            return None
+        size_names = {str(n).lower() for n in as_tuple(self.horizontal.sizes)}
+        for call in FindNodes(CallStatement).visit(routine.body):
+            if call.routine is BasicType.DEFERRED:
+                continue
+            for dummy, actual in call.arg_iter():
+                if getattr(dummy, 'name', '').lower() in size_names:
+                    return DetachScopesMapper()(actual)
+        return None
+
+    def _bound_horizontal_extent_to_size(self, routine, expr):
+        """
+        Replace per-iteration horizontal bounds in a driver stack-size expression
+        with the maximum (declared) horizontal size.
+
+        The stack is allocated once, before the blocking loop, with a fixed
+        per-block size. Promoted temporaries contribute a horizontal extent of
+        ``<upper> - <lower> + 1`` to that size. Substituting ``<upper>`` by the
+        maximum horizontal size (``NRPROMA``) and ``<lower>`` by ``1`` yields an
+        upper bound valid for every block and, crucially, removes any dependency
+        on loop-carried variables (such as the blocking index) that are not yet
+        defined where the stack size is computed.
+        """
+        if self.horizontal is None or expr is None:
+            return expr
+        hsize = self._driver_horizontal_size(routine)
+        if hsize is None:
+            return expr
+        lower_names = {str(n).lower() for n in as_tuple(self.horizontal._lower)}  # pylint: disable=protected-access
+        upper_names = {str(n).lower() for n in as_tuple(self.horizontal._upper)}  # pylint: disable=protected-access
+        sub = {}
+        for v in FindVariables().visit(expr):
+            if getattr(v, 'parent', None) is not None:
+                continue
+            name = v.name.lower()
+            if name in upper_names:
+                sub[v] = hsize
+            elif name in lower_names:
+                sub[v] = Literal(1)
+        if sub:
+            expr = simplify(SubstituteExpressions(sub).visit(expr))
+        return expr
 
 
     def _get_c_sizeof_arg(self, arr):

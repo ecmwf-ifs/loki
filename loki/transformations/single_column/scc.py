@@ -296,6 +296,7 @@ SCCVStackPipeline = partial(
         SCCBaseTransformation,
         SCCDevectorTransformation,
         SCCDemoteTransformation,
+        PromoteLocalArrayTransformation,
         SCCVecRevectorTransformation,
         RemoveUnusedVarTransformation,
         SCCAnnotateTransformation,
