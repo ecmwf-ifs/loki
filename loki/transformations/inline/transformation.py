@@ -74,13 +74,15 @@ class InlineTransformation(Transformation):
             inline_stmt_funcs=False, inline_internals=False,
             inline_marked=True, remove_dead_code=True,
             allowed_aliases=None, adjust_imports=True,
-            external_only=True, resolve_sequence_association=False
+            external_only=True, resolve_sequence_association=False,
+            inline_marked_exclude=None
     ):
         self.inline_constants = inline_constants
         self.inline_elementals = inline_elementals
         self.inline_stmt_funcs = inline_stmt_funcs
         self.inline_internals = inline_internals
         self.inline_marked = inline_marked
+        self.inline_marked_exclude = inline_marked_exclude
         self.remove_dead_code = remove_dead_code
         self.allowed_aliases = allowed_aliases
         self.adjust_imports = adjust_imports
@@ -121,7 +123,8 @@ class InlineTransformation(Transformation):
         if self.inline_marked:
             inline_marked_subroutines(
                 routine, allowed_aliases=self.allowed_aliases,
-                adjust_imports=self.adjust_imports
+                adjust_imports=self.adjust_imports,
+                exclude=self.inline_marked_exclude
             )
 
         # After inlining, attempt to trim unreachable code paths

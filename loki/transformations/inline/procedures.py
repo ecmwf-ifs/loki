@@ -323,7 +323,7 @@ def inline_internal_procedures(routine, allowed_aliases=None):
 inline_member_procedures = inline_internal_procedures
 
 
-def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True):
+def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True, exclude=None):
     """
     Inline :any:`Subroutine` objects guided by pragma annotations.
 
@@ -347,6 +347,12 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
         imports needed by the imported routine (optional, default: True)
     """
 
+    # Callees whose ``!$loki inline`` markers must be ignored in this pipeline.
+    # Used to inline the marked calls in a routine while leaving one specific
+    # callee as an ordinary call (e.g. a seq two-stream kernel that must stay a
+    # call under a pipeline without a matching per-column privatisation).
+    exclude_names = {str(e).lower() for e in as_tuple(exclude)}
+
     with pragmas_attached(routine, node_type=CallStatement):
 
         # Group the marked calls by callee routine
@@ -356,7 +362,8 @@ def inline_marked_subroutines(routine, allowed_aliases=None, adjust_imports=True
             if not call.routine:
                 continue
 
-            if is_loki_pragma(call.pragma, starts_with='inline'):
+            if is_loki_pragma(call.pragma, starts_with='inline') \
+                    and str(call.routine.name).lower() not in exclude_names:
                 call_sets[call.routine].append(call)
             else:
                 no_call_sets[call.routine].append(call)
