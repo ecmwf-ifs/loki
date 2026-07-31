@@ -115,7 +115,9 @@ When adding or changing Loki code:
 - prefer fixing bugs or unsupported corner cases at their source over quick
   local patches or workarounds; when a proper fix is larger or changes
   established behavior, understand the cause and ask the user whether to
-  implement it
+  implement it. For example, if you have to write a paragraph long comment to
+  explain some code, then that's a strong hint that you should not be applying
+  a local workaround.
 - prefer using Loki's public API and native IR semantics where possible instead
   of adding local workarounds
 - avoid overzealous type checking or defensive guards when the Loki API already
@@ -168,6 +170,8 @@ When editing Loki IR handling, transformation code, or tests:
   modules, routines, imports, or calls, consider `plan_*` methods and scheduler
   flags such as `creates_items` and `renames_items`; ask before adding this
   machinery if the need is not clear
+- Do not create tests by copying external source code (for example the IFS).
+  Instead create a minimal reproducer that doesn't allow to infer closed-source code.
 
 
 ## Commit Message Style
