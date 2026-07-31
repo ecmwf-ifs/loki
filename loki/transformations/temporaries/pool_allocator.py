@@ -616,27 +616,36 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
                 stack_sizes += [successor_stack_size]
 
-        # Unwind "max" expressions from successors and inject the local stack size into the expressions
-        stack_sizes = [
-            d for s in stack_sizes
-            for d in (s.parameters if isinstance(s, InlineCall) and s.function == 'MAX' else [s])
-        ]
-        if local_stack_size:
-            local_stack_size = DetachScopesMapper()(simplify(local_stack_size))
-            stack_sizes = [simplify(Sum((local_stack_size, s))) for s in stack_sizes]
-
+        # Combine the successor stack sizes into a single, *nested* MAX and add
+        # the routine's own local stack size on top: local + MAX(successors).
+        #
+        # NB: this used to unwind each successor MAX and distribute the local
+        # size over every branch, i.e. rewrite local + MAX(a, b) as
+        # MAX(local + a, local + b). That identity is value-preserving, but
+        # across a deep call tree (driver -> radiation_scheme -> radiation ->
+        # solver -> ...) the branch count multiplies at every level and the
+        # expression blows up combinatorially (hundreds of KB). A subsequent
+        # simplify() on such a giant MAX can silently drop branches, which
+        # under-sizes the driver stack (ISTSZ) — the nested tripleclouds solver
+        # temporaries were being lost, so full NRPROMA-wide blocks overflowed
+        # the pool at runtime. Keeping the MAX nested yields the same value
+        # while remaining compact and lossless.
         if not stack_sizes:
             # Return only the local stack size if there are no callees
             return self._resolve_local_symbols(routine, local_stack_size or Literal(0),
                                                protect=self._horizontal_bound_names())
 
         if len(stack_sizes) == 1:
-            # For a single successor, it is sufficient to add the local stack size to the expression
-            return self._resolve_local_symbols(routine, stack_sizes[0],
-                                               protect=self._horizontal_bound_names())
+            max_successor = stack_sizes[0]
+        else:
+            max_successor = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes),
+                                       kw_parameters=())
 
-        # Re-build the max expressions, taking into account the local stack size and calls to successors
-        stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
+        if local_stack_size:
+            local_stack_size = DetachScopesMapper()(simplify(local_stack_size))
+            stack_size = Sum((local_stack_size, max_successor))
+        else:
+            stack_size = max_successor
         return self._resolve_local_symbols(routine, stack_size, protect=self._horizontal_bound_names())
 
     def _resolve_local_symbols(self, routine, expr, protect=()):
