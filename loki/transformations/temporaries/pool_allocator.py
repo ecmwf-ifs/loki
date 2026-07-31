@@ -616,36 +616,42 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                     successor_stack_size = SubstituteExpressions(expr_map).visit(successor_stack_size)
                 stack_sizes += [successor_stack_size]
 
-        # Combine the successor stack sizes into a single, *nested* MAX and add
-        # the routine's own local stack size on top: local + MAX(successors).
+        # Combine the successor stack sizes and add the routine's own local
+        # stack size on top: local + SUM(successors).
         #
-        # NB: this used to unwind each successor MAX and distribute the local
-        # size over every branch, i.e. rewrite local + MAX(a, b) as
-        # MAX(local + a, local + b). That identity is value-preserving, but
-        # across a deep call tree (driver -> radiation_scheme -> radiation ->
-        # solver -> ...) the branch count multiplies at every level and the
-        # expression blows up combinatorially (hundreds of KB). A subsequent
-        # simplify() on such a giant MAX can silently drop branches, which
-        # under-sizes the driver stack (ISTSZ) — the nested tripleclouds solver
-        # temporaries were being lost, so full NRPROMA-wide blocks overflowed
-        # the pool at runtime. Keeping the MAX nested yields the same value
-        # while remaining compact and lossless.
+        # Why SUM and not MAX: a MAX budget assumes sibling callees reuse the
+        # same pool region (each callee resets the stack pointer it was handed
+        # and its frame is dead once it returns, so the next sibling reuses the
+        # space). That reuse is what the generated code *intends* — every
+        # sibling call is handed the same, unchanged YLSTACK_L. In practice
+        # nvfortran force-inlines the device routines and does NOT reuse the
+        # frames of two executed siblings: with ecrad's ecckd/tripleclouds the
+        # longwave and shortwave solvers (each ~NRPROMA*NFLEVG*n_g wide) end up
+        # simultaneously live, so the true peak is rad_direct + LW + SW, not
+        # rad_direct + MAX(LW, SW). Budgeting MAX under-sizes ISTSZ by ~min(LW,
+        # SW) and a full NRPROMA-wide block overflows the pool (device STOP /
+        # "device-side malloc failed" from the STOP path once the default heap
+        # is exhausted). Summing the siblings is the conservative, always-safe
+        # bound: the pool then holds every sibling frame at once. It can
+        # over-allocate for callees that genuinely do reuse, but the extra
+        # memory is bounded by the call graph and, unlike MAX, it never
+        # under-sizes. A SUM also avoids the combinatorial MAX-unwinding /
+        # simplify() branch-dropping that previously corrupted ISTSZ.
         if not stack_sizes:
             # Return only the local stack size if there are no callees
             return self._resolve_local_symbols(routine, local_stack_size or Literal(0),
                                                protect=self._horizontal_bound_names())
 
         if len(stack_sizes) == 1:
-            max_successor = stack_sizes[0]
+            combined_successor = stack_sizes[0]
         else:
-            max_successor = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes),
-                                       kw_parameters=())
+            combined_successor = Sum(as_tuple(stack_sizes))
 
         if local_stack_size:
             local_stack_size = DetachScopesMapper()(simplify(local_stack_size))
-            stack_size = Sum((local_stack_size, max_successor))
+            stack_size = Sum((local_stack_size, combined_successor))
         else:
-            stack_size = max_successor
+            stack_size = combined_successor
         return self._resolve_local_symbols(routine, stack_size, protect=self._horizontal_bound_names())
 
     def _resolve_local_symbols(self, routine, expr, protect=()):
