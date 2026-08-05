@@ -349,16 +349,18 @@ end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
 def test_constant_propagation_procedures(frontend):
     fcode = """
 subroutine const_prop_procedures
-  integer :: a1, a2, b1, b2, c1, c2, d1, e1, e2, e3, f1, g1
+  integer :: a1, a2, a3, b1, b2, c1, c2, d1, e1, e2, e3, f1, g1
   integer :: a1_out, a2_out, b1_out, b2_out, c1_out, c2_out, d1_out, e1_out, e2_out, e3_out, f1_out, g1_out
   integer :: f2(3), g2(3)
   integer :: f2_1_out, f2_2_out, f2_3_out, g2_1_out, g2_2_out, g2_3_out
 
   a1 = 1
   a2 = 2
-  call contained_subroutine(a1,a_out=a2)
+  a3 = 3
+  call contained_subroutine(a1,b=a2,a_out=a3)
   a1_out = a1
   a2_out = a2
+  a3_out = a3
 
   b1 = 1
   b2 = 2
@@ -405,9 +407,9 @@ subroutine const_prop_procedures
   g2_3_out = g2(3)
 
   contains
-  subroutine contained_subroutine(a,a_out)
+  subroutine contained_subroutine(a, b, a_out)
     implicit none
-    integer, intent(in) :: a
+    integer, intent(in) :: a, b
     integer, intent(out) :: a_out
 
     a_out = a
@@ -430,8 +432,16 @@ end subroutine const_prop_procedures
     transformed = do_constant_propagation(routine)
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
 
+    for call_statement in FindNodes(ir.CallStatement).visit(transformed.body):
+        if call_statement.name.basename == 'contained_subroutine':
+            arg_strings = [(str(dummy_arg), str(call_arg)) for (dummy_arg, call_arg) in call_statement.arg_iter()]
+            assert ('a','1') in arg_strings
+            assert ('b','2') in arg_strings
+            assert ('a_out','a3') in arg_strings
+
     assert 'Assignment:: a1_out = 1' in assignments
-    assert 'Assignment:: a2_out = a2' in assignments
+    assert 'Assignment:: a2_out = 2' in assignments
+    assert 'Assignment:: a3_out = a3' in assignments
 
     assert 'Assignment:: b1_out = b1' in assignments
     assert 'Assignment:: b2_out = b2' in assignments
@@ -441,6 +451,7 @@ end subroutine const_prop_procedures
 
     assert 'Assignment:: d1_out = d1' in assignments
 
+    assert 'Assignment:: e3 = contained_function(1, named=e2)' in assignments
     assert 'Assignment:: e1_out = 1' in assignments
     assert 'Assignment:: e2_out = e2' in assignments
     assert 'Assignment:: e3_out = e3' in assignments
