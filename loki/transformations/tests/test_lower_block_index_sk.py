@@ -748,11 +748,238 @@ end subroutine kernel
     assert len(field_var.dimensions) == 3
 
 
+FCODE_PTR_VARS_MOD = """
+module ptr_vars_mod
+  implicit none
+  type :: var3
+    real, pointer, contiguous :: t0_field(:,:,:) => null()
+    real, pointer, contiguous :: evel_field(:,:,:) => null()
+    real, pointer, contiguous :: vvel_field(:,:,:) => null()
+  end type var3
+  type :: fldvars
+    type(var3) :: u
+  end type fldvars
+end module ptr_vars_mod
+"""
+
+
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_new_derived_dummy_declared_before_bounds_use(frontend):
+def test_sk_pointer_actual_gets_pointer_dummy(frontend):
+    """
+    Promoted dummies whose actual argument is a whole POINTER must become
+    ``POINTER, CONTIGUOUS`` deferred-shape dummies, and be passed as the bare
+    pointer.
+
+    An array section is not a pointer, so it cannot be associated with a pointer
+    dummy. Conversely a plain assumed-shape dummy would let the compiler rebuild
+    the descriptor with dense strides, which breaks actual arguments that are
+    contiguous per block but strided between blocks (e.g. FIELD_API field-stack
+    members).
+    """
+    fcode_driver = """
+subroutine driver(nproma, nlev, nb, ydvars, zloc)
+  use ptr_vars_mod, only: fldvars
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  type(fldvars), intent(inout) :: ydvars
+  real, intent(inout) :: zloc(nproma, nlev, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call kernel(nproma, nlev, ydvars%u%t0_field(:,:,ibl), ydvars%u%evel_field(:,:,ibl), &
+      &         ydvars%u%vvel_field(:,1:,ibl), zloc(:,:,ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, nlev, pu, pevel, pvvel, ploc)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(in)    :: pu(nproma, nlev)
+  real, intent(out)   :: pevel(nproma, 0:nlev)
+  real, intent(inout) :: pvvel(nproma, nlev)
+  real, intent(in)    :: ploc(nproma, nlev)
+  pevel(1, 0) = pu(1, 1) + pvvel(1, 1) + ploc(1, 1)
+end subroutine kernel
+"""
+    ptr_mod = Module.from_source(FCODE_PTR_VARS_MOD, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[ptr_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[ptr_mod])
+    driver.enrich(kernel)
+
+    block_dim = Dimension(
+        name='block_dim', size='nb', index='ibl', bounds=('1', 'nb')
+    )
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=())
+    sgraph = _build_sgraph([driver_item, kernel_item])
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    trafo.transform_subroutine(
+        driver, role='driver', targets=('kernel',),
+        item=driver_item, sub_sgraph=sgraph
+    )
+
+    # Whole-pointer actuals -> pointer dummies, fully deferred shape
+    for name in ('pu', 'pevel'):
+        var = kernel.variable_map[name]
+        assert var.type.pointer, f'{name} should be a pointer dummy'
+        assert var.type.contiguous, f'{name} should stay CONTIGUOUS'
+        assert all(dim == ':' for dim in var.dimensions), f'{name} must be deferred-shape'
+
+    # INTENT(OUT) would arrive dissociated on a pointer dummy
+    assert kernel.variable_map['pevel'].type.intent == 'inout'
+    assert kernel.variable_map['pu'].type.intent == 'in'
+
+    # A partial section cannot drop its subscripts, and a non-pointer actual
+    # cannot bind to a pointer dummy: both keep the plain assumed-shape form
+    for name in ('pvvel', 'ploc'):
+        var = kernel.variable_map[name]
+        assert not var.type.pointer, f'{name} should not be a pointer dummy'
+
+    # Call site: bare pointers for the pointer dummies, sections preserved
+    call = FindNodes(ir.CallStatement).visit(driver.body)[0]
+    args = {str(a).lower() for a in call.arguments}
+    assert 'ydvars%u%t0_field' in args
+    assert 'ydvars%u%evel_field' in args
+    assert 'ydvars%u%vvel_field(:, 1:, :)' in args
+    assert 'zloc(:, :, :)' in args
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+def test_sk_conflicting_pointer_actuals_raise(frontend):
+    """
+    A dummy that has been lowered to a pointer dummy cannot also receive a
+    non-pointer actual from a second call site: no single declaration is valid
+    for both, so this must fail loudly rather than emit incorrect code.
+    """
+    fcode_ptr_driver = """
+subroutine driver_ptr(nproma, nlev, nb, ydvars)
+  use ptr_vars_mod, only: fldvars
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  type(fldvars), intent(inout) :: ydvars
+  integer :: ibl
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call kernel(nproma, nlev, ydvars%u%t0_field(:,:,ibl))
+  end do
+end subroutine driver_ptr
+"""
+    fcode_arr_driver = """
+subroutine driver_arr(nproma, nlev, nb, zloc)
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  real, intent(inout) :: zloc(nproma, nlev, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call kernel(nproma, nlev, zloc(:,:,ibl))
+  end do
+end subroutine driver_arr
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, nlev, pu)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(inout) :: pu(nproma, nlev)
+  pu(1, 1) = 0.0
+end subroutine kernel
+"""
+    ptr_mod = Module.from_source(FCODE_PTR_VARS_MOD, frontend=frontend)
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[ptr_mod])
+    driver_ptr = Subroutine.from_source(fcode_ptr_driver, frontend=frontend, definitions=[ptr_mod])
+    driver_arr = Subroutine.from_source(fcode_arr_driver, frontend=frontend, definitions=[ptr_mod])
+    driver_ptr.enrich(kernel)
+    driver_arr.enrich(kernel)
+
+    block_dim = Dimension(name='block_dim', size='nb', index='ibl', bounds=('1', 'nb'))
+    kernel_item = _make_item(kernel, role='kernel', targets=())
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+
+    # First call site lowers `pu` to a pointer dummy
+    ptr_item = _make_item(driver_ptr, role='driver', targets=('kernel',))
+    trafo.transform_subroutine(
+        driver_ptr, role='driver', targets=('kernel',),
+        item=ptr_item, sub_sgraph=_build_sgraph([ptr_item, kernel_item])
+    )
+    assert kernel.variable_map['pu'].type.pointer
+
+    # Second call site cannot supply a pointer, so this must not be silently
+    # lowered to incorrect code
+    arr_item = _make_item(driver_arr, role='driver', targets=('kernel',))
+    with pytest.raises(RuntimeError, match='pointer dummy'):
+        trafo.transform_subroutine(
+            driver_arr, role='driver', targets=('kernel',),
+            item=arr_item, sub_sgraph=_build_sgraph([arr_item, kernel_item])
+        )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+def test_sk_pointer_dummy_intent_out_weakened(frontend):
+    """
+    ``INTENT(OUT)`` must be weakened to ``INTENT(INOUT)`` for pointer dummies,
+    which would otherwise arrive dissociated. Non-pointer dummies keep
+    ``INTENT(OUT)``.
+    """
+    fcode_driver = """
+subroutine driver(nproma, nlev, nb, ydvars, zloc)
+  use ptr_vars_mod, only: fldvars
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  type(fldvars), intent(inout) :: ydvars
+  real, intent(inout) :: zloc(nproma, nlev, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call kernel(nproma, nlev, ydvars%u%t0_field(:,:,ibl), zloc(:,:,ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, nlev, pptr, parr)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(out) :: pptr(nproma, nlev)
+  real, intent(out) :: parr(nproma, nlev)
+  pptr(1, 1) = 0.0
+  parr(1, 1) = 0.0
+end subroutine kernel
+"""
+    ptr_mod = Module.from_source(FCODE_PTR_VARS_MOD, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[ptr_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[ptr_mod])
+    driver.enrich(kernel)
+
+    block_dim = Dimension(name='block_dim', size='nb', index='ibl', bounds=('1', 'nb'))
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=())
+    sgraph = _build_sgraph([driver_item, kernel_item])
+
+    LowerBlockIndexSKTransformation(block_dim=block_dim).transform_subroutine(
+        driver, role='driver', targets=('kernel',),
+        item=driver_item, sub_sgraph=sgraph
+    )
+
+    assert kernel.variable_map['pptr'].type.pointer
+    assert kernel.variable_map['pptr'].type.intent == 'inout'
+    assert not kernel.variable_map['parr'].type.pointer
+    assert kernel.variable_map['parr'].type.intent == 'out'
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+@pytest.mark.parametrize('assumed_shape', (True, False))
+def test_sk_new_derived_dummy_declared_before_bounds_use(frontend, assumed_shape):
     """
     Verify that newly-added derived-type dummies are declared before any
     existing dummy-array declarations whose bounds are updated to use them.
+
+    With ``assumed_shape_block_args`` the promoted declaration no longer names
+    the block-dimension size, so the ordering constraint does not arise.
     """
     fcode_type_mod = """
 module type_mod
@@ -803,7 +1030,9 @@ end subroutine kernel
     kernel_item = _make_item(kernel, role='kernel', targets=())
     sgraph = _build_sgraph([driver_item, kernel_item])
 
-    trafo = LowerBlockIndexSKTransformation(block_dim=geom_block_dim)
+    trafo = LowerBlockIndexSKTransformation(
+        block_dim=geom_block_dim, assumed_shape_block_args=assumed_shape
+    )
     trafo.transform_subroutine(
         driver, role='driver', targets=('kernel',),
         item=driver_item, sub_sgraph=sgraph
@@ -813,8 +1042,18 @@ end subroutine kernel
     decl_pos = {decl.symbols[0].name.lower(): idx for idx, decl in enumerate(decls)}
 
     assert 'geom' in [arg.name.lower() for arg in kernel.arguments]
-    assert kernel.variable_map['field'].shape[-1] == 'geom%yrdim%ngpblks'
-    assert decl_pos['geom'] < decl_pos['field']
+    # The explicit extents remain available in the IR either way, so that later
+    # passes can still derive fully qualified bounds
+    field = kernel.variable_map['field']
+    assert field.shape[-1] == 'geom%yrdim%ngpblks'
+
+    if assumed_shape:
+        # Assumed-shape declaration does not reference `geom`, hence no
+        # ordering requirement
+        assert all(isinstance(dim, sym.RangeIndex) for dim in field.dimensions)
+    else:
+        assert field.dimensions[-1] == 'geom%yrdim%ngpblks'
+        assert decl_pos['geom'] < decl_pos['field']
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))

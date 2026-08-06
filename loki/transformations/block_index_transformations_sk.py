@@ -90,20 +90,52 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
           ...
           DO IBL = 1, NB
             KIDIA = YDBNDS%KIDIA
-            CALL KERNEL(NPROMA, NLEV, FIELD(:,:,:), NB=NB, KIDIA=KIDIA, &
+            CALL KERNEL(NPROMA, NLEV, FIELD, NB=NB, KIDIA=KIDIA, &
                         YDBNDS=YDBNDS)
           END DO
         END SUBROUTINE DRIVER
 
         SUBROUTINE KERNEL(NPROMA, NLEV, FIELD, NB, KIDIA, YDBNDS)
           USE TYPE_MOD, ONLY: BNDS_TYPE
-          REAL, INTENT(INOUT) :: FIELD(NPROMA, NLEV, NB)
+          REAL, POINTER, CONTIGUOUS, INTENT(INOUT) :: FIELD(:, :, :)
           REAL :: TMP(NPROMA, NB)
           TYPE(BNDS_TYPE), INTENT(INOUT) :: YDBNDS
           !$loki unstructured-data create(TMP)
           ...
           !$loki exit unstructured-data delete(TMP)
         END SUBROUTINE KERNEL
+
+    .. note::
+
+        **Why the promoted dummies are not explicit-shape.**  The call site now
+        passes the whole array rather than a single block slab, so an
+        explicit-shape dummy such as ``FIELD(NPROMA, NLEV, NB)`` would hard-wire
+        the block stride to ``NPROMA*NLEV`` elements.  Actual arguments that are
+        contiguous *within* a block but strided *between* blocks -- e.g.
+        FIELD_API field-stack members, which are sections ``BUFFER(:,:,IDX,:)``
+        of a shared buffer -- are then addressed incorrectly for every block but
+        the first.  For ``INTENT(INOUT)`` arguments this also *writes* over
+        neighbouring variables in the shared buffer.
+
+        **Why assumed-shape alone is not enough.**  Such actual arguments are
+        typically declared ``POINTER, CONTIGUOUS`` in IFS-style code, because
+        nvhpc requires the attribute for OpenACC present-table lookups.  That
+        assertion is false for a field-stack member, and nvhpc acts on it: when
+        the array is passed as an actual argument it rebuilds the descriptor with
+        dense strides, so a plain assumed-shape dummy receives collapsed strides
+        just like an explicit-shape one.
+
+        **What works.**  Declaring the dummy ``POINTER`` makes the association a
+        *pointer* association -- the dummy is the actual pointer and its
+        descriptor is passed by reference, leaving no opportunity to repack it.
+        ``CONTIGUOUS`` may be retained alongside, which keeps the OpenACC lookup
+        working.  This requires the actual argument to be passed as the bare
+        pointer, since an array section is not a pointer, and is therefore only
+        applied when the actual is a whole pointer array (see
+        :meth:`_is_whole_pointer_actual`).  Arguments that cannot satisfy that --
+        plain arrays, or partial sections such as ``PVVEL_FIELD(:, 1:, KBL)`` --
+        fall back to assumed-shape, which is correct for them because they are
+        contiguous.
 
     Parameters
     ----------
@@ -112,10 +144,23 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         code to define the blocking data dimension and iteration space.
     recurse_to_kernels : bool, optional
         Process kernel-role routines as well (default: ``True``).
+    assumed_shape_block_args : bool, optional
+        Declare block-promoted dummy arguments with a deferred shape instead of
+        explicit-shape ``VAR(NPROMA, NLEV, NB)`` (default: ``True``).  Whole
+        pointer actuals yield ``POINTER, CONTIGUOUS :: VAR(:, :, :)``; everything
+        else yields assumed-shape ``VAR(:, :, :)`` with any explicitly declared
+        lower bounds preserved.  Only promoted *dummy arguments* are affected;
+        promoted local arrays remain explicit-shape, as they are always
+        contiguous.  The explicit extents are retained in the symbol's
+        :attr:`shape`, so shape-derived bounds remain available to later passes.
     """
 
     # This trafo only operates on procedures
     item_filter = (ProcedureItem,)
+
+    def __init__(self, block_dim, recurse_to_kernels=True, assumed_shape_block_args=True):
+        super().__init__(block_dim, recurse_to_kernels=recurse_to_kernels)
+        self.assumed_shape_block_args = assumed_shape_block_args
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -480,34 +525,146 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         routine.body.prepend(pragma_start)
         routine.body.append(pragma_end)
 
+    @staticmethod
+    def _to_assumed_shape(shape, keep_lower_bounds=True):
+        """
+        Convert *shape* into assumed-shape (deferred-extent) form.
+
+        With ``keep_lower_bounds`` an explicitly declared lower bound is
+        preserved, so ``(KPROMA, 0:KFLEV)`` becomes ``(:, 0:)`` rather than
+        ``(:, :)``, which would silently shift the callee's indexing by one.
+        Pointer dummies must pass ``keep_lower_bounds=False``: a deferred-shape
+        pointer declaration cannot carry a lower bound, and does not need to,
+        because it inherits the bounds of its target.
+        """
+        return tuple(
+            sym.RangeIndex((
+                dim.lower if keep_lower_bounds and isinstance(dim, RangeIndex) else None,
+                None
+            ))
+            for dim in shape
+        )
+
+    def _promote_dummy_declaration(self, callee_var, block_dim_size, as_pointer=False):
+        """
+        Build the promoted ``(dimensions, shape)`` pair for the dummy argument
+        *callee_var*.
+
+        The declared *shape* always carries the explicit extents, so that
+        subsequent passes (notably ``resolve_vector_notation`` in
+        :any:`SCCBaseTransformation`) can still derive fully qualified bounds
+        for any ``:`` subscript.  Only the rendered *dimensions* are turned into
+        deferred/assumed-shape form, since Fortran does not allow mixing
+        deferred and explicit extents within a single array declaration.
+
+        For ``as_pointer`` the declaration is fully deferred-shape (``(:,:,:)``);
+        an explicit lower bound is neither legal nor needed there, as a pointer
+        dummy inherits the bounds of the actual argument.
+        """
+        new_shape = callee_var.shape + (block_dim_size,)
+        if as_pointer:
+            return self._to_assumed_shape(new_shape, keep_lower_bounds=False), new_shape
+        if self.assumed_shape_block_args:
+            return self._to_assumed_shape(new_shape), new_shape
+        return callee_var.dimensions + (block_dim_size,), new_shape
+
+    def _is_whole_pointer_actual(self, call_arg):
+        """
+        Whether *call_arg* is a POINTER passed in its entirety, apart from the
+        block-dimension subscript.
+
+        Only such actual arguments may bind to a pointer dummy:
+
+        * a non-pointer actual cannot bind to a pointer dummy at all, and
+        * a *partial* section such as ``PVVEL_FIELD(:, 1:, KBL)`` would silently
+          change the extent if the subscripts were dropped, so it must keep the
+          plain assumed-shape form.
+        """
+        if not getattr(call_arg, 'type', None) or not call_arg.type.pointer:
+            return False
+        block_dim_indices = [idx.lower() for idx in self.block_dim.indices]
+        for dim in getattr(call_arg, 'dimensions', None) or ():
+            if str(dim).lower() in block_dim_indices:
+                continue
+            if isinstance(dim, RangeIndex) and dim.lower is None and dim.upper is None:
+                continue
+            return False
+        return True
+
     def _update_argument_dims(self, call):
         """
         Promote callee argument array declarations where the call-site
         argument has higher rank than the callee dummy argument.
+
+        Returns
+        -------
+        tuple of str
+            Names of the callee dummy arguments that were turned into pointer
+            dummies. Their actual arguments must be passed as the bare pointer,
+            see :meth:`_replace_block_indices_in_call`.
         """
         var_map = {}
+        pointer_args = []
         call_variable_map = call.routine.variable_map
         block_dim_size = self._resolve_block_dim_size(call.routine)
         for arg, call_arg in call.arg_iter():
-            if isinstance(arg, Array):
-                if self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
-                    callee_var = call_variable_map[arg.name]
-                    new_dims = callee_var.dimensions + (block_dim_size,)
-                    new_shape = callee_var.shape + (block_dim_size,)
-                    new_type = callee_var.type.clone(shape=new_shape)
-                    var_map[callee_var] = callee_var.clone(dimensions=new_dims, type=new_type)
+            if not isinstance(arg, Array):
+                continue
+            callee_var = call_variable_map[arg.name]
+            if self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
+                as_pointer = (
+                    self.assumed_shape_block_args
+                    and self._is_whole_pointer_actual(call_arg)
+                )
+                new_dims, new_shape = self._promote_dummy_declaration(
+                    callee_var, block_dim_size, as_pointer=as_pointer
+                )
+                new_type = callee_var.type.clone(shape=new_shape)
+                if as_pointer:
+                    # A pointer dummy with INTENT(OUT) would arrive dissociated,
+                    # so weaken it to INTENT(INOUT).
+                    intent = new_type.intent
+                    if intent and intent.lower() == 'out':
+                        intent = 'inout'
+                    new_type = new_type.clone(
+                        pointer=True, contiguous=True, intent=intent
+                    )
+                    pointer_args.append(arg.name.lower())
+                var_map[callee_var] = callee_var.clone(dimensions=new_dims, type=new_type)
+            elif callee_var.type.pointer and not self._is_whole_pointer_actual(call_arg):
+                # Already promoted to a pointer dummy by another call site, but
+                # this one cannot supply a compatible actual. There is no way to
+                # generate correct code for both call sites, so bail out.
+                raise RuntimeError(
+                    f'[Loki::LowerBlockIndexSK] {call.routine.name}: dummy argument '
+                    f'{arg.name} has already been lowered to a pointer dummy, but '
+                    f'{call.name} passes the non-pointer actual argument '
+                    f'"{call_arg}"; block-index lowering cannot be applied '
+                    f'consistently across call sites.'
+                )
+            elif callee_var.type.pointer:
+                pointer_args.append(arg.name.lower())
         if var_map:
             call.routine.spec = SubstituteExpressions(var_map).visit(call.routine.spec)
+        return as_tuple(pointer_args)
 
-    def _replace_block_indices_in_call(self, call):
+    def _replace_block_indices_in_call(self, call, pointer_args=()):
         """
         Replace block-index subscripts with range indices ``(:)`` in call
         arguments and keyword arguments.
+
+        Arguments bound to a dummy listed in *pointer_args* are emitted as the
+        bare pointer instead: an array section is not a pointer and therefore
+        cannot be associated with a pointer dummy.
         """
         block_dim_indices = [idx.lower() for idx in self.block_dim.indices]
+        pointer_args = tuple(name.lower() for name in as_tuple(pointer_args))
 
-        def _process_dims(var):
+        def _process_dims(var, dummy_name=None):
             """Replace block-dim indices in var.dimensions with RangeIndex."""
+            if dummy_name is not None and dummy_name.lower() in pointer_args:
+                # Pointer dummy: pass the whole pointer, no subscripts
+                return var.clone(dimensions=None)
             if isinstance(var, sym.Array) and var.dimensions:
                 if any(str(d).lower() in block_dim_indices for d in var.dimensions):
                     new_dim = tuple(
@@ -522,9 +679,15 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
                 return var.clone(dimensions=new_dim)
             return var
 
-        new_arguments = tuple(_process_dims(a) for a in call.arguments)
+        # Positional arguments map onto the leading callee dummies by position;
+        # keyword arguments carry the dummy name directly.
+        positional_dummies = [a.name for a in call.routine.arguments]
+        new_arguments = tuple(
+            _process_dims(a, positional_dummies[i] if i < len(positional_dummies) else None)
+            for i, a in enumerate(call.arguments)
+        )
         new_kwarguments = tuple(
-            (name, _process_dims(val)) for name, val in call.kwarguments
+            (name, _process_dims(val, name)) for name, val in call.kwarguments
         )
         call._update(arguments=new_arguments, kwarguments=new_kwarguments)
 
@@ -660,11 +823,11 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             self._inject_data_offload_pragmas(call.routine, local_vars)
 
             # Update argument dimensions where rank mismatch
-            self._update_argument_dims(call)
+            pointer_args = self._update_argument_dims(call)
             self._reorder_new_dummy_declarations(call.routine, missing_args)
 
             # Replace block indices with range indices in call args
-            self._replace_block_indices_in_call(call)
+            self._replace_block_indices_in_call(call, pointer_args=pointer_args)
 
             # Propagate trafo_data to successors
             self._propagate_trafo_data(
@@ -718,11 +881,11 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             self._inject_data_offload_pragmas(call.routine, local_vars)
 
             # Update argument dimensions where rank mismatch
-            self._update_argument_dims(call)
+            pointer_args = self._update_argument_dims(call)
             self._reorder_new_dummy_declarations(call.routine, missing_args)
 
             # Replace block indices with range indices in call args
-            self._replace_block_indices_in_call(call)
+            self._replace_block_indices_in_call(call, pointer_args=pointer_args)
 
             # Propagate trafo_data to successors
             self._propagate_trafo_data(
