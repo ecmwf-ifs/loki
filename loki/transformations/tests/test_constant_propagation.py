@@ -349,10 +349,10 @@ end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
 def test_constant_propagation_procedures(frontend):
     fcode = """
 subroutine const_prop_procedures
-  integer :: a1, a2, a3, b1, b2, c1, c2, d1, e1, e2, e3, f1, g1
-  integer :: a1_out, a2_out, b1_out, b2_out, c1_out, c2_out, d1_out, e1_out, e2_out, e3_out, f1_out, g1_out
-  integer :: f2(3), g2(3)
-  integer :: f2_1_out, f2_2_out, f2_3_out, g2_1_out, g2_2_out, g2_3_out
+  integer :: a1, a2, a3, b1, b2, c1, c2, d1, e1, e2, e3, f1, g1, h1
+  integer :: a1_out, a2_out, b1_out, b2_out, c1_out, c2_out, d1_out, e1_out, e2_out, e3_out, f1_out, g1_out, h1_out
+  integer :: f2(3), g2(3), h2(x)
+  integer :: f2_1_out, f2_2_out, f2_3_out, g2_1_out, g2_2_out, g2_3_out, h2_1_out, h2_2_out, h2_3_out
 
   a1 = 1
   a2 = 2
@@ -405,6 +405,16 @@ subroutine const_prop_procedures
   g2_1_out = g2(1)
   g2_2_out = g2(2)
   g2_3_out = g2(3)
+
+  h1 = 1
+  h2(1) = 1
+  h2(2) = 2
+  h2(3) = 3
+  call deferred_array_deferred_arg_subroutine(h1,h2)
+  h1_out = h1
+  h2_1_out = h2(1)
+  h2_2_out = h2(2)
+  h2_3_out = h2(3)
 
   contains
   subroutine contained_subroutine(a, b, a_out)
@@ -465,3 +475,8 @@ end subroutine const_prop_procedures
     assert 'Assignment:: g2_1_out = g2(1)' in assignments
     assert 'Assignment:: g2_2_out = 2' in assignments
     assert 'Assignment:: g2_3_out = 3' in assignments
+
+    assert 'Assignment:: h1_out = h1' in assignments
+    assert 'Assignment:: h2_1_out = h2(1)' in assignments
+    assert 'Assignment:: h2_2_out = h2(2)' in assignments
+    assert 'Assignment:: h2_3_out = h2(3)' in assignments
