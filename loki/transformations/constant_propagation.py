@@ -125,7 +125,7 @@ def separate_literals(children):
 def pop_procedure_accesses(procedure, *args, **kwargs):
     constants_map = kwargs.get('constants_map', {})
 
-    if procedure.procedure_type == BasicType.DEFERRED:
+    if procedure.procedure_type == BasicType.DEFERRED or procedure.procedure_type.is_intrinsic:
         # If we can't get the intent, be conservative
         arg_list = list(procedure.arguments)
         arg_list.extend([arg for (kw, arg) in procedure.kwarguments])
