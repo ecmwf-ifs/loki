@@ -172,12 +172,23 @@ class ConstantPropagationMapper(SimplifyMapper):
             return sym.IntLiteral(float(expr.numerator.value) / float(expr.denominator.value))
         return super().map_quotient(expr, *args, **kwargs)
 
+    def map_inline_call(self, expr, *args, **kwargs):
+
+        args_list, kwargs_list = _pop_procedure_accesses(expr, *args, **kwargs)
+        return expr.clone(parameters=args_list, kw_parameters=dict(kwargs_list))
+
     map_scalar = map_array
     map_deferred_type_symbol = map_array
 
 
 class ConstantPropagationTransformer(Transformer):
     """Apply constant-propagation analysis as a transformation driver."""
+
+    def visit_CallStatement(self, o, **kwargs):
+
+        args_list, kwargs_list = _pop_procedure_accesses(o, **kwargs)
+
+        return o._rebuild(arguments=args_list, kwarguments=kwargs_list)
 
     def visit_Assignment(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
