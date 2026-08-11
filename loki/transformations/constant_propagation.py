@@ -62,8 +62,8 @@ def get_possible_array_accesses(lhs, **kwargs):
     dimensions.extend([sym.RangeIndex((None, None, None))] * (max_dimension - len(dimensions)))
 
     # Apply the mask to get a list of indices that are either literal, or computable for each dimension.
-    masked_indices = tuple([dimension if is_literal else sym.RangeIndex((None, None, None))
-                            for is_literal, dimension in zip(literal_mask, dimensions)])
+    masked_indices = tuple(dimension if is_literal else sym.RangeIndex((None, None, None))
+                            for is_literal, dimension in zip(literal_mask, dimensions))
 
     possible_accesses = []
     if is_constant_shape:
@@ -133,15 +133,16 @@ def pop_procedure_accesses(procedure, *args, **kwargs):
             if isinstance(arg, (sym.Scalar, sym.Array)):
                 invalidate_constants_map(arg, constants_map)
         return procedure.arguments, procedure.kwarguments
-    else:
-        arg_iter = procedure.arg_iter()
-        split = len(procedure.arguments)
-        args_pairs = list(itertools.islice(arg_iter, split))
-        kwargs_pairs = list(arg_iter)
 
-        args_list = tuple(call_kwarg for (_, call_kwarg) in process_procedure_args(args_pairs, *args, **kwargs))
-        kwargs_list = tuple((dummy_kwarg.basename, call_kwarg) for (dummy_kwarg, call_kwarg) in process_procedure_args(kwargs_pairs, *args, **kwargs))
-        return args_list, kwargs_list
+    arg_iter = procedure.arg_iter()
+    split = len(procedure.arguments)
+    args_pairs = list(itertools.islice(arg_iter, split))
+    kwargs_pairs = list(arg_iter)
+
+    args_list = tuple(call_kwarg for (_, call_kwarg) in process_procedure_args(args_pairs, *args, **kwargs))
+    kwargs_list = tuple((dummy_kwarg.basename, call_kwarg) for (dummy_kwarg, call_kwarg)
+                        in process_procedure_args(kwargs_pairs, *args, **kwargs))
+    return args_list, kwargs_list
 
 
 def process_procedure_args(args_list, *args, **kwargs):
@@ -304,14 +305,17 @@ class ConstantPropagationTransformer(Transformer):
                 return element.elements[offset]
             return index_initial_elements(indices[1:], element.elements[offset], lower_bounds[1:])
 
-        def is_range_const(range):
-            return (range.start is not None and is_constant(range.start) and
-                    range.stop is not None and is_constant(range.stop))
+        def is_range_const(index_range):
+            return (index_range.start is not None and is_constant(index_range.start) and
+                    index_range.stop is not None and is_constant(index_range.stop))
 
         declarations_map = {}
         arrays = []
         for symbol in getattr(routine, 'symbols', ()):
-            if isinstance(symbol, sym.DeferredTypeSymbol) or isinstance(symbol, ProcedureSymbol) or symbol.initial is None:
+            if (
+                    isinstance(symbol, (sym.DeferredTypeSymbol , ProcedureSymbol))
+                    or symbol.initial is None
+            ):
                 continue
 
             if isinstance(symbol, sym.Array):
@@ -325,16 +329,24 @@ class ConstantPropagationTransformer(Transformer):
                 continue
 
             if all(is_constant(extent) for extent in new_shape):
-                for index in array_indices_to_accesses([sym.RangeIndex((None, None, None))] * len(new_shape), new_shape):
-                    declarations_map[(array.basename, index)] = ConstantPropagationMapper()(index_initial_elements(index, array.initial, [1] * len(new_shape)), constants_map=declarations_map)
+                accesses = array_indices_to_accesses([sym.RangeIndex((None, None, None))] * len(new_shape), new_shape)
+                for index in accesses:
+                    declarations_map[(array.basename, index)] = ConstantPropagationMapper()(
+                        index_initial_elements(index, array.initial, [1] * len(new_shape)),
+                        constants_map=declarations_map
+                    )
             elif isinstance(new_shape[0], sym.RangeIndex) and is_range_const(new_shape[0]):
-                # Only works for the simple case of 1D arrays. Needs more logic to handle multi-dimensional arrays due to the reshape() call
+                # Only works for the simple case of 1D arrays.
+                # Needs more logic to handle multi-dimensional arrays due to the reshape() call
                 if len(new_shape) != 1:
                     continue
 
                 lower_bounds = list(map(lambda x: min(x).value, zip(*array_indices_to_accesses(new_shape, new_shape))))
                 for index in array_indices_to_accesses(new_shape, new_shape):
-                    declarations_map[(array.basename, index)] = ConstantPropagationMapper()(index_initial_elements(index, array.initial, lower_bounds), constants_map=declarations_map)
+                    declarations_map[(array.basename, index)] = (ConstantPropagationMapper()(
+                        index_initial_elements(index, array.initial, lower_bounds),
+                        constants_map=declarations_map)
+                    )
 
         return declarations_map
 
