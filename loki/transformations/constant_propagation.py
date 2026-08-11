@@ -9,13 +9,13 @@ from copy import deepcopy
 
 import itertools
 
-from loki import BasicType, ProcedureSymbol, as_tuple
+from loki.types import BasicType
 from loki.expression import (
-    symbols as sym, get_pyrange, is_constant, SimplifyMapper
+    symbols as sym, get_pyrange, is_constant, SimplifyMapper, ProcedureSymbol
 )
 from loki.ir import nodes as ir, FindNodes, FindVariables, Transformer
 from loki.subroutine import Subroutine
-from loki.tools import dict_override
+from loki.tools import dict_override, as_tuple
 
 from loki.transformations.transform_loop import LoopUnrollTransformer
 
