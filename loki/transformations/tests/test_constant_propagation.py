@@ -434,7 +434,7 @@ subroutine const_prop_procedures
   end function contained_function
 
 end subroutine const_prop_procedures
-"""
+""".strip()
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -480,3 +480,52 @@ end subroutine const_prop_procedures
     assert 'Assignment:: h2_1_out = h2(1)' in assignments
     assert 'Assignment:: h2_2_out = h2(2)' in assignments
     assert 'Assignment:: h2_3_out = h2(3)' in assignments
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_gen_declarations_map(frontend):
+    fcode = """
+subroutine test_constant_propagation_gen_declarations_map(c)
+  integer :: a = 3
+  integer :: i(x) = (/1, 2, 3/)
+  integer :: j(3) = (/1, 2, 3/)
+  integer :: k(2:4) = (/1, 2, 3/)
+  integer :: l(a) = (/1, 2, 3/)
+
+  integer :: a_out, i_1_out, i_2_out, i_3_out, j_1_out, j_2_out, j_3_out, k_2_out, k_3_out, k_4_out
+  integer :: l_1_out, l_2_out, l_3_out
+
+  a_out = a
+  i_1_out = i(1)
+  i_2_out = i(2)
+  i_3_out = i(3)
+  j_1_out = j(1)
+  j_2_out = j(2)
+  j_3_out = j(3)
+  k_2_out = k(2)
+  k_3_out = k(3)
+  k_4_out = k(4)
+  l_1_out = l(1)
+  l_2_out = l(2)
+  l_3_out = l(3)
+
+end subroutine test_constant_propagation_gen_declarations_map
+""".strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    transformed = do_constant_propagation(routine, unroll_loops=False)
+
+    assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
+
+    assert 'Assignment:: a_out = 3' in assignments
+    assert 'Assignment:: i_1_out = i(1)' in assignments
+    assert 'Assignment:: i_2_out = i(2)' in assignments
+    assert 'Assignment:: i_3_out = i(3)' in assignments
+    assert 'Assignment:: j_1_out = 1' in assignments
+    assert 'Assignment:: j_2_out = 2' in assignments
+    assert 'Assignment:: j_3_out = 3' in assignments
+    assert 'Assignment:: k_2_out = 1' in assignments
+    assert 'Assignment:: k_3_out = 2' in assignments
+    assert 'Assignment:: k_4_out = 3' in assignments
+    assert 'Assignment:: l_1_out = 1' in assignments
+    assert 'Assignment:: l_2_out = 2' in assignments
+    assert 'Assignment:: l_3_out = 3' in assignments
