@@ -1674,6 +1674,36 @@ end subroutine test_masked_scalar_rhs
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_masked_statements_reuse_mask_indices(frontend):
+    """Use the mask loop index for vector ranges in the WHERE body."""
+    fcode = """
+subroutine test_masked_reuse_indices(n, a, b)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(in) :: a(n)
+  real, intent(inout) :: b(n)
+
+  where (a(1:n) > 0.0)
+    b(1:n) = a(1:n)
+  end where
+end subroutine test_masked_reuse_indices
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].variable == 'i_mask_0'
+    assert loops[0].bounds == '1:n'
+
+    condition = FindNodes(ir.Conditional).visit(loops[0].body)[0]
+    assign = FindNodes(ir.Assignment).visit(condition.body)[0]
+    assert condition.condition == 'a(i_mask_0) > 0.0'
+    assert assign.lhs == 'b(i_mask_0)'
+    assert assign.rhs == 'a(i_mask_0)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_notation_inline_conditional(frontend):
     """
     When an inline conditional (single-line ``IF``) contains a vector

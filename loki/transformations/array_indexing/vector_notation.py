@@ -1245,9 +1245,13 @@ class ResolveVectorNotationTransformer(Transformer):
         if not resolved:
             return masked
 
-        with dict_override(kwargs, {'create_loops': False}):
-            body = self.visit(masked.bodies[0], **kwargs)
-            else_body = self.visit(masked.default, **kwargs)
+        # Reuse the mask loop indices in each body assignment so the condition
+        # and body refer to the same array element.
+        mask_loop_map = {irange: ivar for ivar, irange in index_range_map.items()}
+        with dict_override(self.loop_map, mask_loop_map):
+            with dict_override(kwargs, {'create_loops': False}):
+                body = self.visit(masked.bodies[0], **kwargs)
+                else_body = self.visit(masked.default, **kwargs)
 
         body_nodes = as_tuple(body)
         else_nodes = as_tuple(else_body)
