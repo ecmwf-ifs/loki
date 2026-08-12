@@ -177,7 +177,7 @@ def resolve_vector_notation(routine, resolve_implicit_rhs_ranges=True,
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True,
         derive_qualified_ranges=True,
-        map_unknown_ranges=True,
+        create_new_loop_indices=True,
         resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges,
         substitute_derived_type_bounds=substitute_derived_type_bounds,
         insert_comments=insert_comments,
@@ -285,7 +285,7 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
     transformer = ResolveVectorNotationTransformer(
         loop_map=loop_map, scope=routine, inplace=True,
         derive_qualified_ranges=derive_qualified_ranges,
-        map_unknown_ranges=False,
+        create_new_loop_indices=False,
         resolve_implicit_rhs_ranges=resolve_implicit_rhs_ranges,
         substitute_derived_type_bounds=substitute_derived_type_bounds,
         insert_comments=insert_comments,
@@ -366,9 +366,9 @@ class ResolveVectorNotationTransformer(Transformer):
     derive_qualified_ranges : bool
         Derive explicit bounds for all unqualified index ranges
         (``:``) before resolving them with loops.
-    map_unknown_ranges : bool
-        Flag to indicate whether unknown, but fully qualified range
-        indices are to be remapped to loops.
+    create_new_loop_indices : bool
+        Flag to indicate whether fully qualified ranges without a known
+        loop index are remapped to newly created loops.
     resolve_implicit_rhs_ranges : bool
         When ``True`` (default), resolve all LHS range dimensions even
         if the corresponding RHS arrays use bare ``:`` (unqualified)
@@ -388,7 +388,7 @@ class ResolveVectorNotationTransformer(Transformer):
 
     def __init__(
             self, *args, loop_map=None, scope=None,
-            derive_qualified_ranges=True, map_unknown_ranges=True,
+            derive_qualified_ranges=True, create_new_loop_indices=True,
             resolve_implicit_rhs_ranges=True,
             substitute_derived_type_bounds=False,
             insert_comments=False,
@@ -402,7 +402,7 @@ class ResolveVectorNotationTransformer(Transformer):
         self.pre_body_stmts = []
         self.active_loop_vars = set()
 
-        self.map_unknown_ranges = map_unknown_ranges
+        self.create_new_loop_indices = create_new_loop_indices
         self.derive_qualified_ranges = derive_qualified_ranges
         self.resolve_implicit_rhs_ranges = resolve_implicit_rhs_ranges
         self.substitute_derived_type_bounds_flag = substitute_derived_type_bounds
@@ -541,21 +541,25 @@ class ResolveVectorNotationTransformer(Transformer):
     @staticmethod
     def _build_loop_nest(index_range_map, body, insert_comments=False):
         """Wrap ``body`` in loops for all ranges from ``index_range_map``."""
+        assert index_range_map, (
+            'Expected a non-empty index_range_map; add explicit no-loop handling '
+            'here if future callers need it.'
+        )
         loop = None
         wrapped_body = body
         for ivar, irange in index_range_map.items():
-            if isinstance(irange, sym.RangeIndex):
-                bounds = sym.LoopRange(irange.children)
-            else:
-                bounds = sym.LoopRange((sym.Literal(1), irange, sym.Literal(1)))
+            assert isinstance(irange, sym.RangeIndex), (
+                'Expected RangeIndex values in index_range_map; add explicit '
+                'handling here if future callers need non-range loop bounds.'
+            )
+            bounds = sym.LoopRange(irange.children)
             loop = ir.Loop(variable=ivar, body=as_tuple(wrapped_body), bounds=bounds)
             wrapped_body = loop
 
         if insert_comments and loop:
             return (ir.Comment('! loki resolved vector notation'), loop)
-        if loop:
-            return (loop,)
-        return body
+        assert loop is not None
+        return (loop,)
 
     def visit_Loop(self, o, **kwargs):
         self.active_loop_vars.add(o.variable)
@@ -729,7 +733,7 @@ class ResolveVectorNotationTransformer(Transformer):
         reserved_ivars.update(self.active_loop_vars)
         new_dims, index_range_map, _ = self._map_ranges_to_indices(
             resolved_ranges, self.loop_map, reserved_ivars=reserved_ivars,
-            map_unknown_ranges=self.map_unknown_ranges,
+            create_new_loop_indices=self.create_new_loop_indices,
             scope=self.scope, basename='i_mask'
         )
 
@@ -776,7 +780,7 @@ class ResolveVectorNotationTransformer(Transformer):
         return simplify(sym.Sum((loop_var, sym.Product((-1, lhs_range.lower)), rhs_range.lower)))
 
     @staticmethod
-    def _map_ranges_to_indices(dims, loop_map, map_unknown_ranges=True, basename='i',
+    def _map_ranges_to_indices(dims, loop_map, create_new_loop_indices=True, basename='i',
                               scope=None, reserved_ivars=None):
         """
         Map :any:`RangeIndex` dimensions to loop index variables.
@@ -793,8 +797,9 @@ class ResolveVectorNotationTransformer(Transformer):
             The dimension expressions to process.
         loop_map : dict
             Map of known ``RangeIndex`` to loop variables.
-        map_unknown_ranges : bool
-            Whether to create new indices for unknown ranges.
+        create_new_loop_indices : bool
+            Whether to create new indices for fully qualified ranges that
+            do not have a known loop index.
         basename : str
             Base name for newly created index variables.
         scope : :any:`Subroutine` or :any:`Module`
@@ -835,14 +840,14 @@ class ResolveVectorNotationTransformer(Transformer):
                     # loop index and surrounding scalar references keep their
                     # meaning.
                     if ivar in index_range_map or ivar in reserved_ivars:
-                        if not map_unknown_ranges:
+                        if not create_new_loop_indices:
                             continue
                         vtype = SymbolAttributes(BasicType.INTEGER)
                         ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
                         synthesized_ivars.add(ivar)
                 else:
                     # Skip if we're not supposed to create new indices
-                    if not map_unknown_ranges or dim == sym.RangeIndex((None, None)):
+                    if not create_new_loop_indices or dim == sym.RangeIndex((None, None)):
                         continue
                     vtype = SymbolAttributes(BasicType.INTEGER)
                     ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
@@ -1110,13 +1115,13 @@ class ResolveVectorNotationTransformer(Transformer):
         reserved_ivars.update(self.active_loop_vars)
         new_lhs_dims, index_range_map, synthesized_ivars = self._map_ranges_to_indices(
             resolved_lhs_ranges, self.loop_map, reserved_ivars=reserved_ivars,
-            map_unknown_ranges=self.map_unknown_ranges,
+            create_new_loop_indices=self.create_new_loop_indices,
             scope=self.scope, basename=f'i_{stmt.lhs.basename}'
         )
 
         # Filter out dimensions that were not actually resolved to a scalar loop
         # variable (i.e. new_lhs_dim is still a RangeIndex).  This can happen
-        # when map_unknown_ranges=False and the LHS range is not in loop_map.
+        # when create_new_loop_indices=False and the LHS range is not in loop_map.
         # Keeping such dims would corrupt RHS expressions by feeding a RangeIndex
         # into _compute_shifted_index, producing e.g. ``-1 + (1:klevsn)``.
         actually_resolved = [
