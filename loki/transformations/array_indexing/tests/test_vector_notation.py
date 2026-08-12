@@ -1958,6 +1958,40 @@ end module test_shifted_multi_mod
             f'[{label}] Expected one frac dim to have +1 offset, got: {frac_dims}'
 
 
+@pytest.mark.parametrize('frontend', available_frontends(
+    skip=[(OMNI, 'OMNI cannot parse unresolved external function some_func')]
+))
+def test_resolve_vector_notation_unresolved_inline_call_is_conservative(frontend):
+    """
+    Do not scalarize array arguments to unresolved inline calls, even if the
+    LHS uses vector notation.
+    """
+
+    fcode = """
+subroutine test_unresolved_inline(jl, n, lhs, arr)
+  implicit none
+  integer, intent(in) :: jl, n
+  real, intent(inout) :: lhs(n)
+  real, intent(in)    :: arr(n)
+
+  lhs(1:n) = some_func(arr(:), n)
+end subroutine test_unresolved_inline
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    resolve_vector_notation(routine)
+
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    inline_calls = FindInlineCalls().visit(routine.body)
+
+    assert len(assigns) == 1
+    assert not loops
+    assert assigns[0].lhs == 'lhs(1:n)'
+    assert not inline_calls
+    assert assigns[0].rhs == 'some_func(arr(:), n)'
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_resolve_vector_notation_non_elemental_inline_call_is_conservative(frontend, tmp_path):
     """
