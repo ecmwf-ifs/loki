@@ -16,7 +16,7 @@ from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, FindVariables, FindInlineCalls
 from loki.logging import WARNING
-from loki.types import ProcedureType
+from loki.types import BasicType, ProcedureType
 
 from loki.transformations.array_indexing.vector_notation import (
     resolve_vector_notation, resolve_vector_dimension,
@@ -2100,6 +2100,45 @@ end module test_elemental_inline_unlinked_mod
     assert 'RangeIndex' not in call_text
     assert any('1+' in str(dim).replace(' ', '') or '+1' in str(dim).replace(' ', '')
                for dim in resolved_inline_call.parameters[2].dimensions)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_elemental_inline_unenriched_procedure_type(frontend, tmp_path):
+    """Resolve an elemental inline call recovered from its containing scope."""
+    fcode = """
+module test_elemental_inline_unenriched_mod
+contains
+  elemental real function elemental_func(x)
+    implicit none
+    real, intent(in) :: x
+    elemental_func = x
+  end function elemental_func
+
+  subroutine test_elemental_inline_unenriched(n, lhs, arr)
+    implicit none
+    integer, intent(in) :: n
+    real, intent(inout) :: lhs(n)
+    real, intent(in) :: arr(n)
+
+    lhs(1:n) = elemental_func(arr(1:n))
+  end subroutine test_elemental_inline_unenriched
+end module test_elemental_inline_unenriched_mod
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['test_elemental_inline_unenriched']
+    inline_call = next(iter(FindInlineCalls().visit(routine.body)))
+    inline_call.function.type = inline_call.function.type.clone(dtype=BasicType.DEFERRED)
+
+    resolve_vector_notation(routine)
+
+    loops = FindNodes(ir.Loop).visit(routine.body)
+    assert len(loops) == 1
+    assert loops[0].bounds == '1:n'
+
+    assign = FindNodes(ir.Assignment).visit(loops[0].body)[0]
+    assert assign.lhs == 'lhs(i_lhs_0)'
+    assert assign.rhs == 'elemental_func(arr(i_lhs_0))'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

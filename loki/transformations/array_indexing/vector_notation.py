@@ -602,8 +602,7 @@ class ResolveVectorNotationTransformer(Transformer):
                 if routine is not None:
                     return routine.procedure_type.is_elemental
             return procedure_dtype.is_elemental
-        procedure_type = call.procedure_type
-        return procedure_type is not BasicType.DEFERRED and procedure_type.is_elemental
+        return False
 
     def _find_scalarizable_rhs_arrays(self, expr):
         """Return RHS arrays that can be safely scalarized."""
