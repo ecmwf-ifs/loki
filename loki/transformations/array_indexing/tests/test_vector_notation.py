@@ -1958,27 +1958,38 @@ end module test_shifted_multi_mod
             f'[{label}] Expected one frac dim to have +1 offset, got: {frac_dims}'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI cannot parse unresolved external function some_func')]
-))
-def test_resolve_vector_notation_non_elemental_inline_call_is_conservative(frontend):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_resolve_vector_notation_non_elemental_inline_call_is_conservative(frontend, tmp_path):
     """
-    Do not scalarize array actual arguments to unknown/non-elemental inline
+    Do not scalarize array actual arguments to non-elemental inline
     calls, even if the LHS uses vector notation.
     """
 
     fcode = """
-subroutine test_non_elemental_inline(jl, n, lhs, arr)
+module test_non_elemental_inline_mod
+contains
+  function some_func(array, n) result(total)
+    implicit none
+    integer, intent(in) :: n
+    real, intent(in) :: array(n)
+    real :: total
+
+    total = array(1)
+  end function some_func
+
+  subroutine test_non_elemental_inline(jl, n, lhs, arr)
   implicit none
   integer, intent(in) :: jl, n
   real, intent(inout) :: lhs(n)
   real, intent(in)    :: arr(n)
 
   lhs(1:n) = some_func(arr(:), n)
-end subroutine test_non_elemental_inline
+  end subroutine test_non_elemental_inline
+end module test_non_elemental_inline_mod
     """.strip()
 
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = source['test_non_elemental_inline']
     resolve_vector_notation(routine)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
@@ -1988,9 +1999,10 @@ end subroutine test_non_elemental_inline
     assert len(assigns) == 1
     assert not loops
     assert str(assigns[0].lhs) == 'lhs(1:n)'
-    assert not inline_calls
-    rhs_text = str(assigns[0].rhs).replace(' ', '')
-    assert rhs_text == 'some_func(arr(:),n)'
+    assert len(inline_calls) == 1
+    inline_call = next(iter(inline_calls))
+    assert inline_call.name == 'some_func'
+    assert inline_call.parameters[0] == 'arr(:)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
