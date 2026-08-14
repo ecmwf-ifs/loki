@@ -438,7 +438,7 @@ class FortranCodegen(Stringifier):
             attributes += [dtype]
 
         # Dimensions specification
-        if o.dimensions:
+        if False: # o.dimensions:
             attributes += [f'DIMENSION({", ".join(self.visit_all(o.dimensions, **kwargs))})']
 
         return attributes
@@ -449,7 +449,7 @@ class FortranCodegen(Stringifier):
         for v in o.symbols:
             # This is a bit dubious, but necessary, as we otherwise pick up
             # array dimensions from the internal representation of the variable.
-            var = self.visit(v, **kwargs) if o.dimensions is None else v.basename
+            var = self.visit(v, **kwargs)#  if o.dimensions is None else v.basename
             initial = ''
             if v.type.initial is not None:
                 op = '=>' if v.type.pointer else '='

@@ -390,8 +390,11 @@ class InjectBlockIndexTransformation(Transformation):
         """
         Utility to retrieve the local rank of a :any:`CallStatement` argument.
         """
-
-        rank = len(getattr(arg, 'shape', ()))
+        _rank = getattr(arg, 'shape', ())
+        if _rank is None:
+            _rank = getattr(arg, 'dimensions', ())
+        # rank = len(getattr(arg, 'shape', ()))
+        rank = len(_rank)
         if getattr(arg, 'dimensions', None):
             # We assume here that the callstatement is free of sequence association
             rank = rank - len([d for d in arg.dimensions if not isinstance(d, RangeIndex)])
@@ -465,6 +468,7 @@ class InjectBlockIndexTransformation(Transformation):
         # filter out arrays marked for exclusion
         vmap = {k: v for k, v in vmap.items() if not any(e in k for e in exclude_arrays)}
 
+        vmap = recursive_expression_map_update(vmap)
         # finally we perform the substitution
         return SubstituteExpressions(vmap).visit(body)
 

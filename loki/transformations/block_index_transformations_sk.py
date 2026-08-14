@@ -21,7 +21,7 @@ from loki.expression import symbols as sym, Array, RangeIndex
 from loki.transformations.block_index_transformations import LowerBlockIndexTransformation
 from loki.transformations.sanitise import do_resolve_associates
 from loki.transformations.utilities import (
-    find_driver_loops, get_integer_variable, get_local_arrays
+    find_driver_loops, get_integer_variable, get_local_arrays, recursive_expression_map_update
 )
 
 __all__ = ['LowerBlockIndexSKTransformation']
@@ -156,7 +156,11 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             Block-dimension index expressions to exclude from rank counting.
         """
         block_dim_indices = as_tuple(block_dim_indices)
-        rank = len(getattr(arg, 'shape', ()))
+        _rank = getattr(arg, 'shape', ())
+        if _rank is None:
+            _rank = getattr(arg, 'dimensions', ())
+        # rank = len(getattr(arg, 'shape', ()))
+        rank = len(_rank)
         if getattr(arg, 'dimensions', None):
             rank = rank - len([
                 d for d in arg.dimensions
@@ -490,7 +494,9 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         block_dim_size = self._resolve_block_dim_size(call.routine)
         for arg, call_arg in call.arg_iter():
             if isinstance(arg, Array):
+                print(f"promoting arg: {arg}? ({self.get_call_arg_rank(call_arg, self.block_dim.indices)} vs {len(arg.shape)})")
                 if self.get_call_arg_rank(call_arg, self.block_dim.indices) > len(arg.shape):
+                    print(f"  yes!")
                     callee_var = call_variable_map[arg.name]
                     new_dims = callee_var.dimensions + (block_dim_size,)
                     new_shape = callee_var.shape + (block_dim_size,)
