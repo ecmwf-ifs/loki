@@ -557,7 +557,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
             routine.body = SubstituteExpressions(call_mapper).visit(routine.body)
 
 
-def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_name):
+def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_name, generic_bindings=None):
     """
     Utility routine that returns the :any:`ProcedureSymbol` of the :any:`Subroutine`
     that a typebound procedure corresponds to.
@@ -576,17 +576,29 @@ def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_na
     routine_name : str
         The name of the routine :data:`proc_symbol` appears in. This is used for
         logging purposes only
+    generic_bindings : dict, optional
+        Mapping from generic binding names to concrete procedure names.
 
     Returns
     -------
     :any:`ProcedureSymbol` or None
         The procedure symbol of the :any:`Subroutine` or ``None`` if it fails to resolve
     """
+    generic_bindings = generic_bindings or {}
+    binding_name = proc_symbol.name_parts[-1].lower()
     if proc_symbol.type.bind_names is not None:
+        if binding_name in generic_bindings:
+            concrete_name = generic_bindings[binding_name]
+            for bound_proc in proc_symbol.type.bind_names:
+                if bound_proc.name.lower() == concrete_name:
+                    return bound_proc
+            warning('Cannot resolve generic binding %s as %s in %s',
+                    proc_symbol, concrete_name, routine_name)
+            return None
         return proc_symbol.type.bind_names[0]
 
     parent = proc_symbol.parents[0]
-    if parent.type.dtype.typedef is not BasicType.DEFERRED:
+    if isinstance(parent.type.dtype, DerivedType) and parent.type.dtype.typedef is not BasicType.DEFERRED:
         # Fiddle our way through derived type nesting until we obtain the symbol corresponding
         # to the procedure-binding in the TypeDef
         local_parent = None
@@ -637,8 +649,16 @@ class TypeboundProcedureCallTransformer(Transformer):
         The name of the enclosing module. This is used to determine whether the
         resolved procedure needs to be added as an import.
     nopass : bool (default `False`)
-        Assume that tbps are marked nopass and type objects already are passed as first
-        arguments in calls.
+        Override binding metadata and assume all tbps are marked nopass.
+    routines : tuple of str, optional
+        Restrict transformation to routines with these names.
+    exclude_routines : tuple of str, optional
+        Skip transformation for routines with these names.
+    nopass_procedures : tuple of str, optional
+        Procedure binding names to treat as ``NOPASS`` when frontend metadata
+        is unavailable, for example for generic bindings.
+    generic_bindings : dict, optional
+        Mapping from generic binding names to concrete procedure names.
 
     Attributes
     ----------
@@ -648,11 +668,16 @@ class TypeboundProcedureCallTransformer(Transformer):
         as a consequence of the replacement.
     """
 
-    def __init__(self, routine_name, current_module, nopass=False, **kwargs):
+    def __init__(self, routine_name, current_module, nopass=False, nopass_procedures=None,
+                 generic_bindings=None, **kwargs):
         super().__init__(inplace=True, **kwargs)
         self.routine_name = routine_name
         self.current_module = current_module
         self.nopass = nopass
+        self.nopass_procedures = tuple(name.lower() for name in nopass_procedures) if nopass_procedures else ()
+        self.generic_bindings = {
+            name.lower(): concrete.lower() for name, concrete in (generic_bindings or {}).items()
+        }
         self.new_procedure_imports = defaultdict(OrderedSet)
         self._retriever = ExpressionRetriever(lambda e: isinstance(e, InlineCall) and e.function.parent)
 
@@ -668,11 +693,16 @@ class TypeboundProcedureCallTransformer(Transformer):
         """
         rebuilt = {k: self.visit(c, **kwargs) for k, c in zip(o._traversable, o.children)}
         if rebuilt['name'].parent:
-            new_proc_symbol = get_procedure_symbol_from_typebound_procedure_symbol(rebuilt['name'], self.routine_name)
+            new_proc_symbol = get_procedure_symbol_from_typebound_procedure_symbol(
+                rebuilt['name'], self.routine_name, self.generic_bindings
+            )
 
             if new_proc_symbol:
-                # Add the derived type as first argument to the call
-                if not self.nopass:
+                # Add the derived type as first argument unless the binding
+                # explicitly declares NOPASS.
+                binding_name = rebuilt['name'].name_parts[-1].lower()
+                if (not self.nopass and rebuilt['name'].type.pass_attr is not False
+                        and binding_name not in self.nopass_procedures):
                     rebuilt['arguments'] = (rebuilt['name'].parent, ) + rebuilt['arguments']
 
                 # Add the subroutine to the list of symbols that need to be imported
@@ -749,15 +779,27 @@ class TypeboundProcedureCallTransformation(Transformation):
     fix_intent : bool
         Update intent on polymorphic dummy arguments missing an intent as ``INOUT``.
     nopass : bool (default `False`)
-        Assume that tbps are marked nopass and type objects already are passed as first
-        arguments in calls.
+        Override binding metadata and assume all tbps are marked nopass.
+    nopass_procedures : tuple of str, optional
+        Procedure binding names to treat as ``NOPASS`` when frontend metadata
+        is unavailable, for example for generic bindings.
+    generic_bindings : dict, optional
+        Mapping from generic binding names to concrete procedure names.
     """
 
-    def __init__(self, duplicate_typebound_kernels=False, fix_intent=True, nopass=False, **kwargs):
+    def __init__(self, duplicate_typebound_kernels=False, fix_intent=True, nopass=False,
+                 routines=None, exclude_routines=None, nopass_procedures=None,
+                 generic_bindings=None, **kwargs):
         super().__init__(**kwargs)
         self.duplicate_typebound_kernels = duplicate_typebound_kernels
         self.fix_intent = fix_intent
         self.nopass = nopass
+        self.routines = tuple(routine.lower() for routine in routines) if routines else ()
+        self.exclude_routines = tuple(routine.lower() for routine in exclude_routines) if exclude_routines else ()
+        self.nopass_procedures = tuple(name.lower() for name in nopass_procedures) if nopass_procedures else ()
+        self.generic_bindings = {
+            name.lower(): concrete.lower() for name, concrete in (generic_bindings or {}).items()
+        }
 
     def apply_default_polymorphic_intent(self, routine):
         """
@@ -773,6 +815,10 @@ class TypeboundProcedureCallTransformation(Transformation):
         """
         Apply the transformation of calls to the given :data:`routine`
         """
+        if ((self.routines and routine.name.lower() not in self.routines)
+                or routine.name.lower() in self.exclude_routines):
+            return
+
         role = kwargs.get('role')
 
         # Fix any wrong intents on polymorphic arguments
@@ -813,7 +859,10 @@ class TypeboundProcedureCallTransformation(Transformation):
 
         # Traverse the routine's body and replace all calls to typebound procedures by
         # direct calls to the procedures they refer to
-        transformer = TypeboundProcedureCallTransformer(routine.name, current_module, self.nopass)
+        transformer = TypeboundProcedureCallTransformer(
+            routine.name, current_module, self.nopass, self.nopass_procedures,
+            self.generic_bindings
+        )
         routine.body = transformer.visit(routine.body, scope=routine)
         new_procedure_imports = transformer.new_procedure_imports
 

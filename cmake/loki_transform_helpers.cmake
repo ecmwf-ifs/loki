@@ -176,6 +176,7 @@ function( loki_copy_compile_flags )
                     set_source_files_properties( ${newsrc} PROPERTIES ${_prop} ${${orig}_${_prop}} )
                 endif()
             endforeach()
+
         endforeach()
     endif()
 

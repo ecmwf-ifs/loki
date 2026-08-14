@@ -210,8 +210,10 @@ function( loki_update_target_sources )
     # property is not always being honoured by CMake.
     get_target_property( _target_sources ${_PAR_LUTS_TARGET} SOURCES )
     foreach( source ${_PAR_LUTS_REMOVE_SOURCES} )
-        # get_property( source_deps SOURCE ${source} PROPERTY OBJECT_DEPENDS )
-        list( FILTER _target_sources EXCLUDE REGEX ${source} )
+        # CMake target source lists may use relative paths while Loki plans
+        # contain absolute paths. Match the source-file suffix in both forms.
+        get_filename_component( source_name ${source} NAME )
+        list( FILTER _target_sources EXCLUDE REGEX "(^|.*/)${source_name}$" )
     endforeach()
 
     if( NOT _PAR_LUTS_COPY_UNMODIFIED )
@@ -247,6 +249,14 @@ function( loki_update_target_sources )
     # matching indexes between LOKI_SOURCES_TO_TRANSFORM and LOKI_SOURCES_TO_APPEND
     # to encode the source-to-source mapping. This matching is strictly enforced
     # in the `CMakePlannerTransformation`.
+    set( _loki_source_dirs )
+    foreach( source ${_PAR_LUTS_TRANSFORM_SOURCES} )
+        get_filename_component( source_dir ${source} DIRECTORY )
+        list( APPEND _loki_source_dirs ${source_dir} )
+    endforeach()
+    list( REMOVE_DUPLICATES _loki_source_dirs )
+    target_include_directories( ${_PAR_LUTS_TARGET} PRIVATE ${_loki_source_dirs} )
+
     loki_copy_compile_flags(
         ORIG_LIST ${_PAR_LUTS_TRANSFORM_SOURCES}
         NEW_LIST ${_PAR_LUTS_APPEND_SOURCES}
@@ -396,6 +406,17 @@ function( loki_transform_target )
             DEPENDS     ${LOKI_SOURCES_TO_TRANSFORM} ${_PAR_T_HEADERS} ${_PAR_T_CONFIG}
             ${_TRANSFORM_OPTIONS}
         )
+
+        # A shared transformation may generate sources consumed by targets in
+        # other CMake directories. Attach one output target to every owner so
+        # their native build graphs wait for the common conversion command.
+        string(REPLACE ";" "_" _loki_generation_target "loki_generate_${CALLGRAPH_NAME}")
+        add_custom_target( ${_loki_generation_target}
+            DEPENDS ${LOKI_SOURCES_TO_APPEND}
+        )
+        foreach( _target IN LISTS _PAR_T_TARGET )
+            add_dependencies( ${_target} ${_loki_generation_target} )
+        endforeach()
     endif()
 
 

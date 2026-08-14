@@ -419,6 +419,13 @@ class ItemFactory:
         """
         is_strict = not config or config.default.get('strict', True)
 
+        # A disabled type-bound call is intentionally opaque. Check its
+        # terminal binding before resolving the parent derived type, which may
+        # belong to an external library that is not part of this scheduler.
+        binding_name = proc_symbol.name_parts[-1]
+        if '%' in binding_name and self._is_ignored(binding_name, config, ignore):
+            return None
+
         # This is a typebound procedure call: we are only resolving
         # to the type member by mapping the local name to the type name,
         # and creating a ProcedureBindingItem. For that we need to find out
@@ -432,12 +439,18 @@ class ItemFactory:
             warning(msg)
             return None
         type_name = dtype.name
+        item_name = f'{type_name}%{"%".join(proc_symbol.name_parts[1:])}'.lower()
+        if self._is_exactly_ignored(item_name, config, ignore):
+            return None
         scope_name = None
 
         # Imported in current or parent scopes?
         if imprt := get_all_import_map(scope_ir).get(type_name):
             scope_name = imprt.module
             type_name = self._get_imported_symbol_name(imprt, type_name)
+            item_name = f'{scope_name}#{type_name}%{"%".join(proc_symbol.name_parts[1:])}'.lower()
+            if self._is_exactly_ignored(item_name, config, ignore):
+                return None
 
         # Otherwise: must be declared in parent module scope
         if not scope_name:
@@ -694,6 +707,15 @@ class ItemFactory:
         keys = as_tuple(config.disable if config else ()) + as_tuple(ignore)
         return bool(keys and SchedulerConfig.match_item_keys(
             name, keys, use_pattern_matching=True, match_item_parents=True
+        ))
+
+    @staticmethod
+    def _is_exactly_ignored(name, config, ignore):
+        """Check only fully-qualified disabled names before type resolution."""
+        keys = as_tuple(config.disable if config else ()) + as_tuple(ignore)
+        keys = tuple(key for key in keys if '#' in key or '%' in key)
+        return bool(keys and SchedulerConfig.match_item_keys(
+            name, keys, use_pattern_matching=True, match_item_parents=False
         ))
 
     @staticmethod

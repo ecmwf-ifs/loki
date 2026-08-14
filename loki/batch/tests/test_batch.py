@@ -1756,3 +1756,35 @@ END MODULE TYPEBOUND_ITEM_TARGETS_MOD
 
     assert driver_item.create_definition_items(item_factory, scheduler_config) == ()
     assert driver_item.create_dependency_items(item_factory, scheduler_config) == ()
+
+
+def test_disabled_unresolved_typebound_call(default_config):
+    """Disabled bindings must not require definitions from external modules."""
+    default_config['default']['disable'] += ['get_device_data_rdonly']
+
+    fcode = """
+MODULE DRIVER_MOD
+    USE FIELD_MODULE, ONLY: FIELD_2RB
+    IMPLICIT NONE
+CONTAINS
+    SUBROUTINE DRIVER(FIELD)
+        CLASS(FIELD_2RB), POINTER :: FIELD
+        REAL :: DATA
+
+        CALL FIELD%GET_DEVICE_DATA_RDONLY(DATA)
+    END SUBROUTINE DRIVER
+END MODULE DRIVER_MOD
+    """.strip()
+
+    source = Sourcefile.from_source(
+        fcode, parser_classes=RegexParserClass.ProgramUnitClass, frontend=REGEX
+    )
+    source.path = 'None'
+    item_factory = ItemFactory()
+    scheduler_config = SchedulerConfig.from_dict(default_config)
+
+    file_item = item_factory.get_or_create_file_item_from_source(source, scheduler_config)
+    module_item = file_item.create_definition_items(item_factory, scheduler_config)[0]
+    driver_item = module_item.create_definition_items(item_factory, scheduler_config)[0]
+
+    assert driver_item.create_dependency_items(item_factory, scheduler_config) == ('field_module',)

@@ -10,7 +10,7 @@ import pytest
 from loki import Module, Subroutine, as_tuple
 from loki.frontend import available_frontends
 
-from loki.transformations import PragmaModelTransformation
+from loki.transformations import PragmaModelTransformation, RemovePragmaTransformation
 from loki.ir import FindNodes, Pragma
 
 def check_pragma(pragma, keyword, content, check_for_equality=True):
@@ -20,6 +20,29 @@ def check_pragma(pragma, keyword, content, check_for_equality=True):
     else:
         for _content in as_tuple(content):
             assert _content in pragma.content
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_remove_pragma_transformation(frontend):
+    fcode = """
+subroutine kernel
+  !$acc routine vector
+  !$omp parallel
+  !$loki loop vector
+  !$acc parallel
+  do jl = 1, nlon
+  end do
+  !$acc end parallel
+end subroutine kernel
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    RemovePragmaTransformation(
+        directive='acc', routines=('kernel',)
+    ).transform_subroutine(routine)
+
+    pragmas = FindNodes(Pragma).visit(routine.ir)
+    assert [pragma.keyword.lower() for pragma in pragmas] == ['omp', 'loki']
 
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu'])
@@ -53,8 +76,9 @@ subroutine some_func(ret)
   !$loki end loop vector
   !$loki loop seq
   !$loki end loop seq
-  !$loki routine vector
-  !$loki routine seq
+   !$loki routine vector
+   !$loki routine seq
+   !$loki routine target(some_kernel) vector
   !$loki device-present vars(tmp1, tmp2)
   !$loki end device-present vars(tmp1, tmp2)
   !$loki device-ptr vars(tmp1, tmp2)
@@ -102,8 +126,9 @@ end subroutine some_func
                 ('loki', 'end loop vector'),
                 ('acc', 'loop seq'),
                 ('loki', 'end loop seq'),
-                ('acc', 'routine vector'),
-                ('acc', 'routine seq'),
+                 ('acc', 'routine vector'),
+                 ('acc', 'routine seq'),
+                 ('acc', 'routine (some_kernel) vector'),
                 ('acc', 'data present(tmp1, tmp2)'),
                 ('acc', 'end data'),
                 ('acc', 'data deviceptr(tmp1, tmp2)'),
@@ -130,6 +155,7 @@ end subroutine some_func
                 ('loki', 'end loop seq'),
                 ('loki', 'routine vector'),
                 ('omp', 'declare target'),
+                ('loki', 'routine target(some_kernel) vector'),
                 ('loki', ('device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('end device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('device-ptr', 'vars(tmp1, tmp2)'), False),
@@ -154,8 +180,9 @@ end subroutine some_func
                 ('loki', 'end loop vector'),
                 ('loki', 'loop seq'),
                 ('loki', 'end loop seq'),
-                ('loki', 'routine vector'),
-                ('loki', 'routine seq'),
+                 ('loki', 'routine vector'),
+                 ('loki', 'routine seq'),
+                 ('loki', 'routine target(some_kernel) vector'),
                 ('loki', ('device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('end device-present', 'vars(tmp1, tmp2)'), False),
                 ('loki', ('device-ptr', 'vars(tmp1, tmp2)'), False),

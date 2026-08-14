@@ -179,7 +179,12 @@ class SGraph:
 
         # propagate 'lib' attribute (the compile unit the item belongs to)
         for new_item in new_items:
-            new_item.config['lib'] = item.config.get('lib', None)
+            item_keys = config.match_item_keys(new_item.name, config.routines)
+            scope_name = new_item.name.partition('#')[0]
+            if scope_name in config.routines and 'lib' in config.routines[scope_name]:
+                new_item.config['lib'] = config.routines[scope_name]['lib']
+            elif not any('lib' in config.routines[key] for key in item_keys):
+                new_item.config['lib'] = item.config.get('lib', None)
 
         # Careful not to include cycles (from recursive TypeDefs)
         self.add_edges((item, item_) for item_ in dependencies if not item == item_)
@@ -267,11 +272,17 @@ class SGraph:
             default_lib = None
             libs = [item.lib for item in items]
             if any(lib is not default_lib for lib in libs):
-                use_lib = None
-                for lib in libs:
-                    if lib is not default_lib:
-                        use_lib = lib
-                        break
+                # A source can include inherited procedure items and a module
+                # with an explicit target owner. The explicit owner must win.
+                explicit_libs = [
+                    item.lib for item in items
+                    if any('lib' in config.routines[key] for key in
+                           config.match_item_keys(item.name, config.routines))
+                ]
+                use_lib = next(
+                    (lib for lib in explicit_libs if lib is not default_lib),
+                    next(lib for lib in libs if lib is not default_lib)
+                )
                 file_item.config['lib'] = use_lib
 
         # Insert edges to the file items corresponding to the successors of the items

@@ -12,7 +12,31 @@ from loki.ir import (
     FindNodes, Pragma, Transformer, get_pragma_command_and_parameters
 )
 
-__all__ = ['PragmaModelTransformation']
+__all__ = ['PragmaModelTransformation', 'RemovePragmaTransformation']
+
+
+class RemovePragmaTransformation(Transformation):
+    """
+    Remove pragmas with selected directive keywords.
+
+    This is useful when a source contains an existing offload model that
+    must be replaced by pragmas generated later in a transformation pipeline.
+    """
+
+    def __init__(self, directive, routines=None):
+        self.directive = tuple(directive.lower() for directive in (directive,)) \
+            if isinstance(directive, str) else tuple(name.lower() for name in directive)
+        self.routines = tuple(routine.lower() for routine in routines) if routines else ()
+
+    def transform_subroutine(self, routine, **kwargs):
+        if self.routines and routine.name.lower() not in self.routines:
+            return
+        pragma_map = {
+            pragma: None for pragma in FindNodes(Pragma).visit(routine.ir)
+            if pragma.keyword.lower() in self.directive
+        }
+        routine.spec = Transformer(pragma_map).visit(routine.spec)
+        routine.body = Transformer(pragma_map).visit(routine.body)
 
 
 class GenericPragmaMapper:
@@ -144,10 +168,12 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
         return Pragma(keyword='acc', content='end data')
 
     def pmap_routine(self, pragma, parameters, **kwargs):
+        target = parameters.get('target')
+        target = f'({target}) ' if target else ''
         if 'seq' in parameters:
-            return Pragma(keyword='acc', content='routine seq')
+            return Pragma(keyword='acc', content=f'routine {target}seq')
         if 'vector' in parameters:
-            return Pragma(keyword='acc', content='routine vector')
+            return Pragma(keyword='acc', content=f'routine {target}vector')
         return self.default_retval()
 
     def pmap_loop(self, pragma, parameters, **kwargs):

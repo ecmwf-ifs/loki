@@ -1360,6 +1360,7 @@ module typebound_procedure_calls_mod
     contains
         procedure :: add => add_other_type
         procedure :: total_sum
+        procedure, nopass :: initialise
     end type other_type
 
 contains
@@ -1393,6 +1394,11 @@ contains
             result = result + this%arr(i)%val
         end do
     end function total_sum
+
+    subroutine initialise(value)
+        integer, intent(inout) :: value
+        value = 1
+    end subroutine initialise
 
 end module typebound_procedure_calls_mod
     """.strip()
@@ -1464,6 +1470,7 @@ subroutine driver
         mysum = mysum + some%some_func()
     end associate
     call data%print
+    call data%stuff(1)%initialise(mysum)
 end subroutine driver
     """.strip()
 
@@ -1481,13 +1488,15 @@ end subroutine driver
 
     driver = scheduler['#driver'].ir
     calls = FindNodes(CallStatement).visit(driver.body)
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert calls[0].name == 'init'
     assert calls[0].arguments == ('data',)
     assert calls[1].name == 'add_my_type'
     assert calls[1].arguments == ('data%stuff(1)%arr(1)', '1')
     assert calls[2].name == 'print_content'
     assert calls[2].arguments == ('data',)
+    assert calls[3].name == 'initialise'
+    assert calls[3].arguments == ('mysum',)
 
     calls = FindInlineCalls().visit(driver.body)
     assert len(calls) == 3
@@ -1498,6 +1507,7 @@ end subroutine driver
     assert 'init' in driver.imported_symbols
     assert 'add_my_type' in driver.imported_symbols
     assert 'print_content' in driver.imported_symbols
+    assert 'initialise' in driver.imported_symbols
     assert 'total_sum' in driver.imported_symbols
 
     add_other_type = scheduler['typebound_procedure_calls_mod#add_other_type'].ir
@@ -1528,8 +1538,8 @@ end subroutine driver
         mod = scheduler['typebound_procedure_calls_mod#add_other_type'].ir.parent
 
         expected_routines = [
-            'reset', 'add_my_type', 'add_other_type', 'total_sum',
-            'add_other_type_', 'total_sum_', 'reset_', 'add_my_type_',
+            'reset', 'add_my_type', 'add_other_type', 'total_sum', 'initialise',
+            'add_other_type_', 'total_sum_', 'reset_', 'add_my_type_', 'initialise_',
         ]
         assert all(r.name.lower() in expected_routines for r in mod.subroutines)
 
