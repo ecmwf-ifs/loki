@@ -14,8 +14,8 @@ from loki.sourcefile import Sourcefile
 from loki.batch.item import Item
 from loki.batch import Scheduler
 from loki.ir import (
-    nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attached, get_pragma_parameters,
-    pragmas_attached
+    nodes as ir, FindNodes, is_loki_pragma, pragmas_attached,
+    pragma_regions_attached, get_pragma_parameters
 )
 from loki.expression import Variable, RangeIndex, IntLiteral
 from loki.expression import symbols as sym
@@ -1058,6 +1058,95 @@ def test_offload_deepcopy_transformation_remove_openmp_guard(frontend, remove_op
         pragma for pragma in FindNodes(ir.Pragma).visit(driver.body) if pragma.keyword.lower() == 'omp'
     ]
     assert bool(omp_pragmas) is not remove_openmp
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_driver_loop_lookup_with_nested_pragma_region(frontend, config, tmp_path):
+    """
+    Test driver-loop analysis lookup with a nested pragma region inside the loop.
+    """
+
+    fcode = {
+        'kernel': """
+module kernel_mod
+contains
+subroutine kernel(a)
+  real, intent(inout) :: a(:)
+
+  a(:) = a(:) + 1.
+end subroutine kernel
+end module kernel_mod
+        """.strip(),
+        'driver': """
+module driver_mod
+contains
+subroutine driver(ngpblks, a)
+  use kernel_mod, only : kernel
+  integer, intent(in) :: ngpblks
+  real, intent(inout) :: a(:,:)
+  integer :: ibl
+
+!$loki data
+!$loki driver-loop
+  do ibl = 1, ngpblks
+    !$loki remove
+    call kernel(a(:, ibl))
+    !$loki end remove
+  enddo
+!$loki end data
+
+end subroutine driver
+end module driver_mod
+        """.strip(),
+    }
+
+    workdir = tmp_path/'test_offload_deepcopy_nested_pragma_region'
+    workdir.mkdir()
+    for name, code in fcode.items():
+        (workdir/f'{name}.F90').write_text(code)
+
+    config['routines'] = {
+        'driver': {'role': 'driver'},
+    }
+
+    scheduler = Scheduler(
+        paths=workdir, config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=tmp_path, preprocess=True
+    )
+
+    scheduler.process(transformation=DataOffloadDeepcopyAnalysis())
+    scheduler.process(transformation=DataOffloadDeepcopyTransformation(mode='offload'))
+
+    # Check pragmas have been generated correctly
+    driver = scheduler['driver_mod#driver'].ir
+    pragmas = FindNodes(ir.Pragma).visit(driver.body)
+    assert len(pragmas) == 8
+    assert is_loki_pragma(pragmas[0], starts_with='unstructured-data in(a)')
+    assert is_loki_pragma(pragmas[1], starts_with='structured-data present(a)')
+    assert is_loki_pragma(pragmas[2], starts_with='driver-loop')
+    assert is_loki_pragma(pragmas[3], starts_with='remove')
+    assert is_loki_pragma(pragmas[4], starts_with='end remove')
+    assert is_loki_pragma(pragmas[5], starts_with='end structured-data')
+    assert is_loki_pragma(pragmas[6], starts_with='update host(a)')
+    assert is_loki_pragma(pragmas[7], starts_with='exit unstructured-data delete(a) finalize')
+
+    # Ensure regions and loop-attached pragmas work
+    with pragma_regions_attached(driver):
+        with pragmas_attached(driver, node_type=ir.Loop):
+            pragmas = FindNodes(ir.Pragma).visit(driver.body)
+            assert len(pragmas) == 3
+            assert is_loki_pragma(pragmas[0], starts_with='unstructured-data in(a)')
+            assert is_loki_pragma(pragmas[1], starts_with='update host(a)')
+            assert is_loki_pragma(pragmas[2], starts_with='exit unstructured-data delete(a) finalize')
+
+            regions = FindNodes(ir.PragmaRegion).visit(driver.body)
+            assert len(regions) == 2
+            assert is_loki_pragma(regions[0].pragma, starts_with='structured-data present(a)')
+            assert is_loki_pragma(regions[1].pragma, starts_with='remove')
+
+            loops = FindNodes(ir.Loop).visit(driver.body)
+            assert len(loops) == 1
+            assert is_loki_pragma(loops[0].pragma, starts_with='driver-loop')
 
 
 def test_deepcopy_dataflow_analysis_ignore_calls_skips_unenriched_call():
