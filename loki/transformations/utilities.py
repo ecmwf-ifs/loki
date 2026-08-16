@@ -11,6 +11,8 @@ Collection of utility routines to deal with general language conversion.
 
 import platform
 from collections import defaultdict
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pymbolic.primitives import Expression
 from loki.expression import (
     symbols as sym, SubstituteExpressionsMapper, ExpressionRetriever,
@@ -20,7 +22,7 @@ from loki.ir import (
     nodes as ir, Import, TypeDef, VariableDeclaration, is_loki_pragma,
     StatementFunction, Transformer, FindNodes, FindVariables,
     FindInlineCalls, FindLiterals, SubstituteExpressions,
-    ExpressionFinder
+    ExpressionFinder, pragma_regions_attached, pragmas_attached
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -35,9 +37,32 @@ __all__ = [
     'convert_to_lower_case', 'replace_intrinsics', 'rename_variables',
     'sanitise_imports', 'replace_selected_kind',
     'single_variable_declaration', 'recursive_expression_map_update',
-    'get_integer_variable', 'get_loop_bounds', 'is_pragma_driver_loop', 'find_driver_loops',
+    'get_integer_variable', 'get_loop_bounds', 'is_pragma_driver_loop',
+    'find_driver_loops', 'DriverLoopRegion', 'find_driver_loop_regions',
+    'driver_loop_regions_attached',
     'get_local_arrays', 'check_routine_sequential', 'substitute_variables_for_definitions'
 ]
+
+
+@dataclass(frozen=True, eq=False)
+class DriverLoopRegion:
+    """
+    Metadata for a driver loop inside a Loki pragma region.
+
+    The :attr:`key` property is stable across IR node mutations and is intended
+    for long-lived transformation metadata. The ``region`` and ``loop`` fields
+    are current IR handles and should not be used as persistent dictionary keys.
+    """
+
+    region_index: int
+    loop_index: int
+    region: ir.PragmaRegion
+    loop: ir.Loop
+
+    @property
+    def key(self):
+        """Stable ordinal key for this loop within the selected pragma regions."""
+        return self.region_index, self.loop_index
 
 
 def single_variable_declaration(routine, variables=None, group_by_shape=False):
@@ -758,6 +783,57 @@ def find_driver_loops(section, targets):
     find_driver = FindDriverLoops()
     find_driver.visit(section, targets=targets)
     return find_driver.driver_loops
+
+
+def find_driver_loop_regions(section, targets, starts_with='parallel'):
+    """
+    Find driver loops inside Loki pragma regions in a given section.
+
+    This utility assumes :any:`PragmaRegion` nodes and loop pragmas have
+    already been attached in ``section``. It returns :any:`DriverLoopRegion`
+    entries with stable ordinal keys that can be used for transformation
+    metadata instead of using mutable IR nodes as dictionary keys.
+
+    Parameters
+    ----------
+    section : :any:`Section` or tuple
+        Section in which to find pragma regions and driver loops.
+    targets : list or string
+        List of subroutines that are to be considered as part of the
+        transformation call tree.
+    starts_with : str
+        Loki pragma-region marker to include, e.g. ``parallel`` or ``data``.
+    """
+
+    entries = []
+    region_index = 0
+    for region in FindNodes(ir.PragmaRegion).visit(section):
+        if not is_loki_pragma(region.pragma, starts_with=starts_with):
+            continue
+
+        driver_loops = find_driver_loops(region.body, targets)
+        for loop_index, loop in enumerate(driver_loops):
+            entries.append(DriverLoopRegion(
+                region_index=region_index, loop_index=loop_index, region=region, loop=loop
+            ))
+        region_index += 1
+
+    return entries
+
+
+@contextmanager
+def driver_loop_regions_attached(module_or_routine, targets, starts_with='parallel'):
+    """
+    Context manager yielding driver-loop metadata for Loki pragma regions.
+
+    This attaches :any:`PragmaRegion` nodes for the lifetime of the context and
+    yields :any:`DriverLoopRegion` entries collected by
+    :any:`find_driver_loop_regions`.
+    """
+
+    with pragma_regions_attached(module_or_routine):
+        with pragmas_attached(module_or_routine, ir.Loop):
+            yield find_driver_loop_regions(module_or_routine.body, targets, starts_with=starts_with)
 
 
 def get_local_arrays(routine, section, unique=True):

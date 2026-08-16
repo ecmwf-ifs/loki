@@ -13,7 +13,7 @@ from loki.frontend import available_frontends, OMNI
 from loki.logging import WARNING
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls,
-    SubstituteExpressions, pragmas_attached
+    SubstituteExpressions, is_loki_pragma, pragma_regions_attached, pragmas_attached
 )
 from loki.types import BasicType
 
@@ -21,8 +21,9 @@ from loki.transformations.utilities import (
     single_variable_declaration, recursive_expression_map_update,
     convert_to_lower_case, replace_intrinsics, rename_variables,
     get_integer_variable, get_loop_bounds, is_driver_loop,
-    find_driver_loops, get_local_arrays, check_routine_sequential,
-    substitute_variables_for_definitions, is_pragma_driver_loop
+    find_driver_loops, find_driver_loop_regions, driver_loop_regions_attached,
+    get_local_arrays, check_routine_sequential, substitute_variables_for_definitions,
+    is_pragma_driver_loop
 )
 
 
@@ -625,6 +626,85 @@ end subroutine test_find_driver_loops
         assert len(driver_loops) == 10
         for i in [0, 3, 4, 6, 8, 9, 13, 17, 19, 20]:
             assert loops[i] in driver_loops
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilities_find_driver_loop_regions(frontend):
+    """Test driver-loop enumeration inside generic Loki pragma regions."""
+
+    fcode = """
+subroutine test_find_driver_loop_regions(n, arr)
+  integer, intent(in) :: n
+  real, intent(inout) :: arr(n, n)
+  integer :: i, j
+
+  !$loki parallel private(i)
+  !$loki driver-loop
+  do i=1, n
+    !$loki remove
+    call target_kernel(arr(:, i))
+    !$loki end remove
+  end do
+  !$loki end parallel
+
+  !$loki ignored-region
+  do i=1, n
+    call target_kernel(arr(:, i))
+  end do
+  !$loki end ignored-region
+
+  !$loki parallel
+  do i=1, n
+    call target_kernel(arr(:, i))
+  end do
+
+  !$loki driver-loop
+  do j=1, n
+    arr(j, j) = 0.
+  end do
+  !$loki end parallel
+end subroutine test_find_driver_loop_regions
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    with driver_loop_regions_attached(routine, targets=('target_kernel',), starts_with='parallel') as entries:
+        assert [entry.key for entry in entries] == [(0, 0), (1, 0), (1, 1)]
+        assert [entry.region_index for entry in entries] == [0, 1, 1]
+        assert [entry.loop_index for entry in entries] == [0, 0, 1]
+        assert [entry.loop.variable for entry in entries] == ['i', 'i', 'j']
+        assert all(is_loki_pragma(entry.region.pragma, starts_with='parallel') for entry in entries)
+        assert isinstance(entries[0].loop.body[0], ir.PragmaRegion)
+
+    assert not FindNodes(ir.PragmaRegion).visit(routine.body)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_transform_utilities_find_driver_loop_regions_attached_section(frontend):
+    """Test the lower-level region-loop utility on an already attached section."""
+
+    fcode = """
+subroutine test_find_driver_loop_regions_attached_section(n, arr)
+  integer, intent(in) :: n
+  real, intent(inout) :: arr(n, n)
+  integer :: i
+
+  !$loki data
+  do i=1, n
+    call target_kernel(arr(:, i))
+  end do
+  !$loki end data
+end subroutine test_find_driver_loop_regions_attached_section
+"""
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    with pragma_regions_attached(routine):
+        with pragmas_attached(routine, node_type=ir.Loop):
+            entries = find_driver_loop_regions(routine.body, targets=('target_kernel',), starts_with='data')
+            assert len(entries) == 1
+            assert entries[0].key == (0, 0)
+            assert entries[0].loop.variable == 'i'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
