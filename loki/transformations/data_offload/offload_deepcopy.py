@@ -21,8 +21,7 @@ from loki.batch import Transformation, TypeDefItem, ProcedureItem
 from loki.expression import symbols as sym
 from loki.ir import (
         nodes as ir, FindNodes, SubstituteExpressions, Transformer,
-        pragma_regions_attached, get_pragma_parameters, SubstitutePragmaStrings,
-        is_loki_pragma, pragmas_attached
+        get_pragma_parameters, SubstitutePragmaStrings
 )
 from loki.logging import warning
 from loki.tools import as_tuple, OrderedSet
@@ -33,7 +32,7 @@ from loki.transformations.field_api import (
         field_get_host_data, field_delete_device_data,
         FieldAPIAccessorType
 )
-from loki.transformations.utilities import find_driver_loops, get_integer_variable
+from loki.transformations.utilities import driver_loop_regions_attached, get_integer_variable
 
 __all__ = ['DataOffloadDeepcopyAnalysis', 'DataOffloadDeepcopyTransformation']
 
@@ -262,57 +261,49 @@ class DataOffloadDeepcopyAnalysis(Transformation):
 
         item.trafo_data[self._key] = defaultdict(dict)
 
-        with pragmas_attached(routine, ir.Loop):
-            driver_loops = find_driver_loops(routine.body, targets)
-        loop_analyses = {}
+        symbol_map = routine.symbol_map | routine.all_imported_symbol_map
+        with driver_loop_regions_attached(routine, targets, starts_with='data') as driver_loop_regions:
+            for entry in driver_loop_regions:
+                loop = entry.loop
 
-        for loop in driver_loops:
+                # We can't simply map successor.ir: successor here because we may
+                # call a routine twice with different arguments.
+                successor_map = {}
+                for call in FindNodes(ir.CallStatement).visit(loop.body):
+                    if (successor := [s for s in successors if call.routine == s.ir]):
+                        successor_map[call] = successor[0]
 
-            # We can't simply map successor.ir: successor here because we may call a routine twice with different
-            # arguments
-            successor_map = {}
-            calls = FindNodes(ir.CallStatement).visit(loop.body)
-            for call in calls:
-                if (successor := [s for s in successors if call.routine == s.ir]):
-                    successor_map[call] = successor[0]
+                loop_analysis = {}
+                self.process_body(routine.name, item, successors, successor_map, loop, analysis=loop_analysis)
 
-            # The analysis is accumulated on item.trafo_data, so to ensure each driver loop has an independent,
-            # analysis we reset it here.
-            item.trafo_data[self._key]['analysis'] = {}
-            self.process_body(routine.name, item, successors, successor_map, loop)
+                layered_dict = {}
+                for k, v in loop_analysis.items():
+                    _temp_dict = create_nested_dict(k, v, symbol_map)
+                    layered_dict = merge_nested_dict(layered_dict, _temp_dict)
 
-            symbol_map = routine.symbol_map | routine.all_imported_symbol_map
-            layered_dict = {}
-            for k, v in item.trafo_data[self._key]['analysis'].items():
-                _temp_dict = create_nested_dict(k, v, symbol_map)
-                layered_dict = merge_nested_dict(layered_dict, _temp_dict)
+                item.trafo_data[self._key]['analysis'][entry.key] = layered_dict
 
-            loop_analyses[loop] = layered_dict
-
-            if self.output_analysis:
-                if HAVE_YAML:
-                    str_layered_dict = self.stringify_dict(layered_dict)
-                    base_dir = Path(kwargs['build_args']['output_dir'])
-                    if successor_map:
-                        target_routine_name = list(successor_map.keys())[0].name
+                if self.output_analysis:
+                    if HAVE_YAML:
+                        str_layered_dict = self.stringify_dict(layered_dict)
+                        base_dir = Path(kwargs['build_args']['output_dir'])
+                        if successor_map:
+                            target_routine_name = list(successor_map.keys())[0].name
+                        else:
+                            target_routine_name = routine.name
+                        with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
+                            yaml.dump(str_layered_dict, f)
                     else:
-                        target_routine_name = routine.name
-                    with open(base_dir/f'driver_{target_routine_name}_dataoffload_analysis.yaml', 'w') as f:
-                        yaml.dump(str_layered_dict, f)
-                else:
-                    warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
-
-
-        # We store the collected analyses on item.trafo_data
-        for loop in driver_loops:
-            item.trafo_data[self._key]['analysis'][loop] = loop_analyses[loop]
+                        warning(
+                            '[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.'
+                        )
 
     def process_kernel(self, routine, item, successors, **kwargs):
 
         item.trafo_data[self._key] = defaultdict(dict)
 
-        # We can't simply map successor.ir: successor here because we may call a routine twice with different
-        # arguments
+        # We can't simply map successor.ir: successor here because we may call
+        # a routine twice with different arguments.
         successor_map = {}
         for call in FindNodes(ir.CallStatement).visit(routine.body):
             if (successor := [s for s in successors if call.routine == s.ir]):
@@ -334,9 +325,10 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             else:
                 warning('[Loki::DataOffloadDeepcopyAnalysis] cannot output analysis because yaml is not available.')
 
-    def process_body(self, routine_name, item, successors, successor_map, scope_node):
+    def process_body(self, routine_name, item, successors, successor_map, scope_node, analysis=None):
         # gather typedef configs from successors
         self.gather_typedef_configs(successors, item.trafo_data[self._key]['typedef_configs'])
+        analysis = item.trafo_data[self._key]['analysis'] if analysis is None else analysis
 
         has_spec = hasattr(scope_node, 'spec')
 
@@ -360,23 +352,23 @@ class DataOffloadDeepcopyAnalysis(Transformation):
             if has_spec:
                 for v in scope_node.spec.uses_symbols:
                     if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []):
-                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
+                        analysis[v.clone(dimensions=None)] = 'read'
 
             # Gather used and defined symbols in body
             uses_symbols = scope_node.body.uses_symbols if has_spec else scope_node.uses_symbols
 
             for v in uses_symbols:
                 if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
-                    item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'read'
+                    analysis[v.clone(dimensions=None)] = 'read'
 
             defines_symbols = scope_node.body.defines_symbols if has_spec else scope_node.defines_symbols
 
             for v in defines_symbols:
                 if v.name_parts[0].lower() in getattr(scope_node, '_dummies', []) or not has_spec:
                     if v in (spec_uses_symbols | uses_symbols):
-                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'readwrite'
+                        analysis[v.clone(dimensions=None)] = 'readwrite'
                     else:
-                        item.trafo_data[self._key]['analysis'][v.clone(dimensions=None)] = 'write'
+                        analysis[v.clone(dimensions=None)] = 'write'
 
     def gather_typedef_configs(self, successors, typedef_configs):
         """Gather typedef configs from children."""
@@ -531,16 +523,15 @@ class DataOffloadDeepcopyTransformation(Transformation):
         pragma_map = {}
         imports = defaultdict(tuple)
         symbol_map = routine.symbol_map | routine.all_imported_symbol_map
-        with pragma_regions_attached(routine):
-            for region in FindNodes(ir.PragmaRegion).visit(routine.body):
+        with driver_loop_regions_attached(routine, targets, starts_with='data') as driver_loop_regions:
+            entries_by_region = defaultdict(list)
+            for entry in driver_loop_regions:
+                entries_by_region[entry.region_index].append(entry)
 
-                # Only work on active `!$loki data` regions
-                if not is_loki_pragma(region.pragma, starts_with='data'):
-                    continue
+            for entries in entries_by_region.values():
+                region = entries[0].region
 
                 parameters = get_pragma_parameters(region.pragma, starts_with='data')
-                with pragmas_attached(routine, ir.Loop):
-                    driver_loops = find_driver_loops(region.body, targets)
 
                 # skip the deepcopy for variables previously marked as present/private
                 present = self.get_pragma_vars(parameters, 'present')
@@ -554,11 +545,18 @@ class DataOffloadDeepcopyTransformation(Transformation):
 
                 copy, host, wipe = (), (), ()
                 present_vars = ()
-                for loop in driver_loops:
+                for entry in entries:
+
+                    if entry.key not in analyses:
+                        msg = (
+                            '[Loki::DataOffloadDeepcopyTransformation] item missing analysis for '
+                            f'driver loop region {entry.key} in {routine.name}.'
+                        )
+                        raise RuntimeError(msg)
 
                     # filter out root-level scalars from the analysis as these are thread-private by default
                     # and should not in any case be copied back to host
-                    analysis = {k: v for k, v in analyses[loop].items()
+                    analysis = {k: v for k, v in analyses[entry.key].items()
                                 if not (isinstance(k.type.dtype, BasicType) and isinstance(k, sym.Scalar))}
 
                     # update analysis with manual overrides
