@@ -25,7 +25,7 @@ from loki.subroutine import Subroutine
 from loki.tools import gettempdir, flatten, as_tuple
 from loki.transformations import (
         DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, RemoveCodeTransformation,
-        find_driver_loops
+        driver_loop_regions_attached
 )
 from loki.transformations.data_offload.offload_deepcopy import DeepcopyDataflowAnalysis
 from loki.types import BasicType, DerivedType, SymbolAttributes, Scope, ProcedureType
@@ -472,13 +472,17 @@ def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_ana
         messages = [log.message for log in caplog.records]
         assert '[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in kernel' in messages[-1]
 
-    # The analysis is tied to driver loops
+    # The analysis is tied to driver loops inside data regions
     trafo_data_key = transformation._key
     driver_item = scheduler['driver_mod#driver']
-    driver_loop = find_driver_loops(driver_item.ir.body, targets=['kernel', 'nested_kernel_write'])[0]
+    with driver_loop_regions_attached(
+            driver_item.ir, targets=['kernel', 'nested_kernel_write'], starts_with='data'
+    ) as driver_loop_regions:
+        driver_loop_key = driver_loop_regions[0].key
 
     #stringify dict for comparison
-    stringified_dict = transformation.stringify_dict(driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop])
+    analysis = driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop_key]
+    stringified_dict = transformation.stringify_dict(analysis)
     sorted_expected_analysis = _nested_sort(expected_analysis)
     assert _nested_sort(stringified_dict) == sorted_expected_analysis
 
@@ -984,15 +988,16 @@ def test_offload_deepcopy_simple_driver(frontend, config, deepcopy_code, tmp_pat
     transformation = DataOffloadDeepcopyAnalysis(output_analysis=True)
     scheduler.process(transformation=transformation)
 
-    # The analysis is tied to driver loops
+    # The analysis is tied to driver loops inside data regions
     trafo_data_key = transformation._key
     driver_item = scheduler['simple_driver_mod#simple_driver']
     driver = scheduler['simple_driver_mod#simple_driver'].ir
-    with pragmas_attached(driver, ir.Loop):
-        driver_loop = find_driver_loops(driver.body, targets=[])[0]
+    with driver_loop_regions_attached(driver, targets=[], starts_with='data') as driver_loop_regions:
+        driver_loop_key = driver_loop_regions[0].key
 
     #stringify dict for comparison
-    stringified_dict = transformation.stringify_dict(driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop])
+    analysis = driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop_key]
+    stringified_dict = transformation.stringify_dict(analysis)
     expected_analysis = {
         'ngpblks' : 'read',
         'variable' : {
