@@ -1017,6 +1017,64 @@ def test_offload_deepcopy_simple_driver(frontend, config, deepcopy_code, tmp_pat
     check_other_variable_type('offload', conds, calls, pragmas, driver)
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_driver_loop_lookup_with_nested_pragma_region(frontend, config, tmp_path):
+    """
+    Test driver-loop analysis lookup with a nested pragma region inside the loop.
+    """
+
+    fcode = {
+        'kernel': """
+module kernel_mod
+contains
+subroutine kernel(a)
+  real, intent(inout) :: a(:)
+
+  a(:) = a(:) + 1.
+end subroutine kernel
+end module kernel_mod
+        """.strip(),
+        'driver': """
+module driver_mod
+contains
+subroutine driver(ngpblks, a)
+  use kernel_mod, only : kernel
+  integer, intent(in) :: ngpblks
+  real, intent(inout) :: a(:,:)
+  integer :: ibl
+
+!$loki data
+!$loki driver-loop
+  do ibl = 1, ngpblks
+    !$loki remove
+    call kernel(a(:, ibl))
+    !$loki end remove
+  enddo
+!$loki end data
+
+end subroutine driver
+end module driver_mod
+        """.strip(),
+    }
+
+    workdir = tmp_path/'test_offload_deepcopy_nested_pragma_region'
+    workdir.mkdir()
+    for name, code in fcode.items():
+        (workdir/f'{name}.F90').write_text(code)
+
+    config['routines'] = {
+        'driver': {'role': 'driver'},
+    }
+
+    scheduler = Scheduler(
+        paths=workdir, config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=tmp_path, preprocess=True
+    )
+
+    scheduler.process(transformation=DataOffloadDeepcopyAnalysis())
+    scheduler.process(transformation=DataOffloadDeepcopyTransformation(mode='offload'))
+
+
 def test_deepcopy_dataflow_analysis_ignore_calls_skips_unenriched_call():
     scope = Scope()
     _name = 'ABOR1_ACC'
