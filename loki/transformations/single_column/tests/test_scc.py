@@ -262,6 +262,10 @@ def test_scc_base_resolve_implicit_rhs_ranges_config(frontend, horizontal):
     assert len(conds) == 1
     assert conds[0].condition == 'q(jl) > 0.'
 
+    assigns = FindNodes(Assignment).visit(conds[0].body)
+    assert len(assigns) == 1
+    assert assigns[0].lhs == 'q(jl)' and assigns[0].rhs == 't(1 + jl - start)'
+
 
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_scc_base_resolve_implicit_rhs_ranges_scalar_rhs(frontend, horizontal):
