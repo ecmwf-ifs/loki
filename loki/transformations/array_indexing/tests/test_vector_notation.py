@@ -724,11 +724,11 @@ end subroutine test_ifs_patterns
 
     # --- Pattern 1: work(kidia:kfdia) = 1.0 -> DO jl=kidia,kfdia; work(jl)=1.0 ---
     p1_loops = [l for l in loops
-                if l.variable.name == 'jl' and str(l.bounds) == 'kidia:kfdia']
+                if l.variable.name == 'jl' and l.bounds == 'kidia:kfdia']
     assert len(p1_loops) >= 1, "Pattern 1: expected jl loop with kidia:kfdia bounds"
     p1_assigns = FindNodes(ir.Assignment).visit(p1_loops[0].body)
     assert len(p1_assigns) >= 1
-    assert str(p1_assigns[0].lhs) == 'work(jl)'
+    assert p1_assigns[0].lhs == 'work(jl)'
 
     # --- Pattern 2: element-wise pssn(jl,1:klevsn) = ptsn/pwsn ---
     # Should create inner loop for dimension 2
@@ -761,7 +761,7 @@ end subroutine test_ifs_patterns
     # --- Pattern 4: Partial range pssn(jl, 2:klevsn) = 0.0 ---
     # Should create loop starting at 2
     p4_loop_names = [l for l in loops if l.variable.name.startswith('i_pssn_')]
-    p4_loops_from2 = [l for l in p4_loop_names if '2' in str(l.bounds)]
+    p4_loops_from2 = [l for l in p4_loop_names if l.bounds.start == 2]
     assert len(p4_loops_from2) >= 1, "Pattern 4: expected loop with lower bound of 2"
 
     # --- Pattern 5: pdhtss(jl, 1:klevsn, 1) = 0.0 and pdhtss(jl, 1:klevsn, 2) = 273.15 ---
@@ -796,7 +796,7 @@ end subroutine test_ifs_patterns
     p7_loops = [l for l in loops if l.variable.name.startswith('i_zdsng_')]
     assert len(p7_loops) >= 1, "Pattern 7: expected generated loop for zdsng"
     # Loop should start at 0
-    assert '0' in str(p7_loops[0].bounds), \
+    assert p7_loops[0].bounds.start == 0, \
         f"Pattern 7: expected 0 in loop bounds, got {p7_loops[0].bounds}"
 
     # --- Pattern 8: Nested 2D full-colon zremap(jl, :, :) = 0.0 ---
@@ -856,9 +856,8 @@ end subroutine test_masked_nested
     assert second_assign.rhs == '(g(jl) + cloud(jl))/ssa_total(jl)'
 
     second_inner_cond = next(c for c in FindNodes(ir.Conditional).visit(loops[1].body))
-    second_cond = str(second_inner_cond.condition).replace(' ', '').lower()
-    assert 'ssa_total(jl)>0.0' in second_cond
-    assert 'od_total(jl)>0.0' in second_cond
+    assert 'ssa_total(jl) > 0.0' in second_inner_cond.condition
+    assert 'od_total(jl) > 0.0' in second_inner_cond.condition
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -943,14 +942,14 @@ end subroutine test_early_exits
     assigns = FindNodes(ir.Assignment).visit(routine.body)
 
     # SUM assignment should remain unchanged (total = sum(...))
-    sum_assigns = [a for a in assigns if str(a.lhs) == 'total']
+    sum_assigns = [a for a in assigns if a.lhs == 'total']
     assert len(sum_assigns) == 1, "SUM assignment should still exist"
     for l in loops:
         assert sum_assigns[0] not in FindNodes(ir.Assignment).visit(l.body), \
             "SUM assignment should not be inside a generated loop"
 
     # Scalar assignment should remain unchanged
-    scalar_assigns = [a for a in assigns if str(a.lhs) == 'scalar']
+    scalar_assigns = [a for a in assigns if a.lhs == 'scalar']
     assert len(scalar_assigns) == 1, "Scalar assignment should still exist"
     for l in loops:
         assert scalar_assigns[0] not in FindNodes(ir.Assignment).visit(l.body), \
@@ -1347,9 +1346,9 @@ end subroutine test_dt_no_subst_explicit
     loop = loops[0]
     assert loop.variable.name.lower() == 'jl', \
         f"Expected loop variable 'jl', got '{loop.variable.name}'"
-    assert str(loop.bounds.start).lower() == 'kidia', \
+    assert loop.bounds.start == 'kidia', \
         f"Expected lower bound 'kidia', got '{loop.bounds.start}'"
-    assert str(loop.bounds.stop).lower() == 'kfdia', \
+    assert loop.bounds.stop == 'kfdia', \
         f"Expected upper bound 'kfdia', got '{loop.bounds.stop}'"
 
     # The bounds must remain as plain scalars (not derived-type members)
@@ -1571,7 +1570,7 @@ end subroutine test_no_implicit_rhs
                   and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
     assert len(unresolved) == 1, \
         "Only the assignment with bare RHS ':' should remain unresolved"
-    assert 'b(:)' in str(unresolved[0].rhs), \
+    assert unresolved[0].rhs == 'b(:)', \
         f"Unexpected unresolved assignment: {unresolved[0]}"
 
     # The resolved loops should cover explicit-range and scalar RHS assignments.
@@ -1581,7 +1580,7 @@ end subroutine test_no_implicit_rhs
         f"Expected resolved c(...) assignment, got: {rhs_texts}"
     assert '0.0' in rhs_texts, f"Expected scalar literal assignment, got: {rhs_texts}"
     assert 'scalar' in rhs_texts, f"Expected scalar variable assignment, got: {rhs_texts}"
-    assert all(str(assign.lhs) == 'a(jl)' for assign in loop_assigns)
+    assert all(assign.lhs == 'a(jl)' for assign in loop_assigns)
 
     # --- Part 2: range dimension NOT in the first position ---
     # Ensures that qualified-position tracking works when the range
@@ -1621,7 +1620,7 @@ end subroutine test_no_implicit_rhs_pos
                    and any(isinstance(d, sym.RangeIndex) for d in a.lhs.dimensions)]
     assert len(unresolved2) == 1, \
         "Only the assignment with bare RHS ':' should remain unresolved"
-    assert 'b(1, :)' in str(unresolved2[0].rhs), \
+    assert unresolved2[0].rhs == 'b(1, :)', \
         f"Unexpected unresolved assignment: {unresolved2[0]}"
 
     # The resolved loop bodies should reference explicit-range and scalar RHS cases.
@@ -1631,7 +1630,7 @@ end subroutine test_no_implicit_rhs_pos
         f"Expected resolved c(...) assignment, got: {rhs_texts2}"
     assert '0.0' in rhs_texts2, f"Expected scalar literal assignment, got: {rhs_texts2}"
     assert 'scalar' in rhs_texts2, f"Expected scalar variable assignment, got: {rhs_texts2}"
-    assert all(str(assign.lhs) == 'a(1, jl)' for assign in loop_assigns2)
+    assert all(assign.lhs == 'a(1, jl)' for assign in loop_assigns2)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1666,7 +1665,7 @@ end subroutine test_masked_scalar_rhs
     assert loops[0].variable == 'jl'
     assert loops[0].bounds == 'start:end'
     assert len(conds) == 1
-    assert 'a(jl) > 0.0' in str(conds[0].condition)
+    assert conds[0].condition == 'a(jl) > 0.0'
 
     loop_assign = FindNodes(ir.Assignment).visit(loops[0].body)[0]
     assert loop_assign.lhs == 'a(jl)'
@@ -2032,7 +2031,7 @@ end module test_non_elemental_inline_mod
 
     assert len(assigns) == 1
     assert not loops
-    assert str(assigns[0].lhs) == 'lhs(1:n)'
+    assert assigns[0].lhs == 'lhs(1:n)'
     assert len(inline_calls) == 1
     inline_call = next(iter(inline_calls))
     assert inline_call.name == 'some_func'
@@ -2400,8 +2399,8 @@ end module test_vector_rhs_subscript_mod
 
     assert not loops
     assert len(assigns) == 1
-    assert str(assigns[0].lhs) == 'od_cloud_new(:, jcol)'
-    assert str(assigns[0].rhs) == 'od_cloud(config%band, jlev, jcol)'
+    assert assigns[0].lhs == 'od_cloud_new(:, jcol)'
+    assert assigns[0].rhs == 'od_cloud(config%band, jlev, jcol)'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -2487,7 +2486,7 @@ end subroutine test_dup_dims
     assign = resolved_assigns[0]
     dims = assign.lhs.dimensions
     # The two inner dimensions (dims[1] and dims[2]) must be distinct scalar variables
-    assert str(dims[1]).lower() != str(dims[2]).lower(), (
+    assert dims[1] != dims[2], (
         f"Both inner dimensions of zremap are identical ({dims[1]!s}), "
         f"indicating only one loop variable was used for two distinct dimensions; "
         f"expected two distinct loop variables"
@@ -2539,7 +2538,7 @@ end subroutine test_scalar_range_dup
     dims = assign.lhs.dimensions
     # dims[1] should be the original J; dims[2] must be different
     assert dims[1] == 'j'
-    assert str(dims[2]).lower() != 'j', (
+    assert dims[2] != 'j', (
         f"Third subscript of field is '{dims[2]}' which aliases the existing "
         f"scalar subscript J; expected a distinct synthesized loop variable"
     )
@@ -2577,7 +2576,7 @@ end subroutine test_nested_loop_shadowing
     outer_j_loop = next(loop for loop in loops if loop.variable == 'j' and loop.bounds == '1:ninner')
     inner_loops = FindNodes(ir.Loop).visit(outer_j_loop.body)
     assert len(inner_loops) == 1
-    assert str(inner_loops[0].variable).lower() != 'j'
+    assert inner_loops[0].variable != 'j'
 
     assign = FindNodes(ir.Assignment).visit(inner_loops[0].body)[0]
     lhs_dims = assign.lhs.dimensions
