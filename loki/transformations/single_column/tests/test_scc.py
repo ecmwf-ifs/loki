@@ -268,89 +268,47 @@ def test_scc_base_resolve_implicit_rhs_ranges_config(frontend, horizontal):
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_base_resolve_implicit_rhs_ranges_scalar_rhs(frontend, horizontal):
+@pytest.mark.parametrize('resolve_vector_notation', [True, False])
+def test_scc_resolve_implicit_rhs_ranges_scalar_rhs(frontend, horizontal, resolve_vector_notation):
     """
     ``resolve_implicit_rhs_ranges = False`` must not block mandatory horizontal
     resolution when the RHS is scalar-only.
     """
 
-    fcode_kernel = """
-  SUBROUTINE compute_scalar_rhs(start, end, nlon, q, scalar)
+    fcode = """
+  SUBROUTINE test_scalar_rhs(start, end, nlon, q, scalar)
     INTEGER, INTENT(IN) :: start, end, nlon
     REAL, INTENT(INOUT) :: q(nlon)
     REAL, INTENT(IN) :: scalar
 
     q(start:end) = 0.
     q(start:end) = scalar
-  END SUBROUTINE compute_scalar_rhs
+  END SUBROUTINE test_scalar_rhs
 """
 
-    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
-    kernel = kernel_source.subroutines[0]
-    kernel_item = ProcedureItem(
-        name='#compute_scalar_rhs', source=kernel_source,
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source.subroutines[0]
+    item = ProcedureItem(
+        name='#test_scalar_rhs', source=source,
         config={
-            'resolve_vector_notation': False,
+            'resolve_vector_notation': resolve_vector_notation,
             'resolve_implicit_rhs_ranges': False,
         }
     )
 
     scc_transform = SCCBaseTransformation(horizontal=horizontal)
-    scc_transform.apply(kernel, role='kernel', item=kernel_item)
+    role = 'driver' if resolve_vector_notation else 'kernel'
+    scc_transform.apply(routine, role=role, item=item)
 
-    assert 'jl' in kernel.variables
-    loops = FindNodes(Loop).visit(kernel.body)
+    assert 'jl' in routine.variables
+    loops = FindNodes(Loop).visit(routine.body)
     assert len(loops) == 2
     assert all(loop.variable == 'jl' for loop in loops)
     assert all(loop.bounds == 'start:end' for loop in loops)
 
-    loop_assigns = [FindNodes(Assignment).visit(loop.body)[0] for loop in loops]
-    rhs_texts = {str(assign.rhs).replace(' ', '') for assign in loop_assigns}
-    assert rhs_texts == {'0.', 'scalar'}
-    assert all(str(assign.lhs) == 'q(jl)' for assign in loop_assigns)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_scc_driver_resolve_implicit_rhs_ranges_scalar_rhs(frontend, horizontal):
-    """
-    Driver-side horizontal resolution should also preserve scalar RHS lowering
-    when ``resolve_implicit_rhs_ranges = False``.
-    """
-
-    fcode_driver = """
-  SUBROUTINE drive_scalar_rhs(start, end, nlon, q, scalar)
-    INTEGER, INTENT(IN) :: start, end, nlon
-    REAL, INTENT(INOUT) :: q(nlon)
-    REAL, INTENT(IN) :: scalar
-
-    q(start:end) = 0.
-    q(start:end) = scalar
-  END SUBROUTINE drive_scalar_rhs
-"""
-
-    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
-    driver = driver_source.subroutines[0]
-    driver_item = ProcedureItem(
-        name='#drive_scalar_rhs', source=driver_source,
-        config={
-            'resolve_vector_notation': True,
-            'resolve_implicit_rhs_ranges': False,
-        }
-    )
-
-    scc_transform = SCCBaseTransformation(horizontal=horizontal)
-    scc_transform.apply(driver, role='driver', item=driver_item)
-
-    assert 'jl' in driver.variables
-    loops = FindNodes(Loop).visit(driver.body)
-    assert len(loops) == 2
-    assert all(loop.variable == 'jl' for loop in loops)
-    assert all(loop.bounds == 'start:end' for loop in loops)
-
-    loop_assigns = [FindNodes(Assignment).visit(loop.body)[0] for loop in loops]
-    rhs_texts = {str(assign.rhs).replace(' ', '') for assign in loop_assigns}
-    assert rhs_texts == {'0.', 'scalar'}
-    assert all(str(assign.lhs) == 'q(jl)' for assign in loop_assigns)
+    assigns = [FindNodes(Assignment).visit(loop.body)[0] for loop in loops]
+    assert assigns[0].lhs == 'q(jl)' and assigns[0].rhs == 0.
+    assert assigns[1].lhs == 'q(jl)' and assigns[1].rhs == 'scalar'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
