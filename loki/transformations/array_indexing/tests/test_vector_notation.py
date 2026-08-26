@@ -861,22 +861,23 @@ end subroutine test_masked_nested
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_masked_statements_fallback_unresolved_rhs(frontend):
+@pytest.mark.parametrize(('rhs', 'resolved'), (('b(:)', False), ('0.0', True)))
+def test_resolve_masked_statements_no_implicit_rhs(frontend, rhs, resolved):
     """
-    Keep unsupported masked statements unchanged when RHS bare ranges are not
-    allowed to resolve.
+    Keep masked statements with RHS bare ranges unchanged when implicit RHS
+    ranges are disabled, but still lower masked assignments with scalar RHS.
     """
 
-    fcode = """
-subroutine test_masked_fallback(start, end, n, a, b)
+    fcode = f"""
+subroutine test_masked_no_implicit_rhs(start, end, n, a, b)
   implicit none
   integer, intent(in) :: start, end, n
   real, intent(inout) :: a(n), b(n)
 
   where (a(start:end) > 0.0)
-    a(start:end) = b(:)
+    a(start:end) = {rhs}
   end where
-end subroutine test_masked_fallback
+end subroutine test_masked_no_implicit_rhs
     """.strip()
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
@@ -887,10 +888,23 @@ end subroutine test_masked_fallback
     loops = FindNodes(ir.Loop).visit(routine.body)
     conds = FindNodes(ir.Conditional).visit(routine.body)
 
-    assert len(masked) == 1
-    assert not loops
-    assert not conds
-    assert masked[0].conditions[0] == 'a(start:end) > 0.0'
+    if not resolved:
+        assert len(masked) == 1
+        assert not loops
+        assert not conds
+        assert masked[0].conditions[0] == 'a(start:end) > 0.0'
+        return
+
+    assert not masked
+    assert len(loops) == 1
+    assert loops[0].variable == 'jl'
+    assert loops[0].bounds == 'start:end'
+    assert len(conds) == 1
+    assert conds[0].condition == 'a(jl) > 0.0'
+
+    loop_assign = FindNodes(ir.Assignment).visit(loops[0].body)[0]
+    assert loop_assign.lhs == 'a(jl)'
+    assert loop_assign.rhs == '0.0'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -1631,45 +1645,6 @@ end subroutine test_no_implicit_rhs_pos
     assert '0.0' in rhs_texts2, f"Expected scalar literal assignment, got: {rhs_texts2}"
     assert 'scalar' in rhs_texts2, f"Expected scalar variable assignment, got: {rhs_texts2}"
     assert all(assign.lhs == 'a(1, jl)' for assign in loop_assigns2)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_resolve_masked_statements_scalar_rhs_with_no_implicit_rhs(frontend):
-    """
-    Scalar RHS masked assignments should still lower when
-    ``resolve_implicit_rhs_ranges=False``.
-    """
-
-    fcode = """
-subroutine test_masked_scalar_rhs(start, end, n, a)
-  implicit none
-  integer, intent(in) :: start, end, n
-  real, intent(inout) :: a(n)
-
-  where (a(start:end) > 0.0)
-    a(start:end) = 0.0
-  end where
-end subroutine test_masked_scalar_rhs
-    """.strip()
-    routine = Subroutine.from_source(fcode, frontend=frontend)
-
-    dim = Dimension(name='horizontal', index='jl', lower='start', upper='end')
-    resolve_vector_dimension(routine, dimension=dim, resolve_implicit_rhs_ranges=False)
-
-    masked = FindNodes(ir.MaskedStatement).visit(routine.body)
-    loops = FindNodes(ir.Loop).visit(routine.body)
-    conds = FindNodes(ir.Conditional).visit(routine.body)
-
-    assert not masked
-    assert len(loops) == 1
-    assert loops[0].variable == 'jl'
-    assert loops[0].bounds == 'start:end'
-    assert len(conds) == 1
-    assert conds[0].condition == 'a(jl) > 0.0'
-
-    loop_assign = FindNodes(ir.Assignment).visit(loops[0].body)[0]
-    assert loop_assign.lhs == 'a(jl)'
-    assert loop_assign.rhs == '0.0'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
