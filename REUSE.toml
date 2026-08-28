@@ -17,6 +17,7 @@ path = [
   "docs/Makefile",
   "docs/make.bat",
   ".github/workflows/*.yml",
+  ".github/dependabot.yml",
   ".gitignore",
   ".pylintrc",
   ".pylintrc_ipynb",
