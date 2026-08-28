@@ -4,6 +4,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import pytest
 from click.testing import CliRunner
 
 from loki.cli.loki_lint import cli
@@ -11,6 +12,7 @@ from loki.logging import log_levels
 
 
 RULES_MODULE = 'loki.cli.tests.rules'
+IAL_RULES_MODULE = 'ial_lint.rules.ifs_arpege_coding_standards'
 
 def test_loki_lint_rules(caplog):
     """ Test the CLI invocation of the loki-lint "rules" and "default-config" mode """
@@ -77,3 +79,34 @@ def test_loki_lint_check(tmp_path, caplog):
         assert result.exit_code == 0
         logout = ''.join(str(r) for r in caplog.records)
         assert logout.count('[CLI.1] CliDummyRule') == 1
+
+
+def test_loki_lint_with_ial_lint(tmp_path, caplog):
+    """Test loki-lint CLI invocation with the external IAL-lint rules package."""
+    pytest.importorskip(IAL_RULES_MODULE)
+
+    source_path = tmp_path/'violating.F90'
+    source_path.write_text('subroutine violating\ninteger :: a\na = 1\nend subroutine violating\n')
+
+    caplog.clear()
+    with caplog.at_level(log_levels['DEBUG']):
+        result = CliRunner().invoke(cli, ['--debug', f'--rules-module={IAL_RULES_MODULE}', 'rules'])
+
+        assert result.exit_code == 0
+        logout = ''.join(str(r) for r in caplog.records)
+        assert 'MissingImplicitNoneRule' in logout
+        assert 'MissingIntfbRule' in logout
+        assert 'OnlyParameterGlobalVarRule' in logout
+
+    caplog.clear()
+    with caplog.at_level(log_levels['INFO']):
+        result = CliRunner().invoke(
+            cli, [
+                '--debug', f'--rules-module={IAL_RULES_MODULE}',
+                'check', '--no-scheduler', f'--basedir={tmp_path}', '--include=*.F90'
+            ]
+        )
+
+        assert result.exit_code == 0
+        logout = ''.join(str(r) for r in caplog.records)
+        assert '[L1] MissingImplicitNoneRule' in logout

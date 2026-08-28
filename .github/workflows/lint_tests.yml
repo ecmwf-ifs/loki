@@ -58,3 +58,7 @@ jobs:
       - name: Run pytest
         run: |
           python -m pytest ${{ github.workspace }}/ial-lint
+
+      - name: Run loki-lint CLI integration test
+        run: |
+          python -m pytest loki/cli/tests/test_loki_lint.py::test_loki_lint_with_ial_lint
