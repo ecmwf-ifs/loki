@@ -20,7 +20,11 @@ __all__ = ['FileWriteTransformation']
 
 class FileWriteTransformation(Transformation):
     """
-    Write out modified source files to a select build directory
+    Write out modified source files to a select build directory.
+
+    A primary file item may attach detached outputs through the ordered
+    ``item.trafo_data['additional_file_items']`` tuple. These are written after
+    the primary file with the same output options.
 
     Parameters
     ----------
@@ -76,22 +80,29 @@ class FileWriteTransformation(Transformation):
             sourcepath = Path(output_dir)/sourcepath.name
         return sourcepath
 
-    def transform_file(self, sourcefile, **kwargs):
+    def _get_file_items(self, item, build_args):
+        """Return the primary and ordered detached file items with their output paths."""
+
+        file_items = (item,) + tuple(item.trafo_data.get('additional_file_items', ()))
+        return tuple(
+            (file_item, self._get_file_path(file_item, build_args))
+            for file_item in file_items
+        )
+
+    def transform_file(self, sourcefile, **kwargs):  # pylint: disable=unused-argument
         item = kwargs.get('item')
-        if not item and 'items' in kwargs:
-            if kwargs['items']:
-                item = kwargs['items'][0]
+        if not item and kwargs.get('items'):
+            item = kwargs['items'][0]
 
         build_args = kwargs.get('build_args', {})
-        sourcepath = self._get_file_path(item, build_args)
-        sourcefile.write(path=sourcepath, cuf=self.cuf, style=self.style)
+        for file_item, sourcepath in self._get_file_items(item, build_args):
+            file_item.source.write(path=sourcepath, cuf=self.cuf, style=self.style)
 
     def plan_file(self, sourcefile, **kwargs):  # pylint: disable=unused-argument
         item = kwargs.get('item')
-        if not item and 'items' in kwargs:
-            if kwargs['items']:
-                item = kwargs['items'][0]
+        if not item and kwargs.get('items'):
+            item = kwargs['items'][0]
 
         build_args = kwargs.get('build_args', {})
-        sourcepath = self._get_file_path(item, build_args)
-        item.trafo_data['FileWriteTransformation'] = {'path': sourcepath}
+        for file_item, sourcepath in self._get_file_items(item, build_args):
+            file_item.trafo_data['FileWriteTransformation'] = {'path': sourcepath}
