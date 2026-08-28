@@ -235,7 +235,6 @@ fi
 
 pip install --upgrade pip
 pip install -e .$pip_opts  # Installs Loki dev copy in editable mode
-pip install -e ./lint_rules
 
 #
 # Install Java

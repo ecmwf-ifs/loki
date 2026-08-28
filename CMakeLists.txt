@@ -135,14 +135,6 @@ if( NOT HAVE_NO_INSTALL )
             ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
         )
 
-        ecbuild_add_test(
-            TYPE PYTHON
-            TARGET loki_lint_rules
-            ARGS -m pytest -k ${_TEST_SELECTOR} -v
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules
-            ENVIRONMENT PATH=${Python3_VENV_BIN}:${_TEST_PATH}
-        )
-
         list( APPEND LOKI_INSTALL_OPTIONS "tests" )
 
     endif()
@@ -179,11 +171,6 @@ if( NOT HAVE_NO_INSTALL )
     ecbuild_info( "Install Loki in virtual environment" )
     loki_install_python_package(
         REQUIREMENT_SPEC ${CMAKE_CURRENT_SOURCE_DIR}${_INSTALL_OPTIONS}
-        ${EDITABLE_OPTION}
-        ${WHEELS_DIR_OPTION}
-    )
-    loki_install_python_package(
-        REQUIREMENT_SPEC ${CMAKE_CURRENT_SOURCE_DIR}/lint_rules
         ${EDITABLE_OPTION}
         ${WHEELS_DIR_OPTION}
     )
