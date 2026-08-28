@@ -14,8 +14,8 @@ from loki.sourcefile import Sourcefile
 from loki.batch.item import Item
 from loki.batch import Scheduler
 from loki.ir import (
-    nodes as ir, FindNodes, is_loki_pragma, pragma_regions_attached, get_pragma_parameters,
-    pragmas_attached
+    nodes as ir, FindNodes, is_loki_pragma, pragmas_attached,
+    pragma_regions_attached, get_pragma_parameters
 )
 from loki.expression import Variable, RangeIndex, IntLiteral
 from loki.expression import symbols as sym
@@ -25,7 +25,7 @@ from loki.subroutine import Subroutine
 from loki.tools import gettempdir, flatten, as_tuple
 from loki.transformations import (
         DataOffloadDeepcopyAnalysis, DataOffloadDeepcopyTransformation, RemoveCodeTransformation,
-        find_driver_loops
+        driver_loop_regions_attached
 )
 from loki.transformations.data_offload.offload_deepcopy import DeepcopyDataflowAnalysis
 from loki.types import BasicType, DerivedType, SymbolAttributes, Scope, ProcedureType
@@ -472,13 +472,17 @@ def test_offload_deepcopy_analysis(frontend, config, deepcopy_code, expected_ana
         messages = [log.message for log in caplog.records]
         assert '[Loki::DataOffloadDeepcopyAnalysis] Pointer associations found in kernel' in messages[-1]
 
-    # The analysis is tied to driver loops
+    # The analysis is tied to driver loops inside data regions
     trafo_data_key = transformation._key
     driver_item = scheduler['driver_mod#driver']
-    driver_loop = find_driver_loops(driver_item.ir.body, targets=['kernel', 'nested_kernel_write'])[0]
+    with driver_loop_regions_attached(
+            driver_item.ir, targets=['kernel', 'nested_kernel_write'], starts_with='data'
+    ) as driver_loop_regions:
+        driver_loop_key = driver_loop_regions[0].key
 
     #stringify dict for comparison
-    stringified_dict = transformation.stringify_dict(driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop])
+    analysis = driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop_key]
+    stringified_dict = transformation.stringify_dict(analysis)
     sorted_expected_analysis = _nested_sort(expected_analysis)
     assert _nested_sort(stringified_dict) == sorted_expected_analysis
 
@@ -984,15 +988,16 @@ def test_offload_deepcopy_simple_driver(frontend, config, deepcopy_code, tmp_pat
     transformation = DataOffloadDeepcopyAnalysis(output_analysis=True)
     scheduler.process(transformation=transformation)
 
-    # The analysis is tied to driver loops
+    # The analysis is tied to driver loops inside data regions
     trafo_data_key = transformation._key
     driver_item = scheduler['simple_driver_mod#simple_driver']
     driver = scheduler['simple_driver_mod#simple_driver'].ir
-    with pragmas_attached(driver, ir.Loop):
-        driver_loop = find_driver_loops(driver.body, targets=[])[0]
+    with driver_loop_regions_attached(driver, targets=[], starts_with='data') as driver_loop_regions:
+        driver_loop_key = driver_loop_regions[0].key
 
     #stringify dict for comparison
-    stringified_dict = transformation.stringify_dict(driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop])
+    analysis = driver_item.trafo_data[trafo_data_key]['analysis'][driver_loop_key]
+    stringified_dict = transformation.stringify_dict(analysis)
     expected_analysis = {
         'ngpblks' : 'read',
         'variable' : {
@@ -1058,6 +1063,95 @@ def test_offload_deepcopy_transformation_remove_openmp_guard(frontend, remove_op
         pragma for pragma in FindNodes(ir.Pragma).visit(driver.body) if pragma.keyword.lower() == 'omp'
     ]
     assert bool(omp_pragmas) is not remove_openmp
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_offload_deepcopy_driver_loop_lookup_with_nested_pragma_region(frontend, config, tmp_path):
+    """
+    Test driver-loop analysis lookup with a nested pragma region inside the loop.
+    """
+
+    fcode = {
+        'kernel': """
+module kernel_mod
+contains
+subroutine kernel(a)
+  real, intent(inout) :: a(:)
+
+  a(:) = a(:) + 1.
+end subroutine kernel
+end module kernel_mod
+        """.strip(),
+        'driver': """
+module driver_mod
+contains
+subroutine driver(ngpblks, a)
+  use kernel_mod, only : kernel
+  integer, intent(in) :: ngpblks
+  real, intent(inout) :: a(:,:)
+  integer :: ibl
+
+!$loki data
+!$loki driver-loop
+  do ibl = 1, ngpblks
+    !$loki remove
+    call kernel(a(:, ibl))
+    !$loki end remove
+  enddo
+!$loki end data
+
+end subroutine driver
+end module driver_mod
+        """.strip(),
+    }
+
+    workdir = tmp_path/'test_offload_deepcopy_nested_pragma_region'
+    workdir.mkdir()
+    for name, code in fcode.items():
+        (workdir/f'{name}.F90').write_text(code)
+
+    config['routines'] = {
+        'driver': {'role': 'driver'},
+    }
+
+    scheduler = Scheduler(
+        paths=workdir, config=config, frontend=frontend, xmods=[tmp_path],
+        output_dir=tmp_path, preprocess=True
+    )
+
+    scheduler.process(transformation=DataOffloadDeepcopyAnalysis())
+    scheduler.process(transformation=DataOffloadDeepcopyTransformation(mode='offload'))
+
+    # Check pragmas have been generated correctly
+    driver = scheduler['driver_mod#driver'].ir
+    pragmas = FindNodes(ir.Pragma).visit(driver.body)
+    assert len(pragmas) == 8
+    assert is_loki_pragma(pragmas[0], starts_with='unstructured-data in(a)')
+    assert is_loki_pragma(pragmas[1], starts_with='structured-data present(a)')
+    assert is_loki_pragma(pragmas[2], starts_with='driver-loop')
+    assert is_loki_pragma(pragmas[3], starts_with='remove')
+    assert is_loki_pragma(pragmas[4], starts_with='end remove')
+    assert is_loki_pragma(pragmas[5], starts_with='end structured-data')
+    assert is_loki_pragma(pragmas[6], starts_with='update host(a)')
+    assert is_loki_pragma(pragmas[7], starts_with='exit unstructured-data delete(a) finalize')
+
+    # Ensure regions and loop-attached pragmas work
+    with pragma_regions_attached(driver):
+        with pragmas_attached(driver, node_type=ir.Loop):
+            pragmas = FindNodes(ir.Pragma).visit(driver.body)
+            assert len(pragmas) == 3
+            assert is_loki_pragma(pragmas[0], starts_with='unstructured-data in(a)')
+            assert is_loki_pragma(pragmas[1], starts_with='update host(a)')
+            assert is_loki_pragma(pragmas[2], starts_with='exit unstructured-data delete(a) finalize')
+
+            regions = FindNodes(ir.PragmaRegion).visit(driver.body)
+            assert len(regions) == 2
+            assert is_loki_pragma(regions[0].pragma, starts_with='structured-data present(a)')
+            assert is_loki_pragma(regions[1].pragma, starts_with='remove')
+
+            loops = FindNodes(ir.Loop).visit(driver.body)
+            assert len(loops) == 1
+            assert is_loki_pragma(loops[0].pragma, starts_with='driver-loop')
 
 
 def test_deepcopy_dataflow_analysis_ignore_calls_skips_unenriched_call():
