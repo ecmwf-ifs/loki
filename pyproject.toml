@@ -45,6 +45,7 @@ tests = [
   "pandas",
   "f90wrap>=0.2.15,<0.3.0",
   "nbconvert",
+  "reuse",
   "tomli_w",
 ]
 dace = [
