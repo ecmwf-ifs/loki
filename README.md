@@ -54,6 +54,7 @@ getting up to speed with the core functionality of the package.
 
 ## Contributing
 
-Contributions to Loki are welcome. In order to do so, please open an issue where
-a feature request or bug can be discussed. Then create a pull request with your
-contribution.
+Contributions to Loki are welcome. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
+All participation in this project is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).

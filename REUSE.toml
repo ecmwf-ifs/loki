@@ -23,6 +23,8 @@ path = [
   ".pylintrc_ipynb",
   "AGENTS.md",
   "AUTHORS.md",
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
   "INSTALL.md",
   "README.md",
   "VERSION",
