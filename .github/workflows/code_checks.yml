@@ -45,3 +45,6 @@ jobs:
         pushd lint_rules && pylint --rcfile=../.pylintrc lint_rules tests; popd
         jupyter nbconvert --to=script --output-dir=example_converted example/*.ipynb
         pylint --rcfile=.pylintrc_ipynb example_converted/*.py
+    - name: Check REUSE compliance for license coverage
+      run: |
+        reuse lint
