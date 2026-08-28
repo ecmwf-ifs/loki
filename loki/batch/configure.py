@@ -388,6 +388,12 @@ class ItemConfig:
         Flag controlling whether to fail if dependency items cannot be found
     replicate : bool (default: False)
         Flag indicating whether to mark item as "replicated" in call graphs
+    entry_point : bool (default: False)
+        Flag indicating whether a routine is replaced by a runtime dispatch
+        entry point. A true value requires a non-empty string ``condition``.
+    condition : str, optional
+        Runtime dispatch expression for an entry-point routine. The expression
+        is parsed in the configured routine's scope.
     disable : tuple
         List of dependency names that are completely ignored and not reported as
         dependencies by the item. Useful to exclude entire call trees or utility
@@ -459,6 +465,13 @@ class ItemConfig:
         Flag indicating whether to mark item as "replicated" in call graphs
         """
         return self.config.get('replicate', False)
+
+    @property
+    def entry_point(self):
+        """
+        Flag indicating whether this routine is a runtime dispatch entry point.
+        """
+        return self.config.get('entry-point', False)
 
     @property
     def disable(self):
