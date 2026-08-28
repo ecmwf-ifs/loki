@@ -18,6 +18,7 @@ from codetiming import Timer
 from loki.jit_build import workqueue
 from loki.batch import Scheduler, SchedulerConfig, Item, Transformation
 from loki.config import config as loki_config
+from loki.lint.rules import GenericRule
 from loki.lint.reporter import (
     FileReport, RuleReport, Reporter, LazyTextfile,
     DefaultHandler, JunitXmlHandler, ViolationFileHandler
@@ -77,7 +78,11 @@ class Linter:
             A list of rule classes.
         """
         rule_list = inspect.getmembers(
-            rules_module, lambda obj: inspect.isclass(obj) and obj.__name__ in rules_module.__dir__())
+            rules_module,
+            lambda obj: (
+                inspect.isclass(obj) and issubclass(obj, GenericRule) and obj is not GenericRule
+            )
+        )
         if rule_names is not None:
             rule_list = [r for r in rule_list if r[0] in rule_names]
         return [r[1] for r in rule_list]
