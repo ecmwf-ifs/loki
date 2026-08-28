@@ -8,13 +8,268 @@
 from collections import defaultdict
 from itertools import chain
 
+from loki.batch.item import ProcedureItem
 from loki.batch.transformation import Transformation
 from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls
-from loki.tools.util import as_tuple, CaseInsensitiveDict
+from loki.tools.util import OrderedSet, as_tuple, CaseInsensitiveDict
 from loki.subroutine import Subroutine
 from loki.logging import warning
+from loki.transformations.build_system.dependency import do_rename_subroutine
+from loki.transformations.build_system.module_wrap import do_module_wrap_subroutine
 
-__all__ = ['DuplicateKernel', 'RemoveKernel', 'SeparateModesKernel']
+__all__ = [
+    "CreateEntryPointsTransformation", "DuplicateKernel", "RemoveKernel",
+    "SeparateModesKernel"
+]
+
+
+class CreateEntryPointsTransformation(Transformation):
+    """
+    Replace configured routines with runtime dispatch entry points.
+
+    Selection and the dispatch expression are read from the routine item
+    configuration keys ``entry-point`` and ``condition``. External routines
+    are split into three files, while module procedures retain all variants as
+    siblings in their original module.
+
+    Parameters
+    ----------
+    module_suffix : str, optional
+        Suffix used for generated external variant modules.
+    driver_suffix : str, optional
+        Suffix used for the Loki implementation.
+    baseline_suffix : str, optional
+        Suffix used for the unmodified baseline implementation.
+    """
+
+    renames_items = True
+    creates_items = True
+
+    def __init__(self, module_suffix="_mod", driver_suffix="_loki", baseline_suffix="_baseline"):
+        self.module_suffix = module_suffix
+        self.driver_suffix = driver_suffix
+        self.baseline_suffix = baseline_suffix
+
+    @staticmethod
+    def _is_valid_entry_point(item):
+        """Validate entry-point configuration and report whether it is enabled."""
+
+        if not isinstance(item, ProcedureItem):
+            return False
+
+        if not item.config.get("entry-point", False):
+            return False
+
+        condition = item.config.get("condition")
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValueError(
+                f"Entry point {item.name} requires a non-empty string condition"
+            )
+
+        return True
+
+    @staticmethod
+    def _create_item_config(config, role=None, replicate=None):
+        """Create an item configuration without entry-point selection data."""
+
+        new_config = config.copy()
+        new_config.pop("entry-point", None)
+        new_config.pop("condition", None)
+        new_config.pop("seed_routine", None)
+
+        if role:
+            new_config["role"] = role
+        else:
+            new_config.pop("role", None)
+
+        if replicate is not None:
+            new_config["replicate"] = replicate
+
+        return new_config
+
+    @staticmethod
+    def _update_scheduler_config(scheduler_config, old_name, wrapper_item_name, baseline_item_name, driver_config):
+        """Update driver and disabled-item configuration before scheduler rekeying."""
+
+        # Update the config here so that rekey_item_cache then assigns the correct config to the new key it will
+        # generate.
+        matched_keys = scheduler_config.match_item_keys(old_name, scheduler_config.routines)
+        if matched_keys:
+            for key in matched_keys:
+                scheduler_config.routines[key] = driver_config.copy()
+        else:
+            scheduler_config.routines[old_name] = driver_config.copy()
+
+        disable = OrderedSet(scheduler_config.disable)
+        for item_name in (wrapper_item_name, baseline_item_name):
+            disable.add(item_name)
+        scheduler_config.disable = tuple(disable)
+
+    @staticmethod
+    def _create_dispatch_layer(routine, condition, driver_routine, baseline_routine,
+                               is_module_procedure=False):
+        """Replace a routine body with a native two-way dispatch."""
+
+        try:
+            condition = routine.parse_expr(condition, strict=True)
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to parse entry-point condition for {routine.name}: {condition}"
+            ) from exc
+
+        driver_symbol = driver_routine.procedure_symbol.rescope(scope=routine)
+        baseline_symbol = baseline_routine.procedure_symbol.rescope(scope=routine)
+
+        arguments = tuple(
+            argument.rescope(scope=routine).clone(dimensions=None)
+            for argument in routine.arguments
+        )
+
+        driver_call = ir.CallStatement(name=driver_symbol, arguments=arguments)
+        baseline_call = ir.CallStatement(name=baseline_symbol, arguments=arguments)
+
+        routine.body = ir.Section(body=(ir.Conditional(
+            condition=condition, body=(driver_call,), else_body=(baseline_call,)
+        ),))
+
+        if not is_module_procedure:
+            imports = (
+                ir.Import(module=driver_routine.parent.name, symbols=(driver_symbol,)),
+                ir.Import(module=baseline_routine.parent.name, symbols=(baseline_symbol,)),
+            )
+            routine.spec._update(body=imports + routine.spec.body)
+
+    @staticmethod
+    def _clone_and_rename_subroutine(routine, suffix):
+        """Create an independently scoped and renamed routine clone."""
+
+        clone = routine.clone(parent=None, rescope_symbols=True)
+        do_rename_subroutine(clone, suffix)
+
+        return clone
+
+    def _process_external_procedure(self, routine, item, item_factory, scheduler_config):
+        """Process an external entry point into scheduler-visible variants."""
+
+        old_name = item.name
+        source = item.source
+
+        driver = self._clone_and_rename_subroutine(routine, self.driver_suffix)
+        baseline = self._clone_and_rename_subroutine(routine, self.baseline_suffix)
+
+        driver_module_name = f"{driver.name}{self.module_suffix}"
+        baseline_module_name = f"{baseline.name}{self.module_suffix}"
+
+        driver_item_name = f"{driver_module_name}#{driver.name}".lower()
+        baseline_item_name = f"{baseline_module_name}#{baseline.name}".lower()
+        wrapper_item_name = f"#{routine.name}".lower()
+
+        suffix = source.path.suffix
+        driver_path = source.path.with_name(f"{driver_module_name.lower()}{suffix}")
+        baseline_path = source.path.with_name(f"{baseline_module_name.lower()}{suffix}")
+
+        driver_source = source.clone(path=driver_path, ir=ir.Section(body=(driver,)))
+        baseline_source = source.clone(path=baseline_path, ir=ir.Section(body=(baseline,)))
+
+        do_module_wrap_subroutine(driver_source, driver, self.module_suffix)
+        do_module_wrap_subroutine(baseline_source, baseline, self.module_suffix)
+
+        inherited_item_config = item.config.copy()
+        driver_config = self._create_item_config(inherited_item_config, role="driver", replicate=False)
+        wrapper_config = self._create_item_config(inherited_item_config, replicate=False)
+        baseline_config = self._create_item_config(inherited_item_config, replicate=True)
+
+        wrapper_file = item_factory.get_file_item_from_source(source)
+        driver_file = item_factory.get_or_create_file_item_from_source(driver_source, scheduler_config)
+        baseline_file = item_factory.get_or_create_file_item_from_source(baseline_source, scheduler_config)
+        for file_item, config in (
+            (driver_file, driver_config),
+            (wrapper_file, wrapper_config),
+            (baseline_file, baseline_config),
+        ):
+            file_item.config = config.copy()
+
+        driver_file.trafo_data["additional_file_items"] = (wrapper_file, baseline_file)
+
+        item.name = driver_item_name
+        item.source = driver_source
+        item.config = driver_config
+
+        self._update_scheduler_config(
+            scheduler_config, old_name, wrapper_item_name, baseline_item_name, driver_config
+        )
+
+        return driver, baseline
+
+    def _process_module_procedure(self, routine, item, item_factory, scheduler_config):
+        """Process a module entry point into scheduler-visible variants."""
+
+        old_name = item.name
+        module = routine.parent
+
+        driver = self._clone_and_rename_subroutine(routine, self.driver_suffix)
+        baseline = self._clone_and_rename_subroutine(routine, self.baseline_suffix)
+
+        driver_item_name = f"{module.name}#{driver.name}".lower()
+        baseline_item_name = f"{module.name}#{baseline.name}".lower()
+        wrapper_item_name = f"{module.name}#{routine.name}".lower()
+
+        for generated in (driver, baseline):
+            generated._reset_parent(module)
+            generated.register_in_parent_scope()
+
+        module.contains._update(body=module.contains.body + (driver, baseline))
+
+        inherited_item_config = item.config.copy()
+        driver_config = self._create_item_config(inherited_item_config, role="driver", replicate=False)
+        file_item = item_factory.get_file_item_from_source(item.source)
+        file_item.config = driver_config.copy()
+
+        item.name = driver_item_name
+        item.config = driver_config
+
+        self._update_scheduler_config(
+            scheduler_config, old_name, wrapper_item_name, baseline_item_name, driver_config
+        )
+
+        return driver, baseline
+
+    def transform_subroutine(self, routine, **kwargs):
+        """Create an entry point for a selected external or module subroutine."""
+
+        item = kwargs.get("item")
+        if not self._is_valid_entry_point(item):
+            return
+
+        condition = item.config["condition"]
+        item_factory = kwargs["item_factory"]
+        scheduler_config = kwargs["scheduler_config"]
+
+        if routine.parent is None:
+            driver, baseline = self._process_external_procedure(routine, item, item_factory, scheduler_config)
+
+            self._create_dispatch_layer(routine, condition, driver, baseline)
+        else:
+            driver, baseline = self._process_module_procedure(routine, item, item_factory, scheduler_config)
+
+            self._create_dispatch_layer(
+                routine, condition, driver, baseline, is_module_procedure=True
+            )
+
+    def plan_subroutine(self, routine, **kwargs):
+        """Create scheduler-visible entry-point structure in planning mode."""
+
+        item = kwargs.get("item")
+        if not self._is_valid_entry_point(item):
+            return
+
+        item_factory = kwargs["item_factory"]
+        scheduler_config = kwargs["scheduler_config"]
+
+        if routine.parent is None:
+            self._process_external_procedure(routine, item, item_factory, scheduler_config)
+        else:
+            self._process_module_procedure(routine, item, item_factory, scheduler_config)
 
 
 class DuplicateKernel(Transformation):

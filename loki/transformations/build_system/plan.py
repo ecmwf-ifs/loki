@@ -23,7 +23,9 @@ class CMakePlanTransformation(Transformation):
     this information is applied and allows writing a CMake plan file
 
     This requires that :any:`FileWriteTransformation` has been applied in planning
-    mode first.
+    mode first. Ordered detached files registered in
+    ``item.trafo_data['additional_file_items']`` are planned immediately after
+    their primary file item.
 
     Applying this transformation to a :any:`Item` updates internal lists:
 
@@ -73,11 +75,8 @@ class CMakePlanTransformation(Transformation):
         self.sources_to_remove = {}
         self.sources_to_transform = {}
 
-    def plan_file(self, sourcefile, **kwargs):
-        item = kwargs.get('item')
-        if not item:
-            raise ValueError('No Item provided; required to determine CMake plan')
-
+    def _plan_file_item(self, item):
+        """Apply the existing one-file CMake planning operation to one item."""
         if not 'FileWriteTransformation' in item.trafo_data:
             return
 
@@ -122,6 +121,15 @@ class CMakePlanTransformation(Transformation):
                         #     internally to identify the original file, and if the paths
                         #     don't match the removal of source files from the target fails.
                         self.sources_to_remove.setdefault(key,[]).append(item.path)
+
+    def plan_file(self, sourcefile, **kwargs):
+        item = kwargs.get('item')
+        if not item:
+            raise ValueError('No Item provided; required to determine CMake plan')
+
+        file_items = (item,) + tuple(item.trafo_data.get('additional_file_items', ()))
+        for file_item in file_items:
+            self._plan_file_item(file_item)
 
     def _write_plan(self, filepath):
         """

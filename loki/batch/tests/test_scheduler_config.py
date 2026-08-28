@@ -22,8 +22,51 @@ from loki.transformations import (
     CMakePlanTransformation, DependencyTransformation, FileWriteTransformation,
     ModuleWrapTransformation
 )
+from loki.transformations.dependency import CreateEntryPointsTransformation
 
 pytestmark = pytest.mark.skipif(not HAVE_FP, reason='Fparser not available')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('seed_routines', [None, ('driver',)])
+def test_scheduler_entry_point_config_is_seed(tmp_path, frontend, seed_routines):
+    """Entry-point configuration makes a routine reachable alongside implicit or explicit drivers."""
+
+    (tmp_path/'routines.F90').write_text('''
+subroutine driver
+end subroutine driver
+subroutine target(flag)
+  logical, intent(in) :: flag
+end subroutine target
+''')
+
+    config = SchedulerConfig.from_dict({
+        'default': {'strict': True, 'expand': True},
+        'routines': {
+            'driver': {'role': 'driver'},
+            'target': {'entry-point': True, 'condition': 'flag'},
+        },
+    })
+    assert not config.create_item_config('driver').get('entry-point', False)
+
+    scheduler = Scheduler(
+        paths=tmp_path, config=config, seed_routines=seed_routines, frontend=frontend, xmods=[tmp_path]
+    )
+    assert scheduler.seeds == ('driver', 'target')
+    assert {item.name for item in scheduler.items} == {'#driver', '#target'}
+
+    scheduler.process(CreateEntryPointsTransformation())
+
+    assert scheduler.seeds == ('driver', 'target_loki_mod#target_loki')
+    assert {item.name for item in scheduler.items} == {
+        '#driver', 'target_loki_mod#target_loki'
+    }
+
+    driver = scheduler['target_loki_mod#target_loki']
+    assert driver.role == 'driver'
+    assert 'seed_routine' not in driver.config
+    assert 'entry-point' not in driver.config
+    assert 'condition' not in driver.config
 
 
 def test_scheduler_empty_config(testdir, frontend, tmp_path):

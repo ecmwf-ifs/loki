@@ -12,6 +12,49 @@ import pytest
 
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.transformations.build_system import CMakePlanTransformation, FileWriteTransformation
+from loki.transformations.dependency import CreateEntryPointsTransformation
+
+
+def test_plan_create_entry_point_files(tmp_path):
+    """Keep external Loki, wrapper and baseline mappings ordered and aligned."""
+
+    source_path = tmp_path/'target.F90'
+    source_path.write_text('''
+subroutine target(flag)
+  logical, intent(in) :: flag
+end subroutine target
+''')
+
+    output_dir = tmp_path/'build'
+
+    scheduler = Scheduler(
+        paths=tmp_path,
+        config={
+            'default': {
+                'strict': True, 'expand': True, 'mode': 'test', 'lib': 'library'
+            },
+            'routines': {
+                'target': {
+                    'entry-point': True, 'condition': 'flag', 'seed_routine': True
+                },
+            },
+        },
+        output_dir=output_dir, full_parse=False,
+    )
+
+    scheduler.process(CreateEntryPointsTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+    scheduler.process(FileWriteTransformation(), proc_strategy=ProcessingStrategy.PLAN)
+
+    plan = CMakePlanTransformation()
+    scheduler.process(plan, proc_strategy=ProcessingStrategy.PLAN)
+
+    assert plan.sources_to_transform['library'] == [source_path] * 2
+    assert plan.sources_to_append['library'] == [
+        output_dir/'target_loki_mod.test.F90',
+        output_dir/'target.test.F90',
+        output_dir/'target_baseline_mod.test.F90',
+    ]
+    assert plan.sources_to_remove['library'] == [source_path]
 
 
 @pytest.mark.parametrize('use_rootpath', [False, True])

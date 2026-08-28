@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 import pytest
 
-from loki.batch import Pipeline, ProcedureItem, ModuleItem
+from loki.batch import Pipeline, ProcedureItem, ModuleItem, TransformationError
 from loki import (
     Scheduler, SchedulerConfig, ProcessingStrategy
 )
@@ -20,9 +20,179 @@ from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes
 from loki.tools import as_tuple
 from loki.transformations.dependency import (
-        DuplicateKernel, RemoveKernel
+    CreateEntryPointsTransformation, DuplicateKernel, RemoveKernel
 )
 from loki.transformations.build_system import FileWriteTransformation
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_create_entry_point_external(frontend, tmp_path):
+    """Create separate wrapper, Loki and baseline files for an external routine."""
+
+    (tmp_path/'caller.F90').write_text('''
+subroutine caller(n, field, flag)
+  integer, intent(in) :: n
+  real, intent(inout) :: field(n)
+  logical, intent(in) :: flag
+  call target(n, field, flag)
+end subroutine caller
+''')
+
+    target_path = tmp_path/'target.F90'
+    target_path.write_text('''
+subroutine target(n, field, flag)
+  integer, intent(in) :: n
+  real, intent(inout) :: field(n)
+  logical, intent(in) :: flag
+  field = field + 1.
+end subroutine target
+''')
+
+    config = {
+        'default': {'strict': True, 'expand': True, 'mode': 'test'},
+        'routines': {
+            'caller': {'role': 'driver'},
+            'target': {'entry-point': True, 'condition': 'flag'},
+        },
+    }
+
+    scheduler = Scheduler(paths=tmp_path, config=config, frontend=frontend, xmods=[tmp_path])
+
+    scheduler.process(CreateEntryPointsTransformation())
+
+    assert scheduler.seeds == ('caller', 'target_loki_mod#target_loki')
+    assert {item.name for item in scheduler.items} == {
+        '#caller', 'target_loki_mod#target_loki'
+    }
+    assert {'#target', 'target_baseline_mod#target_baseline'} <= set(scheduler.config.disable)
+
+    driver_item = scheduler['target_loki_mod#target_loki']
+    assert driver_item.role == 'driver'
+    assert not driver_item.replicate
+    assert driver_item.orig_path == target_path
+    assert 'entry-point' not in driver_item.config
+    assert 'condition' not in driver_item.config
+
+    assert 'target' not in scheduler.config.routines
+    driver_config = scheduler.config.routines[driver_item.name]
+    assert driver_config['role'] == 'driver'
+    assert 'entry-point' not in driver_config
+    assert 'condition' not in driver_config
+
+    driver_file = scheduler.item_factory.get_file_item_from_source(driver_item.source)
+    wrapper_file, baseline_file = driver_file.trafo_data['additional_file_items']
+    assert [driver_file.path.name, wrapper_file.path.name, baseline_file.path.name] == [
+        'target_loki_mod.F90', 'target.F90', 'target_baseline_mod.F90'
+    ]
+    assert baseline_file.replicate
+    assert baseline_file.orig_path == target_path
+
+    wrapper = wrapper_file.source['target']
+    conditional, = FindNodes(ir.Conditional).visit(wrapper.body)
+    assert conditional.condition == 'flag'
+    assert [call.name for call in FindNodes(ir.CallStatement).visit(conditional)] == [
+        'target_loki', 'target_baseline'
+    ]
+    calls = FindNodes(ir.CallStatement).visit(conditional)
+    assert all(
+        tuple(argument.name for argument in call.arguments) == wrapper.argnames
+        for call in calls
+    )
+    assert wrapper.arguments[1].dimensions == ('n',)
+    assert all(call.arguments[1].dimensions == () for call in calls)
+    assert driver_item.ir.arguments[1].dimensions == wrapper.arguments[1].dimensions
+    assert baseline_file.source['target_baseline'].arguments[1].dimensions == (
+        wrapper.arguments[1].dimensions
+    )
+    assert [(imprt.module, tuple(imprt.symbols)) for imprt in wrapper.imports] == [
+        ('target_loki_mod', ('target_loki',)),
+        ('target_baseline_mod', ('target_baseline',)),
+    ]
+
+    # Configuration clearing makes repeated application idempotent.
+    scheduler.process(CreateEntryPointsTransformation())
+    assert scheduler.seeds == ('caller', 'target_loki_mod#target_loki')
+    assert {item.name for item in scheduler.items} == {
+        '#caller', 'target_loki_mod#target_loki'
+    }
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_create_entry_point_module(frontend, tmp_path):
+    """Keep module entry-point variants together to preserve host association."""
+
+    source_path = tmp_path/'entry_mod.F90'
+    source_path.write_text('''
+module entry_mod
+  logical :: module_flag
+contains
+  subroutine target(a)
+    integer, intent(inout) :: a
+    a = a + 1
+  end subroutine target
+end module entry_mod
+''')
+
+    config = {
+        'default': {'strict': True, 'expand': True},
+        'routines': {
+            'entry_mod#target': {
+                'role': 'kernel', 'entry-point': True,
+                'condition': 'module_flag', 'seed_routine': True,
+            },
+        },
+    }
+
+    scheduler = Scheduler(paths=tmp_path, config=config, frontend=frontend, xmods=[tmp_path])
+
+    scheduler.process(CreateEntryPointsTransformation())
+
+    assert scheduler.seeds == ('entry_mod#target_loki',)
+    assert {item.name for item in scheduler.items} == {'entry_mod#target_loki'}
+    assert {'entry_mod#target', 'entry_mod#target_baseline'} <= set(scheduler.config.disable)
+
+    driver = scheduler['entry_mod#target_loki']
+    assert not driver.replicate
+    assert 'seed_routine' not in driver.config
+    assert driver.source.path == source_path
+    assert tuple(routine.name for routine in driver.scope.subroutines) == (
+        'target', 'target_loki', 'target_baseline'
+    )
+
+    wrapper = driver.scope['target']
+    conditional, = FindNodes(ir.Conditional).visit(wrapper.body)
+    assert conditional.condition == 'module_flag'
+    assert not wrapper.imports
+
+
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.PLAN, ProcessingStrategy.DEFAULT])
+@pytest.mark.parametrize('entry_config', (
+    {'entry-point': True},
+    {'entry-point': True, 'condition': ''},
+    {'entry-point': True, 'condition': 'flag .and.'},
+))
+def test_create_entry_point_invalid_config(entry_config, proc_strategy, tmp_path):
+    """Reject invalid entry-point configuration and parse conditions only during transformation."""
+
+    (tmp_path/'target.F90').write_text('''
+subroutine target(flag)
+  logical, intent(in) :: flag
+end subroutine target
+''')
+
+    config = {
+        'default': {'strict': True, 'expand': True},
+        'routines': {'target': {**entry_config, 'seed_routine': True}},
+    }
+
+    scheduler = Scheduler(paths=tmp_path, config=config, full_parse=proc_strategy != ProcessingStrategy.PLAN)
+
+    if proc_strategy == ProcessingStrategy.PLAN and entry_config.get('condition'):
+        scheduler.process(CreateEntryPointsTransformation(), proc_strategy=proc_strategy)
+        assert scheduler.seeds == ('target_loki_mod#target_loki',)
+    else:
+        with pytest.raises(TransformationError, match='target'):
+            scheduler.process(CreateEntryPointsTransformation(), proc_strategy=proc_strategy)
 
 
 @pytest.fixture(scope='module', name='here')

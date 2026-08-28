@@ -23,7 +23,7 @@ from loki.batch.sgraph import SGraph
 from loki.batch.transformation import Transformation
 
 from loki.frontend import FP, REGEX, RegexParserClass
-from loki.tools import as_tuple, CaseInsensitiveDict, flatten
+from loki.tools import as_tuple, CaseInsensitiveDict, flatten, OrderedSet
 
 from loki.logging import info, perf, warning, error
 
@@ -165,16 +165,17 @@ class Scheduler:
         """
         Derive implicit seed routines from the scheduler config.
 
-        By default, only driver routines and routines explicitly marked with
-        ``seed_routine = true`` become graph roots.
+        By default, driver routines, configured entry points and routines
+        explicitly marked with ``seed_routine = true`` become graph roots.
         """
         implicit_seeds = tuple(
             name.lower() for name in config.routines
             if config.create_item_config(name).get('role') == 'driver'
             or config.create_item_config(name).get('seed_routine', False)
+            or config.create_item_config(name).get('entry-point', False)
         )
         if not implicit_seeds:
-            implicit_seeds = tuple(seed.lower() for seed in config.routines.keys())
+            implicit_seeds = tuple(seed.lower() for seed in config.routines)
             warning("[Loki]: "
                 "Using implicit or unspecified seed routines is deprecated and will be removed in a future release. "
                 "Currently, no seed routines were provided and none were discovered in the scheduler config. "
@@ -201,6 +202,12 @@ class Scheduler:
         if seed_routines:
             info('Initializing Scheduler graph from list of seed routines provided in the config')
             self.seeds = tuple(seed.lower() for seed in as_tuple(seed_routines))
+            entry_point_seeds = tuple(
+                name.lower() for name in self.config.routines
+                if self.config.create_item_config(name).get('entry-point', False)
+                and name.lower() not in self.seeds
+            )
+            self.seeds += entry_point_seeds
         else:
             info('Initializing Scheduler graph from driver routines')
             self.seeds = self._get_implicit_seeds(self.config)
@@ -623,6 +630,15 @@ class Scheduler:
                     mode=mode
                 )
 
+            if transformation.renames_items or transformation.creates_items:
+                # Remember existing drivers so newly promoted driver items can be
+                # distinguished after processing.
+                existing_driver_item_names = {
+                    item.name.lower()
+                    for item in self.item_factory.item_cache.values()
+                    if isinstance(item, ProcedureItem) and item.role == 'driver'
+                }
+
             # Collect common transformation arguments
             kwargs = {
                 'depths': graph.depths,
@@ -648,7 +664,20 @@ class Scheduler:
                 )
 
         if transformation.renames_items:
+            # Rekey first so renamed seeds carry their final names before
+            # duplicate elimination below.
             self.rekey_item_cache()
+
+        if transformation.renames_items or transformation.creates_items:
+            existing_seeds = {seed.lower() for seed in self.seeds}
+            created_seeds = OrderedSet(
+                item.name.lower()
+                for item in self.item_factory.item_cache.values()
+                if isinstance(item, ProcedureItem) and item.role == 'driver'
+                and item.name.lower() not in existing_driver_item_names
+                and item.name.lower() not in existing_seeds
+            )
+            self.seeds += tuple(created_seeds)
 
         if transformation.creates_items:
             self._discover()

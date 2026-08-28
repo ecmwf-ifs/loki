@@ -14,10 +14,67 @@ import re
 
 import pytest
 
+from loki import Sourcefile
 from loki.batch import Scheduler, SchedulerConfig, ProcessingStrategy
 from loki.frontend import available_frontends, OMNI
+from loki.ir import nodes as ir, FindNodes
 from loki.logging import log_levels
 from loki.transformations.build_system import FileWriteTransformation
+from loki.transformations.dependency import CreateEntryPointsTransformation
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_file_write_create_entry_point_files(tmp_path, frontend):
+    """Write detached entry-point files after the primary Loki file."""
+
+    source_path = tmp_path/'target.F90'
+    source_path.write_text('''
+subroutine target(flag, value)
+  logical, intent(in) :: flag
+  integer, intent(inout) :: value
+  value = value + 1
+end subroutine target
+''')
+
+    output_dir = tmp_path/'build'
+    output_dir.mkdir()
+
+    scheduler = Scheduler(
+        paths=tmp_path,
+        config={
+            'default': {'strict': True, 'expand': True, 'mode': 'test'},
+            'routines': {
+                'target': {
+                    'entry-point': True, 'condition': 'flag', 'seed_routine': True
+                },
+            },
+        },
+        output_dir=output_dir, frontend=frontend, xmods=[tmp_path],
+    )
+
+    scheduler.process(CreateEntryPointsTransformation())
+    scheduler.process(FileWriteTransformation(suffix='.generated.F90', style='ifs'))
+
+    paths = [
+        output_dir/'target_loki_mod.test.generated.F90',
+        output_dir/'target.test.generated.F90',
+        output_dir/'target_baseline_mod.test.generated.F90',
+    ]
+    assert all(path.exists() for path in paths)
+
+    frontend_args = {'frontend': frontend, 'xmods': [tmp_path]}
+    driver = Sourcefile.from_file(paths[0], **frontend_args).all_subroutines[0]
+    baseline = Sourcefile.from_file(paths[2], **frontend_args).all_subroutines[0]
+    wrapper = Sourcefile.from_file(paths[1], **frontend_args).all_subroutines[0]
+
+    assert not FindNodes(ir.Conditional).visit(driver.body)
+    assert not FindNodes(ir.Conditional).visit(baseline.body)
+
+    conditional, = FindNodes(ir.Conditional).visit(wrapper.body)
+    assert conditional.condition == 'flag'
+    assert [call.name for call in FindNodes(ir.CallStatement).visit(conditional)] == [
+        'target_loki', 'target_baseline'
+    ]
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
