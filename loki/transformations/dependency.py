@@ -7,13 +7,251 @@
 from collections import defaultdict
 from itertools import chain
 
+from loki.batch.item import ProcedureItem
 from loki.batch.transformation import Transformation
 from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls
-from loki.tools.util import as_tuple, CaseInsensitiveDict
+from loki.tools.util import OrderedSet, as_tuple, CaseInsensitiveDict
 from loki.subroutine import Subroutine
 from loki.logging import warning
+from loki.transformations.build_system.dependency import do_rename_subroutine
+from loki.transformations.build_system.module_wrap import do_module_wrap_subroutine
+from loki.transformations.utilities import sanitise_imports
 
-__all__ = ['DuplicateKernel', 'RemoveKernel', 'SeparateModesKernel']
+__all__ = [
+    "CreateEntryPointsTransformation", "DuplicateKernel", "RemoveKernel",
+    "SeparateModesKernel", "get_mode_rename_suffix"
+]
+
+
+def get_mode_rename_suffix(mode, rename_suffix='_loki_{mode}'):
+    """
+    Get the suffix used to rename items for a given transformation mode.
+
+    Parameters
+    ----------
+    mode : str
+        Transformation mode. Dashes are replaced by underscores to yield a
+        valid Fortran name.
+    rename_suffix : str, optional
+        Format string for the suffix, which accepts a ``mode`` keyword argument.
+
+    Returns
+    -------
+    str
+        The mode-specific rename suffix, e.g. ``_loki_<mode>``.
+    """
+    return rename_suffix.format(mode=mode.replace('-', '_'))
+
+
+class CreateEntryPointsTransformation(Transformation):
+    """
+    Replace configured external subroutines with runtime dispatch entry points.
+
+    Routines are selected via the item configuration key ``entry-point``, and
+    the configuration key ``condition`` provides the dispatch expression, which is
+    parsed in the scope of the configured routine.
+
+    For every selected routine ``<name>``, two driver variants are created, one
+    in transformation mode :data:`mode` and one in transformation mode
+    :data:`baseline_mode`. Following the naming convention of
+    :any:`SeparateModesKernel`, the variants are named ``<name>_loki_<mode>`` and
+    wrapped in a module ``<name>_loki_<mode><module_suffix>`` in a new source file.
+
+    The original routine is retained as a standalone dispatch layer, which
+    preserves the original name and interface. It is assigned the
+    :data:`baseline_mode`, and its item configuration disables expansion and blocks
+    the driver variants, such that the dispatch layer has no children in the
+    dependency graph and does not propagate its mode to the driver variants.
+
+    The transformation sets :any:`Transformation.changes_modes`. When applied
+    as part of mode-specific pipelines, the :any:`Scheduler` applies it before
+    propagating the transformation modes down the call trees of the driver
+    variants, which separates their dependencies via :any:`SeparateModesKernel`.
+
+    Parameters
+    ----------
+    mode : str
+        Transformation mode of the Loki-transformed driver variant.
+    baseline_mode : str
+        Transformation mode of the baseline driver variant and the dispatch layer.
+    module_suffix : str, optional
+        Suffix used for the generated driver variant modules.
+    """
+
+    creates_items = True
+    changes_modes = True
+
+    def __init__(self, mode, baseline_mode, module_suffix='_mod'):
+        if get_mode_rename_suffix(mode) == get_mode_rename_suffix(baseline_mode):
+            raise ValueError(
+                f'Entry-point modes must yield distinct variant names: {mode}, {baseline_mode}'
+            )
+
+        self.mode = mode
+        self.baseline_mode = baseline_mode
+        self.module_suffix = module_suffix
+
+    @staticmethod
+    def _is_entry_point(routine, item):
+        """Validate the entry-point configuration and report whether it is enabled."""
+
+        if not isinstance(item, ProcedureItem) or not item.config.get('entry-point', False):
+            return False
+
+        condition = item.config.get('condition')
+        if not isinstance(condition, str) or not condition.strip():
+            raise ValueError(f'Entry point {item.name} requires a non-empty string condition')
+
+        if routine.parent is not None:
+            raise ValueError(f'Entry point {item.name} must be an external subroutine, not a module procedure')
+
+        if routine.is_function:
+            raise ValueError(f'Entry point {item.name} must be a subroutine, not a function')
+
+        return True
+
+    @staticmethod
+    def _create_item_config(config, mode, **kwargs):
+        """Create a driver item configuration without entry-point selection data."""
+
+        new_config = config.copy()
+        for key in ('entry-point', 'condition', 'seed_routine'):
+            new_config.pop(key, None)
+        new_config.update(role='driver', mode=mode, **kwargs)
+        return new_config
+
+    @staticmethod
+    def _update_scheduler_config(scheduler_config, item_name, config):
+        """Register the item configuration in the scheduler config."""
+
+        matched_keys = scheduler_config.match_item_keys(item_name, scheduler_config.routines)
+        for key in matched_keys or (item_name,):
+            scheduler_config.routines[key] = config.copy()
+
+    def _create_driver(self, routine, item, mode, item_factory, scheduler_config):
+        """
+        Create a module-wrapped driver variant of :data:`routine` in a new source
+        file and register the corresponding items with the :data:`item_factory`.
+        """
+        driver = routine.clone(parent=None, rescope_symbols=True)
+        do_rename_subroutine(driver, get_mode_rename_suffix(mode))
+
+        module_name = f'{driver.name}{self.module_suffix}'
+        source = item.source
+        path = source.path.with_name(f'{module_name.lower()}{source.path.suffix}')
+        driver_source = source.clone(path=path, ir=ir.Section(body=(driver,)))
+        do_module_wrap_subroutine(driver_source, driver, self.module_suffix)
+
+        # Register the config first, so that the new items pick it up on creation
+        driver_item_name = f'{module_name}#{driver.name}'.lower()
+        driver_config = self._create_item_config(item.config, mode=mode)
+        self._update_scheduler_config(scheduler_config, driver_item_name, driver_config)
+
+        file_item = item_factory.get_or_create_file_item_from_source(driver_source, scheduler_config)
+        file_item.create_definition_items(item_factory=item_factory, config=scheduler_config)
+        driver_item = item_factory.get_or_create_item(
+            ProcedureItem, driver_item_name, module_name.lower(), config=scheduler_config
+        )
+        return driver_item
+
+    def _create_dispatcher_config(self, item, driver_items, scheduler_config):
+        """
+        Turn the entry-point item into a standalone dispatch layer driver without
+        children in the dependency graph.
+        """
+        block = OrderedSet(as_tuple(item.block))
+        for driver_item in driver_items:
+            block.add(driver_item.scope_name)
+            block.add(driver_item.name)
+
+        dispatcher_config = self._create_item_config(
+            item.config, mode=self.baseline_mode, expand=False, replicate=False, block=tuple(block)
+        )
+        item.config = dispatcher_config
+        self._update_scheduler_config(scheduler_config, item.name, dispatcher_config)
+
+    @staticmethod
+    def _remove_callee_dependencies(routine, callees):
+        """
+        Remove unused imports of the original callees from the dispatch layer,
+        such that it does not depend on them anymore.
+        """
+        node_map = {
+            imprt: None for imprt in FindNodes(ir.Import).visit(routine.spec)
+            if imprt.c_import and imprt.module.split('.', maxsplit=1)[0].lower() in callees
+        }
+        if node_map:
+            routine.spec = Transformer(node_map).visit(routine.spec)
+        sanitise_imports(routine)
+
+    @classmethod
+    def _create_dispatch_layer(cls, routine, condition, driver_routine, baseline_routine):
+        """Replace a routine body with a two-way dispatch to the driver variants."""
+
+        callees = {str(call.name).lower() for call in FindNodes(ir.CallStatement).visit(routine.body)}
+        callees |= {str(call.function).lower() for call in FindInlineCalls().visit(routine.body)}
+
+        try:
+            condition = routine.parse_expr(condition, strict=True)
+        except Exception as exc:
+            raise ValueError(
+                f'Failed to parse entry-point condition for {routine.name}: {condition}'
+            ) from exc
+
+        driver_symbol = driver_routine.procedure_symbol.rescope(scope=routine)
+        baseline_symbol = baseline_routine.procedure_symbol.rescope(scope=routine)
+
+        arguments = tuple(
+            argument.rescope(scope=routine).clone(dimensions=None)
+            for argument in routine.arguments
+        )
+
+        driver_call = ir.CallStatement(name=driver_symbol, arguments=arguments)
+        baseline_call = ir.CallStatement(name=baseline_symbol, arguments=arguments)
+
+        routine.body = ir.Section(body=(ir.Conditional(
+            condition=condition, body=(driver_call,), else_body=(baseline_call,)
+        ),))
+
+        imports = (
+            ir.Import(module=driver_routine.parent.name, symbols=(driver_symbol,)),
+            ir.Import(module=baseline_routine.parent.name, symbols=(baseline_symbol,)),
+        )
+        routine.spec.prepend(imports)
+
+        cls._remove_callee_dependencies(routine, callees)
+
+    def _create_entry_point(self, routine, item, item_factory, scheduler_config):
+        """Create the driver variants and turn the entry-point item into the dispatch layer."""
+
+        driver_items = tuple(
+            self._create_driver(routine, item, mode, item_factory, scheduler_config)
+            for mode in (self.mode, self.baseline_mode)
+        )
+        self._create_dispatcher_config(item, driver_items, scheduler_config)
+        return driver_items
+
+    def transform_subroutine(self, routine, **kwargs):
+        """Create the dispatch layer and driver variants for a selected entry point."""
+
+        item = kwargs.get('item')
+        if not self._is_entry_point(routine, item):
+            return
+
+        condition = item.config['condition']
+        driver_item, baseline_item = self._create_entry_point(
+            routine, item, kwargs['item_factory'], kwargs['scheduler_config']
+        )
+        self._create_dispatch_layer(routine, condition, driver_item.ir, baseline_item.ir)
+
+    def plan_subroutine(self, routine, **kwargs):
+        """Create the driver variants and dispatch layer configuration in planning mode."""
+
+        item = kwargs.get('item')
+        if not self._is_entry_point(routine, item):
+            return
+
+        self._create_entry_point(routine, item, kwargs['item_factory'], kwargs['scheduler_config'])
 
 
 class DuplicateKernel(Transformation):
@@ -383,7 +621,7 @@ class SeparateModesKernel(Transformation):
         local_name : str
             New item fully-qualified name.
         """
-        mode_rename = self.rename_suffix.format(mode=mode.replace('-', '_'))
+        mode_rename = get_mode_rename_suffix(mode, self.rename_suffix)
 
         # Determine new item name
         scope_name = item.scope_name

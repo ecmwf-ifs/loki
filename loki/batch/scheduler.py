@@ -22,7 +22,7 @@ from loki.batch.sgraph import SGraph
 from loki.batch.transformation import Transformation
 
 from loki.frontend import FP, REGEX, RegexParserClass
-from loki.tools import as_tuple, CaseInsensitiveDict, flatten
+from loki.tools import as_tuple, CaseInsensitiveDict, flatten, OrderedSet
 
 from loki.logging import info, perf, warning, error
 
@@ -164,16 +164,17 @@ class Scheduler:
         """
         Derive implicit seed routines from the scheduler config.
 
-        By default, only driver routines and routines explicitly marked with
-        ``seed_routine = true`` become graph roots.
+        By default, driver routines, configured entry points and routines
+        explicitly marked with ``seed_routine = true`` become graph roots.
         """
         implicit_seeds = tuple(
             name.lower() for name in config.routines
             if config.create_item_config(name).get('role') == 'driver'
             or config.create_item_config(name).get('seed_routine', False)
+            or config.create_item_config(name).get('entry-point', False)
         )
         if not implicit_seeds:
-            implicit_seeds = tuple(seed.lower() for seed in config.routines.keys())
+            implicit_seeds = tuple(seed.lower() for seed in config.routines)
             warning("[Loki]: "
                 "Using implicit or unspecified seed routines is deprecated and will be removed in a future release. "
                 "Currently, no seed routines were provided and none were discovered in the scheduler config. "
@@ -200,6 +201,12 @@ class Scheduler:
         if seed_routines:
             info('Initializing Scheduler graph from list of seed routines provided in the config')
             self.seeds = tuple(seed.lower() for seed in as_tuple(seed_routines))
+            entry_point_seeds = tuple(
+                name.lower() for name in self.config.routines
+                if self.config.create_item_config(name).get('entry-point', False)
+                and name.lower() not in self.seeds
+            )
+            self.seeds += entry_point_seeds
         else:
             info('Initializing Scheduler graph from driver routines')
             self.seeds = self._get_implicit_seeds(self.config)
@@ -508,15 +515,17 @@ class Scheduler:
 
         elif isinstance(transformation, dict):
             assert all(isinstance(trafo, Pipeline) for trafo in transformation.values())
+            # Apply mode-changing transformations before modes are propagated
+            pipelines = self.process_mode_changing_transformations(transformation, proc_strategy=proc_strategy)
             modes = self.propagate_and_separate_modes(proc_strategy=proc_strategy)
             # check if all required pipelines are available
             for mode in modes:
-                if mode not in transformation:
+                if mode not in pipelines:
                     error('[Loki] ERROR: Pipeline or transformation mode %s not found in config file.', mode)
                     raise RuntimeError(f'Could not find pipeline or transformation mode {mode}')
             # apply those pipelines
             for mode in modes:
-                self.process_pipeline(pipeline=self.config.pipelines[mode], proc_strategy=proc_strategy, mode=mode)
+                self.process_pipeline(pipeline=pipelines[mode], proc_strategy=proc_strategy, mode=mode)
         else:
             error('[Loki::Scheduler] Batch processing requires Transformation or Pipeline object')
             raise RuntimeError(f'Could not batch process {transformation}')
@@ -537,8 +546,64 @@ class Scheduler:
             Transformation mode, selecting which code transformations/pipeline on which graph to apply.
             Default: `None`, thus mode agnostic.
         """
+        if mode_changing := [t for t in pipeline.transformations if t.changes_modes]:
+            names = ', '.join(type(t).__name__ for t in mode_changing)
+            msg = (
+                f'Mode-changing transformations ({names}) require multi-pipeline processing '
+                'with a dictionary of mode-specific pipelines'
+            )
+            error(f'[Loki::Scheduler] {msg}')
+            raise RuntimeError(msg)
+
         for transformation in pipeline.transformations:
             self.process_transformation(transformation, proc_strategy=proc_strategy, mode=mode)
+
+    def process_mode_changing_transformations(self, pipelines, proc_strategy=ProcessingStrategy.DEFAULT):
+        """
+        Apply the mode-changing transformations of mode-specific pipelines.
+
+        Transformations with :any:`Transformation.changes_modes` set assign
+        transformation modes to items and therefore have to be applied before
+        the modes are propagated and separated (see
+        :meth:`propagate_and_separate_modes`). Such transformations have to be
+        placed at the beginning of their pipeline, and they are applied to the
+        items matching the pipeline's mode.
+
+        Parameters
+        ----------
+        pipelines : dict of :any:`Pipeline`
+            Mapping of transformation modes to the corresponding pipelines
+        proc_strategy : :any:`ProcessingStrategy`
+            The processing strategy to use when applying the transformations
+
+        Returns
+        -------
+        dict of :any:`Pipeline`
+            Mapping of transformation modes to pipelines containing only the
+            remaining transformations
+        """
+        remaining_pipelines = {}
+        for mode, pipeline in pipelines.items():
+            transformations = list(pipeline.transformations)
+            num_leading = next(
+                (idx for idx, trafo in enumerate(transformations) if not trafo.changes_modes),
+                len(transformations)
+            )
+            leading, remaining = transformations[:num_leading], transformations[num_leading:]
+
+            if misplaced := [trafo for trafo in remaining if trafo.changes_modes]:
+                names = ', '.join(type(trafo).__name__ for trafo in misplaced)
+                msg = f'Mode-changing transformations ({names}) must be placed at the beginning of pipeline {mode}'
+                error(f'[Loki::Scheduler] {msg}')
+                raise RuntimeError(msg)
+
+            for trafo in leading:
+                self.process_transformation(trafo, proc_strategy=proc_strategy, mode=mode)
+
+            remaining_pipelines[mode] = Pipeline()
+            remaining_pipelines[mode].transformations = remaining
+
+        return remaining_pipelines
 
     def process_transformation(self, transformation, proc_strategy=ProcessingStrategy.DEFAULT, mode=None):
         """
@@ -622,6 +687,15 @@ class Scheduler:
                     mode=mode
                 )
 
+            if transformation.renames_items or transformation.creates_items:
+                # Remember existing drivers so newly promoted driver items can be
+                # distinguished after processing.
+                existing_driver_item_names = {
+                    item.name.lower()
+                    for item in self.item_factory.item_cache.values()
+                    if isinstance(item, ProcedureItem) and item.role == 'driver'
+                }
+
             # Collect common transformation arguments
             kwargs = {
                 'depths': graph.depths,
@@ -647,7 +721,19 @@ class Scheduler:
                 )
 
         if transformation.renames_items:
+            # Rekey first so renamed seeds carry their final names before
+            # duplicate elimination below.
             self.rekey_item_cache()
+
+        if transformation.renames_items or transformation.creates_items:
+            created_seeds = OrderedSet(
+                item.name.lower()
+                for item in self.item_factory.item_cache.values()
+                if isinstance(item, ProcedureItem) and item.role == 'driver'
+                and item.name.lower() not in existing_driver_item_names
+                and not self.config.match_item_keys(item.name, self.seeds)
+            )
+            self.seeds += tuple(created_seeds)
 
         if transformation.creates_items:
             self._discover()
