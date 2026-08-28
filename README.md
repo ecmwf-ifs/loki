@@ -1,31 +1,37 @@
 # Loki: Freely programmable source-to-source translation
 
 [![license](https://img.shields.io/github/license/ecmwf-ifs/loki)](https://www.apache.org/licenses/LICENSE-2.0.html)
+[![Static Badge](https://github.com/ecmwf/codex/raw/refs/heads/main/Project%20Maturity/incubating_badge.svg)](https://github.com/ecmwf/codex/raw/refs/heads/main/Project%20Maturity#incubating)
 [![code-checks](https://github.com/ecmwf-ifs/loki/actions/workflows/code_checks.yml/badge.svg)](https://github.com/ecmwf-ifs/loki/actions/workflows/code_checks.yml)
 [![tests](https://github.com/ecmwf-ifs/loki/actions/workflows/tests.yml/badge.svg)](https://github.com/ecmwf-ifs/loki/actions/workflows/tests.yml)
 [![regression-tests](https://github.com/ecmwf-ifs/loki/actions/workflows/regression_tests.yml/badge.svg)](https://github.com/ecmwf-ifs/loki/actions/workflows/regression_tests.yml)
 [![codecov](https://codecov.io/gh/ecmwf-ifs/loki/branch/main/graph/badge.svg?token=9ZDS95SFWI)](https://codecov.io/gh/ecmwf-ifs/loki)
 
-**Loki is an experimental tool** to explore the possible use of
-source-to-source translation for ECMWF's Integrated Forecasting System (IFS) and
-associated Fortran software packages.
+> [!IMPORTANT]
+> This software is **Incubating** and subject to ECMWF's guidelines on
+  [Software Maturity](https://github.com/ecmwf/codex/raw/refs/heads/main/Project%20Maturity).
+
+The Loki package is intended to explore the possible use of
+source-to-source translation for ECMWF's Integrated Forecasting System
+(IFS) and associated Fortran software packages. It consists of a general
+code transformation API and a set of general transformations that may
+be applied to appropriate Fortran codes at build time via Python
+scripts or CMake macros.
 
 Loki is based on compiler technology (visitor patterns and ASTs) and aims to
 provide an abstract, language-agnostic representation of a kernel, as well as a
 programmable (pythonic) interface that allows developers to experiment with
-different kernel implementations and optimizations.  The aim is to allow changes
+different kernel implementations and optimizations. The aim is to allow changes
 to programming models and coding styles to be encoded and automated instead of
 hand-applying them, enabling advanced experimentation with large kernels as well
 as bulk processing of large numbers of source files to evaluate different kernel
 implementations and programming models.
 
-*This package is made available to support research collaborations and is not
-officially supported by ECMWF.*
-
 ## Contact
 
 Michael Lange (michael.lange@ecmwf.int),
-Balthasar Reuter (balthasar.reuter@ecmwf.int)
+Ahmad Nawab (ahmad.nawab@ecmwf.int)
+Michael Staneker (michael.staneker@ecmwf.int)
 
 ## License
 
