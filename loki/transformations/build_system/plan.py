@@ -99,13 +99,15 @@ class CMakePlanTransformation(Transformation):
         if newsource not in self.sources_to_append:
             if source_exists:
                 self.sources_to_transform.setdefault(key,[]).append(sourcepath)
-            if item.replicate:
-                orig_sourcepath = item.orig_path
-                orig_source_exists = orig_sourcepath.exists()
+            elif (orig_sourcepath := item.orig_path).exists():
+                # Generated items (e.g., duplicated or newly created program units) do not
+                # exist on disk, but we map them to the original source file to keep
+                # transformed and appended sources aligned, e.g., to copy compile flags
                 if self.rootpath is not None:
                     orig_sourcepath = orig_sourcepath.resolve().relative_to(self.rootpath)
-                if orig_source_exists and not source_exists:
-                    self.sources_to_transform.setdefault(key,[]).append(orig_sourcepath)
+                self.sources_to_transform.setdefault(key,[]).append(orig_sourcepath)
+
+            if item.replicate:
                 # Add new source file next to the old one
                 self.sources_to_append.setdefault(key,[]).append(newsource)
             else:
