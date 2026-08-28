@@ -11,6 +11,7 @@ path = [
   "example/**/*.ipynb",
   "example/README.md",
   "example/gfx/*.png",
+  "example_converted/*.py", # Generated during CI testing
   "docs/**/*.rst",
   "docs/**/*.md",
   "docs/**/*.csv",
