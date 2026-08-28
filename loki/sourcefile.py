@@ -57,11 +57,14 @@ class Sourcefile:
         frontend and a full parse using one of the other frontends is pending.
     parser_classes : :any:`RegexParserClass`, optional
         Provide the list of parser classes used during incomplete regex parsing
+    orig_path : str, optional
+        Original source path retained when cloning with a different path.
     """
 
-    def __init__(self, path, ir=None, ast=None, source=None, incomplete=False, parser_classes=None):
+    def __init__(self, path, ir=None, ast=None, source=None, incomplete=False,
+                 parser_classes=None, orig_path=None):
         self.path = Path(path) if path is not None else path
-        self.orig_path = self.path
+        self.orig_path = Path(orig_path) if orig_path is not None else self.path
         if ir is not None and not isinstance(ir, Section):
             ir = Section(body=ir)
         self.ir = ir
@@ -75,6 +78,7 @@ class Sourcefile:
         Replicate the object with the provided overrides.
         """
         kwargs.setdefault('path', self.path)
+        kwargs.setdefault('orig_path', self.orig_path)
         if self.ir is not None and 'ir' not in kwargs:
             kwargs['ir'] = self.ir
             ir_needs_clone = True
