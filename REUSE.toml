@@ -1,0 +1,57 @@
+version = 1
+
+[[annotations]]
+path = [
+  "loki/**/tests/**/*.F90",
+  "loki/**/tests/**/*.f90",
+  "loki/**/tests/**/*.h",
+  "example/**/*.F90",
+  "example/**/*.f90",
+  "example/**/*.h",
+  "example/**/*.ipynb",
+  "example/README.md",
+  "example/gfx/*.png",
+  "example_converted/*.py", # Generated during CI testing
+  "docs/**/*.rst",
+  "docs/**/*.md",
+  "docs/**/*.csv",
+  "docs/Makefile",
+  "docs/make.bat",
+  ".github/workflows/*.yml",
+  ".github/dependabot.yml",
+  ".gitignore",
+  ".pylintrc",
+  ".pylintrc_ipynb",
+  "AGENTS.md",
+  "AUTHORS.md",
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
+  "INSTALL.md",
+  "README.md",
+  "VERSION",
+  "codecov.yml",
+  "lint_rules/pyproject.toml",
+  "loki/jit_build/tests/*.c",
+  "loki/tests/kind_map",
+  "loki/tests/sources/**/*.config",
+  "pyproject.toml",
+  "requirements.txt",
+  "loki-post-import.cmake.in",
+  "CMakeLists.txt",
+  "cmake/CMakeLists.txt",
+  "cmake/*.cmake",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2018 European Centre for Medium-Range Weather Forecasts (ECMWF)"
+SPDX-License-Identifier = "Apache-2.0"
+SPDX-FileComment = "In applying this licence, ECMWF does not waive the privileges and immunities granted to it by virtue of its status as an intergovernmental organisation nor does it submit to any jurisdiction."
+
+[[annotations]]
+path = [
+  "cmake/cmake-jdk-ant/CMakeLists.txt",
+  "cmake/cmake-jdk-ant/README.md",
+  "cmake/cmake-jdk-ant/cmake/module/FindAnt.cmake",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "Copyright Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"
