@@ -199,6 +199,13 @@ def test_simplify_floating_point_arithmetic(source, ref):
     assert str(expr) == ref
 
 
+def test_simplify_floating_point_arithmetic_keeps_symbolic_division():
+    scope = Scope()
+    expr = parse_expr('1.0/a', scope)
+    expr = simplify(expr, enabled_simplifications=Simplification.FloatingPointArithmetic)
+    assert str(expr) == '1.0 / a'
+
+
 @pytest.mark.parametrize('source, ref', [
     ('a + a + a', '3*a'),
     ('2*a + 1*a + a*3', '6*a'),
@@ -288,6 +295,14 @@ def test_simplify_logic_evaluation(source, ref):
     ('n**1.0', 'n'),
     ('2.0**3', '8.0'),
     ('3.0*7*0*10', '0'),
+    ('(1**n)', '1'),
+    ('(n**0)', '1'),
+    ('(n**1)', 'n'),
+    ('(2**3)', '8'),
+    ('(1.0**n)', '1.0'),
+    ('(n**0.0)', '1'),
+    ('(n**1.0)', 'n'),
+    ('(2.0**3)', '8.0'),
 ])
 def test_simplify(source,ref):
     scope = Scope()

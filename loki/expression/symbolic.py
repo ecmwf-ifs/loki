@@ -430,10 +430,12 @@ def div_literals(expr, fp_arithmetic=False):
         q = sym.Quotient(expr.numerator, strip_minus_prefix(expr.denominator))
         return sym.Product((-1, div_literals(q, fp_arithmetic=fp_arithmetic)))
 
-    if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
-        if not fp_arithmetic:
-            return expr
-        return sym.Literal(float(expr.numerator.value) / float(expr.denominator.value))
+    literal_types = (sym.IntLiteral, sym.FloatLiteral)
+    if isinstance(expr.numerator, literal_types) and isinstance(expr.denominator, literal_types):
+        if isinstance(expr.numerator, sym.FloatLiteral) or isinstance(expr.denominator, sym.FloatLiteral):
+            if not fp_arithmetic:
+                return expr
+            return sym.Literal(float(expr.numerator.value) / float(expr.denominator.value))
 
     if not isinstance(expr.denominator, sym.IntLiteral):
         return expr
@@ -619,8 +621,16 @@ class SimplifyMapper(LokiIdentityMapper):
         return expr
 
     def map_quotient(self, expr, *args, **kwargs):
+        from loki.expression import operations as op  # pylint: disable=import-outside-toplevel,cyclic-import
+
         numerator = self.rec(expr.numerator, *args, **kwargs)
         denominator = self.rec(expr.denominator, *args, **kwargs)
+
+        # Preserve explicit denominator product parentheses needed for correct code generation,
+        # while still normalising the surrounding arithmetic node types for symbolic simplify.
+        if isinstance(expr.denominator, op.ParenthesisedMul) and isinstance(denominator, sym.Product):
+            denominator = op.ParenthesisedMul(denominator.children)
+
         new_expr = sym.Quotient(numerator, denominator)
 
         if self.enabled_simplifications & Simplification.Flatten:
@@ -661,6 +671,7 @@ class SimplifyMapper(LokiIdentityMapper):
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
     map_parenthesised_div = map_quotient
+    map_parenthesised_pow = map_power
 
     def map_comparison(self, expr, *args, **kwargs):
         def get_constant_value(expr):

@@ -6,7 +6,7 @@
 
 import pytest
 
-from loki import Subroutine, available_frontends, jit_compile
+from loki import OMNI, Subroutine, available_frontends, jit_compile
 from loki.expression import symbols as sym
 from loki.ir import nodes as ir, FindNodes
 
@@ -79,6 +79,26 @@ end subroutine const_prop_dynamic_array
     assert ('a', (sym.IntLiteral(1),)) not in constants_map
     assert ('a', (sym.IntLiteral(2),)) not in constants_map
     assert ('a', (sym.IntLiteral(3),)) not in constants_map
+
+
+def test_constant_propagation_analysis_skips_symbols_without_initial():
+    fcode = """
+subroutine const_prop_symbols_without_initial()
+  type wrapper
+    integer :: value
+  end type wrapper
+  type(wrapper) :: state
+  integer :: a = 1
+
+  a = a + state%value
+end subroutine const_prop_symbols_without_initial
+    """.strip()
+    routine = Subroutine.from_source(fcode)
+
+    declarations_map = ConstantPropagationTransformer().generate_declarations_map(routine)
+
+    assert declarations_map[('a', ())] == sym.IntLiteral(1)
+    assert not any(k for k in declarations_map if k[0] == 'state')
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -311,6 +331,32 @@ end subroutine test_constant_propagation_for_loop_basic_no_unroll
     assert 'Assignment:: c = 15' in assignments
     assert 'Assignment:: d = 5*i' in assignments
     assert 'Assignment:: c = 30' in assignments
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI parser unavailable in this environment')]))
+def test_constant_propagation_for_loop_self_dependent_update_invalidates_constant(frontend):
+    fcode = """
+subroutine test_constant_propagation_for_loop_self_dependent_update_invalidates_constant(a, out)
+  integer, intent(in) :: a(5)
+  integer, intent(out) :: out
+  integer :: i, s
+
+  s = 0
+  do i = 1, 5
+    s = s + a(i)
+  end do
+  out = s
+end subroutine test_constant_propagation_for_loop_self_dependent_update_invalidates_constant
+""".strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    transformed = do_constant_propagation(routine, unroll_loops=False)
+    assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
+
+    assert 'Assignment:: s = 0' in assignments
+    assert 'Assignment:: s = s + a(i)' in assignments
+    assert 'Assignment:: out = s' in assignments
+    assert 'Assignment:: out = 0' not in assignments
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
