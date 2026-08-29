@@ -51,7 +51,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install sites-toolkit -i https://get.ecmwf.int/repository/pypi-all/simple
         pip install .[docs]
-        pip install ./lint_rules/
 
     - name: Build documentation
       working-directory: ./docs

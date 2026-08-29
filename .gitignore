@@ -7,13 +7,11 @@
 core.*
 
 loki.egg-info/*
-lint_rules/lint_rules.egg-info/*
 .eggs/*
 .cache/*
 .pytest_cache/*
 .dacecache/*
 /build
-/lint_rules/build
 /artifacts
 
 # Installation artifacts
@@ -25,7 +23,6 @@ docs/build
 docs/source/loki.*rst
 docs/source/scripts.*rst
 docs/source/loki-*.rst
-docs/source/lint_rules.*
 docs/source/raps_deps.rst
 docs/source/transformations.*
 
