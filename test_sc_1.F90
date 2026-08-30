@@ -1,0 +1,30 @@
+MODULE TEST_SC_1_MOD
+CONTAINS
+  SUBROUTINE TEST_SC_1(KIDIA, KFIDIA, X, Y, Z, NPROMA, KLON, HORIZONTAL, KLEV)
+
+    INTEGER, INTENT(IN) :: KIDIA, KFIDIA, NPROMA, KLON, KLEV, HORIZONTAL
+    REAL, INTENT(INOUT) :: X(NPROMA, KLEV), Y(KLON, KLEV), Z(HORIZONTAL, KLEV)
+    REAL :: TMP
+    INTEGER :: JL, JK, JO
+
+    DO JK=1,KLEV
+      DO JL=KIDIA,KFIDIA
+        X(JL, JK) = 0.0
+        TMP = X(JL, JK)
+        Y(JL, JK) = 0.0
+        TMP = Y(JL, JK)
+        Z(JL, JK) = 0.0
+        TMP = Z(JL, JK)
+      END DO
+      DO JO=KIDIA,KFIDIA
+        X(JO, JK) = 0.2
+        TMP = X(JO, JK)
+        Y(JO, JK) = 0.2
+        TMP = Y(JO, JK)
+        Z(JO, JK) = 0.2
+        TMP = Z(JO, JK)
+      END DO
+    END DO
+
+  END SUBROUTINE TEST_SC_1
+END MODULE TEST_SC_1_MOD
