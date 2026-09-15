@@ -1,6 +1,6 @@
-=========
-Utilities
-=========
+==============
+Loki Utilities
+==============
 
 .. important::
     Loki is still under active development and has not yet seen a stable

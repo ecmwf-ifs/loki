@@ -7,5 +7,3 @@ API reference
    :recursive:
 
    loki
-   scripts
-   lint_rules

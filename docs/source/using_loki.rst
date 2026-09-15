@@ -13,5 +13,5 @@ design choices underpinning Loki:
    frontends
    backends
    transform
+   loki_lint
    utils
-   loki_scripts

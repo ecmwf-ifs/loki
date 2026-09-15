@@ -1,6 +1,6 @@
-=========
-loki-lint
-=========
+================================
+Source linting with loki-lint.py
+================================
 
 .. contents:: Contents
    :local:
@@ -17,10 +17,13 @@ Installation
 ============
 
 A generic Loki installation as described in the :doc:`installation instructions
-<INSTALL>` also installs the linting script. However, it requires linter rules
-to do anything useful. A basic set of rules for IFS is provided via the
-``lint_rules`` module that can be optionally included in the installation as
-described in `INSTALL.md`.
+<INSTALL>` installs the linting script and the framework for implementing lint
+rules, but it does not provide a ruleset. Rules for IFS-Arpege-LAM source code
+are maintained separately in the public `IAL-lint package
+<https://github.com/ecmwf-ifs/ial-lint>`_. Install IAL-lint in the same Python
+environment as Loki before using these rules. See the `IAL-lint installation
+instructions <https://github.com/ecmwf-ifs/ial-lint#installation>`_ for the
+supported installation options.
 
 Basic usage
 ===========
@@ -200,18 +203,27 @@ The rules against which Loki-lint performs checks can be configured as follows:
 
    loki-lint.py --rules-module <modulename> check [options/arguments]
 
-If a rules-module is not specified, then the default :mod:`lint_rules.ifs_coding_standards_2011`
-is used.
+The selected module must be importable in the Python environment in which
+``loki-lint.py`` runs. For example, after installing `IAL-lint
+<https://github.com/ecmwf-ifs/ial-lint>`_, its current IFS-Arpege coding standard
+rules can be selected with:
+
+.. code-block:: bash
+
+   loki-lint.py --rules-module ial_lint.rules.ifs_arpege_coding_standards check [options/arguments]
+
+IAL-lint also provides the legacy 2011 IFS coding standard rules in
+``ial_lint.rules.ifs_coding_standards_2011``. Refer to the `IAL-lint repository
+<https://github.com/ecmwf-ifs/ial-lint>`_ for its available rulesets and their
+documentation.
 
 Implementing own rules
 ======================
 
-All rules are implemented in :mod:`lint_rules`. Currently, this includes:
-
-#. :mod:`lint_rules.ifs_coding_standards_2011` - A (small) subset of the rules defined in the IFS coding standards document.
-#. :mod:`lint_rules.debug_rules` - A set of rules to identify common mistakes/anti-patterns:
-    * :any:`ArgSizeMismatchRule` - Check for argument/dummy-argument size consistency
-    * :any:`DynamicUboundCheckRule` - Check if run-time bounds checking is used rather than compile-time bounds checking.
+Loki provides the generic linting framework, while concrete rules can be
+implemented in any importable Python package. The IFS-Arpege-LAM rules that
+were previously distributed with Loki are now developed and documented in the
+separate `IAL-lint package <https://github.com/ecmwf-ifs/ial-lint>`_.
 
 To be able to write own rules a rudimentary understanding of
 :doc:`internal_representation` is helpful.
