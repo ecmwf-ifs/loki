@@ -86,7 +86,6 @@ exclude = [
   "cmake*",
   "docs*",
   "example*",
-  "lint_rules*",
   "loki_env*",
 ]
 namespaces = false
