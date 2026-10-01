@@ -342,3 +342,189 @@ end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 5' in assignments
     assert 'Assignment:: c = 3' in assignments
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_procedures(frontend):
+    fcode = """
+subroutine const_prop_procedures
+  integer :: a1, a2, a3, b1, b2, c1, c2, d1, e1, e2, e3, f1, g1, h1
+  integer :: a1_out, a2_out, b1_out, b2_out, c1_out, c2_out, d1_out, e1_out, e2_out, e3_out, f1_out, g1_out, h1_out
+  integer :: f2(3), g2(3), h2(x)
+  integer :: f2_1_out, f2_2_out, f2_3_out, g2_1_out, g2_2_out, g2_3_out, h2_1_out, h2_2_out, h2_3_out
+
+  a1 = 1
+  a2 = 2
+  a3 = 3
+  call contained_subroutine(a1,b=a2,a_out=a3)
+  a1_out = a1
+  a2_out = a2
+  a3_out = a3
+
+  b1 = 1
+  b2 = 2
+  call deferred_subroutine(b1,b_out=b2)
+  b1_out = b1
+  b2_out = b2
+
+  c1 = 1
+  c2 = 2
+  call deferred_no_named_arg_subroutine(c1,c2)
+  c1_out = c1
+  c2_out = c2
+
+  d1 = 1
+  call deferred_lit_arg_subroutine(d1,2)
+  d1_out = d1
+
+  e1 = 1
+  e2 = 2
+  e3 = 3
+  e3=contained_function(e1,named=e2)
+  e1_out = e1
+  e2_out = e2
+  e3_out = e3
+
+  f1 = 1
+  f2(1) = 1
+  f2(2) = 2
+  f2(3) = 3
+  call deferred_array_arg_subroutine(f1,f2)
+  f1_out = f1
+  f2_1_out = f2(1)
+  f2_2_out = f2(2)
+  f2_3_out = f2(3)
+
+  g1 = 1
+  g2(1) = 1
+  g2(2) = 2
+  g2(3) = 3
+  call deferred_array_access_arg_subroutine(g1,g2(1))
+  g1_out = g1
+  g2_1_out = g2(1)
+  g2_2_out = g2(2)
+  g2_3_out = g2(3)
+
+  h1 = 1
+  h2(1) = 1
+  h2(2) = 2
+  h2(3) = 3
+  call deferred_array_deferred_arg_subroutine(h1,h2)
+  h1_out = h1
+  h2_1_out = h2(1)
+  h2_2_out = h2(2)
+  h2_3_out = h2(3)
+
+  contains
+  subroutine contained_subroutine(a, b, a_out)
+    implicit none
+    integer, intent(in) :: a, b
+    integer, intent(out) :: a_out
+
+    a_out = a
+  end subroutine contained_subroutine
+  function contained_function(A,named) result(d_out)
+    implicit none
+    integer, intent(in) :: A
+    integer, intent(inout) :: named
+    integer, intent(out) :: d_out
+
+    d_out = A
+  end function contained_function
+
+end subroutine const_prop_procedures
+""".strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+
+    transformed = do_constant_propagation(routine)
+    assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
+
+    for call_statement in FindNodes(ir.CallStatement).visit(transformed.body):
+        if call_statement.name.basename == 'contained_subroutine':
+            arg_strings = [(str(dummy_arg), str(call_arg)) for (dummy_arg, call_arg) in call_statement.arg_iter()]
+            assert ('a','1') in arg_strings
+            assert ('b','2') in arg_strings
+            assert ('a_out','a3') in arg_strings
+
+    assert 'Assignment:: a1_out = 1' in assignments
+    assert 'Assignment:: a2_out = 2' in assignments
+    assert 'Assignment:: a3_out = a3' in assignments
+
+    assert 'Assignment:: b1_out = b1' in assignments
+    assert 'Assignment:: b2_out = b2' in assignments
+
+    assert 'Assignment:: c1_out = c1' in assignments
+    assert 'Assignment:: c2_out = c2' in assignments
+
+    assert 'Assignment:: d1_out = d1' in assignments
+
+    assert 'Assignment:: e3 = contained_function(1, named=e2)' in assignments
+    assert 'Assignment:: e1_out = 1' in assignments
+    assert 'Assignment:: e2_out = e2' in assignments
+    assert 'Assignment:: e3_out = e3' in assignments
+
+    assert 'Assignment:: f1_out = f1' in assignments
+    assert 'Assignment:: f2_1_out = f2(1)' in assignments
+    assert 'Assignment:: f2_2_out = f2(2)' in assignments
+    assert 'Assignment:: f2_3_out = f2(3)' in assignments
+
+    assert 'Assignment:: g1_out = g1' in assignments
+    assert 'Assignment:: g2_1_out = g2(1)' in assignments
+    assert 'Assignment:: g2_2_out = 2' in assignments
+    assert 'Assignment:: g2_3_out = 3' in assignments
+
+    assert 'Assignment:: h1_out = h1' in assignments
+    assert 'Assignment:: h2_1_out = h2(1)' in assignments
+    assert 'Assignment:: h2_2_out = h2(2)' in assignments
+    assert 'Assignment:: h2_3_out = h2(3)' in assignments
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_gen_declarations_map(frontend):
+    fcode = """
+subroutine test_constant_propagation_gen_declarations_map(c)
+  integer :: a = 3
+  integer :: i(x) = (/1, 2, 3/)
+  integer :: j(3) = (/1, 2, 3/)
+  integer :: k(2:4) = (/1, 2, 3/)
+  integer :: l(a) = (/1, 2, 3/)
+
+  integer :: a_out, i_1_out, i_2_out, i_3_out, j_1_out, j_2_out, j_3_out, k_2_out, k_3_out, k_4_out
+  integer :: l_1_out, l_2_out, l_3_out
+
+  a_out = a
+  i_1_out = i(1)
+  i_2_out = i(2)
+  i_3_out = i(3)
+  j_1_out = j(1)
+  j_2_out = j(2)
+  j_3_out = j(3)
+  k_2_out = k(2)
+  k_3_out = k(3)
+  k_4_out = k(4)
+  l_1_out = l(1)
+  l_2_out = l(2)
+  l_3_out = l(3)
+
+end subroutine test_constant_propagation_gen_declarations_map
+""".strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    transformed = do_constant_propagation(routine, unroll_loops=False)
+
+    assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
+
+    assert 'Assignment:: a_out = 3' in assignments
+    assert 'Assignment:: i_1_out = i(1)' in assignments
+    assert 'Assignment:: i_2_out = i(2)' in assignments
+    assert 'Assignment:: i_3_out = i(3)' in assignments
+    assert 'Assignment:: j_1_out = 1' in assignments
+    assert 'Assignment:: j_2_out = 2' in assignments
+    assert 'Assignment:: j_3_out = 3' in assignments
+    assert 'Assignment:: k_2_out = 1' in assignments
+    assert 'Assignment:: k_3_out = 2' in assignments
+    assert 'Assignment:: k_4_out = 3' in assignments
+    assert 'Assignment:: l_1_out = 1' in assignments
+    assert 'Assignment:: l_2_out = 2' in assignments
+    assert 'Assignment:: l_3_out = 3' in assignments

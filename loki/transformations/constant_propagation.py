@@ -8,12 +8,13 @@ from copy import deepcopy
 
 import itertools
 
+from loki.types import BasicType
 from loki.expression import (
-    symbols as sym, get_pyrange, is_constant, SimplifyMapper
+    symbols as sym, get_pyrange, is_constant, SimplifyMapper, ProcedureSymbol
 )
 from loki.ir import nodes as ir, FindNodes, FindVariables, Transformer
 from loki.subroutine import Subroutine
-from loki.tools import dict_override
+from loki.tools import dict_override, as_tuple
 
 from loki.transformations.transform_loop import LoopUnrollTransformer
 
@@ -24,41 +25,93 @@ __all__ = [
 ]
 
 
-def _pop_array_accesses(lhs, **kwargs):
+def get_possible_array_accesses(lhs, **kwargs):
     constants_map = kwargs.get('constants_map', {})
     new_shape = ConstantPropagationMapper()(lhs.shape, constants_map=constants_map)
+    is_constant_shape = new_shape is not None and all(is_constant(extent) for extent in new_shape)
 
+    # Find the maximum dimension of the array.
+    # Try to get it from static info, but fall back to the slow search of the constants map.
+    max_dimension = 0
+    if len(lhs.dimensions) == 0 and not is_constant_shape:
+        # Whole-array, unknown shape
+        for (basename, key_index) in constants_map.keys():
+            if basename == lhs.basename:
+                max_dimension = max(max_dimension, len(key_index))
+    elif not is_constant_shape:
+        # Subscripted, unknown shape
+        max_dimension = len(lhs.dimensions)
+    elif len(lhs.dimensions) == 0:
+        # Whole-array, known shape
+        max_dimension = len(new_shape)
+    else:
+        # Subscripted, known shape
+        max_dimension = max(len(lhs.dimensions), len(new_shape))
+
+    # Padded for the zip below, so that we can handle the case where we have a shape but no dimensions (or vice versa)
     literal_mask = [is_constant(dimension) for dimension in lhs.dimensions]
-    computable_dimension_mask = [is_constant(extent) for extent in new_shape]
+    literal_mask.extend([False] * (max_dimension - len(literal_mask)))
 
-    masked_indices = []
-    for literal, computable, dimension in zip(literal_mask, computable_dimension_mask, lhs.dimensions):
-        if literal:
-            masked_indices.append(dimension)
-        elif computable:
-            masked_indices.append(sym.RangeIndex((None, None, None)))
+    if all(literal_mask):
+        # If we know the exact dimensions, we can just return that one access
+        return (lhs.dimensions,)
+
+    # Pad the dimensions for same reasoning as above
+    dimensions = list(lhs.dimensions)
+    dimensions.extend([sym.RangeIndex((None, None, None))] * (max_dimension - len(dimensions)))
+
+    # Apply the mask to get a list of indices that are either literal, or computable for each dimension.
+    masked_indices = tuple(dimension if is_literal else sym.RangeIndex((None, None, None))
+                            for is_literal, dimension in zip(literal_mask, dimensions))
+
+    possible_accesses = []
+    if is_constant_shape:
+        # If the shape is literal, we can conservatively generate all possible accesses for the array
+        possible_accesses = array_indices_to_accesses(masked_indices, new_shape)
+    else:
+        # Else, if we don't know the shape, we search the constants map and conservatively return all accesses
+        # that match the known dimensions of the array.
+        first_masked_index = next((index for (index, is_literal) in enumerate(literal_mask) if not is_literal))
+        for (basename, key_index) in constants_map.keys():
+            if basename == lhs.basename and key_index[:first_masked_index] == masked_indices[:first_masked_index]:
+                possible_accesses.append(key_index)
+
+    return as_tuple(possible_accesses)
+
+
+def array_indices_to_accesses(indices, shape):
+    partial_indices = []
+    # Use the masked indices to generate all possible accesses for the array,
+    # using the literal indices to minimise the access space.
+    for count, index in enumerate(indices):
+        if isinstance(index, sym.RangeIndex):
+            start = index.start if index.start is not None else sym.IntLiteral(1)
+            stop = index.stop if index.stop is not None else shape[count]
+            partial_indices.append([
+                sym.IntLiteral(v) for v in get_pyrange(sym.LoopRange((start, stop, index.step)))
+            ])
         else:
-            masked_indices.append(-1)
-
-    possible_accesses = _array_indices_to_accesses(masked_indices, new_shape)
-    for access in possible_accesses:
-        constants_map.pop((lhs.basename, access), None)
+            partial_indices.append([index])
+    return list(itertools.product(*partial_indices))
 
 
 def update_constants_map(lhs, value, constants_map):
-    constants_map[(lhs.basename, ())] = value
+    if isinstance(lhs, sym.Array):
+        for access in get_possible_array_accesses(lhs, constants_map=constants_map):
+            constants_map[(lhs.basename, access)] = value
+    else:
+        constants_map[(lhs.basename, ())] = value
 
 
 def invalidate_constants_map(lhs, constants_map):
     if isinstance(lhs, sym.Array):
-        for access in tuple(key for key in constants_map if key[0] == lhs.basename):
+        for access in get_possible_array_accesses(lhs, constants_map=constants_map):
             constants_map.pop((lhs.basename, access), None)
-        return
+    else:
+        constants_map.pop((lhs.basename, ()), None)
 
-    constants_map.pop((lhs.basename, ()), None)
 
-
-def _separate_literals(children):
+def separate_literals(children):
     separated = ([], [])
     for child in children:
         if isinstance(child, sym._Literal):
@@ -68,18 +121,42 @@ def _separate_literals(children):
     return separated
 
 
-def _array_indices_to_accesses(dimensions, shape):
-    arg_lists = []
-    for count, dimension in enumerate(dimensions):
-        if isinstance(dimension, sym.RangeIndex):
-            start = dimension.start if dimension.start else sym.IntLiteral(1)
-            stop = dimension.stop if dimension.stop else shape[count]
-            arg_lists.append([
-                sym.IntLiteral(v) for v in get_pyrange(sym.LoopRange((start, stop, dimension.step)))
-            ])
+def pop_procedure_accesses(procedure, *args, **kwargs):
+    constants_map = kwargs.get('constants_map', {})
+
+    if procedure.procedure_type == BasicType.DEFERRED or procedure.procedure_type.is_intrinsic:
+        # If we can't get the intent, be conservative
+        arg_list = list(procedure.arguments)
+        arg_list.extend([arg for (kw, arg) in procedure.kwarguments])
+        for arg in arg_list:
+            if isinstance(arg, (sym.Scalar, sym.Array)):
+                invalidate_constants_map(arg, constants_map)
+        return procedure.arguments, procedure.kwarguments
+
+    arg_iter = procedure.arg_iter()
+    split = len(procedure.arguments)
+    args_pairs = list(itertools.islice(arg_iter, split))
+    kwargs_pairs = list(arg_iter)
+
+    args_list = tuple(call_kwarg for (_, call_kwarg) in process_procedure_args(args_pairs, *args, **kwargs))
+    kwargs_list = tuple((dummy_kwarg.basename, call_kwarg) for (dummy_kwarg, call_kwarg)
+                        in process_procedure_args(kwargs_pairs, *args, **kwargs))
+    return args_list, kwargs_list
+
+
+def process_procedure_args(args_list, *args, **kwargs):
+    constants_map = kwargs.get('constants_map', {})
+    mapper = ConstantPropagationMapper()
+
+    mapped_args = []
+    for (dummy_arg, call_arg) in args_list:
+        if dummy_arg.type.intent == 'in':
+            mapped_args.append((dummy_arg, mapper(call_arg, *args, **kwargs)))
         else:
-            arg_lists.append([dimension])
-    return itertools.product(*arg_lists)
+            # Else invalidate only arguments that are not explicitly marked as intent `in` (i.e. read-only)
+            invalidate_constants_map(call_arg, constants_map)
+            mapped_args.append((dummy_arg, call_arg))
+    return mapped_args
 
 
 class ConstantPropagationMapper(SimplifyMapper):
@@ -95,12 +172,23 @@ class ConstantPropagationMapper(SimplifyMapper):
             return sym.IntLiteral(float(expr.numerator.value) / float(expr.denominator.value))
         return super().map_quotient(expr, *args, **kwargs)
 
+    def map_inline_call(self, expr, *args, **kwargs):
+
+        args_list, kwargs_list = pop_procedure_accesses(expr, *args, **kwargs)
+        return expr.clone(parameters=args_list, kw_parameters=dict(kwargs_list))
+
     map_scalar = map_array
     map_deferred_type_symbol = map_array
 
 
 class ConstantPropagationTransformer(Transformer):
     """Apply constant-propagation analysis as a transformation driver."""
+
+    def visit_CallStatement(self, o, **kwargs):
+
+        args_list, kwargs_list = pop_procedure_accesses(o, **kwargs)
+
+        return o._rebuild(arguments=args_list, kwarguments=kwargs_list)
 
     def visit_Assignment(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
@@ -119,16 +207,16 @@ class ConstantPropagationTransformer(Transformer):
             new_dimensions = tuple(mapper(d, constants_map=constants_map) for d in o.lhs.dimensions)
             new_lhs = o.lhs.clone(dimensions=new_dimensions)
 
-            _, non_literal_dimensions = _separate_literals(new_dimensions)
+            _, non_literal_dimensions = separate_literals(new_dimensions)
             if non_literal_dimensions:
-                _pop_array_accesses(new_lhs, constants_map=constants_map)
+                invalidate_constants_map(new_lhs, constants_map)
                 return o._rebuild(lhs=new_lhs, rhs=new_rhs)
 
-        _, non_literals = _separate_literals((new_rhs,))
-        if not non_literals and not isinstance(new_lhs, sym.Array):
-            update_constants_map(new_lhs, new_rhs, constants_map)
-        else:
+        _, non_literals = separate_literals((new_rhs,))
+        if non_literals:
             invalidate_constants_map(new_lhs, constants_map)
+        else:
+            update_constants_map(new_lhs, new_rhs, constants_map)
 
         return o._rebuild(lhs=new_lhs, rhs=new_rhs)
 
@@ -210,25 +298,55 @@ class ConstantPropagationTransformer(Transformer):
     def generate_declarations_map(self, routine):
         """Build the initial constant map from declaration-time initializers."""
 
-        def index_initial_elements(indices, element):
+        def index_initial_elements(indices, element, lower_bounds):
+            offset = indices[0].value - lower_bounds[0]
             if len(indices) == 1:
-                return element.elements[indices[0].value - 1]
-            return index_initial_elements(indices[1:], element.elements[indices[0].value - 1])
+                return element.elements[offset]
+            return index_initial_elements(indices[1:], element.elements[offset], lower_bounds[1:])
+
+        def is_range_const(index_range):
+            return (index_range.start is not None and is_constant(index_range.start) and
+                    index_range.stop is not None and is_constant(index_range.stop))
 
         declarations_map = {}
+        arrays = []
         for symbol in getattr(routine, 'symbols', ()):
-            if isinstance(symbol, sym.DeferredTypeSymbol) or symbol.initial is None:
+            if (
+                    isinstance(symbol, (sym.DeferredTypeSymbol , ProcedureSymbol))
+                    or symbol.initial is None
+            ):
                 continue
 
             if isinstance(symbol, sym.Array):
-                declarations_map.update({
-                    (symbol.basename, indices): index_initial_elements(indices, symbol.initial)
-                    for indices in _array_indices_to_accesses(
-                        [sym.RangeIndex((None, None, None))] * len(symbol.shape), symbol.shape
-                    )
-                })
+                # Process later so that we have the scalars available
+                arrays.append(symbol)
             else:
                 declarations_map[(symbol.basename, ())] = symbol.initial
+        for array in arrays:
+            new_shape = ConstantPropagationMapper()(array.shape, constants_map=declarations_map)
+            if new_shape is None or not isinstance(array.initial, sym.LiteralList):
+                continue
+
+            if all(is_constant(extent) for extent in new_shape):
+                accesses = array_indices_to_accesses([sym.RangeIndex((None, None, None))] * len(new_shape), new_shape)
+                for index in accesses:
+                    declarations_map[(array.basename, index)] = ConstantPropagationMapper()(
+                        index_initial_elements(index, array.initial, [1] * len(new_shape)),
+                        constants_map=declarations_map
+                    )
+            elif isinstance(new_shape[0], sym.RangeIndex) and is_range_const(new_shape[0]):
+                # Only works for the simple case of 1D arrays.
+                # Needs more logic to handle multi-dimensional arrays due to the reshape() call
+                if len(new_shape) != 1:
+                    continue
+
+                lower_bounds = list(map(lambda x: min(x).value, zip(*array_indices_to_accesses(new_shape, new_shape))))
+                for index in array_indices_to_accesses(new_shape, new_shape):
+                    declarations_map[(array.basename, index)] = (ConstantPropagationMapper()(
+                        index_initial_elements(index, array.initial, lower_bounds),
+                        constants_map=declarations_map)
+                    )
+
         return declarations_map
 
 
