@@ -47,27 +47,30 @@ end module legacy_unused_mod
     trafo = SanitiseUnusedRoutineTransformation(routines=('legacy_unused',), stub_kind='error_stop')
     trafo.apply(routine)
 
+    # Scalar is kept, local array ``zouts`` is dropped, kept arrays are fully deferred
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
-    pout_decl = next(decl for decl in decls if any(sym.name.lower() == 'pout' for sym in decl.symbols))
-    zoper_decl = next(decl for decl in decls if any(sym.name.lower() == 'zoper' for sym in decl.symbols))
-    zbuffer_decl = next(decl for decl in decls if any(sym.name.lower() == 'zbuffer' for sym in decl.symbols))
-    pout = next(sym for sym in pout_decl.symbols if sym.name.lower() == 'pout')
-    zoper = next(sym for sym in zoper_decl.symbols if sym.name.lower() == 'zoper')
-    zbuffer = next(sym for sym in zbuffer_decl.symbols if sym.name.lower() == 'zbuffer')
-    declared_names = {sym.name.lower() for decl in decls for sym in decl.symbols}
-    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
-    untouched_intrinsics = FindNodes(ir.GenericStmt).visit(untouched.body)
+    assert len(decls) == 4
+    assert decls[0].symbols == ('nblocks',)
 
-    assert pout.type.shape == (':', ':', ':')
-    assert pout.dimensions == (':', ':', ':')
-    assert zoper.type.shape == (':', ':', ':')
-    assert zoper.dimensions == (':', ':', ':')
-    assert zbuffer.type.shape == (':', ':')
-    assert zbuffer.dimensions == (':', ':')
-    assert 'zouts' not in declared_names
-    assert len(intrinsics) == 1
-    assert 'error stop "sanitised unused routine legacy_unused was called"' in intrinsics[0].text.lower()
-    assert not untouched_intrinsics
+    assert decls[1].symbols == ('pout(:, :, :)',)
+    assert decls[1].symbols[0].type.shape == (':', ':', ':')
+    assert decls[1].symbols[0].type.intent == 'out'
+
+    assert decls[2].symbols == ('zoper(:, :, :)',)
+    assert decls[2].symbols[0].type.shape == (':', ':', ':')
+    assert decls[2].symbols[0].type.pointer
+
+    assert decls[3].symbols == ('zbuffer(:, :)',)
+    assert decls[3].symbols[0].type.shape == (':', ':')
+    assert decls[3].symbols[0].type.allocatable
+
+    # The body is replaced by a single error-stop stub
+    stmts = FindNodes(ir.GenericStmt).visit(routine.body)
+    assert len(stmts) == 1
+    assert 'error stop "sanitised unused routine legacy_unused was called"' in stmts[0].text.lower()
+
+    # Routines that are not configured are left untouched
+    assert not FindNodes(ir.GenericStmt).visit(untouched.body)
     assert len(FindNodes(ir.Assignment).visit(untouched.body)) == 1
 
 
@@ -91,9 +94,9 @@ end module another_legacy_mod
     )
     trafo.apply(routine)
 
-    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
-    assert len(intrinsics) == 1
-    assert 'error stop "sanitised unused routine keep_me was called"' in intrinsics[0].text.lower()
+    stmts = FindNodes(ir.GenericStmt).visit(routine.body)
+    assert len(stmts) == 1
+    assert 'error stop "sanitised unused routine keep_me was called"' in stmts[0].text.lower()
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
@@ -136,11 +139,8 @@ end module no_match_mod
     trafo = SanitiseUnusedRoutineTransformation(routines=('other_kernel',), stub_kind='error_stop')
     trafo.apply(routine)
 
-    assignments = FindNodes(ir.Assignment).visit(routine.body)
-    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
-
-    assert len(assignments) == 1
-    assert not intrinsics
+    assert len(FindNodes(ir.Assignment).visit(routine.body)) == 1
+    assert not FindNodes(ir.GenericStmt).visit(routine.body)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI skips C imports in the frontend')]))
@@ -178,12 +178,12 @@ end module c_import_unused_mod
     trafo.apply(routine)
 
     imports = FindNodes(ir.Import).visit((routine.spec, routine.body))
-    intrinsics = FindNodes(ir.GenericStmt).visit(routine.body)
-
     assert not any(imp.c_import for imp in imports)
     assert any(not imp.c_import and imp.module == 'helper_mod' for imp in imports)
-    assert len(intrinsics) == 1
-    assert 'error stop "sanitised unused routine legacy_unused was called"' in intrinsics[0].text.lower()
+
+    stmts = FindNodes(ir.GenericStmt).visit(routine.body)
+    assert len(stmts) == 1
+    assert 'error stop "sanitised unused routine legacy_unused was called"' in stmts[0].text.lower()
 
 
 def test_sanitise_unused_routine_rejects_unknown_stub_kind():
