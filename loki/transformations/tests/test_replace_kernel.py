@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 import re
+from logging import WARNING
 from pathlib import Path
 
 import pytest
@@ -48,19 +49,23 @@ def _scheduler_config(driver_names):
 
 def _write_replace_sources(tmp_path):
     """Write anonymized Fortran sources that cover the replacement-call patterns under test."""
-    # These fixtures mirror the relevant call-shape patterns we care about for
-    # PR 1 without pulling in real IFS names or source files.
+    # These fixtures mirror the relevant call-shape patterns (struct member
+    # access, renamed and optional dummies, include-style and module imports)
+    # without pulling in real IFS names or source files.
     sources = {
         'geom_types_mod.F90': """
 module geom_types_mod
   implicit none
+
   type dim_type
     integer :: nproma
     integer :: ngpblks
   end type dim_type
+
   type total_type
     integer :: ngptot
   end type total_type
+
   type geometry_type
     type(dim_type) :: dim
     type(total_type) :: total
@@ -69,114 +74,139 @@ end module geom_types_mod
 """.strip(),
         'leaf_mod.F90': """
 module leaf_mod
-implicit none
+  implicit none
+
 contains
-subroutine leaf(flag1, flag2, start_idx, end_idx, geom, field)
-  use geom_types_mod, only: geometry_type
-  logical, intent(in) :: flag1, flag2
-  integer, intent(in) :: start_idx, end_idx
-  type(geometry_type), intent(in) :: geom
-  real, intent(inout) :: field(:)
-  field(start_idx:end_idx) = field(start_idx:end_idx) + 1.0
-end subroutine leaf
+
+  subroutine leaf(flag1, flag2, start_idx, end_idx, geom, field)
+    use geom_types_mod, only: geometry_type
+    logical, intent(in) :: flag1, flag2
+    integer, intent(in) :: start_idx, end_idx
+    type(geometry_type), intent(in) :: geom
+    real, intent(inout) :: field(:)
+
+    field(start_idx:end_idx) = field(start_idx:end_idx) + 1.0
+  end subroutine leaf
 end module leaf_mod
 """.strip(),
         'leaf_replacement_mod.F90': """
 module leaf_replacement_mod
-implicit none
+  implicit none
+
 contains
-subroutine leaf_replacement(flag1, flag2_renamed, field, start_idx, block_count, end_in, on_gpu, optional_flag)
-  logical, intent(in) :: flag1, flag2_renamed
-  real, intent(inout) :: field(:)
-  integer, intent(in) :: start_idx, block_count, end_in
-  logical, intent(in) :: on_gpu
-  logical, intent(in), optional :: optional_flag
-  field(start_idx:end_in) = field(start_idx:end_in) + real(block_count)
-end subroutine leaf_replacement
+
+  subroutine leaf_replacement(flag1, flag2_renamed, field, start_idx, block_count, end_in, on_gpu, optional_flag)
+    logical, intent(in) :: flag1, flag2_renamed
+    real, intent(inout) :: field(:)
+    integer, intent(in) :: start_idx, block_count, end_in
+    logical, intent(in) :: on_gpu
+    logical, intent(in), optional :: optional_flag
+
+    field(start_idx:end_in) = field(start_idx:end_in) + real(block_count)
+  end subroutine leaf_replacement
 end module leaf_replacement_mod
 """.strip(),
         'leaf_passthrough_replacement_mod.F90': """
 module leaf_passthrough_replacement_mod
-implicit none
+  implicit none
+
 contains
-subroutine leaf_passthrough_replacement(flag1, flag2, start_idx, end_idx, geom, field, optional_flag)
-  use geom_types_mod, only: geometry_type
-  logical, intent(in) :: flag1, flag2
-  integer, intent(in) :: start_idx, end_idx
-  type(geometry_type), intent(in) :: geom
-  real, intent(inout) :: field(:)
-  logical, intent(in), optional :: optional_flag
-  field(start_idx:end_idx) = field(start_idx:end_idx) + real(geom%dim%ngpblks)
-end subroutine leaf_passthrough_replacement
+
+  subroutine leaf_passthrough_replacement(flag1, flag2, start_idx, end_idx, geom, field, optional_flag)
+    use geom_types_mod, only: geometry_type
+    logical, intent(in) :: flag1, flag2
+    integer, intent(in) :: start_idx, end_idx
+    type(geometry_type), intent(in) :: geom
+    real, intent(inout) :: field(:)
+    logical, intent(in), optional :: optional_flag
+
+    field(start_idx:end_idx) = field(start_idx:end_idx) + real(geom%dim%ngpblks)
+  end subroutine leaf_passthrough_replacement
 end module leaf_passthrough_replacement_mod
 """.strip(),
         'include_driver.F90': """
 module include_driver_mod
-implicit none
-contains
-subroutine include_driver(start_idx, end_idx, geom, field)
-  use geom_types_mod, only: geometry_type
   implicit none
-  integer, intent(in) :: start_idx, end_idx
-  type(geometry_type), intent(in) :: geom
-  real, intent(inout) :: field(:)
+
+contains
+
+  subroutine include_driver(start_idx, end_idx, geom, field)
+    use geom_types_mod, only: geometry_type
+    implicit none
+    integer, intent(in) :: start_idx, end_idx
+    type(geometry_type), intent(in) :: geom
+    real, intent(inout) :: field(:)
 #include "leaf.intfb.h"
-  call leaf(.false., .true., start_idx, end_idx, geom, field)
-end subroutine include_driver
+
+    call leaf(.false., .true., start_idx, end_idx, geom, field)
+  end subroutine include_driver
 end module include_driver_mod
 """.strip(),
         'leaf.intfb.h': '#include "leaf_mod.intfb.h"\n',
         'pipeline_driver_mod.F90': """
 module pipeline_driver_mod
-implicit none
-contains
-subroutine tile_driver_parallel(span, geom, field)
-  use geom_types_mod, only: geometry_type
-  use pipeline_band_mod, only: band_kernel
   implicit none
-  type span_type
-    integer :: begin_idx
-    integer :: end_idx
-  end type span_type
-  type(span_type), intent(in) :: span
-  type(geometry_type), intent(in) :: geom
-  real, intent(inout) :: field(:)
-  call band_kernel(span, geom, field)
-end subroutine tile_driver_parallel
+
+contains
+
+  subroutine tile_driver_parallel(span, geom, field)
+    use geom_types_mod, only: geometry_type
+    use pipeline_band_mod, only: band_kernel
+    implicit none
+
+    type span_type
+      integer :: begin_idx
+      integer :: end_idx
+    end type span_type
+
+    type(span_type), intent(in) :: span
+    type(geometry_type), intent(in) :: geom
+    real, intent(inout) :: field(:)
+
+    call band_kernel(span, geom, field)
+  end subroutine tile_driver_parallel
 end module pipeline_driver_mod
 """.strip(),
         'pipeline_band_mod.F90': """
 module pipeline_band_mod
-implicit none
-contains
-subroutine band_kernel(span, geom, field)
-  use geom_types_mod, only: geometry_type
-  use edge_wrapper_mod, only: edge_wrapper
   implicit none
-  type span_type
-    integer :: begin_idx
-    integer :: end_idx
-  end type span_type
-  type(span_type), intent(in) :: span
-  type(geometry_type), intent(in) :: geom
-  real, intent(inout) :: field(:)
-  call edge_wrapper(span%begin_idx, span%end_idx, geom, field)
-end subroutine band_kernel
+
+contains
+
+  subroutine band_kernel(span, geom, field)
+    use geom_types_mod, only: geometry_type
+    use edge_wrapper_mod, only: edge_wrapper
+    implicit none
+
+    type span_type
+      integer :: begin_idx
+      integer :: end_idx
+    end type span_type
+
+    type(span_type), intent(in) :: span
+    type(geometry_type), intent(in) :: geom
+    real, intent(inout) :: field(:)
+
+    call edge_wrapper(span%begin_idx, span%end_idx, geom, field)
+  end subroutine band_kernel
 end module pipeline_band_mod
 """.strip(),
         'edge_wrapper_mod.F90': """
 module edge_wrapper_mod
-implicit none
-contains
-subroutine edge_wrapper(start_idx, end_idx, geom, field)
-  use geom_types_mod, only: geometry_type
-  use leaf_mod, only: leaf
   implicit none
-  integer, intent(in) :: start_idx, end_idx
-  type(geometry_type), intent(in) :: geom
-  real, intent(inout) :: field(:)
-  call leaf(.true., .false., start_idx, end_idx, geom, field)
-end subroutine edge_wrapper
+
+contains
+
+  subroutine edge_wrapper(start_idx, end_idx, geom, field)
+    use geom_types_mod, only: geometry_type
+    use leaf_mod, only: leaf
+    implicit none
+    integer, intent(in) :: start_idx, end_idx
+    type(geometry_type), intent(in) :: geom
+    real, intent(inout) :: field(:)
+
+    call leaf(.true., .false., start_idx, end_idx, geom, field)
+  end subroutine edge_wrapper
 end module edge_wrapper_mod
 """.strip(),
     }
@@ -264,7 +294,7 @@ def test_replace_kernel_omits_optional_argument(frontend, replace_source_dir, tm
         includes=[replace_source_dir],
     )
 
-    with caplog.at_level('WARNING'):
+    with caplog.at_level(WARNING):
         # The passthrough replacement keeps the original dummy names so this
         # test isolates optional-argument omission from remapping behavior.
         scheduler.process(transformation=ReplaceKernels({
@@ -274,7 +304,12 @@ def test_replace_kernel_omits_optional_argument(frontend, replace_source_dir, tm
     item_map = _get_item_map(scheduler)
     _, calls, _, _ = _get_routine_and_calls(item_map, 'include_driver_mod#include_driver')
     assert all(name.lower() != 'optional_flag' for name, _ in calls[0].kwarguments)
-    assert any('optional replacement argument' in message for message in caplog.messages)
+
+    warnings = [record.getMessage().lower() for record in caplog.records if record.levelno == WARNING]
+    assert (
+        '[loki::replacekernels] omitting optional replacement argument optional_flag '
+        'when replacing leaf with leaf_passthrough_replacement in include_driver'
+    ) in warnings
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
