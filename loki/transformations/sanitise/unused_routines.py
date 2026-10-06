@@ -6,6 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import SchedulerConfig, Transformation
+from loki.expression import symbols as sym
 from loki.ir import FindNodes, Transformer, nodes as ir
 from loki.tools import as_tuple
 
@@ -55,14 +56,10 @@ class SanitiseUnusedRoutineTransformation(Transformation):
         return bool(SchedulerConfig.match_item_keys(item_name, configured_routines, match_item_parents=True))
 
     @staticmethod
-    def _deferred_shape(symbol, routine):
+    def _deferred_shape(symbol):
         """Clone one array symbol with all declared dimensions rewritten to deferred shape."""
-        shape = getattr(symbol.type, 'shape', None)
-        if not shape:
-            return symbol
-
-        deferred_shape = tuple(routine.parse_expr(':') for _ in shape)
-        return symbol.clone(dimensions=deferred_shape, type=symbol.type.clone(shape=deferred_shape))
+        new_shape = tuple(sym.RangeIndex((None, None)) for _ in symbol.type.shape)
+        return symbol.clone(dimensions=new_shape, type=symbol.type.clone(shape=new_shape))
 
     @staticmethod
     def _should_keep_with_deferred_shape(symbol):
@@ -91,7 +88,7 @@ class SanitiseUnusedRoutineTransformation(Transformation):
                     continue
 
                 if self._should_keep_with_deferred_shape(symbol):
-                    new_symbols.append(self._deferred_shape(symbol, routine))
+                    new_symbols.append(self._deferred_shape(symbol))
 
             new_symbols = tuple(new_symbols)
             if not new_symbols:
@@ -99,10 +96,9 @@ class SanitiseUnusedRoutineTransformation(Transformation):
             elif new_symbols != decl.symbols:
                 decl_map[decl] = decl.clone(symbols=new_symbols)
 
-        imp_map = {}
-        for imp in FindNodes(ir.Import).visit(routine.ir):
-            if imp.c_import:
-                imp_map[imp] = None
+        # Drop C-style includes (e.g. interface blocks), as the stubbed
+        # routine no longer calls anything that needs them
+        imp_map = {imp: None for imp in FindNodes(ir.Import).visit(routine.ir) if imp.c_import}
         if imp_map:
             routine.spec = Transformer(imp_map).visit(routine.spec)
             routine.body = Transformer(imp_map).visit(routine.body)
