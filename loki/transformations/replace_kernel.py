@@ -5,8 +5,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from pathlib import Path
-
 from loki.batch import ModuleItem, ProcedureItem, Transformation
 from loki.ir import FindNodes, Transformer, nodes as ir
 from loki.logging import warning
@@ -153,41 +151,6 @@ class ReplaceKernels(Transformation):
         frontend_args = scheduler_config.create_frontend_args(replacement_item.source.path, frontend_args)
         replacement_item.source.make_complete(**frontend_args)
 
-    def _load_replacement_item_from_source(self, replacement_name, item_factory, scheduler_config, build_args):
-        """Search configured source roots for a replacement routine and load its definition items."""
-        paths = as_tuple(build_args.get('paths', ()))
-        if not paths:
-            paths = as_tuple(build_args.get('includes', ()))
-
-        for root in paths:
-            root = Path(root)
-            if not root.exists():
-                continue
-            for path in root.glob('**/*'):
-                if not path.is_file() or replacement_name.lower() not in path.stem.lower():
-                    continue
-
-                frontend_args = {
-                    key: value for key, value in build_args.items()
-                    if key in ('definitions', 'preprocess', 'includes', 'defines', 'xmods', 'omni_includes', 'frontend')
-                }
-                file_item = item_factory.get_or_create_file_item_from_path(path, scheduler_config, frontend_args)
-                frontend_args = scheduler_config.create_frontend_args(path, frontend_args)
-                file_item.source.make_complete(**frontend_args)
-                definition_items = file_item.create_definition_items(
-                    item_factory=item_factory, config=scheduler_config
-                )
-                for definition_item in definition_items:
-                    if isinstance(definition_item, ModuleItem):
-                        definition_item.create_definition_items(item_factory=item_factory, config=scheduler_config)
-
-                replacement_item = self._get_replacement_item_from_cache(replacement_name, item_factory,
-                        config=scheduler_config)
-                if replacement_item is not None:
-                    return replacement_item
-
-        return None
-
     def _get_complete_replacement_item(self, replacement_name, **kwargs):
         """Resolve, load, and complete the replacement routine item if available."""
         item_factory = kwargs.get('item_factory')
@@ -196,10 +159,6 @@ class ReplaceKernels(Transformation):
 
         replacement_item = self._get_replacement_item_from_cache(replacement_name, item_factory,
                 config=scheduler_config)
-        if replacement_item is None:
-            replacement_item = self._load_replacement_item_from_source(
-                replacement_name, item_factory, scheduler_config, build_args
-            )
         if replacement_item is None or replacement_item.source is None:
             return None
 
@@ -214,10 +173,6 @@ class ReplaceKernels(Transformation):
 
         routine_item = self._get_replacement_item_from_cache(routine_name, item_factory,
                 config=scheduler_config)
-        if routine_item is None:
-            routine_item = self._load_replacement_item_from_source(
-                routine_name, item_factory, scheduler_config, build_args
-            )
         if routine_item is None or routine_item.source is None:
             return None
 
