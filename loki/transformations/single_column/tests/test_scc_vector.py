@@ -44,6 +44,45 @@ def fixture_blocking():
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_scc_driver_gang_firstprivate(frontend, horizontal, blocking):
+    """An explicit gang marker must merge with the generated driver directive."""
+    source = Sourcefile.from_source("""
+subroutine driver(nlon, nb, work)
+  integer, intent(in) :: nlon, nb
+  real, intent(inout) :: work(nlon, nb)
+  integer :: b
+  real :: scale
+  scale = 2.
+  !$loki loop gang firstprivate(scale) async(1)
+  do b = 1, nb
+    call kernel(nlon, work(:, b), scale)
+  end do
+end subroutine driver
+subroutine kernel(nlon, work, scale)
+  integer, intent(in) :: nlon
+  real, intent(inout) :: work(nlon)
+  real, intent(in) :: scale
+  integer :: jl
+  do jl = 1, nlon
+    work(jl) = work(jl) * scale
+  end do
+end subroutine kernel
+""", frontend=frontend)
+    driver = source['driver']
+    driver.enrich(source.all_subroutines)
+    SCCVectorPipeline(horizontal=horizontal, block_dim=blocking, directive='openacc').apply(
+        driver, role='driver', targets=('kernel',)
+    )
+    with pragmas_attached(driver, node_type=ir.Loop):
+        loop = FindNodes(ir.Loop).visit(driver.body)[0]
+        assert len(loop.pragma) == 1
+        assert loop.pragma[0].keyword == 'acc'
+        assert loop.pragma[0].content == 'parallel loop gang firstprivate(scale) vector_length(nlon) async(1)'
+        assert len(loop.pragma_post) == 1
+        assert loop.pragma_post[0].content == 'end parallel loop'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('revector_trafo', [SCCSeqRevectorTransformation, SCCVecRevectorTransformation])
 def test_scc_revector_mark_seq_loops_constant_bounds(frontend, horizontal, revector_trafo):
     """

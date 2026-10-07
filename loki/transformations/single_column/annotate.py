@@ -321,8 +321,10 @@ class SCCAnnotateTransformation(Transformation):
                 asynchronous = params.get('async')
                 vlength_clause = f' vlength({vlength})' if vlength else ''
                 asynchronous_clause = f' async({asynchronous})' if asynchronous else ''
+                firstprivate = params.get('firstprivate')
+                firstprivate_clause = f' firstprivate({firstprivate})' if firstprivate else ''
 
-                content = f'loop gang{private_clause}{vlength_clause}{asynchronous_clause}'
+                content = f'loop gang{private_clause}{firstprivate_clause}{vlength_clause}{asynchronous_clause}'
                 pragma_new = ir.Pragma(keyword='loki', content=content)
                 pragma_post = ir.Pragma(keyword='loki', content='end loop gang')
 

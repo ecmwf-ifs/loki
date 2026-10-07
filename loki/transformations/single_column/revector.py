@@ -207,14 +207,15 @@ class BaseRevectorTransformation(Transformation):
         loop_pragmas = []
         driver_pragma = None
         for p in as_tuple(loop.pragma):
-            if is_loki_pragma(p, starts_with='driver-loop'):
+            if is_loki_pragma(p, starts_with='driver-loop') or is_loki_pragma(p, starts_with='loop gang'):
                 driver_pragma = p
             else:
                 loop_pragmas.append(p)
         loop_pragmas = tuple(loop_pragmas)
         driver_content = f'loop driver{vector_length}'
         if driver_pragma is not None:
-            driver_content = driver_pragma.content.replace('driver-loop', driver_content)
+            marker = 'driver-loop' if is_loki_pragma(driver_pragma, starts_with='driver-loop') else 'loop gang'
+            driver_content = driver_pragma.content.replace(marker, driver_content, 1)
         driver_pragma = ir.Pragma(keyword='loki', content=driver_content)
         loop._update(pragma=loop_pragmas + (driver_pragma,))
 
