@@ -5,7 +5,7 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-from loki.batch import ModuleItem, ProcedureItem, Transformation
+from loki.batch import ProcedureItem, Transformation
 from loki.ir import FindNodes, Transformer, nodes as ir
 from loki.logging import warning
 from loki.tools import CaseInsensitiveDict, as_tuple
@@ -113,33 +113,19 @@ class ReplaceKernels(Transformation):
         item_cache = item_factory.item_cache
         replacement_name = replacement_name.lower()
 
-        if replacement_name in item_cache and isinstance(item_cache[replacement_name], ProcedureItem):
+        if isinstance(item_cache.get(replacement_name), ProcedureItem):
             return item_cache[replacement_name]
 
-        qualified_matches = [
+        procedure_items = [
             item for item in item_cache.values()
             if isinstance(item, ProcedureItem) and item.local_name.lower() == replacement_name
         ]
-        if len(qualified_matches) == 1:
-            return qualified_matches[0]
-
-        for key, item in tuple(item_cache.items()):
-            # relevant procedure item can be found in item_cache
-            if isinstance(item, ProcedureItem) and replacement_name in key.lower():
-                return item
-            # relevant module item can be found and corresponding procedure item can
-            # be reused, but only if the module actually defines the procedure.
-            if isinstance(item, ModuleItem) and replacement_name in key.lower():
-                module_item = item
-                definition_items = module_item.create_definition_items(item_factory, config=config)
-                for definition_item in definition_items:
-                    if (
-                        isinstance(definition_item, ProcedureItem)
-                        and definition_item.local_name.lower() == replacement_name
-                    ):
-                        return definition_item
-
-        return None
+        if not procedure_items:
+            # Look for a module procedure that has not been instantiated yet
+            procedure_items = item_factory.get_or_create_module_definitions_from_candidates(
+                replacement_name, config=config, only=(ProcedureItem,)
+            )
+        return procedure_items[0] if len(procedure_items) == 1 else None
 
     @staticmethod
     def _complete_replacement_source(replacement_item, scheduler_config, build_args):
