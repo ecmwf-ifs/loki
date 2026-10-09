@@ -302,7 +302,15 @@ class ItemFactory:
             item_ir.name = local_name
 
             # Create a new FileItem for the new source
-            new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
+            # HACK ...
+            prec = ''
+            if '_sp' in str(item.orig_path).lower():
+                prec = '_sp'
+            elif '_dp' in str(item.orig_path).lower():
+                prec = '_dp' 
+
+            new_source.path = item.path.with_name(f'{scope_name or local_name}{prec}{item.path.suffix}')
+            # new_source.path = item.path.with_name(f'{scope_name or local_name}{item.path.suffix}')
             new_source.orig_path = item.orig_path
             file_item = self.get_or_create_file_item_from_source(new_source, config=config)
 
