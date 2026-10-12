@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from loki import Scheduler, SchedulerConfig
+from loki import Scheduler, SchedulerConfig, Subroutine
 from loki.batch import Pipeline, ProcessingStrategy
 from loki.frontend import OMNI, available_frontends
 from loki.ir import CallStatement, FindNodes, Import
@@ -239,7 +239,7 @@ def fixture_replace_source_dir(tmp_path):
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
 def test_replace_kernel_argument_remap(frontend, replace_source_dir, tmp_path):
-    """Remap replacement arguments across rename, member, template, position, and literal rules."""
+    """Remap replacement arguments across rename, member, expression, positional, and literal rules."""
     # This replacement exercises the full remapping surface in one focused test.
     scheduler = Scheduler(
         paths=[replace_source_dir],
@@ -252,14 +252,10 @@ def test_replace_kernel_argument_remap(frontend, replace_source_dir, tmp_path):
         'leaf': {
             'routine': 'leaf_replacement',
             'args': {
-                'flag2': 'flag2_renamed',
-                'geom': {'map_to': 'block_count', 'member': 'DIM%NGPBLKS'},
-                'end_idx': {
-                    'map_to': 'end_in',
-                    'placeholders': {'geom': 'geom'},
-                    'expr': 'MOD({geom}%TOTAL%NGPTOT, {geom}%DIM%NPROMA)',
-                },
-                'start_idx': {'position': 1},
+                'flag2_renamed': 'flag2',
+                'block_count': 'geom%DIM%NGPBLKS',
+                'end_in': 'MOD(geom%TOTAL%NGPTOT, geom%DIM%NPROMA)',
+                'start_idx': {'expr': '1', 'positional': True},
                 'on_gpu': '.true.',
             },
         }
@@ -268,7 +264,7 @@ def test_replace_kernel_argument_remap(frontend, replace_source_dir, tmp_path):
     item_map = _get_item_map(scheduler)
     assert 'leaf_replacement_mod#leaf_replacement' in item_map
 
-    _, calls, imports, parent_imports = _get_routine_and_calls(item_map, 'include_driver_mod#include_driver')
+    routine, calls, imports, parent_imports = _get_routine_and_calls(item_map, 'include_driver_mod#include_driver')
     call = calls[0]
 
     assert call.name == 'leaf_replacement'
@@ -281,6 +277,11 @@ def test_replace_kernel_argument_remap(frontend, replace_source_dir, tmp_path):
     assert ('end_in', 'mod(geom%total%ngptot, geom%dim%nproma)') in call.kwarguments
     assert ('on_gpu', 'true') in call.kwarguments
     assert any(imp.module == 'leaf_replacement_mod' for imp in imports + parent_imports)
+
+    # Substituted expressions are attached to the scope of the caller
+    kwarguments = dict(call.kwarguments)
+    assert kwarguments['block_count'].scope is routine
+    assert kwarguments['end_in'].parameters[0].scope is routine
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI module type definitions not available')]))
@@ -383,9 +384,9 @@ def test_replace_kernel_pipeline_fixture(frontend, replace_source_dir, tmp_path)
         'leaf': {
             'routine': 'leaf_replacement',
             'args': {
-                'flag2': 'flag2_renamed',
-                'geom': {'map_to': 'block_count', 'member': 'DIM%NGPBLKS'},
-                'end_idx': 'end_in',
+                'flag2_renamed': 'flag2',
+                'block_count': 'geom%DIM%NGPBLKS',
+                'end_in': 'end_idx',
                 'on_gpu': '.false.',
             },
         }
@@ -398,3 +399,37 @@ def test_replace_kernel_pipeline_fixture(frontend, replace_source_dir, tmp_path)
     assert calls[0].name == 'leaf_replacement'
     assert ('block_count', 'geom%dim%ngpblks') in calls[0].kwarguments
     assert any(imp.module == 'leaf_replacement_mod' for imp in imports)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('args, message', [
+    ({'unknown': '1'}, 'has no such dummy argument'),
+    ({'b': {'positional': True}}, 'expected expr'),
+    ({'b': {'expr': '1', 'position': 1}}, 'unknown keys'),
+])
+def test_replace_kernel_invalid_argument_rules(frontend, args, message):
+    """Reject argument rules that do not refer to a replacement dummy or are malformed."""
+    new_routine = Subroutine.from_source("""
+subroutine new_kernel(a, b)
+  integer, intent(in) :: a, b
+end subroutine new_kernel
+""", frontend=frontend)
+
+    with pytest.raises(RuntimeError, match=message):
+        ReplaceKernels._normalise_argument_rules(args, new_routine)  # pylint: disable=protected-access
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_replace_kernel_unbound_dummy_in_expression(frontend):
+    """Raise an error if a rule uses an original dummy that has no actual argument in the call."""
+    caller = Subroutine.from_source("""
+subroutine caller(n)
+  integer, intent(in) :: n
+end subroutine caller
+""", frontend=frontend)
+    old_arg_map = {'first': caller.variable_map['n']}
+
+    evaluate = ReplaceKernels._evaluate_rule  # pylint: disable=protected-access
+    assert evaluate(caller, 'first + 1', old_arg_map, {'first', 'second'}).children[0] == 'n'
+    with pytest.raises(RuntimeError, match='without an actual argument in the call: second'):
+        evaluate(caller, 'first + second', old_arg_map, {'first', 'second'})
