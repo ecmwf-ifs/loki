@@ -64,6 +64,10 @@ class LokiEvaluationMapper(EvaluationMapper):
     def map_variable(self, expr):
         from loki.expression.parser import FORTRAN_INTRINSIC_PROCEDURES # pylint: disable=import-outside-toplevel,cyclic-import
         _, obj = self._recurse_parent(expr)
+        if isinstance(obj, (sym.TypedSymbol, sym.MetaSymbol)):
+            # The parent was substituted with a Loki expression from the context,
+            # so we re-attach the member to it instead of looking up an attribute
+            return sym.Variable(name=expr.name.split('%')[-1], parent=obj)
         if obj is not None:
             try:
                 return self.case_insensitive_getattr(obj, expr.name.split('%')[-1])
@@ -152,8 +156,12 @@ class LokiEvaluationMapper(EvaluationMapper):
                         expr.name.split('%')[-1])(*[self.rec(par) for par in expr.parameters], **kwargs)
             except: # pylint: disable=bare-except
                 return expr
-        return self.map_call(expr, name=expr.name.lower(),
-                parameters=as_tuple(self.rec(param) for param in expr.parameters))
+        parameters = as_tuple(self.rec(param) for param in expr.parameters)
+        result = self.map_call(expr, name=expr.name.lower(), parameters=parameters)
+        if result is expr:
+            # Unknown call that cannot be evaluated, but its arguments may still be substituted
+            return expr.clone(parameters=parameters)
+        return result
 
 
 def eval_expr(expr, context=None, strict=False):
