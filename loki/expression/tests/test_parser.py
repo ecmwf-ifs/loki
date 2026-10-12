@@ -693,3 +693,19 @@ end subroutine caller
 
     # Symbols that are not part of the context are left untouched
     assert routine.parse_expr('other%dim', evaluate=True, context=context) == 'other%dim'
+
+
+def test_expression_parser_evaluate_returns_loki_literals():
+    """
+    Test that evaluated expressions contain Loki literals instead of Python values
+    """
+    a = sym.Variable(name='a')
+
+    assert isinstance(parse_expr('.true.', evaluate=True), sym.LogicLiteral)
+    assert isinstance(parse_expr('1 + 2', evaluate=True), sym.IntLiteral)
+    assert parse_expr('1 + 2', evaluate=True) == 3
+    assert isinstance(parse_expr('1.5', evaluate=True), sym.FloatLiteral)
+
+    expr = parse_expr('a + 1', evaluate=True, context={'a': a})
+    assert isinstance(expr.children[1], sym.IntLiteral)
+    assert expr.children[0] == a
