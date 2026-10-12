@@ -6,7 +6,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import ProcedureItem, Transformation
-from loki.ir import FindNodes, Transformer, nodes as ir
+from loki.ir import FindNodes, FindVariables, Transformer, nodes as ir
 from loki.logging import warning
 from loki.tools import CaseInsensitiveDict, as_tuple
 from loki.types import BasicType
@@ -21,11 +21,9 @@ class ReplaceKernels(Transformation):
     This transformation supports:
 
     - replacing selected call targets by routine name;
-    - remapping arguments by direct rename;
-    - remapping arguments by extracting a member from a derived-type actual;
-    - remapping arguments by formatting a custom expression template;
-    - overriding an argument with a positional value;
-    - overriding an argument with a literal or expression string;
+    - remapping arguments with expressions over the dummy arguments of the
+      original routine (renames, derived-type members, arithmetic, literals);
+    - passing arguments by keyword or, where possible, by position;
     - rewriting ``USE`` imports and ``.intfb.h`` include-style imports;
     - optionally keeping the replacement routine out of scheduler traversal and
       CMake planning via ``block=True``.
@@ -33,12 +31,11 @@ class ReplaceKernels(Transformation):
     Conceptually, the transformation walks each call site in the processed
     routine, looks for names listed in ``replace_kernels_map``, resolves the
     replacement routine, and reconstructs the actual argument list against the
-    replacement signature. When the original call target is unresolved in the
-    IR, the transformation also tries to resolve the original routine from
-    source so that remapping can still be done against the original dummy
-    argument names instead of the raw actual expressions. Once the replacement
-    call has been rebuilt, the transformation updates imports/includes to match
-    the new callee and optionally marks the replacement routine as blocked for
+    replacement signature. The original routine is resolved to match the
+    actual arguments of the call to its dummy arguments, which are then
+    substituted in the rule expressions. Once the replacement call has been
+    rebuilt, the transformation updates imports/includes to match the new
+    callee and optionally marks the replacement routine as blocked for
     further scheduler traversal.
 
     The replacement map accepts entries of the form::
@@ -47,15 +44,11 @@ class ReplaceKernels(Transformation):
             'old_kernel': {
                 'routine': 'new_kernel',
                 'args': {
-                    'old_dummy': 'new_dummy',
-                    'struct_arg': {'map_to': 'new_dummy', 'member': 'MEMBER'},
-                    'old_end': {
-                        'map_to': 'new_end',
-                        'expr': 'MOD({geom}%TOTAL%NGPTOT, {geom}%DIM%NPROMA)',
-                        'placeholders': {'geom': 'geom'},
-                    },
-                    'old_start': {'position': 1},
+                    'new_dummy': 'old_dummy',
+                    'new_member': 'old_struct%MEMBER',
+                    'new_end': 'MOD(old_geom%TOTAL%NGPTOT, old_geom%DIM%NPROMA)',
                     'new_flag': '.true.',
+                    'new_start': {'expr': '1', 'positional': True},
                 },
                 'block': True,
             }
@@ -71,30 +64,25 @@ class ReplaceKernels(Transformation):
             Name of the replacement routine.
 
         ``args``
-            Optional mapping that controls how actual arguments are rebuilt for
-            the replacement call. Supported forms are:
+            Optional mapping from replacement dummy argument names to the
+            expression that defines the actual argument of the replacement
+            call. The expression is written in Fortran syntax in terms of the
+            dummy arguments of the original routine, which are substituted by
+            the actual arguments of the original call. Supported forms are:
 
-            ``'old_dummy': 'new_dummy'``
-                Map the actual argument of ``old_dummy`` onto the replacement
-                dummy ``new_dummy``.
+            ``'new_dummy': 'expression'``
+                Pass the expression by keyword. This covers renaming
+                (``'old_dummy'``), derived-type members
+                (``'old_dummy%MEMBER'``), arithmetic and intrinsics, and
+                literals (``'.true.'``).
 
-            ``'old_dummy': {'position': 1}``
-                Pass a positional literal or expression to the replacement
-                dummy named ``old_dummy``.
+            ``'new_dummy': {'expr': 'expression', 'positional': True}``
+                Pass the expression by position if all preceding arguments of
+                the replacement call are passed by position, otherwise by keyword.
 
-            ``'old_dummy': {'map_to': 'new_dummy', 'member': 'MEMBER'}``
-                Pass ``actual%MEMBER`` from the original argument ``old_dummy``
-                to the replacement dummy ``new_dummy``.
-
-            ``'old_dummy': {'map_to': 'new_dummy', 'expr': '...',
-            'placeholders': {'name': 'old_dummy_name'}}``
-                Build an expression by formatting the template string with the
-                resolved original actual arguments and pass the result to the
-                replacement dummy ``new_dummy``.
-
-            ``'new_dummy': '.true.'``
-                Pass a literal or expression string directly to the replacement
-                dummy ``new_dummy``.
+            Replacement dummies without an entry receive the actual argument of
+            the original dummy with the same name. Optional dummies without
+            a match are omitted.
 
         ``block``
             If true, mark the replacement routine/module as blocked in the
@@ -180,103 +168,108 @@ class ReplaceKernels(Transformation):
         item.config['block'] = tuple(block_entries)
 
     @staticmethod
-    def _split_argument_rules(replacement_args, new_routine):
+    def _normalise_argument_rules(replacement_args, new_routine):
         """
-        Categorize argument remapping rules for one replacement routine.
+        Normalise the argument rules for one replacement routine.
 
-        The returned dictionaries split the user-provided mapping into rename,
-        literal override, positional override, member extraction, and
-        expression-template based remapping so that the call reconstruction step
-        can process the replacement signature in a single pass.
+        Parameters
+        ----------
+        replacement_args : dict
+            The ``args`` configuration of a replacement, mapping replacement
+            dummy argument names to an expression string or a dict with the
+            keys ``expr`` and (optionally) ``positional``.
+        new_routine : :any:`Subroutine`
+            The replacement routine.
+
+        Returns
+        -------
+        :any:`CaseInsensitiveDict`
+            Mapping of replacement dummy argument names to tuples of
+            the expression string and a flag for positional passing.
         """
-        replacement_dummy_names = {arg.name.lower() for arg in new_routine.arguments}
-        renamed_args = {}
-        override_args = CaseInsensitiveDict()
-        position_args = CaseInsensitiveDict()
-        member_args = CaseInsensitiveDict()
-        expr_args = CaseInsensitiveDict()
+        new_dummy_names = {arg.name.lower() for arg in new_routine.arguments}
+        rules = CaseInsensitiveDict()
 
-        for old_name, rule in CaseInsensitiveDict(replacement_args).items():
-            if isinstance(rule, dict):
-                position = rule.get('position')
-                map_to = rule.get('map_to')
-                member = rule.get('member')
-                expr = rule.get('expr')
-                placeholders = rule.get('placeholders')
-
-                if position is not None:
-                    if any(value is not None for value in (map_to, member, expr, placeholders)):
-                        raise RuntimeError(
-                            f'Invalid replacement argument rule for {old_name}: position cannot be combined '
-                            'with map_to/member/expr/placeholders'
-                        )
-                    position_args[old_name.lower()] = str(position)
-                    continue
-
-                if map_to is None:
-                    raise RuntimeError(
-                        f'Invalid replacement argument rule for {old_name}: expected map_to'
-                    )
-
-                if member is not None and expr is not None:
-                    raise RuntimeError(
-                        f'Invalid replacement argument rule for {old_name}: member and expr are mutually exclusive'
-                    )
-
-                if member is not None:
-                    member_args[old_name.lower()] = {
-                        'map_to': str(map_to).lower(),
-                        'member': str(member),
-                    }
-                elif expr is not None:
-                    if not isinstance(placeholders, dict) or not placeholders:
-                        raise RuntimeError(
-                            f'Invalid replacement argument rule for {old_name}: expected expr/placeholders'
-                        )
-                    expr_args[old_name.lower()] = {
-                        'map_to': str(map_to).lower(),
-                        'expr': str(expr),
-                        'placeholders': CaseInsensitiveDict(
-                            (str(name), str(dummy).lower()) for name, dummy in placeholders.items()
-                        ),
-                    }
-                else:
-                    raise RuntimeError(
-                        f'Invalid replacement argument rule for {old_name}: expected member or expr'
-                    )
-            elif str(rule).lower() in replacement_dummy_names:
-                renamed_args[old_name.lower()] = str(rule).lower()
-            else:
-                override_args[old_name.lower()] = str(rule)
-
-        return renamed_args, override_args, position_args, member_args, expr_args
-
-    @staticmethod
-    def _build_member_expr(routine, actual, member):
-        """Build a parsed member-access expression from an original actual argument."""
-        member = member.lstrip('%')
-        return routine.parse_expr(f'{actual}%{member}')
-
-    @staticmethod
-    def _build_template_expr(routine, old_arg_map, expr_rule):
-        """Format and parse a replacement expression template from original actuals."""
-        resolved_placeholders = {}
-        for placeholder, old_name in expr_rule['placeholders'].items():
-            actual = old_arg_map.get(old_name)
-            if actual is None:
+        for new_name, rule in CaseInsensitiveDict(replacement_args).items():
+            if new_name.lower() not in new_dummy_names:
                 raise RuntimeError(
-                    f'Cannot resolve placeholder {placeholder} from original argument {old_name}'
+                    f'Invalid replacement argument rule for {new_name}: '
+                    f'{new_routine.name} has no such dummy argument'
                 )
-            resolved_placeholders[placeholder] = str(actual)
+            if not isinstance(rule, dict):
+                rule = {'expr': rule}
+            if unknown := set(rule) - {'expr', 'positional'}:
+                raise RuntimeError(
+                    f'Invalid replacement argument rule for {new_name}: unknown keys {sorted(unknown)}'
+                )
+            if 'expr' not in rule:
+                raise RuntimeError(f'Invalid replacement argument rule for {new_name}: expected expr')
+            rules[new_name] = (str(rule['expr']), bool(rule.get('positional', False)))
 
-        try:
-            expr = expr_rule['expr'].format(**resolved_placeholders)
-        except KeyError as exc:
+        return rules
+
+    def _get_original_arguments(self, call, **kwargs):
+        """
+        Determine the dummy arguments and the actual arguments of the original call.
+
+        Parameters
+        ----------
+        call : :any:`CallStatement`
+            The call to the original kernel.
+
+        Returns
+        -------
+        tuple of (set, :any:`CaseInsensitiveDict`)
+            The lower-case names of the original dummy arguments and a
+            :any:`CaseInsensitiveDict` mapping them to the actual arguments.
+        """
+        if call.routine is not None and call.routine is not BasicType.DEFERRED:
+            old_routine = call.routine
+        else:
+            # Current main does not always link the original callee in the IR,
+            # so resolve it via the scheduler item
+            old_routine_item = self._get_complete_item(str(call.name), **kwargs)
+            if old_routine_item is None:
+                raise RuntimeError(
+                    f'Cannot resolve the original routine {call.name} to remap its arguments; '
+                    'it must be available in the scheduler item cache'
+                )
+            old_routine = old_routine_item.ir
+
+        dummy_names = tuple(arg.name for arg in old_routine.arguments)
+        old_arg_map = CaseInsensitiveDict(zip(dummy_names, call.arguments))
+        old_arg_map.update(call.kwarguments)
+        return {name.lower() for name in dummy_names}, old_arg_map
+
+    @staticmethod
+    def _evaluate_rule(caller_routine, expr, old_arg_map, old_dummy_names):
+        """
+        Evaluate an argument rule expression in the scope of the caller.
+
+        The original dummy arguments in the expression are substituted
+        with the actual arguments of the call.
+
+        Parameters
+        ----------
+        caller_routine : :any:`Subroutine`
+            The routine containing the call.
+        expr : str
+            The rule expression, written in terms of the original dummy arguments.
+        old_arg_map : :any:`CaseInsensitiveDict`
+            Mapping of original dummy arguments to actual arguments.
+        old_dummy_names : set of str
+            The lower-case names of the original dummy arguments.
+        """
+        result = caller_routine.parse_expr(expr, evaluate=True, context=old_arg_map)
+
+        symbol_names = {var.name.split('%')[0] for var in FindVariables().visit(result)}
+        unbound = {name.lower() for name in symbol_names if name.lower() in old_dummy_names and name not in old_arg_map}
+        if unbound:
             raise RuntimeError(
-                f'Unknown placeholder {exc.args[0]} in replacement expression {expr_rule["expr"]}'
-            ) from exc
-
-        return routine.parse_expr(expr)
+                f'Replacement expression "{expr}" uses original dummy arguments '
+                f'without an actual argument in the call: {", ".join(sorted(unbound))}'
+            )
+        return result
 
     def _adapt_arguments(self, call, caller_routine, new_routine, **kwargs):
         """
@@ -284,85 +277,28 @@ class ReplaceKernels(Transformation):
 
         The replacement signature is treated as authoritative: each replacement
         dummy is visited in order and its actual argument is derived either from
-        an explicit remapping rule or from an implicit name-based match against
-        the original call. When the original callee is unresolved, the
-        transformation tries to resolve that routine from source first so that
-        remapping still uses the original dummy names instead of the rendered
-        actual expressions.
+        an explicit expression rule or from an implicit name-based match against
+        the original call. Rule expressions are written in terms of the dummy
+        arguments of the original routine, which are substituted by the actual
+        arguments of the call.
         """
         replacement = self.replace_kernels_map[str(call.name).lower()]
-        replacement_args = replacement.get('args', {})
-        renamed_args, override_args, position_args, member_args, expr_args = self._split_argument_rules(
-            replacement_args, new_routine
-        )
+        rules = self._normalise_argument_rules(replacement.get('args', {}), new_routine)
+        old_dummy_names, old_arg_map = self._get_original_arguments(call, **kwargs)
 
-        if call.routine is not None and call.routine is not BasicType.DEFERRED:
-            old_arg_map = CaseInsensitiveDict((dummy.name, actual) for dummy, actual in call.arg_map.items())
-        else:
-            # Current main does not always link the original callee in the IR,
-            # so resolve it from source if possible and rebuild the original
-            # dummy-to-actual mapping from its signature.
-            old_routine_item = self._get_complete_item(str(call.name), **kwargs)
-            if old_routine_item is not None:
-                old_arg_map = CaseInsensitiveDict()
-                positional_arguments = iter(call.arguments)
-                for old_dummy in old_routine_item.ir.arguments:
-                    kwarg_actual = next(
-                        (
-                            value for name, value in call.kwarguments
-                            if name.lower() == old_dummy.name.lower()
-                        ),
-                        None,
-                    )
-                    if kwarg_actual is not None:
-                        old_arg_map[old_dummy.name] = kwarg_actual
-                    else:
-                        actual = next(positional_arguments, None)
-                        if actual is not None:
-                            old_arg_map[old_dummy.name] = actual
-            else:
-                old_arg_map = CaseInsensitiveDict((kw[0], kw[1]) for kw in call.kwarguments)
-                for actual in call.arguments:
-                    old_arg_map.setdefault(str(actual).lower(), actual)
-
-        reverse_renamed_args = {new_name: old_name for old_name, new_name in renamed_args.items()}
-        reverse_member_args = {rule['map_to']: old_name for old_name, rule in member_args.items()}
-        reverse_expr_args = {rule['map_to']: old_name for old_name, rule in expr_args.items()}
         arguments = []
         kwarguments = []
         keep_positional = True
 
         for new_dummy in new_routine.arguments:
             new_name = new_dummy.name.lower()
-            actual = None
-            use_keyword = not keep_positional
-            override_name = next(
-                (old_name for old_name, mapped_name in renamed_args.items() if mapped_name == new_name), None
-            )
-
-            if new_name in reverse_member_args:
-                old_name = reverse_member_args[new_name]
-                actual = self._build_member_expr(
-                    caller_routine, old_arg_map[old_name], member_args[old_name]['member']
-                )
-                use_keyword = True
-            elif new_name in reverse_expr_args:
-                old_name = reverse_expr_args[new_name]
-                actual = self._build_template_expr(caller_routine, old_arg_map, expr_args[old_name])
-                use_keyword = True
-            elif new_name in position_args:
-                actual = caller_routine.parse_expr(position_args[new_name])
-            elif override_name and override_name in override_args:
-                actual = caller_routine.parse_expr(override_args[override_name])
-                use_keyword = True
-            elif new_name in override_args:
-                actual = caller_routine.parse_expr(override_args[new_name])
-                use_keyword = True
-            elif new_name in reverse_renamed_args:
-                actual = old_arg_map.get(reverse_renamed_args[new_name])
-                use_keyword = True
-            elif new_name in old_arg_map:
-                actual = old_arg_map[new_name]
+            if new_name in rules:
+                expr, positional = rules[new_name]
+                actual = self._evaluate_rule(caller_routine, expr, old_arg_map, old_dummy_names)
+                use_keyword = not (positional and keep_positional)
+            else:
+                actual = old_arg_map.get(new_name)
+                use_keyword = not keep_positional
 
             if actual is None:
                 if new_dummy.type.optional:

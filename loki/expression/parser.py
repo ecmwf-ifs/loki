@@ -396,12 +396,15 @@ class ExpressionParser(ParserBase):
             The expression tree corresponding to the expression
         """
         from loki.ir import AttachScopes  # pylint: disable=import-outside-toplevel,cyclic-import
-        from loki.expression.evaluation import eval_expr # pylint: disable=import-outside-toplevel,cyclic-import
+        from loki.expression.evaluation import eval_expr, PythonToLiteralMapper # pylint: disable=import-outside-toplevel,cyclic-import
         result = super().__call__(expr_str)
         ir = PymbolicMapper()(result)
         if evaluate:
             ir = eval_expr(ir, context=context, strict=strict)
-        return AttachScopes().visit(ir, scope=scope or Scope())
+        ir = AttachScopes().visit(ir, scope=scope or Scope())
+        if evaluate:
+            ir = PythonToLiteralMapper()(ir)
+        return ir
 
     def parse_float(self, s):
         """

@@ -8,9 +8,33 @@ import math
 import numpy as np
 from pymbolic.mapper.evaluator import EvaluationMapper
 from loki.expression import symbols as sym
+from loki.expression.mappers import LokiIdentityMapper
 from loki.tools.util import CaseInsensitiveDict, as_tuple
 
-__all__ = ['LokiEvaluationMapper', 'eval_expr']
+__all__ = ['LokiEvaluationMapper', 'PythonToLiteralMapper', 'eval_expr']
+
+
+class PythonToLiteralMapper(LokiIdentityMapper):
+    """
+    Convert plain Python values left behind by :any:`LokiEvaluationMapper`
+    into Loki literals.
+
+    This requires symbols to be attached to a scope.
+    """
+    # pylint: disable=abstract-method
+
+    def map_constant(self, expr, *args, **kwargs):
+        if isinstance(expr, bool):
+            return sym.LogicLiteral(expr)
+        if isinstance(expr, (int, float)):
+            return sym.Literal(expr)
+        return super().map_constant(expr, *args, **kwargs)
+
+    def map_foreign(self, expr, *args, **kwargs):
+        if isinstance(expr, str):
+            # Float literals are evaluated to their (string) value
+            return sym.FloatLiteral(value=expr)
+        return super().map_foreign(expr, *args, **kwargs)
 
 class LokiEvaluationMapper(EvaluationMapper):
     """
