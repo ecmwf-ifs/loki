@@ -916,6 +916,8 @@ class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
     An inlined do, e.g., implied-do as used in array constructors
     """
 
+    init_arg_names = ('values', 'variable', 'bounds')
+
     def __init__(self, values, variable, bounds, **kwargs):
         self.values = values
         self.variable = variable
