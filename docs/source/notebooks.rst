@@ -14,3 +14,4 @@ to get familiar with the API and usage.
    example/03_loop_fusion
    example/04_creating_new_visitors
    example/05_argument_intent_linter
+   example/06_transformations_and_the_scheduler
