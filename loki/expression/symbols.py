@@ -411,6 +411,9 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
     parameter handed down in the constructor.
     """
 
+    # Concrete symbols obtain constructor metadata from TypedSymbol.
+    # pylint: disable=abstract-method
+
     def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
         super().__init__()
 
