@@ -411,6 +411,9 @@ class _FunctionSymbol(pmbl.FunctionSymbol):
     parameter handed down in the constructor.
     """
 
+    # Concrete symbols obtain constructor metadata from TypedSymbol.
+    # pylint: disable=abstract-method
+
     def __init__(self, *args, **kwargs):  # pylint:disable=unused-argument
         super().__init__()
 
@@ -915,6 +918,8 @@ class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
     """
+
+    init_arg_names = ('values', 'variable', 'bounds')
 
     def __init__(self, values, variable, bounds, **kwargs):
         self.values = values

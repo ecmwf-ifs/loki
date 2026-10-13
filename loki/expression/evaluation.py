@@ -23,6 +23,9 @@ class LokiEvaluationMapper(EvaluationMapper):
         Raise exception for unknown symbols/expressions (default: `False`).
     """
 
+    # Generic algebraic leaves are intentionally unsupported by the evaluator.
+    # pylint: disable=abstract-method
+
     @staticmethod
     def case_insensitive_getattr(obj, attr):
         """
