@@ -30,6 +30,9 @@ class _Literal(pmbl.Leaf):
     :meth:`__getinitargs__` in any:`pymbolic.primitives.Leaf`.
     """
 
+    # Concrete literal subclasses provide their own constructor metadata.
+    # pylint: disable=abstract-method
+
     def __getinitargs__(self):
         return ()
 

@@ -174,6 +174,7 @@ def test_symbol_recreation():
 
     # Slightly special symbol types
     exprs.append( sym.InlineCall(function=f, parameters=(a, b)) )
+    exprs.append( sym.InlineDo(values=(b,), variable=i, bounds=sym.LoopRange((1, 10))) )
     exprs.append( sym.Range((sym.IntLiteral(1), i)) )
     exprs.append( sym.LoopRange((sym.IntLiteral(1), i)) )
     exprs.append( sym.RangeIndex((sym.IntLiteral(1), i)) )
@@ -195,4 +196,4 @@ def test_symbol_recreation():
             scoped_clone = expr.clone()
             assert scoped_clone == expr
             assert scoped_clone is not expr
-            assert scoped_clone.scope is expr.scope
+            assert scoped_clone.scope is expr.scope  # pylint: disable=no-member
