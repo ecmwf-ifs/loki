@@ -230,3 +230,23 @@ end subroutine other_routine
 
         assert new_mod['my_routine']._parser_classes == mod['my_routine']._parser_classes
         assert new_new_mod['new_mod_routine']._parser_classes == mod['my_routine']._parser_classes
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sourcefile_clone_preserves_orig_path(tmp_path, frontend):
+    """Ensure cloning preserves the original source path by default."""
+
+    source_path = tmp_path/'original.F90'
+    source_path.write_text('''
+subroutine original
+end subroutine original
+''')
+    source = Sourcefile.from_file(source_path, frontend=frontend, xmods=[tmp_path])
+
+    clone = source.clone(path=tmp_path/'generated.F90')
+    assert clone.path == tmp_path/'generated.F90'
+    assert clone.orig_path == source.orig_path
+
+    clone = source.clone(path=tmp_path/'other-generated.F90', orig_path=tmp_path/'other-original.F90')
+    assert clone.path == tmp_path/'other-generated.F90'
+    assert clone.orig_path == tmp_path/'other-original.F90'
