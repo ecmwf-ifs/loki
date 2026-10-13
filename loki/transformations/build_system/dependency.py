@@ -18,7 +18,35 @@ from loki.types import ProcedureType, Scope
 from loki.tools import as_tuple, OrderedSet
 
 
-__all__ = ['DependencyTransformation']
+__all__ = ['DependencyTransformation', 'do_rename_subroutine']
+
+
+def do_rename_subroutine(routine, suffix, item=None):
+    """
+    Append a suffix to a routine and its scheduler item.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        Routine to rename.
+    suffix : str
+        Suffix to append to the routine name.
+    item : :any:`ProcedureItem`, optional
+        Associated scheduler item to rename at the same time.
+
+    Returns
+    -------
+    bool
+        ``True`` when the routine was renamed and ``False`` when it already
+        carried the configured suffix.
+    """
+    if routine.name.lower().endswith(suffix.lower()):
+        return False
+
+    routine.name += suffix
+    if item:
+        item.name += suffix.lower()
+    return True
 
 
 class DependencyTransformation(Transformation):
@@ -162,15 +190,8 @@ class DependencyTransformation(Transformation):
             targets += tuple(str(i).lower() for i in item.ignore)
 
         if role == 'kernel':
-            if routine.name.endswith(self.suffix):
-                # This is to ensure that the transformation is idempotent if
-                # applied more than once to a routine
+            if not do_rename_subroutine(routine, self.suffix, item=item):
                 return
-
-            # Change the name of kernel routines
-            routine.name += self.suffix
-            if item:
-                item.name += self.suffix.lower()
 
         self.rename_calls(routine, targets=targets, item=item)
 
