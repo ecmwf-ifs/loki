@@ -791,6 +791,35 @@ def test_remove_code_transformation(
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_remove_code_refreshes_call_graph(frontend, tmp_path):
+    """Update the scheduler graph after removing a pragma-marked call."""
+    fcode = """
+subroutine caller()
+    !$loki remove
+    call callee()
+    !$loki end remove
+end subroutine caller
+
+subroutine callee()
+end subroutine callee
+    """
+    source = tmp_path/'source.F90'
+    source.write_text(fcode)
+    scheduler = Scheduler(
+        paths=source, seed_routines=('caller',),
+        config={'default': {'expand': True, 'strict': True}},
+        frontend=frontend, xmods=[tmp_path]
+    )
+    caller = scheduler['#caller']
+    assert scheduler.sgraph.successors(caller) == (scheduler['#callee'],)
+
+    scheduler.process(RemoveCodeTransformation())
+
+    assert not FindNodes(ir.CallStatement).visit(caller.ir.body)
+    assert not scheduler.sgraph.successors(caller)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('kernel_override', [True, False])
 def test_remove_code_unused_args(frontend, source_with_args, kernel_override, tmp_path):
     """
