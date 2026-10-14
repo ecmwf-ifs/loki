@@ -96,6 +96,16 @@ def _build_sgraph(items):
     return _MockSGraph(items)
 
 
+def _build_sgraph_from_map(successor_map):
+    """Build a minimal successor map from an explicit item-to-successors mapping."""
+
+    class _MockSGraph:
+        def successors(self, item):
+            return successor_map.get(item, [])
+
+    return _MockSGraph()
+
+
 # -------------------------------------------------------------------
 # Tests
 # -------------------------------------------------------------------
@@ -853,3 +863,94 @@ end subroutine driver
     calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert len(calls[0].arguments) == 3  # nproma, nlev, field(:,:,ibl)
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+def test_sk_shared_kernel_with_different_driver_loop_variables(frontend):
+    """
+    Verify that a kernel shared between drivers with different (aliased)
+    block-loop variables ends up with a call signature that all callers
+    can satisfy.
+    """
+    block_dim = Dimension(
+        name='block_dim', size='nb', index='ibl',
+        bounds=('1', 'nb'),
+        aliases=('jkglo', 'jstglo'),
+    )
+
+    fcode_driver = """
+subroutine driver_{name}(nproma, nlev, ngptot, nb, field)
+  implicit none
+  integer, intent(in) :: nproma, nlev, ngptot, nb
+  real, intent(inout) :: field(nproma, nlev, nb)
+  integer :: {var}, ibl
+
+  do {var} = 1, ngptot, nproma
+    ibl = ({var} - 1) / nproma + 1
+    !$loki small-kernels
+    call kernel_{name}(nproma, nlev, field(:,:,ibl))
+  end do
+end subroutine driver_{name}
+"""
+    fcode_kernel = """
+subroutine kernel_{name}(nproma, nlev, field)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(inout) :: field(nproma, nlev)
+
+  !$loki small-kernels
+  call shared_kernel(nproma, nlev, field)
+end subroutine kernel_{name}
+"""
+    fcode_shared = """
+subroutine shared_kernel(nproma, nlev, field)
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(inout) :: field(nproma, nlev)
+  field(1, 1) = 1.0
+end subroutine shared_kernel
+"""
+    shared = Subroutine.from_source(fcode_shared, frontend=frontend)
+    shared_item = _make_item(shared, role='kernel', targets=())
+
+    drivers, kernels, driver_items, kernel_items = {}, {}, {}, {}
+    for name, var in (('a', 'jkglo'), ('b', 'jstglo')):
+        drivers[name] = Subroutine.from_source(fcode_driver.format(name=name, var=var), frontend=frontend)
+        kernels[name] = Subroutine.from_source(fcode_kernel.format(name=name), frontend=frontend)
+        drivers[name].enrich(kernels[name])
+        kernels[name].enrich(shared)
+        driver_items[name] = _make_item(drivers[name], role='driver', targets=(f'kernel_{name}',))
+        kernel_items[name] = _make_item(kernels[name], role='kernel', targets=('shared_kernel',))
+
+    sgraph = _build_sgraph_from_map({
+        **{driver_items[name]: [kernel_items[name]] for name in 'ab'},
+        **{kernel_items[name]: [shared_item] for name in 'ab'},
+    })
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    for name in 'ab':
+        trafo.transform_subroutine(
+            drivers[name], role='driver', targets=(f'kernel_{name}',),
+            item=driver_items[name], sub_sgraph=sgraph
+        )
+    for name in 'ab':
+        trafo.transform_subroutine(
+            kernels[name], role='kernel', targets=('shared_kernel',),
+            item=kernel_items[name], sub_sgraph=sgraph
+        )
+
+    # Every call to the shared kernel must bind all of its dummy arguments
+    for name in 'ab':
+        calls = [c for c in FindNodes(ir.CallStatement).visit(kernels[name].body) if c.name == 'shared_kernel']
+        assert len(calls) == 1
+        bound = {dummy.name.lower() for dummy in calls[0].arg_map}
+        assert bound == {arg.name.lower() for arg in shared.arguments}, (
+            f'kernel_{name} leaves shared_kernel arguments unbound: '
+            f'{sorted({arg.name.lower() for arg in shared.arguments} - bound)}'
+        )
+
+    # The loop variables of both drivers are passed through a single dummy argument
+    shared_args = {arg.name.lower() for arg in shared.arguments}
+    assert len(shared_args & {'jkglo', 'jstglo'}) == 1
+    call_b = next(c for c in FindNodes(ir.CallStatement).visit(kernels['b'].body) if c.name == 'shared_kernel')
+    assert ('jkglo', 'jstglo') in [(name.lower(), str(value).lower()) for name, value in call_b.kwarguments]

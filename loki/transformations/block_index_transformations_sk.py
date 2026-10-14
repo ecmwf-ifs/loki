@@ -279,6 +279,47 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         new_args = sorted(set(new_args), key=lambda x: str(x.name))
         return new_args, new_kwargs, already_arg
 
+    @staticmethod
+    def _bind_driver_loop_variable(item, call, successor, new_args, new_kwargs):
+        """
+        Bind the driver loop variable to the dummy argument that the callee
+        already has for the loop variable of another driver.
+
+        A kernel that is shared between drivers with different block-loop
+        variables (e.g., ``JKGLO`` and ``JSTGLO``) must receive the loop
+        variable through a single dummy argument. Otherwise, the callee
+        accumulates one dummy per driver, none of which the other callers
+        can provide.
+
+        Parameters
+        ----------
+        item : :any:`ProcedureItem`
+            The item of the routine containing *call*.
+        call : :any:`CallStatement`
+            The call to the shared kernel.
+        successor : :any:`ProcedureItem`
+            The item of the called kernel.
+        new_args : list
+            Positional arguments to add, as determined by :meth:`_determine_new_args`.
+        new_kwargs : list of (str, Variable)
+            Keyword arguments to add, as determined by :meth:`_determine_new_args`.
+
+        Returns
+        -------
+        tuple
+            The updated lists of new arguments and keyword arguments.
+        """
+        loop = item.trafo_data['LowerBlockIndex'].get('driver_loop')
+        callee_loop = successor.trafo_data.get('LowerBlockIndex', {}).get('driver_loop')
+        if loop is None or callee_loop is None or loop.variable == callee_loop.variable:
+            return new_args, new_kwargs
+        if loop.variable not in new_args or callee_loop.variable not in call.routine.arguments:
+            return new_args, new_kwargs
+
+        new_args = [arg for arg in new_args if arg != loop.variable]
+        new_kwargs = sorted({*new_kwargs, (callee_loop.variable.name, loop.variable)}, key=lambda x: x[0].lower())
+        return new_args, new_kwargs
+
     def _apply_new_args_to_call(self, call, new_args, new_kwargs, already_arg):
         """
         Update *call* with new positional/keyword arguments, add them to
@@ -708,6 +749,10 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             new_args, new_kwargs, already_arg = self._determine_new_args(
                 relevant_vars, call
             )
+            if (successor := successor_map.get(str(call.name).lower())) is not None:
+                new_args, new_kwargs = self._bind_driver_loop_variable(
+                    item, call, successor, new_args, new_kwargs
+                )
             missing_args = self._apply_new_args_to_call(call, new_args, new_kwargs, already_arg)
 
             # Propagate imports for new args
