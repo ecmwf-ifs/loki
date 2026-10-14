@@ -8,9 +8,33 @@ import math
 import numpy as np
 from pymbolic.mapper.evaluator import EvaluationMapper
 from loki.expression import symbols as sym
+from loki.expression.mappers import LokiIdentityMapper
 from loki.tools.util import CaseInsensitiveDict, as_tuple
 
-__all__ = ['LokiEvaluationMapper', 'eval_expr']
+__all__ = ['LokiEvaluationMapper', 'PythonToLiteralMapper', 'eval_expr']
+
+
+class PythonToLiteralMapper(LokiIdentityMapper):
+    """
+    Convert plain Python values left behind by :any:`LokiEvaluationMapper`
+    into Loki literals.
+
+    This requires symbols to be attached to a scope.
+    """
+    # pylint: disable=abstract-method
+
+    def map_constant(self, expr, *args, **kwargs):
+        if isinstance(expr, bool):
+            return sym.LogicLiteral(expr)
+        if isinstance(expr, (int, float)):
+            return sym.Literal(expr)
+        return super().map_constant(expr, *args, **kwargs)
+
+    def map_foreign(self, expr, *args, **kwargs):
+        if isinstance(expr, str):
+            # Float literals are evaluated to their (string) value
+            return sym.FloatLiteral(value=expr)
+        return super().map_foreign(expr, *args, **kwargs)
 
 class LokiEvaluationMapper(EvaluationMapper):
     """
@@ -67,6 +91,10 @@ class LokiEvaluationMapper(EvaluationMapper):
     def map_variable(self, expr):
         from loki.expression.parser import FORTRAN_INTRINSIC_PROCEDURES # pylint: disable=import-outside-toplevel,cyclic-import
         _, obj = self._recurse_parent(expr)
+        if isinstance(obj, (sym.TypedSymbol, sym.MetaSymbol)):
+            # The parent was substituted with a Loki expression from the context,
+            # so we re-attach the member to it instead of looking up an attribute
+            return sym.Variable(name=expr.name.split('%')[-1], parent=obj)
         if obj is not None:
             try:
                 return self.case_insensitive_getattr(obj, expr.name.split('%')[-1])
@@ -155,8 +183,12 @@ class LokiEvaluationMapper(EvaluationMapper):
                         expr.name.split('%')[-1])(*[self.rec(par) for par in expr.parameters], **kwargs)
             except: # pylint: disable=bare-except
                 return expr
-        return self.map_call(expr, name=expr.name.lower(),
-                parameters=as_tuple(self.rec(param) for param in expr.parameters))
+        parameters = as_tuple(self.rec(param) for param in expr.parameters)
+        result = self.map_call(expr, name=expr.name.lower(), parameters=parameters)
+        if result is expr:
+            # Unknown call that cannot be evaluated, but its arguments may still be substituted
+            return expr.clone(parameters=parameters)
+        return result
 
 
 def eval_expr(expr, context=None, strict=False):
