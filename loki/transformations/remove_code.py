@@ -98,6 +98,9 @@ class RemoveCodeTransformation(Transformation):
     recurse_to_internal_procedures = True
     reverse_traversal = True
 
+    # Refresh dependencies after removing calls or inserting replacement calls.
+    creates_items = True
+
     def __init__(
             self, remove_marked_regions=True, mark_with_comment=True,
             replacement_call=None, replacement_msg=None, replacement_module=None,
