@@ -87,6 +87,16 @@ class GenericVisitor:
         """
         return None
 
+    handler_aliases = {'ExpressionNode': 'Expression'}
+    """
+    Map of class names to the name of the handler that is used for them.
+
+    This allows handlers to keep a stable name when a base class in an
+    external package is renamed. pymbolic 2024.1 renamed the expression base
+    class from ``Expression`` to ``ExpressionNode``, and expression handlers
+    are spelt :data:`visit_Expression` for either version.
+    """
+
     def lookup_method(self, instance):
         """Look up a handler method for a visitee.
 
@@ -99,7 +109,8 @@ class GenericVisitor:
         except KeyError:
             # No, walk the MRO.
             for klass in cls.mro()[1:]:
-                entry = self._handlers.get(klass.__name__)
+                name = self.handler_aliases.get(klass.__name__, klass.__name__)
+                entry = self._handlers.get(name)
                 if entry:
                     # Save it on this type name for faster lookup next time
                     self._handlers[cls.__name__] = entry

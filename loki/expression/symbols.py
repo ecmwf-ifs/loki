@@ -14,17 +14,19 @@ Expression tree node classes for
 from itertools import chain
 import weakref
 from sys import intern
+from constantdict import constantdict
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DataType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
+from loki.expression.base import ExpressionNode
 from loki.expression.literals import (
     _Literal, FloatLiteral, IntLiteral, LogicLiteral, StringLiteral,
     IntrinsicLiteral, Literal, LiteralList,
 )
-from loki.expression.mixins import StrCompareMixin
+from loki.expression.mixins import StrCompareMixin, ForeignMapperFallbackMixin
 from loki.expression.operations import (
     Sum, Product, Quotient, Power, Comparison, LogicalAnd,
     LogicalOr, LogicalNot, StringConcat, Cast, Reference, Dereference
@@ -85,7 +87,9 @@ class TypedSymbol:
     init_arg_names = ('name', 'scope', 'parent', 'type', 'case_sensitive', )
 
     def __init__(self, *args, **kwargs):
-        self.name = kwargs['name']
+        # ``name`` is a frozen dataclass field in pymbolic >= 2024.1, whereas
+        # Loki derives it from the parent and the local name
+        self._name = kwargs['name'].split('%')[-1]
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
         self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
@@ -104,6 +108,8 @@ class TypedSymbol:
 
     @name.setter
     def name(self, name):
+        # Required for the constructor of pymbolic's Variable, which bypasses
+        # the frozen dataclass field in pymbolic >= 2024.1
         self._name = name.split('%')[-1]
 
     def __getinitargs__(self):
@@ -470,7 +476,7 @@ class DerivedTypeSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):
     mapper_method = intern('map_derived_type_symbol')
 
 
-class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
+class MetaSymbol(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf):
     """
     Base class for meta symbols to encapsulate a symbol node with optional
     enclosing operations in a unifying interface
@@ -914,7 +920,7 @@ class Variable:
         return stored_type
 
 
-class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
+class InlineDo(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
     """
@@ -936,13 +942,22 @@ class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
 class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
+
+    Parameters
+    ----------
+    function : :any:`ProcedureSymbol` or :any:`DeferredTypeSymbol`
+        The function that is called.
+    parameters : tuple, optional
+        The positional arguments of the call.
+    kw_parameters : dict or tuple of (str, expression) pairs, optional
+        The keyword arguments of the call. They are stored as an immutable,
+        ordered and hashable mapping (:class:`constantdict.constantdict`).
     """
 
     init_arg_names = ('function', 'parameters', 'kw_parameters')
 
     def __getinitargs__(self):
-        return (self.function, self.parameters, as_tuple(self.kw_parameters))
-
+        return (self.function, self.parameters, self.kw_parameters)
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
         # Unfortunately, have to accept MetaSymbol here for the time being as
@@ -952,7 +967,9 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
             ProcedureSymbol, DerivedTypeSymbol, DeferredTypeSymbol, MetaSymbol
         ))
         parameters = parameters or ()
-        kw_parameters = kw_parameters or {}
+        # Keyword arguments are stored as an immutable, hashable and ordered
+        # mapping, which may be given as a mapping or as (name, value) pairs
+        kw_parameters = constantdict(kw_parameters or {})
 
         super().__init__(function=function, parameters=parameters,
                          kw_parameters=kw_parameters, **kwargs)
@@ -960,8 +977,6 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     mapper_method = intern('map_inline_call')
 
     def __hash__(self):
-        # A custom `__hash__` function to protect us from unhashasble
-        # dicts that `pmbl.CallWithKwargs` uses internally
         return hash(self.__getinitargs__())
 
     @property
@@ -1152,7 +1167,7 @@ class LoopRange(Range):
     mapper_method = intern('map_loop_range')
 
     @property
-    def num_iterations(self) -> pmbl.Expression:
+    def num_iterations(self) -> ExpressionNode:
         """
         Returns total number of iterations of a loop.
 

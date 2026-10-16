@@ -4,7 +4,9 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+from functools import reduce
 import math
+import operator
 import numpy as np
 from pymbolic.mapper.evaluator import EvaluationMapper
 from loki.expression import symbols as sym
@@ -40,8 +42,29 @@ class LokiEvaluationMapper(EvaluationMapper):
         self.strict = strict
         super().__init__(**kwargs)
 
+    def map_sum(self, expr):
+        """
+        Evaluate a sum by adding up its evaluated children.
+
+        In contrast to pymbolic's implementation, the summation does not start
+        from ``0``, because pymbolic >= 2024.1 no longer drops additive
+        identities in arithmetic on expressions. Partially evaluated sums
+        would otherwise retain a leading literal ``0``.
+        """
+        return reduce(operator.add, (self.rec(child) for child in expr.children))
+
+    def map_product(self, expr):
+        """
+        Evaluate a product by multiplying its evaluated children.
+
+        In contrast to pymbolic's implementation, the multiplication does not
+        start from ``1``, because pymbolic >= 2024.1 no longer drops
+        multiplicative identities in arithmetic on expressions. Partially
+        evaluated products would otherwise retain a leading literal ``1``.
+        """
+        return reduce(operator.mul, (self.rec(child) for child in expr.children))
+
     def map_comparison(self, expr):
-        import operator # pylint: disable=import-outside-toplevel
         left = self.rec(expr.left)
         right = self.rec(expr.right)
         rel_types = (sym._Literal, float, int)

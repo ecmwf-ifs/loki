@@ -25,6 +25,7 @@ except ImportError:
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType
+from loki.expression.base import ExpressionNode
 
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
@@ -106,7 +107,7 @@ class LokiStringifyMapper(StringifyMapper):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
         if expr.kind:
-            if isinstance(expr.kind, pmbl.Expression):
+            if isinstance(expr.kind, ExpressionNode):
                 kind = ', kind=' + self.rec(expr.kind, PREC_NONE, *args, **kwargs)
             else:
                 kind = ', kind=' + str(expr.kind)
