@@ -9,10 +9,10 @@
 from dataclasses import field
 from typing import Optional, Union, Tuple
 
-from pymbolic.primitives import Expression
 from pydantic import field_validator, model_validator, ValidationError
 from pydantic_core import ArgsKwargs
 
+from loki.expression.base import ExpressionNode
 from loki.ir.nodes.abstract_nodes import LeafNode
 from loki.tools import dataclass_strict, truncate_string, sanitize_tuple
 
@@ -72,7 +72,7 @@ class ImplicitStmt(GenericStmt):
 
     keyword = 'IMPLICIT'
 
-    text: Optional[Union[str, Tuple[Expression, ...]]] = 'NONE'
+    text: Optional[Union[str, Tuple[ExpressionNode, ...]]] = 'NONE'
 
     @field_validator('text', mode='before')
     @classmethod
@@ -100,7 +100,7 @@ class SaveStmt(GenericStmt):
 
     keyword = 'SAVE'
 
-    text: Optional[Tuple[Expression, ...]] = ()
+    text: Optional[Tuple[ExpressionNode, ...]] = ()
 
     @field_validator('text', mode='before')
     @classmethod
@@ -126,7 +126,7 @@ class PublicStmt(GenericStmt):
 
     keyword = 'PUBLIC'
 
-    text: Optional[Tuple[Expression, ...]] = ()
+    text: Optional[Tuple[ExpressionNode, ...]] = ()
 
     @field_validator('text', mode='before')
     @classmethod
@@ -152,7 +152,7 @@ class PrivateStmt(GenericStmt):
 
     keyword = 'PRIVATE'
 
-    text: Optional[Tuple[Expression, ...]] = ()
+    text: Optional[Tuple[ExpressionNode, ...]] = ()
 
     @field_validator('text', mode='before')
     @classmethod
@@ -178,7 +178,7 @@ class CommonStmt(GenericStmt):
 
     keyword = 'COMMON'
 
-    text: Tuple[Expression, ...]
+    text: Tuple[ExpressionNode, ...]
 
     @field_validator('text', mode='before')
     @classmethod
@@ -300,7 +300,7 @@ class StopStmt(GenericStmt):
 
     keyword = 'STOP'
 
-    text: Optional[Union[Expression, str]] = ''
+    text: Optional[Union[ExpressionNode, str]] = ''
 
     @field_validator('text', mode='before')
     @classmethod
@@ -325,7 +325,7 @@ class ExitStmt(GenericStmt):
 
     keyword = 'EXIT'
 
-    text: Optional[Union[Expression, str]] = ''
+    text: Optional[Union[ExpressionNode, str]] = ''
 
     @field_validator('text', mode='before')
     @classmethod
@@ -373,7 +373,7 @@ class PrintStmt(GenericStmt):
 
     # For output statements, the ``text`` is derived from a tuple of ``values``
     text: str = field(init=False)  # pylint: disable=invalid-field-call
-    values: Tuple[Union[Expression, str], ...] = ()
+    values: Tuple[Union[ExpressionNode, str], ...] = ()
 
     @model_validator(mode='before')
     @classmethod
@@ -430,7 +430,7 @@ class FormatStmt(GenericStmt):
 
     # For output statements, the ``text`` is derived from a tuple of ``values``
     text: str = field(init=False)  # pylint: disable=invalid-field-call
-    values: Optional[Tuple[Union[Expression, str], ...]] = ()
+    values: Optional[Tuple[Union[ExpressionNode, str], ...]] = ()
 
     @model_validator(mode='before')
     @classmethod

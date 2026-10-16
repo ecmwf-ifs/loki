@@ -8,12 +8,12 @@
 Visitor classes for traversing and transforming all expression trees in
 :doc:`internal_representation`.
 """
-from pymbolic.primitives import Expression
 
 from loki.ir.nodes import Node
 from loki.ir.visitor import Visitor
 from loki.ir.transformer import Transformer
 from loki.tools import flatten, as_tuple, dict_override, OrderedSet
+from loki.expression.base import ExpressionNode
 from loki.expression.mappers import (
     SubstituteExpressionsMapper, ExpressionRetriever,
     AttachScopesMapper, LokiIdentityMapper
@@ -79,7 +79,7 @@ class ExpressionFinder(Visitor):
         - :attr:`dimensions` (for :any:`Array`)
         """
         def dict_key(var):
-            assert isinstance(var, Expression)
+            assert isinstance(var, ExpressionNode)
             if isinstance(var, (Scalar, Array)):
                 return (var.name,
                         var.parent.name if hasattr(var, 'parent') and var.parent else None,
@@ -159,7 +159,7 @@ class FindExpressions(ExpressionFinder):
 
     See :any:`ExpressionFinder`
     """
-    retriever = ExpressionRetriever(lambda e: isinstance(e, Expression))
+    retriever = ExpressionRetriever(lambda e: isinstance(e, ExpressionNode))
 
 
 class FindTypedSymbols(ExpressionFinder):
