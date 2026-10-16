@@ -8,7 +8,7 @@ from loki.config import config
 from loki.expression.mappers import ExpressionRetriever
 
 
-__all__ = ['loki_make_stringifier', 'StrCompareMixin']
+__all__ = ['loki_make_stringifier', 'StrCompareMixin', 'ForeignMapperFallbackMixin']
 
 
 def loki_make_stringifier(self, originating_stringifier=None):  # pylint: disable=unused-argument
@@ -53,3 +53,32 @@ class StrCompareMixin:
         return len(ExpressionRetriever(lambda x: x == other).retrieve(self)) > 0
 
     make_stringifier = loki_make_stringifier
+
+
+class ForeignMapperFallbackMixin:
+    """
+    Mixin for Loki leaf nodes to make pymbolic's own mappers defer to the node.
+
+    Mappers dispatch an expression node via its :attr:`mapper_method`. If a
+    mapper does not provide this method, pymbolic walks the MRO of the node's
+    class and uses the first :attr:`mapper_method` that the mapper provides.
+    If none is found, it calls :meth:`handle_unsupported_expression`, which
+    pymbolic's stringifiers implement by delegating to the node's own
+    :meth:`make_stringifier`, and evaluation mappers by raising
+    :any:`pymbolic.mapper.UnsupportedExpressionError` (a :any:`ValueError`).
+
+    Since pymbolic 2024.1, :class:`pymbolic.primitives.AlgebraicLeaf` and
+    :class:`pymbolic.primitives.Leaf` carry a ``map_algebraic_leaf``
+    mapper method that raises :any:`NotImplementedError`. For Loki leaf
+    nodes this would be found before the fallback above, so that, e.g.,
+    ``str()`` of a pymbolic :class:`pymbolic.primitives.Sum` with Loki
+    children or ``float()`` of a Loki symbol fails.
+
+    Placing this mixin before the pymbolic base class in the MRO restores the
+    fallback to :meth:`handle_unsupported_expression` for mappers that do not
+    know a Loki leaf node. Mappers that provide the node's own mapper method,
+    such as all Loki mappers, are not affected. Classes using this mixin must
+    define their own :attr:`mapper_method`.
+    """
+
+    mapper_method = 'handle_unsupported_expression'

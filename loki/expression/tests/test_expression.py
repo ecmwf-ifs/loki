@@ -9,6 +9,7 @@ import math
 import sys
 import pytest
 import numpy as np
+import pymbolic.primitives as pmbl
 
 from loki import (
     Sourcefile, Subroutine, Module, Scope, BasicType,
@@ -693,6 +694,45 @@ end subroutine my_routine
     assert isinstance(assignment.rhs.function, sym.ProcedureSymbol)
 
 
+def test_foreign_mapper_fallback():
+    """
+    Test that pymbolic's own mappers defer to Loki leaf nodes they do not know.
+
+    Arithmetic on Loki expressions creates pymbolic nodes (e.g.,
+    :class:`pymbolic.primitives.Sum`) that are rendered with pymbolic's own
+    stringifier, and ``float()`` uses pymbolic's evaluation mapper. Both must
+    fall back to the Loki node instead of failing on Loki leaves.
+    """
+    scope = Scope()
+    i = sym.Scalar('i', scope=scope)
+    arr = sym.Array('arr', dimensions=(i,), scope=scope)
+    leaves = (
+        i, arr, sym.DeferredTypeSymbol('d', scope=scope),
+        sym.IntLiteral(2), sym.FloatLiteral('1.5'), sym.LogicLiteral(True),
+        sym.StringLiteral('s'), sym.IntrinsicLiteral('(/1, 2/)'),
+        sym.LiteralList((sym.IntLiteral(1), sym.IntLiteral(2))),
+        sym.InlineDo((i,), i, sym.LoopRange((sym.IntLiteral(1), sym.IntLiteral(2))))
+    )
+    for leaf in leaves:
+        expr = pmbl.Sum((sym.IntLiteral(1), leaf))
+        assert not isinstance(expr, sym.Sum)
+        assert str(expr) == f'1 + {leaf}'
+
+    # Python arithmetic on Loki expressions yields pymbolic nodes
+    assert str(arr + 1) == 'arr(i) + 1'
+    assert str(i * 2 + arr) == 'i*2 + arr(i)'
+
+    # Evaluating Loki symbols with pymbolic raises a ValueError...
+    with pytest.raises(ValueError):
+        float(i)
+
+    # ...so that comparisons of literals with expressions are well-defined
+    assert sym.FloatLiteral('1.5') != i
+    assert sym.FloatLiteral('1.5') == 1.5
+    assert sym.FloatLiteral('1.5') < 2
+    assert sym.FloatLiteral('1.5') != sym.Sum((i, sym.IntLiteral(1)))
+
+
 def test_inline_call_kw_parameters():
     """
     Test that :any:`InlineCall` stores keyword arguments as an immutable,
@@ -727,7 +767,7 @@ def test_inline_call_kw_parameters():
     for kw_parameters in (None, (), {}):
         call = sym.InlineCall(func, parameters=(a,), kw_parameters=kw_parameters)
         assert call.kw_parameters == {}
-        assert call.kwarguments == ()
+        assert not call.kwarguments
         assert hash(call) == hash(sym.InlineCall(func, parameters=(a,)))
 
     # Cloning and rebuilding preserves the mapping type and contents
