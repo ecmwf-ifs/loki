@@ -8,9 +8,12 @@ from collections import defaultdict
 from itertools import chain
 
 from loki.batch.transformation import Transformation
-from loki.ir import nodes as ir, Transformer, FindNodes, FindInlineCalls
+from loki.ir import (
+    nodes as ir, Transformer, FindNodes, FindInlineCalls, SubstituteExpressions
+)
 from loki.tools.util import as_tuple, CaseInsensitiveDict
 from loki.subroutine import Subroutine
+from loki.transformations.utilities import recursive_expression_map_update
 from loki.logging import warning
 
 __all__ = ['DuplicateKernel', 'RemoveKernel', 'SeparateModesKernel']
@@ -690,6 +693,7 @@ class SeparateModesKernel(Transformation):
         if not calls_to_rename:
             return
 
+        inline_call_map = {}
         for call in chain(calls, inline_calls):
             orig_name = str(call.name)
             if orig_name in calls_to_rename:
@@ -698,8 +702,12 @@ class SeparateModesKernel(Transformation):
                 if isinstance(call, ir.CallStatement):
                     call._update(name=proc_symbol)
                 else:
-                    call.function = proc_symbol
+                    inline_call_map[call] = call.clone(function=proc_symbol)
                 self._update_item_config_names(item, orig_name, proc_symbol.name)
+
+        if inline_call_map:
+            inline_call_map = recursive_expression_map_update(inline_call_map)
+            routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
     def transform_subroutine(self, routine, **kwargs):
         """

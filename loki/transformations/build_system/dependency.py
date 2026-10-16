@@ -9,11 +9,13 @@ from pathlib import Path
 from loki.backend import fgen
 from loki.batch import Transformation
 from loki.ir import (
-    CallStatement, Import, Interface, FindNodes, FindInlineCalls, Transformer
+    CallStatement, Import, Interface, FindNodes, FindInlineCalls, Transformer,
+    SubstituteExpressions
 )
 from loki.logging import warning
 from loki.module import Module
 from loki.subroutine import Subroutine
+from loki.transformations.utilities import recursive_expression_map_update
 from loki.types import ProcedureType, Scope
 from loki.tools import as_tuple, OrderedSet
 
@@ -269,15 +271,20 @@ class DependencyTransformation(Transformation):
                 call._update(name=call.name.clone(name=new_name, type=new_type))
                 _update_item(orig_name, str(call.name))
 
-        for call in FindInlineCalls(unique=False).visit(routine.body):
+        inline_call_map = {}
+        for call in FindInlineCalls().visit(routine.body):
             if call.function in members:
                 continue
             if targets is None or call.function in targets:
                 orig_name = str(call.name)
                 new_name = f'{orig_name}{self.suffix}'
                 new_type = call.function.type.clone(dtype=ProcedureType(name=new_name))
-                call.function = call.function.clone(name=new_name, type=new_type)
-                _update_item(orig_name, str(call.name))
+                inline_call_map[call] = call.clone(function=call.function.clone(name=new_name, type=new_type))
+                _update_item(orig_name, new_name)
+
+        if inline_call_map:
+            inline_call_map = recursive_expression_map_update(inline_call_map)
+            routine.body = SubstituteExpressions(inline_call_map).visit(routine.body)
 
     def rename_imports(self, source, imports, targets=None):
         """
