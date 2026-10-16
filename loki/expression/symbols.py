@@ -14,6 +14,7 @@ Expression tree node classes for
 from itertools import chain
 import weakref
 from sys import intern
+from constantdict import constantdict
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple, CaseInsensitiveDict
@@ -937,13 +938,22 @@ class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
 class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     """
     Internal representation of an in-line function call.
+
+    Parameters
+    ----------
+    function : :any:`ProcedureSymbol` or :any:`DeferredTypeSymbol`
+        The function that is called.
+    parameters : tuple, optional
+        The positional arguments of the call.
+    kw_parameters : dict or tuple of (str, expression) pairs, optional
+        The keyword arguments of the call. They are stored as an immutable,
+        ordered and hashable mapping (:class:`constantdict.constantdict`).
     """
 
     init_arg_names = ('function', 'parameters', 'kw_parameters')
 
     def __getinitargs__(self):
-        return (self.function, self.parameters, as_tuple(self.kw_parameters))
-
+        return (self.function, self.parameters, self.kw_parameters)
 
     def __init__(self, function, parameters=None, kw_parameters=None, **kwargs):
         # Unfortunately, have to accept MetaSymbol here for the time being as
@@ -953,7 +963,9 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
             ProcedureSymbol, DerivedTypeSymbol, DeferredTypeSymbol, MetaSymbol
         ))
         parameters = parameters or ()
-        kw_parameters = kw_parameters or {}
+        # Keyword arguments are stored as an immutable, hashable and ordered
+        # mapping, which may be given as a mapping or as (name, value) pairs
+        kw_parameters = constantdict(kw_parameters or {})
 
         super().__init__(function=function, parameters=parameters,
                          kw_parameters=kw_parameters, **kwargs)
@@ -961,8 +973,6 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
     mapper_method = intern('map_inline_call')
 
     def __hash__(self):
-        # A custom `__hash__` function to protect us from unhashasble
-        # dicts that `pmbl.CallWithKwargs` uses internally
         return hash(self.__getinitargs__())
 
     @property

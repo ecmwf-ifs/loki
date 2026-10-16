@@ -693,6 +693,51 @@ end subroutine my_routine
     assert isinstance(assignment.rhs.function, sym.ProcedureSymbol)
 
 
+def test_inline_call_kw_parameters():
+    """
+    Test that :any:`InlineCall` stores keyword arguments as an immutable,
+    ordered and hashable mapping, irrespective of how they are provided.
+    """
+    scope = Scope()
+    func = sym.ProcedureSymbol('func', scope=scope)
+    a = sym.Scalar('a', scope=scope)
+    b = sym.Scalar('b', scope=scope)
+
+    from_dict = sym.InlineCall(func, parameters=(a,), kw_parameters={'x': b, 'y': a})
+    from_pairs = sym.InlineCall(func, parameters=(a,), kw_parameters=(('x', b), ('y', a)))
+    for call in (from_dict, from_pairs):
+        assert call.kw_parameters == {'x': b, 'y': a}
+        assert call.kwarguments == (('x', b), ('y', a))
+        assert tuple(call.kw_parameters.values()) == (b, a)
+        with pytest.raises(AttributeError):
+            call.kw_parameters['z'] = a  # pylint: disable=unsupported-assignment-operation
+
+    # Input format does not affect equality and hashing
+    assert from_dict == from_pairs
+    assert hash(from_dict) == hash(from_pairs)
+    assert len({from_dict, from_pairs}) == 1
+
+    # Keyword argument values are part of the hash and equality
+    other = sym.InlineCall(func, parameters=(a,), kw_parameters={'x': a, 'y': a})
+    assert from_dict != other
+    assert hash(from_dict) != hash(other)
+    assert len({from_dict, from_pairs, other}) == 2
+
+    # Without keyword arguments, an empty mapping is stored
+    for kw_parameters in (None, (), {}):
+        call = sym.InlineCall(func, parameters=(a,), kw_parameters=kw_parameters)
+        assert call.kw_parameters == {}
+        assert call.kwarguments == ()
+        assert hash(call) == hash(sym.InlineCall(func, parameters=(a,)))
+
+    # Cloning and rebuilding preserves the mapping type and contents
+    clone = from_pairs.clone(kw_parameters=from_pairs.kwarguments + (('z', b),))
+    assert clone.kwarguments == (('x', b), ('y', a), ('z', b))
+    assert type(clone.kw_parameters) is type(from_dict.kw_parameters)
+    assert SubstituteExpressions({a: b}).visit(ir.Assignment(lhs=b, rhs=from_dict)).rhs == \
+        sym.InlineCall(func, parameters=(b,), kw_parameters={'x': b, 'y': b})
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_kwargs_inline_call(frontend, tmp_path):
     """

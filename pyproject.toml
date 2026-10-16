@@ -19,6 +19,7 @@ dynamic = ["version", "readme"]
 dependencies = [
   "numpy >= 2.0",  # essential for tests, loop transformations and other dependencies
   "pymbolic==2022.2",  # essential for expression tree
+  "constantdict",  # essential for expression tree (immutable keyword argument mappings)
   "PyYAML",  # essential for loki-lint
   "pcpp",  # essential for preprocessing
   "more-itertools",  # essential for SCC transformation
