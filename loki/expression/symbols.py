@@ -26,7 +26,7 @@ from loki.expression.literals import (
     _Literal, FloatLiteral, IntLiteral, LogicLiteral, StringLiteral,
     IntrinsicLiteral, Literal, LiteralList,
 )
-from loki.expression.mixins import StrCompareMixin
+from loki.expression.mixins import StrCompareMixin, ForeignMapperFallbackMixin
 from loki.expression.operations import (
     Sum, Product, Quotient, Power, Comparison, LogicalAnd,
     LogicalOr, LogicalNot, StringConcat, Cast, Reference, Dereference
@@ -472,7 +472,7 @@ class DerivedTypeSymbol(StrCompareMixin, TypedSymbol, _FunctionSymbol):
     mapper_method = intern('map_derived_type_symbol')
 
 
-class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
+class MetaSymbol(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf):
     """
     Base class for meta symbols to encapsulate a symbol node with optional
     enclosing operations in a unifying interface
@@ -916,7 +916,7 @@ class Variable:
         return stored_type
 
 
-class InlineDo(StrCompareMixin, pmbl.AlgebraicLeaf):
+class InlineDo(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf):
     """
     An inlined do, e.g., implied-do as used in array constructors
     """
