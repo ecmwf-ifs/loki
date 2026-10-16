@@ -7,11 +7,10 @@
 from dataclasses import FrozenInstanceError
 
 import pytest
-from pymbolic.primitives import Expression
 from pydantic import ValidationError
 
 from loki.backend import fgen
-from loki.expression import symbols as sym, parse_expr
+from loki.expression import symbols as sym, parse_expr, ExpressionNode
 from loki.function import Function
 from loki.ir import nodes as ir
 from loki.subroutine import Subroutine
@@ -49,8 +48,8 @@ def test_assignment(scope, a_i):
     Test constructors of :any:`Assignment`.
     """
     assign = ir.Assignment(lhs=a_i, rhs=sym.Literal(42.0))
-    assert isinstance(assign.lhs, Expression)
-    assert isinstance(assign.rhs, Expression)
+    assert isinstance(assign.lhs, ExpressionNode)
+    assert isinstance(assign.rhs, ExpressionNode)
     assert assign.comment is None
 
     # Ensure "frozen" status of node objects
@@ -76,8 +75,8 @@ def test_loop(scope, one, i, n, a_i):
     bounds = sym.Range((one, n))
 
     loop = ir.Loop(variable=i, bounds=bounds, body=(assign,))
-    assert isinstance(loop.variable, Expression)
-    assert isinstance(loop.bounds, Expression)
+    assert isinstance(loop.variable, ExpressionNode)
+    assert isinstance(loop.bounds, ExpressionNode)
     assert isinstance(loop.body, tuple)
     assert all(isinstance(n, ir.Node) for n in loop.body)
     assert loop.children == ( i, bounds, (assign,) )
@@ -125,7 +124,7 @@ def test_conditional(scope, n, a_i):
     cond = ir.Conditional(
         condition=condition, body=(assign,assign,), else_body=(assign,)
     )
-    assert isinstance(cond.condition, Expression)
+    assert isinstance(cond.condition, ExpressionNode)
     assert isinstance(cond.body, tuple) and len(cond.body) == 2
     assert all(isinstance(n, ir.Node) for n in cond.body)
     assert isinstance(cond.else_body, tuple) and len(cond.else_body) == 1
@@ -330,13 +329,13 @@ def test_callstatement(scope, one, i, n, a_i):
     call = ir.CallStatement(
         name=cname, arguments=(n, a_i), kwarguments=(('i', i), ('j', one))
     )
-    assert isinstance(call.name, Expression)
+    assert isinstance(call.name, ExpressionNode)
     assert isinstance(call.arguments, tuple)
-    assert all(isinstance(e, Expression) for e in call.arguments)
+    assert all(isinstance(e, ExpressionNode) for e in call.arguments)
     assert isinstance(call.kwarguments, tuple)
     assert all(isinstance(e, tuple) for e in call.kwarguments)
     assert all(
-        isinstance(k, str) and isinstance(v, Expression)
+        isinstance(k, str) and isinstance(v, ExpressionNode)
         for k, v in call.kwarguments
     )
 
@@ -453,11 +452,11 @@ def test_multiconditional(scope, a_i, i):
     multicond = ir.MultiConditional(
         expr=i, values=values, bodies=((assign1,), (assign2,)), else_body=(assign3,)
     )
-    assert isinstance(multicond.expr, Expression)
+    assert isinstance(multicond.expr, ExpressionNode)
     assert isinstance(multicond.values, tuple)
     assert all(isinstance(e, tuple) for e in multicond.values)
     assert all(
-        all(isinstance(v, Expression) for v in val) for val in multicond.values
+        all(isinstance(v, ExpressionNode) for v in val) for val in multicond.values
     )
     assert isinstance(multicond.bodies, tuple)
     assert all(isinstance(b, tuple) for b in multicond.bodies)

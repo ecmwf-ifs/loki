@@ -5,18 +5,19 @@
 # nor does it submit to any jurisdiction.
 
 import pytest
-from pymbolic.primitives import Expression
 
 from loki import Module, Subroutine
+from loki.backend import fgen
 from loki.expression import (
-    symbols as sym, ExpressionCallbackMapper, ExpressionRetriever
+    symbols as sym, ExpressionCallbackMapper, ExpressionRetriever, ExpressionNode
 )
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, is_parent_of, is_child_of, FindNodes, FindScopes,
-    FindVariables, ExpressionFinder
+    FindVariables, FindExpressions, ExpressionFinder, AttachScopes
 )
 from loki.tools import OrderedSet
+from loki.types import BasicType
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -47,6 +48,56 @@ end subroutine routine_find_nodes_greedy
     assert len(outer_cond) == 1
     assert outer_cond[0] in conditionals
     assert str(outer_cond[0].condition) == 'n > m'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_visitor_expression_dispatch(frontend):
+    """
+    Test that IR visitors dispatch expression trees to ``visit_Expression``.
+
+    Visitor handlers are looked up by class name along the MRO, so a renamed
+    base class in pymbolic (``Expression`` -> ``ExpressionNode`` in 2024.1)
+    silently skips every expression unless the handler lookup is aliased.
+    """
+    fcode = """
+subroutine routine_expr_dispatch(n, a, b, s)
+  integer, intent(in) :: n
+  real, intent(inout) :: a(n), b
+  character(len=*), intent(inout) :: s
+  integer :: i
+
+  do i=1,n
+    a(i) = b + max(a(i), 1.0) * 2
+  end do
+  s = s // 'x'
+end subroutine routine_expr_dispatch
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert len(assigns) == 2
+
+    # Every expression node in the body resolves to the expression handler
+    finder = FindVariables()
+    exprs = FindExpressions(unique=False).visit(routine.body)
+    assert exprs
+    for expr in exprs:
+        assert isinstance(expr, ExpressionNode)
+        assert finder.lookup_method(expr).__func__ is FindVariables.visit_Expression
+
+    # Expression visitors actually find the symbols inside IR nodes
+    variables = FindVariables().visit(routine.body)
+    assert variables == {'i', 'n', 'a(i)', 'b', 's'}
+
+    # Code generation renders expressions inside IR nodes (OMNI lower-cases intrinsics)
+    assert fgen(assigns[0]).lower() == 'a(i) = b + max(a(i), 1.0)*2'
+    assert fgen(assigns[1]) == "s = s // 'x'"
+
+    # Scope attachment reaches symbols inside IR nodes
+    lhs = sym.Scalar(name='b')
+    assert lhs.scope is None
+    assign = AttachScopes().visit(ir.Assignment(lhs=lhs, rhs=sym.Literal(1.0)), scope=routine)
+    assert assign.lhs.scope is routine
+    assert assign.lhs.type.dtype == BasicType.REAL
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -118,7 +169,7 @@ end subroutine routine_simple
 
     variables = FindVariables(unique=False).visit(routine.body)
     assert len(variables) == 12
-    assert all(isinstance(v, Expression) for v in variables)
+    assert all(isinstance(v, ExpressionNode) for v in variables)
 
     assert sorted([str(v) for v in variables]) == (
         ['i'] * 6 + ['matrix(i, :)', 'scalar'] + ['vector(i)'] * 3 + ['x'])
@@ -150,7 +201,7 @@ end subroutine routine_simple
     variables = FindVariables().visit(routine.body)
     assert isinstance(variables, OrderedSet)
     assert len(variables) == 5
-    assert all(isinstance(v, Expression) for v in variables)
+    assert all(isinstance(v, ExpressionNode) for v in variables)
 
     assert sorted([str(v) for v in variables]) == ['i', 'matrix(i, :)', 'scalar', 'vector(i)', 'x']
 

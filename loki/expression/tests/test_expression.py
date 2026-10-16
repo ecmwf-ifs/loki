@@ -10,15 +10,13 @@ import sys
 import pytest
 import numpy as np
 
-import pymbolic.primitives as pmbl
-
 from loki import (
     Sourcefile, Subroutine, Module, Scope, BasicType,
     SymbolAttributes, DerivedType, ProcedureType
 )
 from loki.backend import cgen, fgen
 from loki.jit_build import jit_compile, clean_test
-from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
+from loki.expression import symbols as sym, parse_expr, AttachScopesMapper, ExpressionNode
 from loki.frontend import (
     available_frontends, OMNI, HAVE_FP, parse_fparser_expression
 )
@@ -1300,7 +1298,7 @@ def test_variable_without_scope():
 def test_standalone_expr_parenthesis(expr, parse):
     scope = Scope()
     ir = parse(expr, scope)  # pylint: disable=redefined-outer-name
-    assert isinstance(ir, pmbl.Expression)
+    assert isinstance(ir, ExpressionNode)
     assert fgen(ir) == expr
 
 

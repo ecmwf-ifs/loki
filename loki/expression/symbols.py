@@ -20,6 +20,7 @@ from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DataType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
+from loki.expression.base import ExpressionNode
 from loki.expression.literals import (
     _Literal, FloatLiteral, IntLiteral, LogicLiteral, StringLiteral,
     IntrinsicLiteral, Literal, LiteralList,
@@ -1152,7 +1153,7 @@ class LoopRange(Range):
     mapper_method = intern('map_loop_range')
 
     @property
-    def num_iterations(self) -> pmbl.Expression:
+    def num_iterations(self) -> ExpressionNode:
         """
         Returns total number of iterations of a loop.
 

@@ -16,6 +16,7 @@ import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple
 
+from loki.expression.base import ExpressionNode
 from loki.expression.literals import StringLiteral
 from loki.expression.mixins import loki_make_stringifier, StrCompareMixin
 
@@ -136,7 +137,7 @@ class Cast(StrCompareMixin, pmbl.Call):
     init_arg_names = ('name', 'expression', 'kind')
 
     def __init__(self, name, expression, kind=None, **kwargs):
-        assert kind is None or isinstance(kind, pmbl.Expression)
+        assert kind is None or isinstance(kind, ExpressionNode)
         self.kind = kind
         super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
 
@@ -154,7 +155,7 @@ class Cast(StrCompareMixin, pmbl.Call):
         return self.parameters
 
 
-class Reference(StrCompareMixin, pmbl.Expression):
+class Reference(StrCompareMixin, ExpressionNode):
     """
     Internal representation of a Reference.
 
@@ -173,7 +174,7 @@ class Reference(StrCompareMixin, pmbl.Expression):
         return (self.expression, )
 
     def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
+        assert isinstance(expression, ExpressionNode)
         self.expression = expression
 
     @property
@@ -211,7 +212,7 @@ class Reference(StrCompareMixin, pmbl.Expression):
     mapper_method = intern('map_c_reference')
 
 
-class Dereference(StrCompareMixin, pmbl.Expression):
+class Dereference(StrCompareMixin, ExpressionNode):
     """
     Internal representation of a Dereference.
 
@@ -230,7 +231,7 @@ class Dereference(StrCompareMixin, pmbl.Expression):
         return (self.expression, )
 
     def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
+        assert isinstance(expression, ExpressionNode)
         self.expression = expression
 
     @property

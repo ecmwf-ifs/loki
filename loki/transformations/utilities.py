@@ -12,10 +12,9 @@ import platform
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pymbolic.primitives import Expression
 from loki.expression import (
     symbols as sym, SubstituteExpressionsMapper, ExpressionRetriever,
-    TypedSymbol, MetaSymbol
+    TypedSymbol, MetaSymbol, ExpressionNode
 )
 from loki.ir import (
     nodes as ir, Import, TypeDef, VariableDeclaration, is_loki_pragma,
@@ -549,7 +548,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
     def apply_to_init_arg(name, arg, expr, mapper):
         # Helper utility to apply the mapper only to expression arguments and
         # retain the scope while rebuilding the node
-        if isinstance(arg, (tuple, Expression)):
+        if isinstance(arg, (tuple, ExpressionNode)):
             return mapper(arg)
         if name == 'scope':
             return expr.scope
