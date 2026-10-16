@@ -48,6 +48,15 @@ class StrCompareMixin:
 
         return super().__eq__(other)
 
+    def __repr__(self):
+        """
+        Representation of the node and its constructor arguments.
+
+        pymbolic >= 2024.1 derives the representation from dataclass fields,
+        which do not describe the state of Loki expression nodes.
+        """
+        return f'{type(self).__name__}({", ".join(repr(arg) for arg in self.__getinitargs__())})'
+
     def __contains__(self, other):
         # Assess containment via a retriver with node-wise string comparison
         return len(ExpressionRetriever(lambda x: x == other).retrieve(self)) > 0
