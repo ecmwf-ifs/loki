@@ -87,7 +87,9 @@ class TypedSymbol:
     init_arg_names = ('name', 'scope', 'parent', 'type', 'case_sensitive', )
 
     def __init__(self, *args, **kwargs):
-        self.name = kwargs['name']
+        # ``name`` is a frozen dataclass field in pymbolic >= 2024.1, whereas
+        # Loki derives it from the parent and the local name
+        self._name = kwargs['name'].split('%')[-1]
         self.parent = kwargs.pop('parent', None)
         self.scope = kwargs.pop('scope', None)
         self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
@@ -106,6 +108,8 @@ class TypedSymbol:
 
     @name.setter
     def name(self, name):
+        # Required for the constructor of pymbolic's Variable, which bypasses
+        # the frozen dataclass field in pymbolic >= 2024.1
         self._name = name.split('%')[-1]
 
     def __getinitargs__(self):

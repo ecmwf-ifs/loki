@@ -100,10 +100,23 @@ class ParenthesisedPow(Power):
     make_stringifier = loki_make_stringifier
 
 
-class StringConcat(StrCompareMixin, pmbl._MultiChildExpression):
+class StringConcat(StrCompareMixin, ExpressionNode):
     """
     Implements string concatenation in a way similar to :class:`Sum`.
+
+    Parameters
+    ----------
+    children : tuple
+        The expressions that are concatenated.
     """
+
+    init_arg_names = ('children',)
+
+    def __init__(self, children):
+        self.children = tuple(children)
+
+    def __getinitargs__(self):
+        return (self.children,)
 
     def __add__(self, other):
         if isinstance(other, (StringConcat, StringLiteral, pmbl.Variable)):
