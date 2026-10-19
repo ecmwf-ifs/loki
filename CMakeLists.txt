@@ -99,7 +99,7 @@ if( NOT HAVE_NO_INSTALL )
 
     # Setup Python virtual environment
     include( loki_python_macros )
-    set( PYTHON_VERSION 3.9 )
+    set( PYTHON_VERSION 3.10 )
     loki_setup_python_venv(
         VENV_NAME loki_env
         PYTHON_VERSION ${PYTHON_VERSION}

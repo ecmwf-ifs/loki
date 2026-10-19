@@ -12,10 +12,10 @@ import operator as op
 from math import floor
 
 import pytest
-import pymbolic.primitives as pmbl
-
 from loki import Scope, is_dimension_constant, Subroutine
-from loki.expression import symbols as sym, simplify, Simplification, symbolic_op, parse_expr
+from loki.expression import (
+    symbols as sym, simplify, Simplification, symbolic_op, parse_expr, ExpressionNode
+)
 from loki.expression import iteration_number, iteration_index, get_pyrange
 from loki.expression.evaluation import LokiEvaluationMapper
 from loki.frontend import available_frontends
@@ -105,7 +105,7 @@ def test_symbolic_op(a, _op, b, ref):
     expr_a = parse_expr(a, scope)
     expr_b = parse_expr(b, scope)
     ret = symbolic_op(expr_a, _op, expr_b)
-    if isinstance(ret, pmbl.Expression):
+    if isinstance(ret, ExpressionNode):
         assert simplify(ret) == ref
     else:
         assert ret == ref

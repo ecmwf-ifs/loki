@@ -18,7 +18,7 @@ do this automatically.
 
 ## Requirements
 
-- Python 3.9+ with virtualenv and pip
+- Python 3.10+ with virtualenv and pip
 - For graphical output of Scheduler dependency graphs: graphviz
 
 ### Optional requirements

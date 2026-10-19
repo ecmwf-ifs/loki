@@ -25,6 +25,7 @@ except ImportError:
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType
+from loki.expression.base import ExpressionNode
 
 
 __all__ = ['LokiStringifyMapper', 'ExpressionRetriever', 'ExpressionDimensionsMapper',
@@ -106,7 +107,7 @@ class LokiStringifyMapper(StringifyMapper):
         name = self.rec(expr.function, PREC_CALL, *args, **kwargs)
         expression = self.rec(expr.parameters[0], PREC_NONE, *args, **kwargs)
         if expr.kind:
-            if isinstance(expr.kind, pmbl.Expression):
+            if isinstance(expr.kind, ExpressionNode):
                 kind = ', kind=' + self.rec(expr.kind, PREC_NONE, *args, **kwargs)
             else:
                 kind = ', kind=' + str(expr.kind)
@@ -509,7 +510,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_procedure_symbol = map_constant
 
 
-class LokiIdentityMapper(IdentityMapper):
+class LokiIdentityMapper(IdentityMapper):  # pylint: disable=abstract-method
     """
     A visitor to traverse and transform an expression tree
 
@@ -760,7 +761,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         return map_fn(expr, *args, **kwargs)
 
 
-class AttachScopesMapper(LokiIdentityMapper):
+class AttachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     """
     A Pymbolic expression mapper (i.e., a visitor for the expression tree)
     that determines the scope of :any:`TypedSymbol` nodes and updates its
@@ -826,7 +827,7 @@ class AttachScopesMapper(LokiIdentityMapper):
         return self.map_variable_symbol(expr, *args, **kwargs)
 
 
-class DetachScopesMapper(LokiIdentityMapper):
+class DetachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     """
     A Pymbolic expression mapper (i.e., a visitor for the expression tree)
     that rebuilds an expression unchanged but with the scope for every

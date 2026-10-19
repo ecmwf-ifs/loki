@@ -11,6 +11,7 @@ from math import gcd, floor
 import operator as _op
 import pymbolic.primitives as pmbl
 
+from loki.expression.base import ExpressionNode
 from loki.expression.mappers import LokiIdentityMapper
 from loki.expression.evaluation import LokiEvaluationMapper
 import loki.expression.symbols as sym
@@ -742,7 +743,7 @@ def simplify(expr, enabled_simplifications=Simplification.ALL):
     return SimplifyMapper(enabled_simplifications=enabled_simplifications)(expr)
 
 
-def ceil_division(iexpr1: pmbl.Expression, iexpr2: pmbl.Expression) -> pmbl.Expression:
+def ceil_division(iexpr1: ExpressionNode, iexpr2: ExpressionNode) -> ExpressionNode:
     """
     Returns ceiled division expression of two integer expressions iexpr1/iexpr2.
     """
@@ -763,7 +764,7 @@ def get_pyrange(loop_range: sym.LoopRange):
 
 
 
-def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
+def iteration_number(iter_idx, loop_range: sym.LoopRange) -> ExpressionNode:
     """
     Returns the normalized iteration number of the iteration variable
 
@@ -787,7 +788,7 @@ def iteration_number(iter_idx, loop_range: sym.LoopRange) -> pmbl.Expression:
     return simplify(expr, enabled_simplifications=Simplification.IntegerArithmetic)
 
 
-def iteration_index(iter_num, loop_range: sym.LoopRange) -> pmbl.Expression:
+def iteration_index(iter_num, loop_range: sym.LoopRange) -> ExpressionNode:
     """
     Returns the iteration index of the loop based on the iteration number
 

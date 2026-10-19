@@ -9,7 +9,6 @@ import math
 import sys
 import pytest
 import numpy as np
-
 import pymbolic.primitives as pmbl
 
 from loki import (
@@ -18,7 +17,7 @@ from loki import (
 )
 from loki.backend import cgen, fgen
 from loki.jit_build import jit_compile, clean_test
-from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
+from loki.expression import symbols as sym, parse_expr, AttachScopesMapper, ExpressionNode
 from loki.frontend import (
     available_frontends, OMNI, HAVE_FP, parse_fparser_expression
 )
@@ -695,6 +694,90 @@ end subroutine my_routine
     assert isinstance(assignment.rhs.function, sym.ProcedureSymbol)
 
 
+def test_foreign_mapper_fallback():
+    """
+    Test that pymbolic's own mappers defer to Loki leaf nodes they do not know.
+
+    Arithmetic on Loki expressions creates pymbolic nodes (e.g.,
+    :class:`pymbolic.primitives.Sum`) that are rendered with pymbolic's own
+    stringifier, and ``float()`` uses pymbolic's evaluation mapper. Both must
+    fall back to the Loki node instead of failing on Loki leaves.
+    """
+    scope = Scope()
+    i = sym.Scalar('i', scope=scope)
+    arr = sym.Array('arr', dimensions=(i,), scope=scope)
+    leaves = (
+        i, arr, sym.DeferredTypeSymbol('d', scope=scope),
+        sym.IntLiteral(2), sym.FloatLiteral('1.5'), sym.LogicLiteral(True),
+        sym.StringLiteral('s'), sym.IntrinsicLiteral('(/1, 2/)'),
+        sym.LiteralList((sym.IntLiteral(1), sym.IntLiteral(2))),
+        sym.InlineDo((i,), i, sym.LoopRange((sym.IntLiteral(1), sym.IntLiteral(2))))
+    )
+    for leaf in leaves:
+        expr = pmbl.Sum((sym.IntLiteral(1), leaf))
+        assert not isinstance(expr, sym.Sum)
+        assert str(expr) == f'1 + {leaf}'
+
+    # Python arithmetic on Loki expressions yields pymbolic nodes
+    assert str(arr + 1) == 'arr(i) + 1'
+    assert str(i * 2 + arr) == 'i*2 + arr(i)'
+
+    # Evaluating Loki symbols with pymbolic raises a ValueError...
+    with pytest.raises(ValueError):
+        float(i)
+
+    # ...so that comparisons of literals with expressions are well-defined
+    assert sym.FloatLiteral('1.5') != i
+    assert sym.FloatLiteral('1.5') == 1.5
+    assert sym.FloatLiteral('1.5') < 2
+    assert sym.FloatLiteral('1.5') != sym.Sum((i, sym.IntLiteral(1)))
+
+
+def test_inline_call_kw_parameters():
+    """
+    Test that :any:`InlineCall` stores keyword arguments as an immutable,
+    ordered and hashable mapping, irrespective of how they are provided.
+    """
+    scope = Scope()
+    func = sym.ProcedureSymbol('func', scope=scope)
+    a = sym.Scalar('a', scope=scope)
+    b = sym.Scalar('b', scope=scope)
+
+    from_dict = sym.InlineCall(func, parameters=(a,), kw_parameters={'x': b, 'y': a})
+    from_pairs = sym.InlineCall(func, parameters=(a,), kw_parameters=(('x', b), ('y', a)))
+    for call in (from_dict, from_pairs):
+        assert call.kw_parameters == {'x': b, 'y': a}
+        assert call.kwarguments == (('x', b), ('y', a))
+        assert tuple(call.kw_parameters.values()) == (b, a)
+        with pytest.raises(AttributeError):
+            call.kw_parameters['z'] = a  # pylint: disable=unsupported-assignment-operation
+
+    # Input format does not affect equality and hashing
+    assert from_dict == from_pairs
+    assert hash(from_dict) == hash(from_pairs)
+    assert len({from_dict, from_pairs}) == 1
+
+    # Keyword argument values are part of the hash and equality
+    other = sym.InlineCall(func, parameters=(a,), kw_parameters={'x': a, 'y': a})
+    assert from_dict != other
+    assert hash(from_dict) != hash(other)
+    assert len({from_dict, from_pairs, other}) == 2
+
+    # Without keyword arguments, an empty mapping is stored
+    for kw_parameters in (None, (), {}):
+        call = sym.InlineCall(func, parameters=(a,), kw_parameters=kw_parameters)
+        assert call.kw_parameters == {}
+        assert not call.kwarguments
+        assert hash(call) == hash(sym.InlineCall(func, parameters=(a,)))
+
+    # Cloning and rebuilding preserves the mapping type and contents
+    clone = from_pairs.clone(kw_parameters=from_pairs.kwarguments + (('z', b),))
+    assert clone.kwarguments == (('x', b), ('y', a), ('z', b))
+    assert type(clone.kw_parameters) is type(from_dict.kw_parameters)
+    assert SubstituteExpressions({a: b}).visit(ir.Assignment(lhs=b, rhs=from_dict)).rhs == \
+        sym.InlineCall(func, parameters=(b,), kw_parameters={'x': b, 'y': b})
+
+
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_kwargs_inline_call(frontend, tmp_path):
     """
@@ -1300,7 +1383,7 @@ def test_variable_without_scope():
 def test_standalone_expr_parenthesis(expr, parse):
     scope = Scope()
     ir = parse(expr, scope)  # pylint: disable=redefined-outer-name
-    assert isinstance(ir, pmbl.Expression)
+    assert isinstance(ir, ExpressionNode)
     assert fgen(ir) == expr
 
 
