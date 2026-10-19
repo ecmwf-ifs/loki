@@ -4,15 +4,32 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import sys
+
 import pytest
 from click.testing import CliRunner
 
 from loki.cli.loki_lint import cli
-from loki.logging import log_levels
+from loki.logging import log_levels, logger
 
 
 RULES_MODULE = 'loki.cli.tests.rules'
 IAL_RULES_MODULE = 'ial_lint.rules.ifs_arpege_coding_standards'
+
+
+@pytest.fixture(autouse=True)
+def restore_debug_state(monkeypatch):
+    """
+    Restore the global state that ``loki-lint --debug`` modifies.
+
+    The ``--debug`` flag lowers the level of the global Loki logger and
+    installs a post-mortem debugger as ``sys.excepthook``. Without this
+    fixture, both changes leak into subsequent tests on the same worker.
+    """
+    monkeypatch.setattr(sys, 'excepthook', sys.excepthook)
+    level = logger.level
+    yield
+    logger.setLevel(level)
 
 def test_loki_lint_rules(caplog):
     """ Test the CLI invocation of the loki-lint "rules" and "default-config" mode """
