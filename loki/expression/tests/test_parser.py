@@ -654,3 +654,58 @@ def test_expression_parser_evaluate(case, direct):
     test_str = 'foo%bar%barbar%barbarbar%val_barbarbar + 1'
     parsed = parse_expr_eval(test_str, evaluate=True, context=context)
     assert parsed == 6
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_expression_parser_evaluate_symbol_context_member(frontend, tmp_path):
+    """
+    Test that derived-type member accesses are substituted when the
+    evaluation context maps a symbol to a Loki expression
+    """
+    fcode = """
+subroutine caller(grid, n)
+  use geom_mod, only: geom_type
+  implicit none
+  type(geom_type), intent(in) :: grid
+  integer, intent(in) :: n
+end subroutine caller
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    grid, n = routine.variable_map['grid'], routine.variable_map['n']
+    context = {'geom': grid, 'm': n}
+
+    # Plain symbol and member chains of arbitrary depth
+    assert routine.parse_expr('m', evaluate=True, context=context) == n
+    assert routine.parse_expr('geom%dim', evaluate=True, context=context) == 'grid%dim'
+    expr = routine.parse_expr('geom%dim%ngpblks', evaluate=True, context=context)
+    assert expr == 'grid%dim%ngpblks'
+    assert expr.parent == 'grid%dim'
+    assert expr.parent.parent == grid
+
+    # Members in larger expressions, including intrinsic calls
+    expr = routine.parse_expr(
+        'mod(geom%total%ngptot, geom%dim%nproma) + m', evaluate=True, context=context
+    )
+    call, last = expr.children
+    assert call.function == 'mod'
+    assert call.parameters == ('grid%total%ngptot', 'grid%dim%nproma')
+    assert last == n
+
+    # Symbols that are not part of the context are left untouched
+    assert routine.parse_expr('other%dim', evaluate=True, context=context) == 'other%dim'
+
+
+def test_expression_parser_evaluate_returns_loki_literals():
+    """
+    Test that evaluated expressions contain Loki literals instead of Python values
+    """
+    a = sym.Variable(name='a')
+
+    assert isinstance(parse_expr('.true.', evaluate=True), sym.LogicLiteral)
+    assert isinstance(parse_expr('1 + 2', evaluate=True), sym.IntLiteral)
+    assert parse_expr('1 + 2', evaluate=True) == 3
+    assert isinstance(parse_expr('1.5', evaluate=True), sym.FloatLiteral)
+
+    expr = parse_expr('a + 1', evaluate=True, context={'a': a})
+    assert isinstance(expr.children[1], sym.IntLiteral)
+    assert expr.children[0] == a
