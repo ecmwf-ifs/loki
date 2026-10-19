@@ -11,6 +11,10 @@ and bracket-aware and sub-expression grouping. Here we also add
 additional technical operations, such as cast and references.
 """
 
+# pymbolic >= 2025.1 generates ``__getinitargs__`` and ``init_arg_names`` via
+# ``expr_dataclass``, which pylint cannot see
+# pylint: disable=abstract-method
+
 from sys import intern
 import pymbolic.primitives as pmbl
 
