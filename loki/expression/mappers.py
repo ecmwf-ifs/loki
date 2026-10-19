@@ -510,7 +510,7 @@ class ExpressionCallbackMapper(CombineMapper):
     map_procedure_symbol = map_constant
 
 
-class LokiIdentityMapper(IdentityMapper):
+class LokiIdentityMapper(IdentityMapper):  # pylint: disable=abstract-method
     """
     A visitor to traverse and transform an expression tree
 
@@ -761,7 +761,7 @@ class SubstituteExpressionsMapper(LokiIdentityMapper):
         return map_fn(expr, *args, **kwargs)
 
 
-class AttachScopesMapper(LokiIdentityMapper):
+class AttachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     """
     A Pymbolic expression mapper (i.e., a visitor for the expression tree)
     that determines the scope of :any:`TypedSymbol` nodes and updates its
@@ -827,7 +827,7 @@ class AttachScopesMapper(LokiIdentityMapper):
         return self.map_variable_symbol(expr, *args, **kwargs)
 
 
-class DetachScopesMapper(LokiIdentityMapper):
+class DetachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     """
     A Pymbolic expression mapper (i.e., a visitor for the expression tree)
     that rebuilds an expression unchanged but with the scope for every

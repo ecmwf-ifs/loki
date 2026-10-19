@@ -1109,7 +1109,7 @@ class InlineCall(StrCompareMixin, pmbl.CallWithKwargs):
         return self.clone(parameters=self.arguments + new_args, kw_parameters=())
 
 
-class Range(StrCompareMixin, pmbl.Slice):
+class Range(StrCompareMixin, pmbl.Slice):  # pylint: disable=abstract-method
     """
     Internal representation of a loop or index range.
     """
@@ -1141,7 +1141,7 @@ class Range(StrCompareMixin, pmbl.Slice):
         return self.stop
 
 
-class RangeIndex(Range):
+class RangeIndex(Range):  # pylint: disable=abstract-method
     """
     Internal representation of a subscript range.
     """
@@ -1159,7 +1159,7 @@ class RangeIndex(Range):
     mapper_method = intern('map_range_index')
 
 
-class LoopRange(Range):
+class LoopRange(Range):  # pylint: disable=abstract-method
     """
     Internal representation of a loop range.
     """
@@ -1195,14 +1195,14 @@ class LoopRange(Range):
         return LoopRange((1, self.num_iterations))
 
 
-class ArraySubscript(StrCompareMixin, pmbl.Subscript):
+class ArraySubscript(StrCompareMixin, pmbl.Subscript):  # pylint: disable=abstract-method
     """
     Internal representation of an array subscript.
     """
     mapper_method = intern('map_array_subscript')
 
 
-class StringSubscript(StrCompareMixin, pmbl.Subscript):
+class StringSubscript(StrCompareMixin, pmbl.Subscript):  # pylint: disable=abstract-method
     """
     Internal representation of a substring subscript operator.
     """

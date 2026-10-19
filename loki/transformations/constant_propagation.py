@@ -82,7 +82,7 @@ def _array_indices_to_accesses(dimensions, shape):
     return itertools.product(*arg_lists)
 
 
-class ConstantPropagationMapper(SimplifyMapper):
+class ConstantPropagationMapper(SimplifyMapper):  # pylint: disable=abstract-method
     """ Mapper for expression-level constant replacement and folding. """
 
     def map_array(self, expr, *args, **kwargs):

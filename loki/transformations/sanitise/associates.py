@@ -98,7 +98,7 @@ def do_resolve_associates(routine, start_depth=0):
     routine.rescope_symbols()
 
 
-class ResolveAssociateMapper(LokiIdentityMapper):
+class ResolveAssociateMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     """
     Exppression mapper that will resolve symbol associations due
     :any:`Associate` scopes.
