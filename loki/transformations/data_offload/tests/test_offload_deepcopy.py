@@ -1231,6 +1231,7 @@ def test_offload_deepcopy_analysis_skips_unresolved_replacement_calls_without_su
 ):
     """Ensure unresolved replacement calls without successors do not break deepcopy analysis."""
 
+    config['default']['disable'].append('ABOR1_ACC')
     config['routines'] = {
         'driver': {'role': 'driver'},
     }
