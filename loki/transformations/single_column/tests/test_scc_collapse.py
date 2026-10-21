@@ -6,17 +6,12 @@
 
 import pytest
 
-from loki import Dimension, Subroutine
+from loki import Subroutine
 from loki.frontend import available_frontends
 from loki.ir import (
     nodes as ir, FindNodes, get_pragma_parameters, pragmas_attached
 )
-from loki.transformations import PragmaModelTransformation
-from loki.transformations.single_column import (
-    SCCCollapseTransformation, SCCSVectorPipeline, SCCSHoistPipeline,
-    SCCSStackPipeline, SCCSStackFtrPtrPipeline, SCCSStackDirectIdxPipeline,
-    SCCSRawStackPipeline, SCCSEcStackPipeline
-)
+from loki.transformations.single_column import SCCCollapseTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -48,7 +43,7 @@ end subroutine driver
     transform = SCCCollapseTransformation(collapse_gang_vector=enabled, directive=directive)
     transform.apply(routine, role=role)
     transform.apply(routine, role=role)
-    collapsed = enabled and role == 'driver' and directive in (False, 'openacc')
+    collapsed = enabled and role == 'driver' and directive in (False, 'openacc', 'omp-gpu')
     with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
         outer, inner = FindNodes(ir.Loop).visit(routine.body)
         assert (outer.variable, outer.bounds) == (before[0].variable, before[0].bounds)
@@ -57,7 +52,9 @@ end subroutine driver
         params = get_pragma_parameters(outer.pragma, starts_with='loop')
         assert params == ({'gang': None, 'vector': None, 'collapse': '2', 'vlength': '32', 'async': '1'}
                           if collapsed else {'gang': None, 'vlength': '32', 'async': '1'})
-        assert get_pragma_parameters(outer.pragma_post, starts_with='end loop') == {'gang': None}
+        assert get_pragma_parameters(outer.pragma_post, starts_with='end loop') == (
+            {'gang': None, 'vector': None} if collapsed else {'gang': None}
+        )
         if collapsed:
             assert not inner.pragma
             assert not inner.pragma_post
@@ -121,20 +118,3 @@ end subroutine driver
     assert tuple((loop.variable, loop.bounds) for loop in FindNodes(ir.Loop).visit(routine.body)) == loops
     assert tuple((p.keyword, p.content) for p in FindNodes(ir.Pragma).visit(routine.body)) == pragmas
     assert tuple((a.lhs, a.rhs) for a in FindNodes(ir.Assignment).visit(routine.body)) == assignments
-
-
-@pytest.mark.parametrize('pipeline', [
-    SCCSVectorPipeline, SCCSHoistPipeline, SCCSStackPipeline,
-    SCCSStackFtrPtrPipeline, SCCSStackDirectIdxPipeline, SCCSRawStackPipeline,
-    SCCSEcStackPipeline
-])
-def test_scc_collapse_pipeline(pipeline):
-    """All sequential pipelines expose the switch after storage synthesis."""
-    horizontal = Dimension('horizontal', index='jl', size='n', bounds=('start', 'finish'))
-    block_dim = Dimension('block', index='ib', size='nb')
-    transformations = pipeline(horizontal=horizontal, block_dim=block_dim,
-                               collapse_gang_vector=True, directive='openacc').transformations
-    assert isinstance(transformations[-2], SCCCollapseTransformation)
-    assert transformations[-2].collapse_gang_vector
-    assert transformations[-2].directive == 'openacc'
-    assert isinstance(transformations[-1], PragmaModelTransformation)

@@ -32,8 +32,8 @@ class SCCCollapseTransformation(Transformation):
     collapse_gang_vector : bool, optional
         Enable collapsing eligible pairs, by default False.
     directive : str or False, optional
-        Target programming model. Only ``'openacc'`` and generic Loki output
-        (``False``) currently support this transformation.
+        Target programming model. ``'openacc'``, ``'omp-gpu'`` and generic
+        Loki output (``False``) support this transformation.
     """
 
     def __init__(self, collapse_gang_vector=False, directive=False):
@@ -104,14 +104,15 @@ class SCCCollapseTransformation(Transformation):
         clauses = ''.join(f' {key}({value})' if value is not None else f' {key}'
                           for key, value in params.items() if key != 'gang')
         content = f'loop gang vector collapse(2){clauses}'
-        outer._update(pragma=(pragma.clone(content=content),))
+        pragma_post = tuple(p.clone(content='end loop gang vector') for p in as_tuple(outer.pragma_post))
+        outer._update(pragma=(pragma.clone(content=content),), pragma_post=pragma_post)
         inner._update(pragma=None, pragma_post=None)
 
     def transform_subroutine(self, routine, **kwargs):
         """Collapse eligible annotated pairs in driver routines when enabled."""
         if not self.collapse_gang_vector or kwargs.get('role') != 'driver':
             return
-        if self.directive not in (False, 'openacc'):
+        if self.directive not in (False, 'openacc', 'omp-gpu'):
             info(f'[Loki-SCC::Collapse] Skipping {routine.name}: unsupported directive {self.directive}')
             return
 

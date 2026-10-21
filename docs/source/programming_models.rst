@@ -25,9 +25,9 @@ Collapsing SCC-seq driver loops
 
 The SCC-seq pipelines accept ``collapse_gang_vector=True`` to combine an
 already perfectly nested gang/vector loop pair using ``collapse(2)``. The
-option is disabled by default and currently supports ``directive='openacc'``
-and generic Loki output (``directive=False``). OpenMP configurations retain
-the original separate loop annotations.
+option is disabled by default and supports ``directive='openacc'``,
+``directive='omp-gpu'`` and generic Loki output (``directive=False``). CPU
+OpenMP configurations retain the original separate loop annotations.
 
 :any:`SCCCollapseTransformation` runs after temporary-storage synthesis and
 before :any:`PragmaModelTransformation`. It requires rectangular, invariant
@@ -42,4 +42,10 @@ this pass checks whether their loop mappings can be combined.
 The resulting generic outer directive is ``!$loki loop gang vector collapse(2)``;
 the inner vector directive is removed and both Fortran loops remain present.
 OpenACC lowering produces ``!$acc parallel loop gang vector collapse(2)``.
-Combined gang/vector directives cannot currently be lowered to OpenMP.
+OpenMP GPU lowering produces
+``!$omp target teams distribute parallel do collapse(2) thread_limit(...)``,
+with ``vlength`` supplying ``thread_limit`` when present. The matching generic
+end directive is ``!$loki end loop gang vector``, which lowers to
+``!$omp end target teams distribute parallel do``. As with existing OpenMP GPU
+loop mappings, ``async`` is not translated and execution is synchronous.
+Combined gang/vector directives cannot currently be lowered to CPU OpenMP.

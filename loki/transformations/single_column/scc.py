@@ -11,7 +11,7 @@ All SCC-seq pipelines accept ``collapse_gang_vector=False``. Enabling this
 option applies :any:`SCCCollapseTransformation` after temporary-storage
 synthesis and before pragma-model lowering. Only already-perfect rectangular
 gang/vector nests without private or reduction clauses are collapsed, for
-OpenACC or generic Loki output. Other nests retain their existing annotations.
+OpenACC, OpenMP GPU or generic Loki output. Other nests retain their existing annotations.
 """
 
 from functools import partial
@@ -194,7 +194,8 @@ demote_local_arrays : bool
     Flag to trigger local array demotion to scalar variables where possible
 collapse_gang_vector : bool, optional
     Collapse eligible gang/vector driver nests, by default False. Supported
-    for OpenACC and generic Loki output; see :any:`SCCCollapseTransformation`.
+    for OpenACC, OpenMP GPU and generic Loki output;
+    see :any:`SCCCollapseTransformation`.
 """
 
 SCCVHoistPipeline = partial(
