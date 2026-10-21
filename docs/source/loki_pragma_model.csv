@@ -6,6 +6,7 @@ Loki,OpenACC,OMP-GPU
 ``structured-data inout(...) in(...) out(...) create(...) present(...)``,``data copy(...) copyin(...) copyout(...) create(...) present(...)``,``target data map(tofrom: ...) map(to: ...) map(from: ...) map(to: ...)``
 ``end structured-data inout(...) in(...) out(...)``,``end data``,``end target data``
 ``loop gang private(...) vlength(...)``,``parallel loop gang private(...) vector_length(...)``,``target teams distribute thread_limit(...) ???``
+``loop gang vector collapse(2) vlength(...) async(...)``,``parallel loop gang vector collapse(2) vector_length(...) async(...)``,Unsupported
 ``end loop gang``,``end parallel loop``,``end target teams distribute``
 ``loop vector private(...) reduction(...)``,``loop vector private(...) reduction(...)``,``parallel do``
 ``end loop vector``,,``end parallel do``

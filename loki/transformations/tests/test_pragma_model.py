@@ -8,9 +8,9 @@ import pytest
 
 from loki import Module, Subroutine, as_tuple
 from loki.frontend import available_frontends
+from loki.ir import FindNodes, Pragma, Section
 
 from loki.transformations import PragmaModelTransformation
-from loki.ir import FindNodes, Pragma
 
 def check_pragma(pragma, keyword, content, check_for_equality=True):
     assert pragma.keyword == keyword
@@ -171,3 +171,24 @@ end subroutine some_func
 
     for pragma, _args in zip(pragmas, args):
         check_pragma(pragma, *_args)
+
+
+@pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu', 'openmp'])
+def test_transform_pragma_model_gang_vector(directive):
+    """Combined gang/vector loops retain the parallel construct and clauses."""
+    pragma = Pragma(keyword='loki', content='loop gang vector collapse(2) vlength(32) async(1)')
+    routine = Subroutine(name='driver', body=Section(body=(
+        pragma, Pragma(keyword='loki', content='end loop gang')
+    )))
+    transform = PragmaModelTransformation(directive=directive)
+    if directive in ('omp-gpu', 'openmp'):
+        with pytest.raises(NotImplementedError, match='Combined gang/vector'):
+            transform.transform_subroutine(routine)
+        return
+    transform.transform_subroutine(routine)
+    pragmas = FindNodes(Pragma).visit(routine.body)
+    if directive == 'openacc':
+        check_pragma(pragmas[0], 'acc', 'parallel loop gang vector collapse(2) vector_length(32) async(1)')
+        check_pragma(pragmas[1], 'acc', 'end parallel loop')
+    else:
+        assert pragmas[0] == pragma
