@@ -1671,11 +1671,12 @@ def test_scc_inline_and_sequence_association(
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('collapse_gang_vector', [False, True])
 @pytest.mark.parametrize('pipeline,mode', [
     (SCCVVectorPipeline, 'vector'),
     (SCCSVectorPipeline, 'seq')
 ])
-def test_scc_annotate_driver_loop(frontend, tmp_path, pipeline, mode):
+def test_scc_annotate_driver_loop(frontend, tmp_path, pipeline, mode, collapse_gang_vector):
     """
     Test for issue #246 to ensure the correct loop in the loop nest
     is identified and annotated as driver loop
@@ -1726,7 +1727,8 @@ end module mod
     block_dim = Dimension('block_dim', index='JBLK', size='NGPBLK')
 
     # Test OpenACC annotations on non-hoisted version
-    for transform in pipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc').transformations:
+    for transform in pipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc',
+                              collapse_gang_vector=collapse_gang_vector).transformations:
         transform.apply(source['wrapper'], role='driver', targets=['kernel'])
         transform.apply(source['kernel'], role='kernel')
 
@@ -1764,4 +1766,8 @@ end module mod
             assert len(driver_loops) == 3
         assert not driver_loops[0].pragma
         assert driver_loops[1].pragma[-1].keyword == 'acc'
-        assert driver_loops[1].pragma[-1].content == 'parallel loop gang'
+        if mode == 'seq' and collapse_gang_vector:
+            assert driver_loops[1].pragma[-1].content == 'parallel loop gang vector collapse(2)'
+            assert not driver_loops[2].pragma
+        else:
+            assert driver_loops[1].pragma[-1].content == 'parallel loop gang'
