@@ -277,7 +277,11 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
 
     def pmap_loop(self, pragma, parameters, **kwargs):
         if 'gang' in parameters and 'vector' in parameters:
-            raise NotImplementedError('Combined gang/vector loops are not supported by the OpenMP GPU mapper')
+            collapse_param = parameters.get('collapse')
+            collapse = f' collapse({collapse_param})' if collapse_param else ''
+            vlength_param = parameters.get('vlength')
+            vlength = f' thread_limit({vlength_param})' if vlength_param else ''
+            return Pragma(keyword='omp', content=f'target teams distribute parallel do{collapse}{vlength}')
         if 'vector' in parameters:
             # TODO: private and reduction clause?
             content = 'parallel do'
@@ -291,6 +295,8 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
         return self.default_retval()
 
     def pmap_end_loop(self, pragma, parameters, **kwargs):
+        if 'gang' in parameters and 'vector' in parameters:
+            return Pragma(keyword='omp', content='end target teams distribute parallel do')
         if 'vector' in parameters:
             return Pragma(keyword='omp', content='end parallel do')
         if 'gang' in parameters:
