@@ -152,7 +152,7 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
     def pmap_loop(self, pragma, parameters, **kwargs):
         if 'seq' in parameters:
             return Pragma(keyword='acc', content='loop seq')
-        if 'vector' in parameters:
+        if 'vector' in parameters and 'gang' not in parameters:
             private_param = parameters.get('private')
             private = f' private({private_param})' if private_param else ''
             fprivate_param = parameters.get('firstprivate')
@@ -170,7 +170,10 @@ class OpenACCPragmaMapper(GenericPragmaMapper):
             vlength = f' vector_length({vlength_param})' if vlength_param else ''
             asynchronous_param = parameters.get('async')
             asynchronous = f' async({asynchronous_param})' if asynchronous_param else ''
-            content = f'parallel loop gang{private}{fprivate}{vlength}{asynchronous}'
+            vector = ' vector' if 'vector' in parameters else ''
+            collapse_param = parameters.get('collapse')
+            collapse = f' collapse({collapse_param})' if collapse_param else ''
+            content = f'parallel loop gang{vector}{collapse}{private}{fprivate}{vlength}{asynchronous}'
             return Pragma(keyword='acc', content=content)
         return self.default_retval()
 
@@ -273,6 +276,8 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
         return self.default_retval()
 
     def pmap_loop(self, pragma, parameters, **kwargs):
+        if 'gang' in parameters and 'vector' in parameters:
+            raise NotImplementedError('Combined gang/vector loops are not supported by the OpenMP GPU mapper')
         if 'vector' in parameters:
             # TODO: private and reduction clause?
             content = 'parallel do'
@@ -308,6 +313,8 @@ class OpenMPThreadingPragmaMapper(GenericPragmaMapper):
     """
     # pylint: disable=unused-argument
     def pmap_loop(self, pragma, parameters, **kwargs):
+        if 'gang' in parameters and 'vector' in parameters:
+            raise NotImplementedError('Combined gang/vector loops are not supported by the OpenMP CPU mapper')
         if 'gang' in parameters:
             private_param = parameters.get('private')
             private = f' private({private_param})' if private_param else ''
