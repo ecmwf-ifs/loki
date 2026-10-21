@@ -178,10 +178,10 @@ def test_transform_pragma_model_gang_vector(directive):
     """Combined gang/vector loops retain the parallel construct and clauses."""
     pragma = Pragma(keyword='loki', content='loop gang vector collapse(2) vlength(32) async(1)')
     routine = Subroutine(name='driver', body=Section(body=(
-        pragma, Pragma(keyword='loki', content='end loop gang')
+        pragma, Pragma(keyword='loki', content='end loop gang vector')
     )))
     transform = PragmaModelTransformation(directive=directive)
-    if directive in ('omp-gpu', 'openmp'):
+    if directive == 'openmp':
         with pytest.raises(NotImplementedError, match='Combined gang/vector'):
             transform.transform_subroutine(routine)
         return
@@ -190,5 +190,8 @@ def test_transform_pragma_model_gang_vector(directive):
     if directive == 'openacc':
         check_pragma(pragmas[0], 'acc', 'parallel loop gang vector collapse(2) vector_length(32) async(1)')
         check_pragma(pragmas[1], 'acc', 'end parallel loop')
+    elif directive == 'omp-gpu':
+        check_pragma(pragmas[0], 'omp', 'target teams distribute parallel do collapse(2) thread_limit(32)')
+        check_pragma(pragmas[1], 'omp', 'end target teams distribute parallel do')
     else:
         assert pragmas[0] == pragma
