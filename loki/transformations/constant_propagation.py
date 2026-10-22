@@ -195,10 +195,13 @@ class ConstantPropagationTransformer(Transformer):
             loop_constants_map = constants_map
 
             for assign in assignments:
-                if not set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
-                    assign_kwargs = dict(kwargs)
-                    assign_kwargs['constants_map'] = loop_constants_map
-                    self.visit_Assignment(assign, **assign_kwargs)
+                if set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
+                    invalidate_constants_map(assign.lhs, loop_constants_map)
+                    continue
+
+                assign_kwargs = dict(kwargs)
+                assign_kwargs['constants_map'] = loop_constants_map
+                self.visit_Assignment(assign, **assign_kwargs)
         else:
             for assign in assignments:
                 invalidate_constants_map(assign.lhs, constants_map)
@@ -217,7 +220,7 @@ class ConstantPropagationTransformer(Transformer):
 
         declarations_map = {}
         for symbol in getattr(routine, 'symbols', ()):
-            if isinstance(symbol, sym.DeferredTypeSymbol) or symbol.initial is None:
+            if isinstance(symbol, sym.DeferredTypeSymbol) or hasattr(symbol, 'initial') and symbol.initial is None:
                 continue
 
             if isinstance(symbol, sym.Array):
@@ -228,7 +231,8 @@ class ConstantPropagationTransformer(Transformer):
                     )
                 })
             else:
-                declarations_map[(symbol.basename, ())] = symbol.initial
+                if hasattr(symbol, 'initial'):
+                    declarations_map[(symbol.basename, ())] = symbol.initial
         return declarations_map
 
 
