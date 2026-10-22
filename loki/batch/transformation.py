@@ -106,6 +106,13 @@ class Transformation:
         scopes or other dependency nodes (e.g., by adding new routines to a
         module). The scheduler will run a discovery step after the transformation has
         been applied to include these new items in the dependency graph (default ``False``).
+    changes_modes : bool
+        Indicates to the :any:`Scheduler` that a transformation assigns transformation
+        modes to items, e.g., by creating new driver items with a different mode.
+        When processing a dictionary of mode-specific pipelines, the :any:`Scheduler`
+        applies such transformations before propagating and separating modes, and
+        then runs the remaining pipeline transformations. They must therefore be
+        placed at the beginning of their pipeline (default ``False``).
     """
 
     # Forces scheduler traversal in reverse order from the leaf nodes upwards
@@ -128,6 +135,9 @@ class Transformation:
     # Control Scheduler cache update requirements after applying the transformation
     renames_items = False
     creates_items = False
+
+    # Indicate to the Scheduler that transformation modes are (re-)assigned
+    changes_modes = False
 
     def __str__(self):
         """ Pretty-print transformation details """
