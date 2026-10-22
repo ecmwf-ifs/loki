@@ -12,7 +12,38 @@ from loki.subroutine import Subroutine
 from loki.tools import as_tuple
 
 
-__all__ = ['ModuleWrapTransformation']
+__all__ = ['ModuleWrapTransformation', 'do_module_wrap_subroutine']
+
+
+def do_module_wrap_subroutine(sourcefile, routine, module_suffix, module_name=None):
+    """
+    Wrap an external routine in a module and replace it in its source.
+
+    Parameters
+    ----------
+    sourcefile : :any:`Sourcefile`
+        Source containing the external routine.
+    routine : :any:`Subroutine`
+        Routine to wrap.
+    module_suffix : str
+        Suffix used to derive the module name.
+    module_name : str, optional
+        Explicit module name. By default it is derived from the routine name
+        and ``module_suffix``.
+
+    Returns
+    -------
+    :any:`Module`
+        Newly created wrapper module.
+    """
+    modname = module_name or f'{routine.name}{module_suffix}'
+    module = Module(name=modname, contains=Section(body=as_tuple(routine)))
+    routine._reset_parent(module)
+    routine.register_in_parent_scope()
+    sourcefile.ir._update(body=as_tuple(
+        module if node is routine else node for node in sourcefile.ir.body
+    ))
+    return module
 
 
 class ModuleWrapTransformation(Transformation):
@@ -94,14 +125,7 @@ class ModuleWrapTransformation(Transformation):
         Wrap target subroutines in modules and replace in source file.
         """
         for routine in sourcefile.subroutines:
-            # Create wrapper module and insert into file, replacing the old
-            # standalone routine
-            modname = f'{routine.name}{self.module_suffix}'
-            module = Module(name=modname, contains=Section(body=as_tuple(routine)))
-            routine.parent = module
-            sourcefile.ir._update(body=as_tuple(
-                module if c is routine else c for c in sourcefile.ir.body
-            ))
+            do_module_wrap_subroutine(sourcefile, routine, self.module_suffix)
 
     def update_imports(self, source, imports, **kwargs):
         """
