@@ -14,7 +14,7 @@ import pytest
 from loki import Dimension, Module, Subroutine
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
-    nodes as ir, FindNodes, pragmas_attached, pragma_regions_attached,
+    nodes as ir, FindNodes, Transformer, pragmas_attached, pragma_regions_attached,
     is_loki_pragma, get_pragma_parameters
 )
 from loki.tools import as_tuple
@@ -310,3 +310,70 @@ end subroutine outer_kernel
         driver_loop = [l for l in loops if l.variable == 'b'][0]
         gang_pragmas = [p for p in as_tuple(driver_loop.pragma) if is_loki_pragma(p, starts_with='loop gang')]
         assert len(gang_pragmas) == 1
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_annotate_kernel_driver_loops_device_present(tmp_path, frontend, block_dim):
+    """
+    Verify that kernels with driver loops (nested drivers) only declare
+    arguments used inside the driver loops as device-present, while
+    kernels without driver loops keep all array and derived-type arguments.
+    """
+    fcode_type_mod = """
+module bnds_mod
+  implicit none
+  type bnds_type
+    integer :: kidia, kfdia
+  end type bnds_type
+end module bnds_mod
+    """.strip()
+
+    fcode_kernel = """
+subroutine kernel(nlon, nb, bnds, field, other)
+  use bnds_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: nlon, nb
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: field(nlon, nb), other(nlon, nb)
+  type(bnds_type) :: local_bnds
+  integer :: b, jl
+
+  local_bnds = bnds
+
+  !$loki loop driver
+  do b = 1, nb
+    do jl = local_bnds%kidia, local_bnds%kfdia
+      field(jl, b) = 1.0
+    end do
+  end do
+
+  call host_kernel(nlon, nb, other)
+end subroutine kernel
+    """.strip()
+
+    type_mod = Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(
+        fcode_kernel, frontend=frontend, definitions=type_mod, xmods=[tmp_path]
+    )
+    plain_kernel = kernel.clone(name='plain_kernel')
+    plain_kernel.body = Transformer(
+        {p: None for p in FindNodes(ir.Pragma).visit(plain_kernel.body)}
+    ).visit(plain_kernel.body)
+
+    trafo = SCCAnnotateTransformation(block_dim=block_dim, privatise_derived_types=True)
+    trafo.transform_subroutine(kernel, role='kernel', targets=('host_kernel',))
+    trafo.transform_subroutine(plain_kernel, role='kernel', targets=('host_kernel',))
+
+    def device_present_vars(routine):
+        pragmas = [
+            p for p in FindNodes(ir.Pragma).visit(routine.body)
+            if is_loki_pragma(p, starts_with='device-present')
+        ]
+        assert len(pragmas) == 1
+        params = get_pragma_parameters(pragmas[0], starts_with='device-present')
+        return tuple(v.strip() for v in params['vars'].split(','))
+
+    # Only ``field`` is used inside the driver loop
+    assert device_present_vars(kernel) == ('field',)
+    # Without driver loops, all array and derived-type arguments remain
+    assert device_present_vars(plain_kernel) == ('field', 'other', 'bnds')

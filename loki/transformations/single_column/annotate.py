@@ -14,7 +14,7 @@ from loki.ir import (
     pragma_regions_attached
 )
 from loki.logging import info, warning
-from loki.tools import as_tuple, flatten
+from loki.tools import as_tuple, flatten, CaseInsensitiveDict
 from loki.types import DerivedType
 
 from loki.transformations.utilities import (
@@ -114,6 +114,10 @@ class SCCAnnotateTransformation(Transformation):
         Insert ``!$loki routine seq/vector`` directives and wrap
         subroutine body in ``!$loki device-present`` directives.
 
+        For kernels with pragma-marked driver loops (nested drivers), only
+        array and derived-type arguments used inside these driver loops
+        are declared device-present.
+
         Parameters
         ----------
         routine : :any:`Subroutine`
@@ -140,6 +144,18 @@ class SCCAnnotateTransformation(Transformation):
         # Get the names of all array and derived type arguments
         args = [a for a in routine.arguments if isinstance(a, sym.Array)]
         args += [a for a in routine.arguments if isinstance(a.type.dtype, DerivedType)]
+
+        # In kernels with pragma-marked driver loops (nested drivers), only
+        # the driver loops are offloaded, so only arguments used inside them
+        # need to be device-resident
+        with pragmas_attached(routine, ir.Loop):
+            driver_loops = find_driver_loops(section=routine.body, targets=())
+        if driver_loops:
+            used_roots = CaseInsensitiveDict(
+                (v.name_parts[0], v) for v in FindVariables().visit(driver_loops)
+            )
+            args = [a for a in args if a.name in used_roots]
+
         argnames = [str(a.name) for a in args]
 
         if argnames:
