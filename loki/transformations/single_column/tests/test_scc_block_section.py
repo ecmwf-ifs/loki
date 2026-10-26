@@ -107,7 +107,7 @@ end subroutine compute_phys
 
     successor_map = CaseInsensitiveDict()
     sections = SCCBlockSectionTransformation.extract_block_sections(
-        routine.body.body, block_dim, successor_map
+        routine, routine.body.body, block_dim, successor_map
     )
 
     # All block-dim-referencing nodes should be captured in at least
@@ -702,7 +702,7 @@ end subroutine sub_kernel
 
     with pragmas_attached(routine, ir.CallStatement):
         sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine.body.body, block_dim, successor_map
+            routine, routine.body.body, block_dim, successor_map
         )
 
     # Should find sections inside the conditional body
@@ -833,7 +833,7 @@ end subroutine child_kernel
 
     with pragmas_attached(routine, ir.CallStatement):
         sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine.body.body, block_dim_with_members, successor_map
+            routine, routine.body.body, block_dim_with_members, successor_map
         )
 
     assert len(sections) == 2
@@ -896,7 +896,7 @@ end subroutine child_kernel
 
     with pragmas_attached(routine, ir.CallStatement):
         sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine.body.body, block_dim, successor_map
+            routine, routine.body.body, block_dim, successor_map
         )
 
     # The call should split the body into at least 2 sections
