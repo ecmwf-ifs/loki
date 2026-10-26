@@ -524,7 +524,8 @@ def test_nested_driver_local_copies(frontend, horizontal, block_dim, tmp_path):
     """
     Nested driver: block loop must contain local
     copies (``local_bnds``, ``local_ibl``, etc.) and these must
-    appear in the ``private(...)`` clause.
+    appear in the ``firstprivate(...)`` clause, as they are
+    initialised on the host before the block loop.
     """
     defs = _parse_modules(frontend, tmp_path)
     driver_src = Sourcefile.from_source(
@@ -551,15 +552,15 @@ def test_nested_driver_local_copies(frontend, horizontal, block_dim, tmp_path):
         f"Nested driver should have local_ copies.\nCode:\n{code}"
     )
 
-    # Check for private clause containing local_ variables
-    private_match = re.search(r'private\(([^)]+)\)', code_lower)
+    # Check for firstprivate clause containing local_ variables
+    private_match = re.search(r'\bfirstprivate\(([^)]+)\)', code_lower)
     assert private_match, (
-        f"Nested driver should have a private(...) clause.\nCode:\n{code}"
+        f"Nested driver should have a firstprivate(...) clause.\nCode:\n{code}"
     )
     private_vars = private_match.group(1)
     assert 'local_' in private_vars, (
-        f"private(...) clause should contain local_ variables.\n"
-        f"private clause: {private_vars}\nCode:\n{code}"
+        f"firstprivate(...) clause should contain local_ variables.\n"
+        f"firstprivate clause: {private_vars}\nCode:\n{code}"
     )
 
 

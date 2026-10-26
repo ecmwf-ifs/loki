@@ -375,5 +375,69 @@ end subroutine kernel
 
     # Only ``field`` is used inside the driver loop
     assert device_present_vars(kernel) == ('field',)
+
+    # The local bounds copy is initialised on the host, so it must be firstprivate
+    with pragmas_attached(kernel, ir.Loop):
+        driver_loop = [l for l in FindNodes(ir.Loop).visit(kernel.body) if l.variable == 'b'][0]
+        params = get_pragma_parameters(driver_loop.pragma, starts_with='loop gang')
+    assert params['firstprivate'] == 'local_bnds'
+    assert 'private' not in params
     # Without driver loops, all array and derived-type arguments remain
     assert device_present_vars(plain_kernel) == ('field', 'other', 'bnds')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_annotate_driver_loop_firstprivate_derived_types(tmp_path, frontend, block_dim):
+    """
+    Verify that privatised derived-type objects are declared ``firstprivate``
+    on request, and remain ``private`` by default.
+    """
+    fcode_type_mod = """
+module bnds_mod
+  implicit none
+  type bnds_type
+    integer :: kidia, kfdia
+  end type bnds_type
+end module bnds_mod
+    """.strip()
+
+    fcode = """
+subroutine driver(nlon, nb, bnds, field)
+  use bnds_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: nlon, nb
+  type(bnds_type), intent(in) :: bnds
+  real, intent(inout) :: field(nlon, nb)
+  type(bnds_type) :: local_bnds
+  real :: tmp(nlon)
+  integer :: b, jl
+
+  local_bnds = bnds
+
+  !$loki loop driver
+  do b = 1, nb
+    do jl = local_bnds%kidia, local_bnds%kfdia
+      tmp(jl) = 1.0
+      field(jl, b) = tmp(jl)
+    end do
+  end do
+end subroutine driver
+    """.strip()
+
+    type_mod = Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path])
+    trafo = SCCAnnotateTransformation(block_dim=block_dim, privatise_derived_types=True)
+
+    def annotated_loop_params(firstprivate_derived_types):
+        routine = Subroutine.from_source(fcode, frontend=frontend, definitions=type_mod, xmods=[tmp_path])
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            loop = [l for l in FindNodes(ir.Loop).visit(routine.body) if l.variable == 'b'][0]
+            trafo.annotate_driver_loop(loop, [], firstprivate_derived_types=firstprivate_derived_types)
+            return get_pragma_parameters(loop.pragma, starts_with='loop gang')
+
+    params = annotated_loop_params(firstprivate_derived_types=False)
+    assert params['private'] == 'tmp, local_bnds'
+    assert 'firstprivate' not in params
+
+    params = annotated_loop_params(firstprivate_derived_types=True)
+    assert params['private'] == 'tmp'
+    assert params['firstprivate'] == 'local_bnds'

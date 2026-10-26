@@ -205,13 +205,18 @@ class SCCAnnotateTransformation(Transformation):
             self.annotate_kernel_routine(routine)
 
             # For nested-driver kernels (those containing driver loops),
-            # annotate the driver loops with gang-parallel pragmas
+            # annotate the driver loops with gang-parallel pragmas. Local
+            # derived-type objects in these loops are host-initialised
+            # copies (e.g. of block bounds), and must be firstprivate.
             with pragma_regions_attached(routine):
                 with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
                     acc_vars = self.find_kernel_acc_vars(routine)
                     driver_loops = find_driver_loops(section=routine.body, targets=targets)
                     for loop in driver_loops:
-                        self.annotate_driver_loop(loop, acc_vars, privatise_derived_types=True)
+                        self.annotate_driver_loop(
+                            loop, acc_vars, privatise_derived_types=True,
+                            firstprivate_derived_types=True
+                        )
 
         if role == 'driver':
             # Mark all parallel vector loops as `!$loki loop vector`
@@ -357,7 +362,8 @@ class SCCAnnotateTransformation(Transformation):
             routine.body.prepend((ir.Comment(''), pragma, ir.Comment('')))
             routine.body.append((ir.Comment(''), pragma_post, ir.Comment('')))
 
-    def annotate_driver_loop(self, loop, acc_vars, privatise_derived_types=None):
+    def annotate_driver_loop(self, loop, acc_vars, privatise_derived_types=None,
+                             firstprivate_derived_types=False):
         """
         Annotate driver block loop with generic Loki pragmas.
 
@@ -370,6 +376,10 @@ class SCCAnnotateTransformation(Transformation):
         privatise_derived_types : bool, optional
             Whether to privatise derived-type objects. If ``None``
             (default), falls back to ``self.privatise_derived_types``.
+        firstprivate_derived_types : bool, optional
+            Declare privatised derived-type objects as ``firstprivate``
+            instead of ``private``, so that values assigned before the
+            loop are available in each loop iteration (default: ``False``).
         """
         if privatise_derived_types is None:
             privatise_derived_types = self.privatise_derived_types
@@ -384,6 +394,7 @@ class SCCAnnotateTransformation(Transformation):
         arrays = [v for v in arrays if not v.name_parts[0].lower() in acc_vars]
         arrays = [v for v in arrays if not any(d in sizes for d in as_tuple(v.shape))]
         private_sym = arrays
+        firstprivate_sym = []
 
         if privatise_derived_types:
             # Derived-types are classified as "aggregate variables" in the OpenACC and OpenMP offload
@@ -414,13 +425,20 @@ class SCCAnnotateTransformation(Transformation):
                 warning(f'[Loki-SCC::Annotate] dynamically allocated structs are being privatised: {dynamic_structs}')
 
             # Filter out arrays that are explicitly allocated with block dimension
-            private_sym +=  [
+            struct_sym = [
                 v for v in structs
                 if not any(d in sizes for d in as_tuple(getattr(v, 'shape', [])))
             ]
+            if firstprivate_derived_types:
+                firstprivate_sym = struct_sym
+            else:
+                private_sym += struct_sym
 
         private_vars = ', '.join(dict.fromkeys(v.name for v in private_sym))
         private_clause = '' if not private_vars else f' private({private_vars})'
+        firstprivate_vars = ', '.join(dict.fromkeys(v.name for v in firstprivate_sym))
+        if firstprivate_vars:
+            private_clause += f' firstprivate({firstprivate_vars})'
 
         for pragma in as_tuple(loop.pragma):
             if is_loki_pragma(pragma, starts_with='loop driver'):
