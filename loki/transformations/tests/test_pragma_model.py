@@ -23,7 +23,8 @@ def check_pragma(pragma, keyword, content, check_for_equality=True):
 @pytest.mark.parametrize('frontend', available_frontends())
 @pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu'])
 @pytest.mark.parametrize('keep_loki_pragmas', [True, False])
-def test_transform_pragma_model(tmp_path, frontend, directive, keep_loki_pragmas):
+@pytest.mark.parametrize('emit_thread_limit', [True, False])
+def test_transform_pragma_model(tmp_path, frontend, directive, keep_loki_pragmas, emit_thread_limit):
     """
     Test Pragma model trafo for different directives/flavors.
     """
@@ -73,7 +74,7 @@ end subroutine some_func
     module = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
 
     pragma_model_trafo = PragmaModelTransformation(directive=directive,
-            keep_loki_pragmas=keep_loki_pragmas)
+            keep_loki_pragmas=keep_loki_pragmas, emit_thread_limit=emit_thread_limit)
     pragma_model_trafo.transform_subroutine(routine)
     pragma_model_trafo.transform_module(module)
 
@@ -114,6 +115,7 @@ end subroutine some_func
                 ('acc', ('data', 'copyin(tmp1)', 'present(tmp3, tmp4)'), False),
                 ('acc', 'end data'))
     if directive == 'omp-gpu':
+        thread_limit = ' thread_limit(128)' if emit_thread_limit else ''
         args = (('omp', 'declare target(tmp1, tmp2)'),
                 ('omp', ('target update', 'to(tmp1)', 'from(tmp2)'), False),
                 ('omp', ('target enter data', 'map(to: tmp1, tmp2)', 'map(alloc: tmp3, tmp4)'), False),
@@ -121,7 +123,7 @@ end subroutine some_func
                 ('omp', ('target data', 'map(to: tmp1)', 'map(tofrom: tmp3)',
                     'map(from: tmp2)', 'map(alloc: tmp4)'), False),
                 ('omp', 'end target data'),
-                ('omp', ('target teams distribute', 'thread_limit(128)'), False),
+                ('omp', f'target teams distribute{thread_limit}'),
                 ('omp', 'end target teams distribute'),
                 ('omp', 'parallel do'),
                 ('omp', 'end parallel do'),
@@ -174,13 +176,14 @@ end subroutine some_func
 
 
 @pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu', 'openmp'])
-def test_transform_pragma_model_gang_vector(directive):
+@pytest.mark.parametrize('emit_thread_limit', [True, False])
+def test_transform_pragma_model_gang_vector(directive, emit_thread_limit):
     """Combined gang/vector loops retain the parallel construct and clauses."""
     pragma = Pragma(keyword='loki', content='loop gang vector collapse(2) vlength(32) async(1)')
     routine = Subroutine(name='driver', body=Section(body=(
         pragma, Pragma(keyword='loki', content='end loop gang vector')
     )))
-    transform = PragmaModelTransformation(directive=directive)
+    transform = PragmaModelTransformation(directive=directive, emit_thread_limit=emit_thread_limit)
     if directive == 'openmp':
         with pytest.raises(NotImplementedError, match='Combined gang/vector'):
             transform.transform_subroutine(routine)
@@ -191,7 +194,8 @@ def test_transform_pragma_model_gang_vector(directive):
         check_pragma(pragmas[0], 'acc', 'parallel loop gang vector collapse(2) vector_length(32) async(1)')
         check_pragma(pragmas[1], 'acc', 'end parallel loop')
     elif directive == 'omp-gpu':
-        check_pragma(pragmas[0], 'omp', 'target teams distribute parallel do collapse(2) thread_limit(32)')
+        thread_limit = ' thread_limit(32)' if emit_thread_limit else ''
+        check_pragma(pragmas[0], 'omp', f'target teams distribute parallel do collapse(2){thread_limit}')
         check_pragma(pragmas[1], 'omp', 'end target teams distribute parallel do')
     else:
         assert pragmas[0] == pragma
