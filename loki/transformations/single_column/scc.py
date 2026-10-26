@@ -29,7 +29,6 @@ from loki.transformations.single_column.revector import (
 from loki.transformations.single_column.block import (
     SCCBlockSectionTransformation, SCCBlockSectionToLoopTransformation
 )
-from loki.transformations.single_column.local_copies import CreateLocalCopiesTransformation
 from loki.transformations.single_column.vertical import SCCFuseVerticalLoops
 from loki.transformations.pragma_model import PragmaModelTransformation
 from loki.transformations.remove_code import RemoveCodeTransformation
@@ -807,7 +806,6 @@ SCCSmallKernelsPipeline = partial(
         SCCBlockSectionToLoopTransformation,
         SCCAnnotateTransformation,
         TemporariesPoolAllocatorPerDrvLoopTransformation,
-        CreateLocalCopiesTransformation,
         PragmaModelTransformation
     )
 )
@@ -833,7 +831,5 @@ into the small-kernels GPU form.  It applies the following steps:
    (:any:`SCCAnnotateTransformation`)
 10. Per-driver-loop pool allocation
     (:any:`TemporariesPoolAllocatorPerDrvLoopTransformation`)
-11. Create local copies of index variables
-    (:any:`CreateLocalCopiesTransformation`)
-12. Apply pragma model (:any:`PragmaModelTransformation`)
+11. Apply pragma model (:any:`PragmaModelTransformation`)
 """

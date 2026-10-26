@@ -142,34 +142,6 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(TemporariesPoolAllocatorT
                 routine, targets, ignore, driver=(role == 'driver')
             )
 
-    def get_block_index(self, routine, variable_map):
-        """
-        Resolve the block index, including ``local_``-prefixed variants.
-
-        ``SCCBlockSectionToLoopTransformation`` creates block-dimension
-        variables with a ``local_`` prefix. This override checks for both
-        the original name and the prefixed form.
-        """
-        # Try standard resolution first
-        block_index = super().get_block_index(routine, variable_map)
-        if block_index is not None:
-            return block_index
-
-        # Try with local_ prefix
-        local_index = f'local_{self.block_dim.index}'
-        if local_index.lower() in {k.lower() for k in variable_map}:
-            return variable_map.get(local_index, None)
-
-        # Try local_ prefix on compound indices
-        for index in self.block_dim.indices:
-            local_name = f'local_{index.split("%", maxsplit=1)[0]}'
-            if local_name.lower() in {k.lower() for k in variable_map}:
-                return routine.resolve_typebound_var(
-                    f'local_{index}', variable_map
-                )
-
-        return None
-
     @staticmethod
     def _aggregate_stack_sizes(sizes):
         """
@@ -253,14 +225,12 @@ class TemporariesPoolAllocatorPerDrvLoopTransformation(TemporariesPoolAllocatorT
             )
             return drv_loop
 
-        # Build set of block-dim index names (including local_ prefix)
+        # Build set of block-dim index names
         block_indices = set()
         for idx in self.block_dim.indices:
             block_indices.add(idx.lower())
-            block_indices.add(f'local_{idx}'.lower())
             if '%' in idx:
                 block_indices.add(idx.split('%')[-1].lower())
-                block_indices.add(f'local_{idx.split("%")[-1]}'.lower())
 
         if drv_loop.variable == block_index or str(drv_loop.variable).lower() == str(block_index).lower():
             # Block variable is the loop variable

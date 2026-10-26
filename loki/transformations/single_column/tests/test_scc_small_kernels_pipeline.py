@@ -523,7 +523,7 @@ def test_nested_driver_gets_stack_args(frontend, horizontal, block_dim, tmp_path
 def test_nested_driver_local_copies(frontend, horizontal, block_dim, tmp_path):
     """
     Nested driver: block loop must contain local
-    copies (``local_bnds``, ``local_ibl``, etc.) and these must
+    copies (e.g. ``local_bnds``) and these must
     appear in the ``firstprivate(...)`` clause, as they are
     initialised on the host before the block loop.
     """

@@ -543,42 +543,6 @@ end subroutine outer_kernel
     assert len(stack_assigns) >= 1
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI parser not reliably available')]
-))
-def test_per_drv_loop_local_prefix_block_index(tmp_path, frontend, horizontal):
-    """
-    Test that get_block_index resolves local_-prefixed block indices
-    created by SCCBlockSectionToLoopTransformation.
-    """
-    block_dim = Dimension(name='block_dim', size='nb', index='jkglo', aliases=('nb',))
-
-    fcode_kernel = """
-subroutine nested_drv(nlon, nz, nb, start, end, field)
-  implicit none
-  integer, intent(in) :: nlon, nz, nb, start, end
-  real, intent(inout) :: field(nlon, nz, nb)
-  integer :: local_jkglo
-
-  !$loki driver-loop
-  do local_jkglo = 1, nb
-    ! body
-  end do
-end subroutine nested_drv
-    """.strip()
-
-    routine = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-
-    transformation = TemporariesPoolAllocatorPerDrvLoopTransformation(
-        block_dim=block_dim, horizontal=horizontal, check_bounds=True
-    )
-
-    # Test get_block_index resolves local_ prefix
-    block_index = transformation.get_block_index(routine, routine.variable_map)
-    assert block_index is not None
-    assert str(block_index).lower() == 'local_jkglo'
-
-
 def test_aggregate_stack_sizes_unit():
     """
     Unit test for _aggregate_stack_sizes static method.
