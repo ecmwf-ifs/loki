@@ -94,21 +94,20 @@ pair from block-loop form into small-kernels form:
     end subroutine
 """
 
-from more_itertools import split_at
-
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.ir import (
-    nodes as ir, FindNodes, FindScopes, FindVariables, Transformer,
+    nodes as ir, FindNodes, FindVariables, Transformer,
     NestedTransformer, is_loki_pragma, pragmas_attached,
     SubstituteExpressions,
 )
-from loki.tools import as_tuple, flatten, CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict
 from loki.types import BasicType, DerivedType
 
 from loki.transformations.utilities import (
     find_driver_loops, check_routine_sequential
 )
+from loki.transformations.single_column.devector import extract_sections
 
 
 __all__ = [
@@ -428,31 +427,9 @@ class SCCBlockSectionTransformation(Transformation):
         Default is ``True``.
     """
 
-    _separator_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
-
     def __init__(self, block_dim, trim_block_sections=True):
         self.block_dim = block_dim
         self.trim_block_sections = trim_block_sections
-
-    @classmethod
-    def _add_separator(cls, node, section, separator_nodes):
-        """
-        Add either the current node or its outermost parent node from
-        the list of types defining a block-region separator
-        (:attr:`_separator_node_types`) to the list of separator nodes.
-        """
-        if node in section:
-            separator_nodes.append(node)
-        else:
-            ancestors = flatten(FindScopes(node).visit(section))
-            ancestor_scopes = [
-                a for a in ancestors
-                if isinstance(a, cls._separator_node_types)
-            ]
-            if ancestor_scopes and ancestor_scopes[0] not in separator_nodes:
-                separator_nodes.append(ancestor_scopes[0])
-
-        return separator_nodes
 
     @staticmethod
     def _resolve_block_indices(routine, block_dim):
@@ -496,75 +473,23 @@ class SCCBlockSectionTransformation(Transformation):
         list of tuple
             List of node tuples representing extracted block sections.
         """
-        calls = FindNodes(ir.CallStatement).visit(section)
-        separator_nodes = []
+        def find_separators(nodes):
+            return [
+                call for call in FindNodes(ir.CallStatement).visit(nodes)
+                if is_loki_pragma(call.pragma, starts_with='small-kernels') and not (
+                    call.routine is not BasicType.DEFERRED and check_routine_sequential(routine=call.routine)
+                )
+            ]
 
-        for call in calls:
-            if call.routine is not BasicType.DEFERRED:
-                if check_routine_sequential(routine=call.routine):
-                    continue
-
-            if not is_loki_pragma(call.pragma, starts_with='small-kernels'):
-                continue
-
-            separator_nodes = cls._add_separator(
-                call, section, separator_nodes
-            )
-
-        raw_subsections = [
-            as_tuple(s)
-            for s in split_at(
-                section, lambda n: n in separator_nodes
-            )
-        ]
         block_indices = cls._resolve_block_indices(routine, block_dim)
 
-        # Keep only subsections that reference block-dim indices or
-        # contain resolved call statements
-        subsections = [
-            s for s in raw_subsections
-            if cls._section_references_block_index(s, block_indices)
-            or any(
-                call
-                for call in FindNodes(ir.CallStatement).visit(s)
-                if call.routine is not BasicType.DEFERRED
+        def keep_section(nodes):
+            # Keep only sections that reference block-dim indices or contain resolved calls
+            return cls._section_references_block_index(nodes, block_indices) or any(
+                call.routine is not BasicType.DEFERRED for call in FindNodes(ir.CallStatement).visit(nodes)
             )
-        ]
 
-        # Recurse into separator bodies for nested block sections
-        for separator in separator_nodes:
-            if isinstance(separator, ir.Loop):
-                subsections += cls.extract_block_sections(
-                    routine, separator.body, block_dim
-                )
-
-            if isinstance(separator, ir.Conditional):
-                subsec_body = cls.extract_block_sections(
-                    routine, separator.body, block_dim
-                )
-                if subsec_body:
-                    subsections += subsec_body
-                for ebody in separator.else_bodies:
-                    subsections += cls.extract_block_sections(
-                        routine, ebody, block_dim
-                    )
-
-            if isinstance(
-                separator, (ir.MultiConditional, ir.TypeConditional)
-            ):
-                for body in separator.bodies:
-                    subsec_body = cls.extract_block_sections(
-                        routine, body, block_dim
-                    )
-                    if subsec_body:
-                        subsections += subsec_body
-                subsec_else = cls.extract_block_sections(
-                    routine, separator.else_body, block_dim
-                )
-                if subsec_else:
-                    subsections += subsec_else
-
-        return subsections
+        return extract_sections(section, find_separators, keep_section)
 
     @classmethod
     def get_trimmed_sections(cls, routine, block_dim, sections):
