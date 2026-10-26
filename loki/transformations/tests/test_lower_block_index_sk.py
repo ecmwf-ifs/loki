@@ -818,6 +818,70 @@ end subroutine kernel
 
 
 @pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
+def test_sk_relevant_vars_include_parent_indices(frontend, block_dim):
+    """
+    Verify that indices used in derived-type parents of driver-loop
+    assignments are passed to the callee, while the derived-type root
+    is passed only once.
+    """
+    fcode_type_mod = """
+module type_mod
+  implicit none
+  type :: bnds_type
+    integer :: kidia
+  end type bnds_type
+  type :: geom_type
+    type(bnds_type) :: bnds(4)
+  end type geom_type
+end module type_mod
+"""
+    fcode_driver = """
+subroutine driver(nproma, nb, field, ydgeom, jj)
+  use type_mod, only: geom_type
+  implicit none
+  integer, intent(in) :: nproma, nb, jj
+  real, intent(inout) :: field(nproma, nb)
+  type(geom_type), intent(in) :: ydgeom
+  integer :: ibl, kidia
+
+  do ibl = 1, nb
+    kidia = ydgeom%bnds(jj)%kidia
+    !$loki small-kernels
+    call kernel(nproma, field(:, ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, field)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  field(1) = 0.0
+end subroutine kernel
+"""
+    type_mod = Module.from_source(fcode_type_mod, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[type_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod])
+    driver.enrich(kernel)
+
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=())
+    sgraph = _build_sgraph([driver_item, kernel_item])
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    trafo.transform_subroutine(
+        driver, role='driver', targets=('kernel',),
+        item=driver_item, sub_sgraph=sgraph
+    )
+
+    call = FindNodes(ir.CallStatement).visit(driver.body)[0]
+    assert call.kwarguments == (
+        ('jj', 'jj'), ('kidia', 'kidia'), ('nb', 'nb'), ('ydgeom', 'ydgeom')
+    )
+    assert kernel.arguments == ('nproma', 'field(nproma, nb)', 'jj', 'kidia', 'nb', 'ydgeom')
+
+
+@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
 def test_sk_deferred_call_skipped(frontend, block_dim):
     """
     Verify that un-enriched (DEFERRED) calls are skipped gracefully

@@ -650,9 +650,12 @@ class MetaSymbol(StrCompareMixin, pmbl.AlgebraicLeaf):
     def get_derived_type_member(self, name_str):
         """
         Resolve type-bound variables of arbitrary nested depth.
-        """
 
-        return self.symbol.get_derived_type_member(name_str)
+        This re-uses :meth:`TypedSymbol.get_derived_type_member` with this
+        :any:`MetaSymbol` as ``self``, so that the parents of the resolved
+        member are meta symbols rather than the wrapped plain symbols.
+        """
+        return TypedSymbol.get_derived_type_member(self, name_str)
 
 
 class Scalar(MetaSymbol):  # pylint: disable=too-many-ancestors

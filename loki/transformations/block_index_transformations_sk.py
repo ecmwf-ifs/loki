@@ -12,7 +12,7 @@ Small-kernels variant of the block-index lowering transformation.
 from loki.batch import ProcedureItem
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached,
-    SubstituteExpressions, FindUsedVariables, get_pragma_parameters
+    SubstituteExpressions, FindVariables, get_pragma_parameters
 )
 from loki.logging import warning
 from loki.tools import as_tuple, CaseInsensitiveDict
@@ -347,11 +347,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
                 idx for idx, node in enumerate(spec_body)
                 if isinstance(node, ir.VariableDeclaration)
                 and not any(symbol.name.lower() in new_arg_names for symbol in node.symbols)
-                and any(
-                    any(part.lower() in new_arg_names for part in str(var).split('%'))
-                    for var in FindUsedVariables().visit(node)
-                    if hasattr(var, 'name')
-                )
+                and any(var.name.lower() in new_arg_names for var in FindVariables().visit(node))
             ),
             None
         )
@@ -614,7 +610,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
                         relevant_calls.append((call, driver_loop))
 
         # Collect assignments in each driver loop body (used to extract
-        # relevant variables via FindUsedVariables)
+        # relevant variables)
         driver_loop_assignments = {}
         for _, driver_loop in relevant_calls:
             if driver_loop not in driver_loop_assignments:
@@ -638,9 +634,10 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             relevant_vars.add(driver_loop.bounds.upper)
             if driver_loop.bounds.step is not None:
                 relevant_vars.add(driver_loop.bounds.step)
-            relevant_vars.update(
-                FindUsedVariables().visit(driver_loop_assignments[driver_loop])
-            )
+            # Derived-type parents are covered by their member accesses
+            loop_vars = FindVariables().visit(driver_loop_assignments[driver_loop])
+            parents = {parent for var in loop_vars for parent in var.parents}
+            relevant_vars.update(var for var in loop_vars if var not in parents)
 
             # Compute and apply new arguments
             new_args, new_kwargs, already_arg = self._determine_new_args(
