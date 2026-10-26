@@ -711,6 +711,53 @@ end subroutine sub_kernel
     assert sub_item.trafo_data.get('BlockSectionTrafo') is True
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_block_section_nested_loop(frontend, block_dim):
+    """
+    Verify that block sections are extracted from the body of a loop
+    that contains a ``!$loki small-kernels`` call.
+    """
+    fcode = """
+subroutine loop_kernel(nproma, nlev, nb, za)
+  implicit none
+  integer, intent(in) :: nproma, nlev, nb
+  real, intent(inout) :: za(nproma, nlev, nb)
+  integer :: ibl, jk
+
+  za(1, 1, ibl) = 0.0
+  do jk = 1, nlev
+    za(1, jk, ibl) = 1.0
+    !$loki small-kernels
+    call sub_kernel(nproma, nb)
+    za(2, jk, ibl) = 2.0
+  end do
+end subroutine loop_kernel
+
+subroutine sub_kernel(nproma, nb)
+  implicit none
+  integer, intent(in) :: nproma, nb
+end subroutine sub_kernel
+    """.strip()
+
+    source = Sourcefile.from_source(fcode, frontend=frontend)
+    routine = source['loop_kernel']
+    routine.enrich(source['sub_kernel'])
+
+    item = _make_item(routine, role='kernel')
+    item.trafo_data['BlockSectionTrafo'] = True
+    successor_map = CaseInsensitiveDict({'sub_kernel': _make_item(source['sub_kernel'])})
+
+    SCCBlockSectionTransformation(block_dim=block_dim).process_kernel(routine, item, successor_map)
+
+    # One block section before the loop and one on each side of the call in the loop
+    sections = [s for s in FindNodes(ir.Section).visit(routine.body) if s.label == 'block_section']
+    section_lhs = [tuple(a.lhs for a in FindNodes(ir.Assignment).visit(s)) for s in sections]
+    assert section_lhs == [('za(1, 1, ibl)',), ('za(1, jk, ibl)',), ('za(2, jk, ibl)',)]
+
+    loop = FindNodes(ir.Loop).visit(routine.body)[0]
+    assert sections[1] in loop.body and sections[2] in loop.body
+
+
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full module header')]
 ))

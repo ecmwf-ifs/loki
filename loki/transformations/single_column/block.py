@@ -531,7 +531,7 @@ class SCCBlockSectionTransformation(Transformation):
         computations, split at call statements annotated with
         ``!$loki small-kernels`` pragmas.
 
-        Recursively processes :any:`Conditional` and
+        Recursively processes :any:`Loop`, :any:`Conditional` and
         :any:`MultiConditional` separator nodes to find nested block
         sections.
 
@@ -606,6 +606,11 @@ class SCCBlockSectionTransformation(Transformation):
 
         # Recurse into separator bodies for nested block sections
         for separator in separator_nodes:
+            if isinstance(separator, ir.Loop):
+                subsections += cls.extract_block_sections(
+                    separator.body, block_dim, successor_map, routine=routine
+                )
+
             if isinstance(separator, ir.Conditional):
                 subsec_body = cls.extract_block_sections(
                     separator.body, block_dim, successor_map, routine=routine
