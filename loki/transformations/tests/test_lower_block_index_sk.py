@@ -16,7 +16,7 @@ import pytest
 
 from loki import Dimension, Module, Subroutine
 from loki.expression import symbols as sym
-from loki.frontend import available_frontends, OMNI
+from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes, pragmas_attached
 from loki.transformations.block_index_transformations import InjectBlockIndexTransformation
 from loki.transformations.block_index_transformations_sk import LowerBlockIndexSKTransformation
@@ -100,8 +100,8 @@ def _build_sgraph(items):
 # Tests
 # -------------------------------------------------------------------
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_driver_passes_relevant_vars(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_driver_passes_relevant_vars(tmp_path, frontend, block_dim):
     """
     Verify that LowerBlockIndexSKTransformation passes driver-loop header
     variables as new arguments to the callee.
@@ -135,9 +135,9 @@ subroutine kernel(nproma, nlev, field)
   end do
 end subroutine kernel
 """
-    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod])
+    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
 
     driver.enrich(kernel)
 
@@ -168,8 +168,8 @@ end subroutine kernel
     assert 'driver_loop' in kernel_item.trafo_data['LowerBlockIndex']
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_kernel_propagates_to_sub_kernel(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_kernel_propagates_to_sub_kernel(tmp_path, frontend, block_dim):
     """
     Verify recursive propagation: driver -> kernel -> sub_kernel.
     """
@@ -204,9 +204,9 @@ subroutine sub_kernel(nproma, nlev, field)
   field(1, 1) = 1.0
 end subroutine sub_kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
-    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend, xmods=[tmp_path])
 
     driver.enrich(kernel)
     kernel.enrich(sub_kernel)
@@ -239,8 +239,8 @@ end subroutine sub_kernel
     assert 'nb' in sub_kernel_arg_names
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_promotes_local_arrays(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_promotes_local_arrays(tmp_path, frontend, block_dim):
     """
     Verify that callee-local arrays are promoted with the block dimension.
     """
@@ -273,8 +273,8 @@ subroutine kernel(nproma, nlev, field)
   end do
 end subroutine kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -294,8 +294,8 @@ end subroutine kernel
     assert tmp_var.shape[-1] == 'nb'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_injects_unstructured_data_pragmas(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_injects_unstructured_data_pragmas(tmp_path, frontend, block_dim):
     """
     Verify that !$loki unstructured-data create/delete pragmas are injected.
     """
@@ -328,8 +328,8 @@ subroutine kernel(nproma, nlev, field)
   end do
 end subroutine kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -351,8 +351,8 @@ end subroutine kernel
     assert 'work' in create_pragmas[0].content
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_does_not_duplicate_existing_loki_unstructured_data_pragmas(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_does_not_duplicate_existing_loki_unstructured_data_pragmas(tmp_path, frontend, block_dim):
     """
     Verify that existing generic ``!$loki unstructured-data`` pragmas
     suppress duplicate injection before ``PragmaModel`` lowering.
@@ -388,8 +388,8 @@ subroutine kernel(nproma, nlev, field)
   !$loki exit unstructured-data delete(work)
 end subroutine kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -411,8 +411,8 @@ end subroutine kernel
     assert delete_pragmas[0].content == 'exit unstructured-data delete(work)'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_replaces_block_index_with_range(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_replaces_block_index_with_range(tmp_path, frontend, block_dim):
     """
     Verify that block-index subscripts in call arguments are replaced
     with range indices (:).
@@ -438,8 +438,8 @@ subroutine kernel(nproma, nlev, field)
   field(1, 1) = 0.0
 end subroutine kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -459,8 +459,8 @@ end subroutine kernel
     assert all(isinstance(d, sym.RangeIndex) for d in field_arg.dimensions)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_imports_derived_types_and_kinds(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_imports_derived_types_and_kinds(tmp_path, frontend, block_dim):
     """
     Verify that derived-type and kind-parameter imports are propagated
     to the callee when new arguments with those types are added.
@@ -493,12 +493,12 @@ subroutine kernel(nproma, nlev, field)
   field(1, 1) = 0.0
 end subroutine kernel
 """
-    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend)
-    parkind = Module.from_source(FCODE_PARKIND, frontend=frontend)
+    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    parkind = Module.from_source(FCODE_PARKIND, frontend=frontend, xmods=[tmp_path])
     driver = Subroutine.from_source(
-        fcode_driver, frontend=frontend, definitions=[type_mod, parkind]
+        fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod, parkind]
     )
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod, parkind])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod, parkind])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -527,8 +527,8 @@ end subroutine kernel
     assert any(name in kernel_arg_names for name in ('kidia', 'kfdia', 'ydbnds'))
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_only_processes_pragma_annotated_calls(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_only_processes_pragma_annotated_calls(tmp_path, frontend, block_dim):
     """
     Verify that calls without the !$loki small-kernels pragma are not
     modified by the transformation.
@@ -563,9 +563,9 @@ subroutine sk_kernel(nproma, nlev, field)
   field(1,1) = 0.0
 end subroutine sk_kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    regular = Subroutine.from_source(fcode_regular, frontend=frontend)
-    sk = Subroutine.from_source(fcode_sk, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    regular = Subroutine.from_source(fcode_regular, frontend=frontend, xmods=[tmp_path])
+    sk = Subroutine.from_source(fcode_sk, frontend=frontend, xmods=[tmp_path])
     driver.enrich(regular)
     driver.enrich(sk)
 
@@ -595,8 +595,8 @@ end subroutine sk_kernel
     assert 'nb' in sk_arg_names
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_inject_block_index_per_loop(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_inject_block_index_per_loop(tmp_path, frontend, block_dim):
     """
     Verify InjectBlockIndexTransformation.get_block_index resolves
     block-index aliases from loop-body assignments.
@@ -614,7 +614,7 @@ subroutine driver(nproma, nlev, nb, field)
   end do
 end subroutine driver
 """
-    routine = Subroutine.from_source(fcode, frontend=frontend)
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     trafo = InjectBlockIndexTransformation(block_dim=block_dim)
 
     variable_map = routine.variable_map
@@ -630,8 +630,8 @@ end subroutine driver
         assert result_with_loop == 'ibl'
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_dtype_matching_kwargs(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_dtype_matching_kwargs(tmp_path, frontend, block_dim):
     """
     Verify that when a derived-type member variable (e.g. ``ydbnds%kidia``)
     appears in the driver loop header, its root parent (``ydbnds``) is
@@ -664,9 +664,9 @@ subroutine kernel(nproma, nlev, field, ydcpg_bnds)
   field(1, 1) = 0.0
 end subroutine kernel
 """
-    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod])
+    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -698,8 +698,8 @@ end subroutine kernel
     assert 'nb' in kernel_arg_names  # nb added as new arg
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_argument_dims_updated(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_argument_dims_updated(tmp_path, frontend, block_dim):
     """
     Verify that callee argument array declarations are promoted from
     2D to 3D when the call-site argument has higher rank.
@@ -725,8 +725,8 @@ subroutine kernel(nproma, nlev, field)
   field(1, 1) = 0.0
 end subroutine kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -748,8 +748,8 @@ end subroutine kernel
     assert len(field_var.dimensions) == 3
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_new_derived_dummy_declared_before_bounds_use(frontend):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_new_derived_dummy_declared_before_bounds_use(tmp_path, frontend):
     """
     Verify that newly-added derived-type dummies are declared before any
     existing dummy-array declarations whose bounds are updated to use them.
@@ -789,9 +789,9 @@ subroutine kernel(nproma, nlev, field)
   field(1, 1) = 0.0
 end subroutine kernel
 """
-    type_mod = Module.from_source(fcode_type_mod, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod])
+    type_mod = Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
     driver.enrich(kernel)
 
     geom_block_dim = Dimension(
@@ -817,8 +817,8 @@ end subroutine kernel
     assert decl_pos['geom'] < decl_pos['field']
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_relevant_vars_include_parent_indices(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_relevant_vars_include_parent_indices(tmp_path, frontend, block_dim):
     """
     Verify that indices used in derived-type parents of driver-loop
     assignments are passed to the callee, while the derived-type root
@@ -859,9 +859,9 @@ subroutine kernel(nproma, field)
   field(1) = 0.0
 end subroutine kernel
 """
-    type_mod = Module.from_source(fcode_type_mod, frontend=frontend)
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, definitions=[type_mod])
+    type_mod = Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path])
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
     driver.enrich(kernel)
 
     driver_item = _make_item(driver, role='driver', targets=('kernel',))
@@ -881,8 +881,8 @@ end subroutine kernel
     assert kernel.arguments == ('nproma', 'field(nproma, nb)', 'jj', 'kidia', 'nb', 'ydgeom')
 
 
-@pytest.mark.parametrize('frontend', available_frontends(xfail=[(OMNI, 'OMNI cannot import undefined modules')]))
-def test_sk_deferred_call_skipped(frontend, block_dim):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_deferred_call_skipped(tmp_path, frontend, block_dim):
     """
     Verify that un-enriched (DEFERRED) calls are skipped gracefully
     with a warning, and the routine is not modified.
@@ -900,7 +900,7 @@ subroutine driver(nproma, nlev, nb, field)
   end do
 end subroutine driver
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend)
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
     # Do NOT enrich — call remains DEFERRED
 
     driver_item = _make_item(driver, role='driver', targets=('unknown_kernel',))
