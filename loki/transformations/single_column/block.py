@@ -349,9 +349,9 @@ class SCCBlockSectionTransformation(Transformation):
     downstream processing by :any:`SCCBlockSectionToLoopTransformation`.
 
     For driver routines, this transformation marks successors with
-    ``BlockSectionTrafo`` in ``trafo_data`` and unwraps driver loops
-    that contain ``!$loki small-kernels`` pragma calls, replacing them
-    with their body content.
+    ``BlockSectionTrafo`` in ``trafo_data`` and splits driver loops
+    at ``!$loki small-kernels`` pragma calls, moving these calls out of
+    the driver loop (see :meth:`split_driver_loop`).
 
     For kernel routines (guarded by ``BlockSectionTrafo`` in
     ``trafo_data``), the transformation:
@@ -396,19 +396,26 @@ class SCCBlockSectionTransformation(Transformation):
           ! [end block_section]
         end subroutine
 
-    For a driver routine, the block loop is unwrapped:
+    For a driver routine, the block loop is split at small-kernels calls:
 
     .. code-block:: fortran
 
         ! Before:
         do ibl = 1, nb
+          bnds%kbl = ibl
+          call other_kernel(nproma, za(:, ibl))
           !$loki small-kernels
-          call kernel(nproma, nb, ibl, za, zb)
+          call kernel(nproma, nb, za, zb)
         end do
 
         ! After:
         ! former driver loop ...
-        call kernel(nproma, nb, ibl, za, zb)
+        do ibl = 1, nb
+          bnds%kbl = ibl
+          call other_kernel(nproma, za(:, ibl))
+        end do
+        !$loki small-kernels
+        call kernel(nproma, nb, za, zb)
         ! END: former driver loop ...
 
     Parameters
@@ -724,22 +731,85 @@ class SCCBlockSectionTransformation(Transformation):
                 section=routine.body, targets=targets
             )
             for driver_loop in driver_loops:
-                pragmas = FindNodes(ir.Pragma).visit(driver_loop.body)
-                for pragma in pragmas:
-                    if (pragma.keyword.lower() == 'loki'
-                            and pragma.content.lower() == 'small-kernels'):
-                        loop_map[driver_loop] = (
-                            ir.Comment(
-                                text='! former driver loop ...'
-                            ),
-                            driver_loop.body,
-                            ir.Comment(
-                                text='! END: former driver loop ...'
-                            ),
-                        )
-                        break
+                if (split_loop := self.split_driver_loop(driver_loop)) is not None:
+                    loop_map[driver_loop] = split_loop
             if loop_map:
                 routine.body = Transformer(loop_map).visit(routine.body)
+
+    @staticmethod
+    def split_driver_loop(loop):
+        """
+        Split a driver loop at calls annotated with ``!$loki small-kernels``.
+
+        The small-kernels calls (or the outermost node in the loop body
+        containing them) are moved out of the loop, as the block loop is
+        re-created inside the called kernels. All remaining nodes stay in
+        copies of the driver loop, where the loop header, i.e. the leading
+        assignments of the loop body, is replicated in each copy. Copies
+        that would only contain the loop header are dropped.
+
+        This expects pragmas to be attached to loops, but not to calls.
+
+        Parameters
+        ----------
+        loop : :any:`Loop`
+            The driver loop to split.
+
+        Returns
+        -------
+        tuple of :any:`Node` or None
+            The nodes replacing the driver loop, or `None` if the loop
+            does not contain any small-kernels calls.
+        """
+        body = loop.body
+        sk_pragmas = [
+            p for p in FindNodes(ir.Pragma).visit(body)
+            if is_loki_pragma(p, starts_with='small-kernels')
+        ]
+        if not sk_pragmas:
+            return None
+
+        # Determine the positions of separator nodes in the loop body
+        separator_idx = set()
+        for pragma in sk_pragmas:
+            if pragma in body:
+                # Pragmas are not attached to calls, so the call is the next node
+                idx = body.index(pragma)
+                separator_idx |= {idx, idx + 1}
+            else:
+                ancestor = next(node for node in body if pragma in FindNodes(ir.Pragma).visit(node))
+                separator_idx.add(body.index(ancestor))
+
+        # The loop header consists of the leading assignments in the loop body
+        comment_types = (ir.Comment, ir.CommentBlock)
+        header_end = next(
+            (idx for idx, node in enumerate(body)
+             if idx in separator_idx or not isinstance(node, (ir.Assignment,) + comment_types)),
+            len(body)
+        )
+        while header_end > 0 and isinstance(body[header_end - 1], comment_types):
+            header_end -= 1
+        header = body[:header_end]
+
+        new_body = [ir.Comment(text='! former driver loop ...')]
+        segment, segment_start = (), 0
+        for idx, node in enumerate(body + (None,)):
+            if idx < len(body) and idx not in separator_idx:
+                segment += (node,)
+                continue
+
+            # Wrap the segment in a copy of the driver loop, if it contains
+            # more than just the loop header
+            content = segment[header_end:] if segment_start == 0 else segment
+            if any(not isinstance(n, comment_types) for n in content):
+                loop_body = segment if segment_start == 0 else header + segment
+                new_body += [loop.clone(body=loop_body)]
+            segment, segment_start = (), idx + 1
+
+            if node is not None:
+                new_body += [node]
+        new_body += [ir.Comment(text='! END: former driver loop ...')]
+        return tuple(new_body)
 
     def process_kernel(self, routine, item, successor_map):
         """

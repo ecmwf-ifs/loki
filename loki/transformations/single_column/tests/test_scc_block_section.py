@@ -281,6 +281,93 @@ end subroutine driver_phys
     assert any('END: former driver loop' in t for t in comment_texts)
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_driver_loop_split_at_small_kernels_calls(frontend, block_dim):
+    """
+    Verify that driver loops are split at ``!$loki small-kernels`` calls,
+    keeping all other nodes in driver loops with replicated loop header,
+    and dropping loops that would only contain the loop header.
+    """
+    fcode_kernels = """
+subroutine kernel_a(x)
+  implicit none
+  real, intent(inout) :: x(:)
+end subroutine kernel_a
+
+subroutine kernel_b(x)
+  implicit none
+  real, intent(inout) :: x(:,:)
+end subroutine kernel_b
+    """.strip()
+
+    fcode_driver = """
+subroutine driver_split(nb, kbl, x)
+  implicit none
+  integer, intent(in) :: nb
+  integer, intent(inout) :: kbl
+  real, intent(inout) :: x(10, nb)
+  integer :: ibl
+
+  do ibl = 1, nb
+    kbl = ibl
+    call kernel_a(x(:, ibl))
+    !$loki small-kernels
+    call kernel_b(x)
+    call kernel_a(x(:, kbl))
+    !$loki small-kernels
+    call kernel_b(x)
+  end do
+end subroutine driver_split
+    """.strip()
+
+    kernels = Sourcefile.from_source(fcode_kernels, frontend=frontend)
+    driver = Sourcefile.from_source(fcode_driver, frontend=frontend, definitions=kernels.subroutines)['driver_split']
+    driver.enrich(kernels.subroutines)
+
+    successor_map = CaseInsensitiveDict({
+        'kernel_a': _make_item(kernels['kernel_a']),
+        'kernel_b': _make_item(kernels['kernel_b']),
+    })
+    trafo = SCCBlockSectionTransformation(block_dim=block_dim)
+    trafo.process_driver(
+        driver, _make_item(driver, role='driver'), successor_map,
+        targets=('kernel_a', 'kernel_b')
+    )
+
+    # The loop is split into two driver loops, separated by the small-kernels calls
+    nodes = [n for n in driver.body.body if isinstance(n, (ir.Loop, ir.CallStatement))]
+    assert [type(n) for n in nodes] == [ir.Loop, ir.CallStatement, ir.Loop, ir.CallStatement]
+    assert nodes[1].name == 'kernel_b' and nodes[3].name == 'kernel_b'
+
+    # Both loops contain the loop header and one of the other calls
+    for loop, arg in zip((nodes[0], nodes[2]), ('x(:, ibl)', 'x(:, kbl)')):
+        assert loop.variable == 'ibl'
+        assignments = FindNodes(ir.Assignment).visit(loop.body)
+        assert [(a.lhs, a.rhs) for a in assignments] == [('kbl', 'ibl')]
+        calls = FindNodes(ir.CallStatement).visit(loop.body)
+        assert [(c.name, c.arguments) for c in calls] == [('kernel_a', (arg,))]
+
+    # The small-kernels pragmas stay with their calls
+    with pragmas_attached(driver, ir.CallStatement):
+        sk_calls = [c for c in FindNodes(ir.CallStatement).visit(driver.body) if c.pragma]
+    assert len(sk_calls) == 2
+    assert all(c.name == 'kernel_b' for c in sk_calls)
+
+    # A driver loop with only the loop header and a small-kernels call is removed
+    driver = Sourcefile.from_source(
+        fcode_driver.replace('    call kernel_a(x(:, ibl))\n', '').replace('    call kernel_a(x(:, kbl))\n', ''),
+        frontend=frontend, definitions=kernels.subroutines
+    )['driver_split']
+    driver.enrich(kernels.subroutines)
+    trafo.process_driver(
+        driver, _make_item(driver, role='driver'), successor_map,
+        targets=('kernel_a', 'kernel_b')
+    )
+    assert not FindNodes(ir.Loop).visit(driver.body)
+    assert not FindNodes(ir.Assignment).visit(driver.body)
+    assert len(FindNodes(ir.CallStatement).visit(driver.body)) == 2
+
+
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full module header')]
 ))
