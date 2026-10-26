@@ -470,7 +470,7 @@ class SCCBlockSectionTransformation(Transformation):
         return any(var in block_indices for var in FindVariables().visit(section))
 
     @classmethod
-    def extract_block_sections(cls, routine, section, block_dim, successor_map):
+    def extract_block_sections(cls, routine, section, block_dim):
         """
         Extract contiguous sections of nodes that contain block-level
         computations, split at call statements annotated with
@@ -490,9 +490,6 @@ class SCCBlockSectionTransformation(Transformation):
             sub-sections.
         block_dim : :any:`Dimension`
             The dimension specifying the block dimension.
-        successor_map : :any:`CaseInsensitiveDict`
-            Mapping of callee names to their scheduler items, used to
-            mark successors with ``BlockSectionTrafo``.
 
         Returns
         -------
@@ -507,21 +504,7 @@ class SCCBlockSectionTransformation(Transformation):
                 if check_routine_sequential(routine=call.routine):
                     continue
 
-            call_pragmas = call.pragma
-            if not call_pragmas:
-                continue
-
-            is_sk_call = False
-            for pragma in call_pragmas:
-                if (pragma.keyword.lower() == 'loki'
-                        and pragma.content.lower() == 'small-kernels'):
-                    successor_map[str(call.name)].trafo_data[
-                        'BlockSectionTrafo'
-                    ] = True
-                    is_sk_call = True
-                    break
-
-            if not is_sk_call:
+            if not is_loki_pragma(call.pragma, starts_with='small-kernels'):
                 continue
 
             separator_nodes = cls._add_separator(
@@ -552,18 +535,18 @@ class SCCBlockSectionTransformation(Transformation):
         for separator in separator_nodes:
             if isinstance(separator, ir.Loop):
                 subsections += cls.extract_block_sections(
-                    routine, separator.body, block_dim, successor_map
+                    routine, separator.body, block_dim
                 )
 
             if isinstance(separator, ir.Conditional):
                 subsec_body = cls.extract_block_sections(
-                    routine, separator.body, block_dim, successor_map
+                    routine, separator.body, block_dim
                 )
                 if subsec_body:
                     subsections += subsec_body
                 for ebody in separator.else_bodies:
                     subsections += cls.extract_block_sections(
-                        routine, ebody, block_dim, successor_map
+                        routine, ebody, block_dim
                     )
 
             if isinstance(
@@ -571,12 +554,12 @@ class SCCBlockSectionTransformation(Transformation):
             ):
                 for body in separator.bodies:
                     subsec_body = cls.extract_block_sections(
-                        routine, body, block_dim, successor_map
+                        routine, body, block_dim
                     )
                     if subsec_body:
                         subsections += subsec_body
                 subsec_else = cls.extract_block_sections(
-                    routine, separator.else_body, block_dim, successor_map
+                    routine, separator.else_body, block_dim
                 )
                 if subsec_else:
                     subsections += subsec_else
@@ -641,6 +624,30 @@ class SCCBlockSectionTransformation(Transformation):
 
         return trimmed_sections
 
+    @staticmethod
+    def mark_small_kernels_successors(routine, successor_map):
+        """
+        Mark the successors called with ``!$loki small-kernels`` for
+        block-section extraction by setting ``BlockSectionTrafo`` in
+        their ``trafo_data``.
+
+        Calls to routines that are not successors in the scheduler graph
+        (e.g. library routines) are skipped.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine whose calls are inspected.
+        successor_map : :any:`CaseInsensitiveDict`
+            Mapping of callee names to their scheduler items.
+        """
+        with pragmas_attached(routine, ir.CallStatement):
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if not is_loki_pragma(call.pragma, starts_with='small-kernels'):
+                    continue
+                if (successor := successor_map.get(str(call.name))) is not None:
+                    successor.trafo_data['BlockSectionTrafo'] = True
+
     def process_driver(self, routine, item, successor_map, targets):  # pylint: disable=unused-argument
         """
         Process a driver-level routine by marking call statements that
@@ -658,18 +665,7 @@ class SCCBlockSectionTransformation(Transformation):
         targets : tuple of str
             Target routine names for driver loop detection.
         """
-        with pragmas_attached(routine, ir.CallStatement):
-            calls = FindNodes(ir.CallStatement).visit(routine.body)
-            for call in calls:
-                call_pragmas = call.pragma
-                if not call_pragmas:
-                    continue
-                for pragma in call_pragmas:
-                    if (pragma.keyword.lower() == 'loki'
-                            and pragma.content.lower() == 'small-kernels'):
-                        successor_map[str(call.name)].trafo_data[
-                            'BlockSectionTrafo'
-                        ] = True
+        self.mark_small_kernels_successors(routine, successor_map)
 
         loop_map = {}
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
@@ -788,9 +784,11 @@ class SCCBlockSectionTransformation(Transformation):
         routine.spec = Transformer(pragma_map).visit(routine.spec)
         routine.body = Transformer(pragma_map).visit(routine.body)
 
+        self.mark_small_kernels_successors(routine, successor_map)
+
         with pragmas_attached(routine, ir.CallStatement):
             sections = self.extract_block_sections(
-                routine, routine.body.body, self.block_dim, successor_map
+                routine, routine.body.body, self.block_dim
             )
 
         if self.trim_block_sections:

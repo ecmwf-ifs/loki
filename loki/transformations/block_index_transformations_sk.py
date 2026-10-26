@@ -12,7 +12,7 @@ Small-kernels variant of the block-index lowering transformation.
 from loki.batch import ProcedureItem
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached,
-    SubstituteExpressions, FindVariables, get_pragma_parameters
+    SubstituteExpressions, FindVariables, get_pragma_parameters, is_loki_pragma
 )
 from loki.logging import warning
 from loki.tools import as_tuple, CaseInsensitiveDict
@@ -205,14 +205,11 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         -------
         list of :any:`CallStatement`
         """
-        relevant_calls = []
         with pragmas_attached(routine, ir.CallStatement):
-            for call in FindNodes(ir.CallStatement).visit(routine.body):
-                if call.pragma and any(
-                    p.keyword.lower() == 'loki' and p.content.lower() == 'small-kernels'
-                    for p in call.pragma
-                ):
-                    relevant_calls.append(call)
+            relevant_calls = [
+                call for call in FindNodes(ir.CallStatement).visit(routine.body)
+                if is_loki_pragma(call.pragma, starts_with='small-kernels')
+            ]
         return relevant_calls
 
     @staticmethod
@@ -603,10 +600,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         with pragmas_attached(routine, ir.CallStatement):
             for driver_loop in driver_loops:
                 for call in FindNodes(ir.CallStatement).visit(driver_loop.body):
-                    if call.pragma and any(
-                        p.keyword.lower() == 'loki' and p.content.lower() == 'small-kernels'
-                        for p in call.pragma
-                    ):
+                    if is_loki_pragma(call.pragma, starts_with='small-kernels'):
                         relevant_calls.append((call, driver_loop))
 
         # Collect assignments in each driver loop body (used to extract

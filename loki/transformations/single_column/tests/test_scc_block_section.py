@@ -105,9 +105,8 @@ end subroutine compute_phys
     source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
     routine = source['compute_phys']
 
-    successor_map = CaseInsensitiveDict()
     sections = SCCBlockSectionTransformation.extract_block_sections(
-        routine, routine.body.body, block_dim, successor_map
+        routine, routine.body.body, block_dim
     )
 
     # All block-dim-referencing nodes should be captured in at least
@@ -700,15 +699,48 @@ end subroutine sub_kernel
         'sub_kernel': sub_item,
     })
 
+    SCCBlockSectionTransformation.mark_small_kernels_successors(routine, successor_map)
     with pragmas_attached(routine, ir.CallStatement):
         sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine, routine.body.body, block_dim, successor_map
+            routine, routine.body.body, block_dim
         )
 
     # Should find sections inside the conditional body
     assert len(sections) >= 1
     # sub_kernel should be marked
     assert sub_item.trafo_data.get('BlockSectionTrafo') is True
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_mark_small_kernels_successors(frontend):
+    """
+    Verify that only successors called with ``!$loki small-kernels`` are
+    marked, and that small-kernels calls to routines that are not
+    successors (e.g. library routines) are skipped.
+    """
+    fcode = """
+subroutine caller(n, x)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: x(n)
+
+  !$loki small-kernels
+  call sk_kernel(n, x)
+  call plain_kernel(n, x)
+  !$loki small-kernels
+  call library_kernel(n, x)
+end subroutine caller
+    """.strip()
+
+    routine = Sourcefile.from_source(fcode, frontend=frontend)['caller']
+    sk_item = _make_item(routine)
+    plain_item = _make_item(routine)
+    successor_map = CaseInsensitiveDict({'sk_kernel': sk_item, 'plain_kernel': plain_item})
+
+    SCCBlockSectionTransformation.mark_small_kernels_successors(routine, successor_map)
+
+    assert sk_item.trafo_data == {'BlockSectionTrafo': True}
+    assert not plain_item.trafo_data
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -831,9 +863,10 @@ end subroutine child_kernel
         'child_kernel': child_item,
     })
 
+    SCCBlockSectionTransformation.mark_small_kernels_successors(routine, successor_map)
     with pragmas_attached(routine, ir.CallStatement):
         sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine, routine.body.body, block_dim_with_members, successor_map
+            routine, routine.body.body, block_dim_with_members
         )
 
     assert len(sections) == 2
@@ -889,14 +922,9 @@ end subroutine child_kernel
     child = source['child_kernel']
     routine.enrich(child)
 
-    child_item = _make_item(child, role='kernel')
-    successor_map = CaseInsensitiveDict({
-        'child_kernel': child_item,
-    })
-
     with pragmas_attached(routine, ir.CallStatement):
         sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine, routine.body.body, block_dim, successor_map
+            routine, routine.body.body, block_dim
         )
 
     # The call should split the body into at least 2 sections
