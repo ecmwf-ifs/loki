@@ -26,8 +26,9 @@ pair from block-loop form into small-kernels form:
 .. code-block:: fortran
 
     do ibl = 1, nb
+      ydcpg_bnds%kbl = ibl
       !$loki small-kernels
-      call kernel(nproma, nb, ibl, za)
+      call kernel(ydcpg_bnds, nproma, nb, za)
     end do
 
 **Driver after** :any:`SCCBlockSectionTransformation` **(loop unwrapped):**
@@ -35,7 +36,8 @@ pair from block-loop form into small-kernels form:
 .. code-block:: fortran
 
     ! former driver loop ...
-    call kernel(nproma, nb, ibl, za)
+    ydcpg_bnds%kbl = ibl
+    call kernel(ydcpg_bnds, nproma, nb, za)
     ! END: former driver loop ...
 
 **Kernel before both transformations:**
@@ -74,6 +76,7 @@ pair from block-loop form into small-kernels form:
 
       !$loki loop driver vector_length(nproma)
       do ibl = 1, nb
+        local_ydcpg_bnds%kbl = ibl
         za(1, local_ydcpg_bnds%kbl) = 1.0
       end do
 
@@ -83,6 +86,7 @@ pair from block-loop form into small-kernels form:
 
       !$loki loop driver vector_length(nproma)
       do ibl = 1, nb
+        local_ydcpg_bnds%kbl = ibl
         za(2, local_ydcpg_bnds%kbl) = 2.0
       end do
 
@@ -100,7 +104,7 @@ from loki.ir import (
     SubstituteExpressions,
 )
 from loki.tools import as_tuple, flatten, CaseInsensitiveDict
-from loki.types import BasicType
+from loki.types import BasicType, DerivedType
 
 from loki.transformations.utilities import (
     find_driver_loops, check_routine_sequential
@@ -128,15 +132,25 @@ class ReblockSectionTransformer(Transformer):
     horizontal : :any:`Dimension`
         The dimension specifying the horizontal vector dimension
         (used for ``vector_length`` pragma annotation).
+    local_copy_map : dict, optional
+        Map of variables to their local copies, which is applied to
+        the inserted block loops.
+
+    Attributes
+    ----------
+    reblocked : bool
+        Whether any block section was wrapped in a block loop.
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, routine, item, horizontal, *args, **kwargs):
+    def __init__(self, routine, item, horizontal, *args, local_copy_map=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.routine = routine
         self.horizontal = horizontal
         self.driver_loop = item.trafo_data.get('LowerBlockIndex', {}).get('driver_loop')
+        self.local_copy_map = local_copy_map or {}
+        self.reblocked = False
 
     def visit_Section(self, s, **kwargs):
         """
@@ -159,16 +173,18 @@ class ReblockSectionTransformer(Transformer):
             )
             vector_length = f' vector_length({sizes[0]})' if sizes else ''
 
+            block_loop = self.driver_loop.clone(
+                body=self.driver_loop.body + s.body,
+                pragma=(ir.Pragma(keyword='loki', content=f'loop driver{vector_length}'),)
+            )
+            if self.local_copy_map:
+                block_loop = SubstituteExpressions(self.local_copy_map).visit(block_loop)
+            self.reblocked = True
+
             return (
                 ir.Comment(text='! START of Loki inserted block loop'),
                 ir.Comment(text=''),
-                self.driver_loop.clone(
-                    body=self.driver_loop.body + s.body,
-                    pragma=(ir.Pragma(
-                        keyword='loki',
-                        content=f'loop driver{vector_length}'
-                    ),)
-                ),
+                block_loop,
                 ir.Comment(text=''),
                 ir.Comment(text='! END of Loki inserted block loop'),
             )
@@ -180,7 +196,8 @@ class ReblockSectionTransformer(Transformer):
 class SCCBlockSectionToLoopTransformation(Transformation):
     """
     Wrap identified block-level sections in driver block loops and
-    create local copies of block-dimension index variables.
+    create local copies of derived-type arguments written in the
+    replayed driver-loop header.
 
     This transformation operates on kernel routines that have been
     processed by :any:`SCCBlockSectionTransformation` (which wraps
@@ -192,8 +209,14 @@ class SCCBlockSectionToLoopTransformation(Transformation):
        pragmas.
     2. Activates ``!$loki inactive-small-kernels`` pragmas by stripping
        the ``inactive-small-kernels`` prefix.
-    3. Creates local copies of derived-type block-index variables
-       (e.g. ``YDCPG_BNDS%KBL`` → ``local_KBL``).
+
+    The cloned driver loops replay the header of the original driver loop,
+    which typically assigns members of a bounds object (e.g.
+    ``ydcpg_bnds%kbl = ibl``). Such derived-type objects are dummy
+    arguments in the kernel, which may be ``intent(in)`` and cannot be
+    privatised in the offloaded block loop. Therefore, a local copy
+    (e.g. ``local_ydcpg_bnds = ydcpg_bnds``) is created before the block
+    loops and used inside them instead.
 
     **Before** (after :any:`SCCBlockSectionTransformation`):
 
@@ -206,7 +229,7 @@ class SCCBlockSectionToLoopTransformation(Transformation):
           !$loki inactive-small-kernels data present(za)
         end subroutine
 
-    **After:**
+    **After** (with a driver-loop header ``ydcpg_bnds%kbl = ibl``):
 
     .. code-block:: fortran
 
@@ -216,6 +239,7 @@ class SCCBlockSectionToLoopTransformation(Transformation):
 
           !$loki loop driver vector_length(nproma)
           do ibl = 1, nb
+            local_ydcpg_bnds%kbl = ibl
             za(1, local_ydcpg_bnds%kbl) = 1.0
           end do
 
@@ -225,14 +249,11 @@ class SCCBlockSectionToLoopTransformation(Transformation):
 
     Parameters
     ----------
-    block_dim : :any:`Dimension`
-        Dimension object describing the blocking data dimension.
     horizontal : :any:`Dimension`
         Dimension object describing the horizontal (column) dimension.
     """
 
-    def __init__(self, block_dim, horizontal):
-        self.block_dim = block_dim
+    def __init__(self, horizontal):
         self.horizontal = horizontal
 
     @staticmethod
@@ -250,70 +271,36 @@ class SCCBlockSectionToLoopTransformation(Transformation):
                 )
 
     @staticmethod
-    def get_block_index(routine, variable_map, index):
+    def get_local_copy_map(routine, driver_loop):
         """
-        Resolve a block-index name to its corresponding variable from
-        the routine's variable map.
-
-        Handles both simple names and derived-type member access names
-        (e.g. ``YDCPG_BNDS%KBL``).
+        Determine local copies for derived-type dummy arguments that are
+        written in the header of the replayed driver loop.
 
         Parameters
         ----------
         routine : :any:`Subroutine`
-            The routine whose variables are searched.
-        variable_map : dict
-            Mapping of variable names to :any:`Variable` objects.
-        index : str
-            The block-index name to resolve (may contain ``%``).
+            The kernel routine into which the driver loop is replayed.
+        driver_loop : :any:`Loop` or None
+            The driver-loop template from ``trafo_data['LowerBlockIndex']``.
 
         Returns
         -------
-        :any:`Variable` or None
+        dict
+            Map of derived-type dummy arguments to their ``local_`` copies.
         """
-        if (block_index := variable_map.get(index, None)) is not None:
-            return block_index
-        if index.split('%', maxsplit=1)[0] in variable_map:
-            return routine.resolve_typebound_var(
-                index.split('%', maxsplit=1)[0], variable_map
-            )
-        return None
+        if driver_loop is None:
+            return {}
 
-    def _create_local_copies(self, routine):
-        """
-        Create local copies of derived-type block-dimension index
-        variables and prepend ``local_X = X`` assignments to the
-        routine body.
-        """
-        routine_variable_map = routine.variable_map
-        create_local_copy = []
-        for _index in self.block_dim.indices:
-            if '%' not in _index:
+        variable_map = routine.variable_map
+        local_copy_map = {}
+        for assign in FindNodes(ir.Assignment).visit(driver_loop.body):
+            if not assign.lhs.parent:
                 continue
-            block_index = self.get_block_index(
-                routine, routine_variable_map, _index
-            )
-            if block_index is not None:
-                create_local_copy.append(block_index)
-
-        local_copy_map = {
-            var: var.clone(
-                name=f'local_{var.name}',
-                type=var.type.clone(intent=None)
-            )
-            for var in create_local_copy
-        }
-        routine.body = SubstituteExpressions(
-            local_copy_map
-        ).visit(routine.body)
-        routine.variables += as_tuple(local_copy_map.values())
-
-        new_assignments = tuple(
-            ir.Assignment(lhs=val, rhs=key)
-            for key, val in local_copy_map.items()
-        )
-        if new_assignments:
-            routine.body.prepend(new_assignments)
+            arg = variable_map.get(assign.lhs.parents[0].name)
+            if arg is None or not arg.type.intent or not isinstance(arg.type.dtype, DerivedType):
+                continue
+            local_copy_map[arg] = arg.clone(name=f'local_{arg.name}', type=arg.type.clone(intent=None))
+        return local_copy_map
 
     def transform_subroutine(self, routine, **kwargs):
         """
@@ -323,7 +310,7 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         For kernel routines, this replaces ``block_section``-labelled
         :any:`Section` nodes with driver block loops, activates
         inactive small-kernels pragmas, and creates local copies of
-        block-dimension index variables.
+        derived-type arguments written in the replayed driver-loop header.
 
         Parameters
         ----------
@@ -339,12 +326,20 @@ class SCCBlockSectionToLoopTransformation(Transformation):
         item = kwargs.get('item', None)
 
         if role == 'kernel':
-            routine.body = ReblockSectionTransformer(
-                routine, item, self.horizontal
-            ).visit(routine.body)
+            driver_loop = item.trafo_data.get('LowerBlockIndex', {}).get('driver_loop')
+            local_copy_map = self.get_local_copy_map(routine, driver_loop)
+
+            reblock = ReblockSectionTransformer(
+                routine, item, self.horizontal, local_copy_map=local_copy_map
+            )
+            routine.body = reblock.visit(routine.body)
             self.activate_pragmas(routine)
-            if 'LowerBlockIndex' in item.trafo_data:
-                self._create_local_copies(routine)
+
+            if reblock.reblocked and local_copy_map:
+                routine.variables += tuple(local_copy_map.values())
+                routine.body.prepend(tuple(
+                    ir.Assignment(lhs=local_var, rhs=var) for var, local_var in local_copy_map.items()
+                ))
 
 
 class SCCBlockSectionTransformation(Transformation):

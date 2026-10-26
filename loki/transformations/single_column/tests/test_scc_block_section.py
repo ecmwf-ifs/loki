@@ -469,56 +469,104 @@ end subroutine pragma_kernel
     assert any('data present' in c for c in pragma_contents)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI needs full module header')]
-))
-def test_create_local_copies_block_indices(frontend, horizontal):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_reblock_local_copies_of_written_derived_type_args(frontend, horizontal, tmp_path):
     """
-    Verify that local copies are created for derived-type block-dimension
-    index variables with ``local_X = X`` assignments prepended.
+    Verify that derived-type dummy arguments written in the replayed
+    driver-loop header are replaced by local copies inside the inserted
+    block loops, and only if a block loop was inserted.
     """
-    # Use a block_dim whose indices include the derived-type member
-    block_dim_with_dt = Dimension(
-        name='block_dim', size='nb',
-        index=('ibl', 'bounds%kbl'),
-        bounds=('1', 'nb'),
-    )
-
-    fcode = """
-subroutine localcopy_kernel(bounds, nproma, nb)
+    fcode_mod = """
+module bnds_mod
   implicit none
-  integer, intent(in) :: nproma, nb
-  type :: bounds_t
+  type bnds_type
     integer :: kbl
-  end type bounds_t
-  type(bounds_t), intent(in) :: bounds
-  real :: za(nproma, nb)
-
-  za(1, bounds%kbl) = 1.0
-end subroutine localcopy_kernel
+  end type bnds_type
+end module bnds_mod
     """.strip()
 
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    routine = source['localcopy_kernel']
+    fcode_template = """
+subroutine template(bnds, nb, kidia)
+  use bnds_mod, only: bnds_type
+  implicit none
+  type(bnds_type), intent(in) :: bnds
+  integer, intent(inout) :: kidia
+  integer, intent(in) :: nb
+  type(bnds_type) :: tmp_bnds
+  integer :: ibl
 
-    trafo = SCCBlockSectionToLoopTransformation(
-        block_dim=block_dim_with_dt, horizontal=horizontal
-    )
-    trafo._create_local_copies(routine)
+  do ibl = 1, nb
+    bnds%kbl = ibl
+    tmp_bnds%kbl = ibl
+    kidia = 1
+  end do
+end subroutine template
+    """.strip()
 
-    # Should have a local_bounds variable (the parent of the
-    # derived-type member bounds%kbl is localized)
-    var_names = [v.name.lower() for v in routine.variables]
-    assert 'local_bounds' in var_names
+    fcode_kernel = """
+subroutine kernel(bnds, nproma, nb, kidia, za)
+  use bnds_mod, only: bnds_type
+  implicit none
+  type(bnds_type), intent(in) :: bnds
+  integer, intent(inout) :: kidia
+  integer, intent(in) :: nproma, nb
+  real, intent(inout) :: za(nproma, nb)
+  type(bnds_type) :: tmp_bnds
+  integer :: ibl
 
-    # Should have a local_bounds = bounds assignment at top
-    assigns = FindNodes(ir.Assignment).visit(routine.body)
-    local_assigns = [
-        a for a in assigns
-        if 'local_' in str(a.lhs).lower()
+  za(1, bnds%kbl) = 1.0
+  call child(bnds, nproma)
+end subroutine kernel
+    """.strip()
+
+    bnds_mod = Sourcefile.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])['bnds_mod']
+    template = Sourcefile.from_source(
+        fcode_template, frontend=frontend, definitions=bnds_mod, xmods=[tmp_path]
+    )['template']
+    driver_loop = FindNodes(ir.Loop).visit(template.body)[0]
+
+    def _get_kernel():
+        kernel = Sourcefile.from_source(
+            fcode_kernel, frontend=frontend, definitions=bnds_mod, xmods=[tmp_path]
+        )['kernel']
+        item = _make_item(kernel, role='kernel')
+        item.trafo_data['LowerBlockIndex'] = {'driver_loop': driver_loop}
+        return kernel, item
+
+    trafo = SCCBlockSectionToLoopTransformation(horizontal=horizontal)
+
+    # Without block sections, no block loop and no local copy is created
+    kernel, item = _get_kernel()
+    trafo.transform_subroutine(kernel, role='kernel', item=item)
+    assert not FindNodes(ir.Loop).visit(kernel.body)
+    assert 'local_bnds' not in kernel.variable_map
+
+    # Wrap the assignment in a block section and re-insert the block loop
+    kernel, item = _get_kernel()
+    assign = FindNodes(ir.Assignment).visit(kernel.body)[0]
+    kernel.body = Transformer(
+        {assign: ir.Section(body=(assign,), label='block_section')}
+    ).visit(kernel.body)
+    trafo.transform_subroutine(kernel, role='kernel', item=item)
+
+    # Only the written derived-type argument is copied
+    assert kernel.variable_map['local_bnds'].type.intent is None
+    assert 'local_tmp_bnds' not in kernel.variable_map
+    assert 'local_kidia' not in kernel.variable_map
+
+    copy_assign = kernel.body.body[0]
+    assert isinstance(copy_assign, ir.Assignment)
+    assert (copy_assign.lhs, copy_assign.rhs) == ('local_bnds', 'bnds')
+
+    # The block loop uses the local copy, the call outside keeps the argument
+    loop = FindNodes(ir.Loop).visit(kernel.body)[0]
+    loop_assigns = FindNodes(ir.Assignment).visit(loop.body)
+    assert [(a.lhs, a.rhs) for a in loop_assigns] == [
+        ('local_bnds%kbl', 'ibl'), ('tmp_bnds%kbl', 'ibl'),
+        ('kidia', '1'), ('za(1, local_bnds%kbl)', '1.0')
     ]
-    assert len(local_assigns) >= 1
-    assert local_assigns[0].lhs == 'local_bounds'
+    call = FindNodes(ir.CallStatement).visit(kernel.body)[0]
+    assert call.arguments == ('bnds', 'nproma')
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -991,9 +1039,7 @@ end subroutine sk_kernel
     )
     sk_item.trafo_data['LowerBlockIndex'] = {'driver_loop': driver_loop}
 
-    reblock_trafo = SCCBlockSectionToLoopTransformation(
-        block_dim=block_dim, horizontal=horizontal
-    )
+    reblock_trafo = SCCBlockSectionToLoopTransformation(horizontal=horizontal)
     plain_assigns_before = tuple(FindNodes(ir.Assignment).visit(plain_kernel.body))
 
     reblock_trafo.transform_subroutine(plain_kernel, role='kernel', item=plain_item)
