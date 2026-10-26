@@ -208,8 +208,19 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
     Loki generic pragmas to OpenMP offload/GPU mapper.
 
     TODO: this is not yet complete!
+
+    Parameters
+    ----------
+    emit_thread_limit : bool, optional
+        Translate generic ``vlength`` clauses to ``thread_limit`` clauses,
+        by default True.
     """
     # pylint: disable=unused-argument
+    def __init__(self, emit_thread_limit=True):
+        """Initialise the mapper and configure thread-limit emission."""
+        super().__init__()
+        self.emit_thread_limit = emit_thread_limit
+
     def pmap_create(self, pragma, parameters, **kwargs):
         if param_device := parameters.get('device'):
             return Pragma(keyword='omp', content=f'declare target({param_device})')
@@ -280,7 +291,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
             collapse_param = parameters.get('collapse')
             collapse = f' collapse({collapse_param})' if collapse_param else ''
             vlength_param = parameters.get('vlength')
-            vlength = f' thread_limit({vlength_param})' if vlength_param else ''
+            vlength = f' thread_limit({vlength_param})' if vlength_param and self.emit_thread_limit else ''
             return Pragma(keyword='omp', content=f'target teams distribute parallel do{collapse}{vlength}')
         if 'vector' in parameters:
             # TODO: private and reduction clause?
@@ -289,7 +300,7 @@ class OpenMPOffloadPragmaMapper(GenericPragmaMapper):
         if 'gang' in parameters:
             # TODO: private clause?
             vlength_param = parameters.get('vlength')
-            vlength = f' thread_limit({vlength_param})' if vlength_param else ''
+            vlength = f' thread_limit({vlength_param})' if vlength_param and self.emit_thread_limit else ''
             content = f'target teams distribute{vlength}'
             return Pragma(keyword='omp', content=content)
         return self.default_retval()
@@ -350,20 +361,26 @@ class PragmaModelTransformation(Transformation):
     keep_loki_pragmas: bool
         Keep or remove generic Loki pragmas that are not
         mapped.
+    emit_thread_limit : bool, optional
+        Emit ``thread_limit`` clauses from generic ``vlength`` metadata for
+        ``'omp-gpu'``, by default True. Applies to ordinary and combined
+        gang/vector loops. Other programming models are unaffected.
     """
     item_filter = (ProcedureItem, ModuleItem)
 
-    def __init__(self, directive=False, keep_loki_pragmas=True):
+    def __init__(self, directive=False, keep_loki_pragmas=True, emit_thread_limit=True):
         assert directive in [False, 'openacc', 'omp-gpu', 'openmp']
         self.directive = directive
         self.keep_loki_pragmas = keep_loki_pragmas
+        self.emit_thread_limit = emit_thread_limit
         pmapper_cls_map = {
             'openacc': OpenACCPragmaMapper,
             'omp-gpu': OpenMPOffloadPragmaMapper,
             'openmp': OpenMPThreadingPragmaMapper,
         }
         pmapper_cls = pmapper_cls_map.get(self.directive, None if self.keep_loki_pragmas else GenericPragmaMapper)
-        self.pmapper = pmapper_cls() if pmapper_cls else None
+        pmapper_kwargs = {'emit_thread_limit': self.emit_thread_limit} if self.directive == 'omp-gpu' else {}
+        self.pmapper = pmapper_cls(**pmapper_kwargs) if pmapper_cls else None
 
     def _create_pragma_map(self, pragmas):
         pragma_map = {}

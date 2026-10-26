@@ -20,6 +20,22 @@ Loki directives are translated to the corresponding pragmas in either programmin
    :widths: 100, 100, 100
    :header-rows: 1
 
+OpenMP GPU thread limits
+------------------------
+
+:any:`PragmaModelTransformation` accepts ``emit_thread_limit=False`` to omit
+``thread_limit(...)`` from OpenMP GPU loop directives. The option defaults to
+True and applies to ordinary gang loops and combined gang/vector loops.
+Generic ``vlength`` metadata is retained, and OpenACC ``vector_length``
+translation is unaffected.
+
+The same option can be passed directly to SCC pipelines, for example::
+
+    SCCSVectorPipeline(
+        horizontal=horizontal, block_dim=blocking, directive='omp-gpu',
+        collapse_gang_vector=True, emit_thread_limit=False,
+    )
+
 Collapsing SCC-seq driver loops
 ------------------------------
 
