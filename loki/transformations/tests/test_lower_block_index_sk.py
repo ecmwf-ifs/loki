@@ -1054,3 +1054,60 @@ end subroutine sub_kernel
         assert 'ibl' not in routine.arguments
         assert routine.variable_map['ibl'].type.intent is None
         assert routine.variable_map['ibl'].type.dtype == BasicType.INTEGER
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_multiple_calls_in_driver_loop(tmp_path, frontend, block_dim):
+    """
+    Verify that multiple small-kernels calls in the same driver loop are
+    all lowered with the variables from the loop header.
+    """
+    fcode_driver = """
+subroutine driver(nproma, nb, field)
+  implicit none
+  integer, intent(in) :: nproma, nb
+  real, intent(inout) :: field(nproma, nb)
+  integer :: ibl, kbl
+
+  do ibl = 1, nb
+    kbl = ibl
+    !$loki small-kernels
+    call kernel_a(nproma, field(:, ibl))
+    !$loki small-kernels
+    call kernel_b(nproma, field(:, ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel_{name}(nproma, field)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  field(1) = 0.0
+end subroutine kernel_{name}
+"""
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernels = [
+        Subroutine.from_source(fcode_kernel.format(name=name), frontend=frontend, xmods=[tmp_path])
+        for name in ('a', 'b')
+    ]
+    driver.enrich(kernels)
+
+    driver_item = _make_item(driver, role='driver', targets=('kernel_a', 'kernel_b'))
+    kernel_items = [_make_item(kernel) for kernel in kernels]
+
+    class _MockSGraph:
+        def successors(self, item):
+            return kernel_items if item is driver_item else []
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    trafo.transform_subroutine(
+        driver, role='driver', targets=('kernel_a', 'kernel_b'),
+        item=driver_item, sub_sgraph=_MockSGraph()
+    )
+
+    for call, kernel, kernel_item in zip(FindNodes(ir.CallStatement).visit(driver.body), kernels, kernel_items):
+        assert call.arguments == ('nproma', 'field(:, :)')
+        assert call.kwarguments == (('kbl', 'kbl'), ('nb', 'nb'))
+        assert kernel.arguments == ('nproma', 'field(nproma, nb)', 'kbl', 'nb')
+        assert 'driver_loop' in kernel_item.trafo_data['LowerBlockIndex']

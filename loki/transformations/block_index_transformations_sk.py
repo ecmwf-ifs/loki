@@ -602,23 +602,19 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         with pragmas_attached(routine, ir.Loop):
             driver_loops = find_driver_loops(routine.body, targets)
 
+        # Collect the small-kernels calls together with their driver loop and
+        # the assignments in its body (used to extract relevant variables).
+        # The assignments are collected before any call is updated in-place,
+        # which changes the driver loop and its hash.
         relevant_calls = []
         with pragmas_attached(routine, ir.CallStatement):
             for driver_loop in driver_loops:
+                assignments = FindNodes(ir.Assignment).visit(driver_loop.body)
                 for call in FindNodes(ir.CallStatement).visit(driver_loop.body):
                     if is_loki_pragma(call.pragma, starts_with='small-kernels'):
-                        relevant_calls.append((call, driver_loop))
+                        relevant_calls.append((call, driver_loop, assignments))
 
-        # Collect assignments in each driver loop body (used to extract
-        # relevant variables)
-        driver_loop_assignments = {}
-        for _, driver_loop in relevant_calls:
-            if driver_loop not in driver_loop_assignments:
-                driver_loop_assignments[driver_loop] = (
-                    FindNodes(ir.Assignment).visit(driver_loop.body)
-                )
-
-        for call, driver_loop in relevant_calls:
+        for call, driver_loop, assignments in relevant_calls:
             if str(call.name).lower() not in targets:
                 continue
             if call.routine is BasicType.DEFERRED:
@@ -635,7 +631,7 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
             if driver_loop.bounds.step is not None:
                 relevant_vars.add(driver_loop.bounds.step)
             # Derived-type parents are covered by their member accesses
-            loop_vars = FindVariables().visit(driver_loop_assignments[driver_loop])
+            loop_vars = FindVariables().visit(assignments)
             parents = {parent for var in loop_vars for parent in var.parents}
             relevant_vars.update(var for var in loop_vars if var not in parents)
 
