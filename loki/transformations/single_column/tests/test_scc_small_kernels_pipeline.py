@@ -10,19 +10,18 @@
 """
 End-to-end tests for ``SCCSmallKernelsPipeline``.
 
-Each test runs the full 12-step pipeline on a small Fortran call tree
-that mimics production-style transformation shapes and verifies the
+Each test runs the full pipeline on a small Fortran call tree that
+mimics production-style transformation shapes and verifies the
 structural properties of the transformed IR.
 """
 
-import re
-
 import pytest
 
-from loki import Dimension, Module, Sourcefile, fgen
+from loki import Dimension, Module, Sourcefile
 from loki.batch import Pipeline, ProcedureItem, SGraph
 from loki.frontend import OMNI, available_frontends
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, get_pragma_parameters, pragmas_attached
+from loki.tools import CaseInsensitiveDict
 from loki.transformations import (
     BlockViewToFieldViewTransformation, DataOffloadDeepcopyAnalysis,
     DataOffloadDeepcopyTransformation, InlineTransformation,
@@ -54,10 +53,6 @@ def fixture_block_dim():
     )
 
 
-# ---------------------------------------------------------------------------
-# Shared Fortran module fragments
-# ---------------------------------------------------------------------------
-
 FCODE_BNDS_TYPE_MOD = """
 module bnds_type_mod
   implicit none
@@ -69,6 +64,7 @@ module bnds_type_mod
   end type bnds_type
 end module bnds_type_mod
 """.strip()
+
 
 FCODE_OPTS_TYPE_MOD = """
 module opts_type_mod
@@ -86,31 +82,9 @@ end module opts_type_mod
 # Pipeline helpers
 # ---------------------------------------------------------------------------
 
-def _parse_modules(frontend, tmp_path):
-    """Parse and return the shared type modules."""
-    bnds_mod = Module.from_source(
-        FCODE_BNDS_TYPE_MOD, frontend=frontend, xmods=[tmp_path]
-    )
-    opts_mod = Module.from_source(
-        FCODE_OPTS_TYPE_MOD, frontend=frontend, xmods=[tmp_path]
-    )
-    return [bnds_mod, opts_mod]
-
-
-def _apply_pipeline(pipeline, items_in_order, sgraph):
-    """
-    Apply all transformations in the pipeline to the given items,
-    respecting ``reverse_traversal`` ordering.
-    """
-    for transform in pipeline.transformations:
-        order = items_in_order
-        if getattr(transform, 'reverse_traversal', False):
-            order = list(reversed(items_in_order))
-        for routine, role, item, targets in order:
-            transform.apply(
-                routine, role=role, item=item,
-                targets=targets, sub_sgraph=sgraph
-            )
+def _sk_pipeline(horizontal, block_dim):
+    """Build the small-kernels pipeline with OpenACC directives."""
+    return SCCSmallKernelsPipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc')
 
 
 def _build_scc_stack_pipeline(horizontal, block_dim):
@@ -169,167 +143,79 @@ def _build_scc_stack_pipeline(horizontal, block_dim):
     return pipeline
 
 
-def _build_and_apply_2level(
-        driver_source, kernel_source, horizontal, block_dim,
-        driver_name, kernel_name, driver_item_name, kernel_item_name):
-    """Build 2-level call tree, apply pipeline, return (driver, kernel)."""
-    pipeline = SCCSmallKernelsPipeline(
-        horizontal=horizontal, block_dim=block_dim, directive='openacc'
-    )
-    driver = driver_source[driver_name]
-    kernel = kernel_source[kernel_name]
-    driver.enrich(kernel)
+def _apply_pipeline(pipeline, tmp_path, frontend, call_tree, fcodes):
+    """
+    Parse the given sources, enrich them along :data:`call_tree` and apply
+    :data:`pipeline` in call-tree order (or reversed for transformations
+    with ``reverse_traversal``), with the first routine as the driver.
 
-    d_item = ProcedureItem(name=driver_item_name, source=driver_source)
-    k_item = ProcedureItem(name=kernel_item_name, source=kernel_source)
-    sgraph = SGraph.from_dict({d_item: [k_item]})
+    Parameters
+    ----------
+    call_tree : dict
+        Map of routine names to the names of their callees.
+    fcodes : dict
+        Map of routine names to their (module or subroutine) source.
 
-    items = [
-        (driver, 'driver', d_item, [kernel_name]),
-        (kernel, 'kernel', k_item, []),
+    Returns
+    -------
+    dict
+        The transformed routines, keyed by name.
+    """
+    defs = [
+        Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+        for fcode in (FCODE_BNDS_TYPE_MOD, FCODE_OPTS_TYPE_MOD)
     ]
-    _apply_pipeline(pipeline, items, sgraph)
-    return driver, kernel
+    sources = {
+        name: Sourcefile.from_source(fcode, frontend=frontend, definitions=defs, xmods=[tmp_path])
+        for name, fcode in fcodes.items()
+    }
+    routines = {name: source[name] for name, source in sources.items()}
+    items = {
+        name: ProcedureItem(
+            name=f'{source.modules[0].name}#{name}' if source.modules else f'#{name}', source=source
+        )
+        for name, source in sources.items()
+    }
 
+    for name, callees in call_tree.items():
+        routines[name].enrich(tuple(routines[c] for c in callees))
+    sgraph = SGraph.from_dict({items[name]: [items[c] for c in callees] for name, callees in call_tree.items()})
 
-def _build_and_apply_3level(
-        driver_source, mid_source, sub_source,
-        horizontal, block_dim,
-        driver_name, mid_name, sub_name,
-        driver_item_name, mid_item_name, sub_item_name,
-        mid_targets=None):
-    """Build 3-level call tree, apply pipeline, return (driver, mid, sub)."""
-    pipeline = SCCSmallKernelsPipeline(
-        horizontal=horizontal, block_dim=block_dim, directive='openacc'
-    )
-    driver = driver_source[driver_name]
-    mid = mid_source[mid_name]
-    sub = sub_source[sub_name]
-    driver.enrich(mid)
-    mid.enrich(sub)
-
-    d_item = ProcedureItem(name=driver_item_name, source=driver_source)
-    m_item = ProcedureItem(name=mid_item_name, source=mid_source)
-    s_item = ProcedureItem(name=sub_item_name, source=sub_source)
-    sgraph = SGraph.from_dict({d_item: [m_item], m_item: [s_item]})
-
-    if mid_targets is None:
-        mid_targets = [sub_name]
-    items = [
-        (driver, 'driver', d_item, [mid_name]),
-        (mid, 'kernel', m_item, mid_targets),
-        (sub, 'kernel', s_item, []),
+    order = [
+        (routines[name], 'driver' if idx == 0 else 'kernel', items[name], list(callees))
+        for idx, (name, callees) in enumerate(call_tree.items())
     ]
-    _apply_pipeline(pipeline, items, sgraph)
-    return driver, mid, sub
+    for transformation in pipeline.transformations:
+        for routine, role, item, targets in (order[::-1] if transformation.reverse_traversal else order):
+            transformation.apply(routine, role=role, item=item, targets=targets, sub_sgraph=sgraph)
+    return routines
 
 
-def _build_and_apply_4level(
-        driver_source, mid_source, sub_source, leaf_source,
-        horizontal, block_dim,
-        driver_name, mid_name, sub_name, leaf_name,
-        driver_item_name, mid_item_name, sub_item_name, leaf_item_name,
-        mid_targets=None, sub_targets=None):
-    """Build 4-level call tree, apply pipeline, return routines."""
-    pipeline = SCCSmallKernelsPipeline(
-        horizontal=horizontal, block_dim=block_dim, directive='openacc'
-    )
-    driver = driver_source[driver_name]
-    mid = mid_source[mid_name]
-    sub = sub_source[sub_name]
-    leaf = leaf_source[leaf_name]
-    driver.enrich(mid)
-    mid.enrich(sub)
-    sub.enrich(leaf)
-
-    d_item = ProcedureItem(name=driver_item_name, source=driver_source)
-    m_item = ProcedureItem(name=mid_item_name, source=mid_source)
-    s_item = ProcedureItem(name=sub_item_name, source=sub_source)
-    l_item = ProcedureItem(name=leaf_item_name, source=leaf_source)
-    sgraph = SGraph.from_dict({d_item: [m_item], m_item: [s_item], s_item: [l_item]})
-
-    if mid_targets is None:
-        mid_targets = [sub_name]
-    if sub_targets is None:
-        sub_targets = [leaf_name]
-    items = [
-        (driver, 'driver', d_item, [mid_name]),
-        (mid, 'kernel', m_item, mid_targets),
-        (sub, 'kernel', s_item, sub_targets),
-        (leaf, 'kernel', l_item, []),
-    ]
-    _apply_pipeline(pipeline, items, sgraph)
-    return driver, mid, sub, leaf
+def _block_loops(routine, block_dim):
+    """Return all loops over a block-dimension index in :data:`routine`."""
+    return [loop for loop in FindNodes(ir.Loop).visit(routine.body) if loop.variable in block_dim.indices]
 
 
-def _build_and_apply_4level_full_pipeline(
-        driver_source, mid_source, sub_source, leaf_source,
-        horizontal, block_dim,
-        driver_name, mid_name, sub_name, leaf_name,
-        driver_item_name, mid_item_name, sub_item_name, leaf_item_name,
-        mid_targets=None, sub_targets=None):
-    """Build a 4-level call tree, apply the full SCC stack pipeline, and return routines."""
-    pipeline = _build_scc_stack_pipeline(horizontal, block_dim)
-    driver = driver_source[driver_name]
-    mid = mid_source[mid_name]
-    sub = sub_source[sub_name]
-    leaf = leaf_source[leaf_name]
-    driver.enrich(mid)
-    mid.enrich(sub)
-    sub.enrich(leaf)
-
-    d_item = ProcedureItem(name=driver_item_name, source=driver_source)
-    m_item = ProcedureItem(name=mid_item_name, source=mid_source)
-    s_item = ProcedureItem(name=sub_item_name, source=sub_source)
-    l_item = ProcedureItem(name=leaf_item_name, source=leaf_source)
-    sgraph = SGraph.from_dict({d_item: [m_item], m_item: [s_item], s_item: [l_item]})
-
-    if mid_targets is None:
-        mid_targets = [sub_name]
-    if sub_targets is None:
-        sub_targets = [leaf_name]
-    items = [
-        (driver, 'driver', d_item, [mid_name]),
-        (mid, 'kernel', m_item, mid_targets),
-        (sub, 'kernel', s_item, sub_targets),
-        (leaf, 'kernel', l_item, []),
-    ]
-    _apply_pipeline(pipeline, items, sgraph)
-    return driver, mid, sub, leaf
+def _gang_loop_parameters(routine, block_dim):
+    """
+    Return the parameters of the ``!$acc parallel loop gang`` pragma of
+    each block loop in :data:`routine`, or `None` for loops without it.
+    """
+    with pragmas_attached(routine, ir.Loop):
+        return [
+            get_pragma_parameters(loop.pragma, starts_with='parallel loop gang', only_loki_pragmas=False)
+            if loop.pragma and loop.pragma[0].content.startswith('parallel loop gang') else None
+            for loop in _block_loops(routine, block_dim)
+        ]
 
 
-def _has_block_loop(routine, block_dim):
-    """Return True if ``routine`` contains a loop over a block_dim index."""
-    for loop in FindNodes(ir.Loop).visit(routine.body):
-        var = str(loop.variable).lower().replace('local_', '')
-        if var in [idx.lower() for idx in block_dim.indices]:
-            return True
-    return False
-
-
-def _get_block_loops(routine, block_dim):
-    """Return all loops whose variable matches a block_dim index."""
-    result = []
-    for loop in FindNodes(ir.Loop).visit(routine.body):
-        var = str(loop.variable).lower().replace('local_', '')
-        if var in [idx.lower() for idx in block_dim.indices]:
-            result.append(loop)
-    return result
-
-
-def _routine_var_names(routine):
-    """Return set of lower-cased variable names from routine."""
-    return {v.name.lower() for v in routine.variables}
-
-
-def _find_calls_by_name(routine, callee_name):
-    """Find all CallStatements in routine.body matching callee_name."""
-    return [c for c in FindNodes(ir.CallStatement).visit(routine.body)
-            if callee_name.lower() in str(c.name).lower()]
+def _acc_pragma_contents(routine):
+    """Return the contents of all ``!$acc`` pragmas in the spec and body of :data:`routine`."""
+    return [p.content for p in FindNodes(ir.Pragma).visit(routine.ir) if p.keyword == 'acc']
 
 
 # ===================================================================
-# Group 1: Top-level driver
+# Driver -> nested driver -> leaf kernel
 # ===================================================================
 
 FCODE_TOP_DRIVER = """
@@ -361,6 +247,7 @@ contains
 end module top_driver_mod
 """.strip()
 
+
 FCODE_NESTED_DRIVER = """
 subroutine nested_driver(klon, klev, bnds, opts, t, q)
   use bnds_type_mod, only: bnds_type
@@ -384,6 +271,7 @@ subroutine nested_driver(klon, klev, bnds, opts, t, q)
   call leaf_kernel(klon, klev, bnds, opts, t, q)
 end subroutine nested_driver
 """.strip()
+
 
 FCODE_LEAF_KERNEL = """
 subroutine leaf_kernel(klon, klev, bnds, opts, t, q)
@@ -410,332 +298,56 @@ end subroutine leaf_kernel
 
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_top_driver_pool_allocator_removed(frontend, horizontal, block_dim, tmp_path):
+def test_sk_pipeline_nested_driver(frontend, horizontal, block_dim, tmp_path):
     """
-    Top-level driver: after the pipeline, the
-    driver must NOT have ISTSZ/ZSTACK/ALLOCATE/DEALLOCATE — pool
-    allocator infrastructure is moved down into nested kernels.
+    Test the pipeline on a driver calling a nested driver with horizontal
+    work and a small-kernels call to a leaf kernel with a temporary.
+
+    The block loop is removed from the top-level driver, together with the
+    pool allocator infrastructure, and re-created as offloaded block loops
+    in the nested driver and the leaf kernel, using local copies of the
+    bounds object.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={'top_driver': ('nested_driver',), 'nested_driver': ('leaf_kernel',), 'leaf_kernel': ()},
+        fcodes={
+            'top_driver': FCODE_TOP_DRIVER, 'nested_driver': FCODE_NESTED_DRIVER,
+            'leaf_kernel': FCODE_LEAF_KERNEL
+        }
     )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    driver, nested, leaf = routines['top_driver'], routines['nested_driver'], routines['leaf_kernel']
 
-    driver, _, _ = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
+    # The top-level driver has no block loop and no pool allocator infrastructure
+    assert not _block_loops(driver, block_dim)
+    assert 'istsz' not in driver.variable_map
+    assert 'zstack' not in driver.variable_map
+    assert not FindNodes(ir.Allocation).visit(driver.body)
+    assert not FindNodes(ir.Deallocation).visit(driver.body)
 
-    var_names = _routine_var_names(driver)
-    assert 'istsz' not in var_names
-    assert 'zstack' not in var_names
+    # The nested driver and leaf kernel get offloaded block loops, with the
+    # host-initialised local copy of the bounds object as firstprivate
+    for routine in (nested, leaf):
+        gang_params = _gang_loop_parameters(routine, block_dim)
+        assert gang_params and all(params is not None for params in gang_params)
+        assert all(params['firstprivate'] == 'local_bnds' for params in gang_params)
+        assert 'local_bnds' in routine.variable_map
 
-    allocs = FindNodes(ir.Allocation).visit(driver.body)
-    deallocs = FindNodes(ir.Deallocation).visit(driver.body)
-    assert not any('zstack' in str(a).lower() for a in allocs)
-    assert not any('zstack' in str(d).lower() for d in deallocs)
+    # The nested driver receives or forwards the stack, and passes the bounds object to the leaf kernel
+    assert 'ydstack_l' in nested.variable_map or 'ylstack_l' in nested.variable_map
+    calls = [call for call in FindNodes(ir.CallStatement).visit(nested.body) if call.name == 'leaf_kernel']
+    assert len(calls) == 1
+    assert 'bnds' in calls[0].arguments
+
+    # The leaf kernel temporary is created on the device, and the leaf kernel
+    # owns its parallel regions, so it is not a device routine
+    acc_pragmas = _acc_pragma_contents(leaf)
+    assert 'enter data create(ztmp)' in acc_pragmas
+    assert not any(content.startswith('routine') for content in acc_pragmas)
 
 
 # ===================================================================
-# Group 2: Nested driver
-# ===================================================================
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_nested_driver_gets_block_loop(frontend, horizontal, block_dim, tmp_path):
-    """
-    Nested driver kernel: after the pipeline, the
-    nested driver must have a block-dimension loop with
-    ``!$acc parallel loop gang``.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, nested, _ = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    assert _has_block_loop(nested, block_dim), (
-        f"Nested driver should have a block-dimension loop.\n"
-        f"Code:\n{fgen(nested)}"
-    )
-
-    # Check for !$acc parallel loop gang pragma on or near the block loop
-    code_lower = fgen(nested).lower()
-    assert 'acc parallel loop gang' in code_lower, (
-        f"Nested driver block loop should have !$acc parallel loop gang.\n"
-        f"Code:\n{fgen(nested)}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_nested_driver_gets_stack_args(frontend, horizontal, block_dim, tmp_path):
-    """
-    Nested driver kernel: in the per-driver-loop
-    pool allocator, the nested driver receives stack args (YDSTACK_L)
-    from the top-level driver and forwards them via YLSTACK_L.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, nested, _ = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    var_names = _routine_var_names(nested)
-    # Nested driver receives stack args from parent (not its own ISTSZ/ZSTACK)
-    assert 'ydstack_l' in var_names or 'ylstack_l' in var_names, (
-        f"Nested driver should have YDSTACK_L or YLSTACK_L.\n"
-        f"Vars: {sorted(var_names)}\nCode:\n{fgen(nested)}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_nested_driver_local_copies(frontend, horizontal, block_dim, tmp_path):
-    """
-    Nested driver: block loop must contain local
-    copies (e.g. ``local_bnds``) and these must
-    appear in the ``firstprivate(...)`` clause, as they are
-    initialised on the host before the block loop.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, nested, _ = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    code = fgen(nested)
-    code_lower = code.lower()
-
-    # Should have at least one local_ variable
-    assert 'local_' in code_lower, (
-        f"Nested driver should have local_ copies.\nCode:\n{code}"
-    )
-
-    # Check for firstprivate clause containing local_ variables
-    private_match = re.search(r'\bfirstprivate\(([^)]+)\)', code_lower)
-    assert private_match, (
-        f"Nested driver should have a firstprivate(...) clause.\nCode:\n{code}"
-    )
-    private_vars = private_match.group(1)
-    assert 'local_' in private_vars, (
-        f"firstprivate(...) clause should contain local_ variables.\n"
-        f"firstprivate clause: {private_vars}\nCode:\n{code}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_nested_driver_passes_kwargs(frontend, horizontal, block_dim, tmp_path):
-    """
-    Nested driver: calls to leaf kernels must include
-    BNDS and OPTS as keyword arguments after the pipeline.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, nested, _ = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    calls = _find_calls_by_name(nested, 'leaf_kernel')
-    assert calls, f"Nested driver should still call leaf_kernel.\nCode:\n{fgen(nested)}"
-
-    for call in calls:
-        kwarg_names = [kw[0].lower() for kw in (call.kwarguments or ())]
-        arg_strs = [str(a).lower() for a in call.arguments]
-        all_args = kwarg_names + arg_strs
-        # BNDS may be passed as positional (local_bnds) or kwarg
-        has_bnds = any('bnds' in a for a in all_args)
-        assert has_bnds, (
-            f"Call to leaf_kernel should pass BNDS (positional or kwarg).\n"
-            f"Args: {arg_strs}\nKwargs: {kwarg_names}\n"
-            f"Call: {fgen(call)}\nCode:\n{fgen(nested)}"
-        )
-
-
-# ===================================================================
-# Group 3: Leaf kernel
-# ===================================================================
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_leaf_kernel_parallel_regions(frontend, horizontal, block_dim, tmp_path):
-    """
-    Leaf kernel: after the pipeline, the leaf
-    kernel must have ``!$acc parallel loop gang`` regions with local
-    copies of block indices.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, _, leaf = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    code = fgen(leaf)
-    code_lower = code.lower()
-
-    # Leaf kernel should have block loop(s) with acc parallel loop gang
-    assert _has_block_loop(leaf, block_dim), (
-        f"Leaf kernel should have a block-dimension loop.\nCode:\n{code}"
-    )
-    assert 'acc parallel loop gang' in code_lower, (
-        f"Leaf kernel should have !$acc parallel loop gang.\nCode:\n{code}"
-    )
-
-    # Should have local_ copies
-    assert 'local_' in code_lower, (
-        f"Leaf kernel should have local_ copies of block indices.\n"
-        f"Code:\n{code}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_leaf_kernel_temp_promotion(frontend, horizontal, block_dim, tmp_path):
-    """
-    Leaf kernel: local temporary arrays must get
-    ``!$acc enter data create`` / ``!$acc exit data delete`` (or
-    ``!$loki`` equivalents) after promotion.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, _, leaf = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    code = fgen(leaf)
-    code_lower = code.lower()
-
-    # Check for data management pragmas for ztmp
-    has_enter_data = ('acc enter data' in code_lower or
-                      'loki unstructured-data' in code_lower)
-    # ztmp should be promoted and have data directives
-    # (The pool allocator may convert it to Cray pointer instead;
-    # either approach is valid)
-    all_pragmas = FindNodes(ir.Pragma).visit(leaf.body)
-    cray_ptrs = FindNodes(ir.GenericStmt).visit(leaf.spec)
-    has_cray = any('ztmp' in i.text.lower() for i in cray_ptrs
-                    if 'pointer' in i.text.lower())
-
-    assert has_enter_data or has_cray, (
-        f"Leaf kernel's ztmp should either have !$acc enter data create\n"
-        f"or be pool-allocated via Cray pointer.\n"
-        f"Pragmas: {[fgen(p) for p in all_pragmas]}\n"
-        f"Cray pointers: {[i.text for i in cray_ptrs]}\n"
-        f"Code:\n{code}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_leaf_kernel_acc_routine_removed(frontend, horizontal, block_dim, tmp_path):
-    """
-    Leaf kernel that gets ``!$acc parallel loop gang`` regions must
-    NOT have ``!$acc routine seq`` — it now owns parallel regions.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_TOP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_NESTED_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, _, leaf = _build_and_apply_3level(
-        driver_src, mid_src, sub_src, horizontal, block_dim,
-        'top_driver', 'nested_driver', 'leaf_kernel',
-        'top_driver_mod#top_driver', '#nested_driver', '#leaf_kernel'
-    )
-
-    code = fgen(leaf)
-    code_lower = code.lower()
-
-    # If it has acc parallel loop gang, it must NOT have acc routine seq
-    if 'acc parallel loop gang' in code_lower:
-        assert 'acc routine seq' not in code_lower, (
-            f"Leaf kernel with !$acc parallel loop gang should NOT\n"
-            f"have !$acc routine seq.\nCode:\n{code}"
-        )
-
-
-# ===================================================================
-# Group 4: Thin wrapper
+# Thin wrapper and intermediate kernels
 # ===================================================================
 
 FCODE_WRAPPER_DRIVER = """
@@ -767,6 +379,7 @@ contains
 end module wrapper_driver_mod
 """.strip()
 
+
 FCODE_THIN_WRAPPER = """
 subroutine thin_wrapper(klon, klev, kst, kend, phi, pt)
   implicit none
@@ -779,6 +392,7 @@ subroutine thin_wrapper(klon, klev, kst, kend, phi, pt)
   call inner_compute(klon, klev, kst, kend, phi, pt)
 end subroutine thin_wrapper
 """.strip()
+
 
 FCODE_INNER_COMPUTE = """
 subroutine inner_compute(klon, klev, kst, kend, phi, pt)
@@ -806,6 +420,7 @@ subroutine inner_compute(klon, klev, kst, kend, phi, pt)
   end do
 end subroutine inner_compute
 """.strip()
+
 
 FCODE_DEEP_DRIVER = """
 module deep_driver_mod
@@ -835,6 +450,7 @@ contains
 end module deep_driver_mod
 """.strip()
 
+
 FCODE_MID_KERNEL = """
 subroutine mid_kernel(klon, klev, bnds, opts, phi, pt)
   use bnds_type_mod, only: bnds_type
@@ -850,6 +466,7 @@ subroutine mid_kernel(klon, klev, bnds, opts, phi, pt)
   call sub_kernel(klon, klev, bnds, opts, phi, pt)
 end subroutine mid_kernel
 """.strip()
+
 
 FCODE_SUB_KERNEL = """
 subroutine sub_kernel(klon, klev, bnds, opts, phi, pt)
@@ -883,6 +500,7 @@ subroutine sub_kernel(klon, klev, bnds, opts, phi, pt)
 end subroutine sub_kernel
 """.strip()
 
+
 FCODE_LEAF_KERNEL_DEEP = """
 subroutine leaf_kernel_deep(klon, klev, bnds, opts, phi, zsum)
   use bnds_type_mod, only: bnds_type
@@ -902,6 +520,7 @@ subroutine leaf_kernel_deep(klon, klev, bnds, opts, phi, zsum)
   end do
 end subroutine leaf_kernel_deep
 """.strip()
+
 
 FCODE_CONDITIONAL_ACC_PROLOGUE_SUB_KERNEL = """
 subroutine conditional_acc_prologue_sub_kernel(klon, klev, kst, kend, lvertfe, mode_intg, phi, phif, pt, pr, plnpr)
@@ -1026,6 +645,7 @@ subroutine conditional_acc_prologue_leaf_kernel(klon, klev, kst, kend, zphi, phi
 end subroutine conditional_acc_prologue_leaf_kernel
 """.strip()
 
+
 FCODE_EXPLICIT_ACC_DATA_DRIVER = """
 module explicit_acc_data_driver_mod
   implicit none
@@ -1058,6 +678,7 @@ contains
 end module explicit_acc_data_driver_mod
 """.strip()
 
+
 FCODE_EXPLICIT_ACC_DATA_MID_KERNEL = """
 subroutine explicit_acc_data_mid_kernel(klon, klev, kst, kend, lvertfe, phi, phif, pt, pr, plnpr)
   implicit none
@@ -1073,6 +694,7 @@ subroutine explicit_acc_data_mid_kernel(klon, klev, kst, kend, lvertfe, phi, phi
   call explicit_acc_data_sub_kernel(klon, klev, kst, kend, lvertfe, phi, phif, pt, pr, plnpr)
 end subroutine explicit_acc_data_mid_kernel
 """.strip()
+
 
 FCODE_EXPLICIT_ACC_DATA_SUB_KERNEL = """
 subroutine explicit_acc_data_sub_kernel(klon, klev, kst, kend, lvertfe, phi, phif, pt, pr, plnpr)
@@ -1121,7 +743,6 @@ end subroutine explicit_acc_data_sub_kernel
 """.strip()
 
 
-
 FCODE_EXPLICIT_ACC_DATA_LEAF_KERNEL = """
 subroutine explicit_acc_data_leaf_kernel(klon, klev, kst, kend, zphi, phif, pedge)
   implicit none
@@ -1147,87 +768,44 @@ def test_thin_wrapper_no_block_loop(frontend, horizontal, block_dim, tmp_path):
     Thin wrapper kernel: must NOT have a block loop.
     The block loop belongs inside the inner kernel, not in the wrapper.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_WRAPPER_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={'wrapper_driver': ('thin_wrapper',), 'thin_wrapper': ('inner_compute',), 'inner_compute': ()},
+        fcodes={
+            'wrapper_driver': FCODE_WRAPPER_DRIVER, 'thin_wrapper': FCODE_THIN_WRAPPER,
+            'inner_compute': FCODE_INNER_COMPUTE
+        }
     )
-    wrapper_src = Sourcefile.from_source(
-        FCODE_THIN_WRAPPER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    inner_src = Sourcefile.from_source(
-        FCODE_INNER_COMPUTE, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    wrapper, inner = routines['thin_wrapper'], routines['inner_compute']
 
-    _, wrapper, inner = _build_and_apply_3level(
-        driver_src, wrapper_src, inner_src, horizontal, block_dim,
-        'wrapper_driver', 'thin_wrapper', 'inner_compute',
-        'wrapper_driver_mod#wrapper_driver', '#thin_wrapper', '#inner_compute'
-    )
-
-    # Wrapper must NOT have a block loop
-    assert not _has_block_loop(wrapper, block_dim), (
-        f"Thin wrapper should NOT have a block loop.\n"
-        f"Code:\n{fgen(wrapper)}"
-    )
-
-    # Wrapper must still call inner_compute
-    calls = _find_calls_by_name(wrapper, 'inner_compute')
-    assert calls, (
-        f"Wrapper should still call inner_compute.\nCode:\n{fgen(wrapper)}"
-    )
-
-    # Inner kernel MUST have a block loop
-    assert _has_block_loop(inner, block_dim), (
-        f"Inner kernel should have a block-dimension loop.\n"
-        f"Code:\n{fgen(inner)}"
-    )
+    assert not _block_loops(wrapper, block_dim)
+    assert [call.name for call in FindNodes(ir.CallStatement).visit(wrapper.body)] == ['inner_compute']
+    assert _block_loops(inner, block_dim)
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_block_section_propagates_through_intermediate_kernel(
-        frontend, horizontal, block_dim, tmp_path):
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_block_section_propagates_through_intermediate_kernel(frontend, horizontal, block_dim, tmp_path):
     """
     A kernel with horizontal work around a ``!$loki small-kernels`` call
     must still propagate block-section processing to its leaf callee.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_DEEP_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={
+            'deep_driver': ('mid_kernel',), 'mid_kernel': ('sub_kernel',),
+            'sub_kernel': ('leaf_kernel_deep',), 'leaf_kernel_deep': ()
+        },
+        fcodes={
+            'deep_driver': FCODE_DEEP_DRIVER, 'mid_kernel': FCODE_MID_KERNEL,
+            'sub_kernel': FCODE_SUB_KERNEL, 'leaf_kernel_deep': FCODE_LEAF_KERNEL_DEEP
+        }
     )
-    mid_src = Sourcefile.from_source(
-        FCODE_MID_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_SUB_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    leaf_src = Sourcefile.from_source(
-        FCODE_LEAF_KERNEL_DEEP, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    sub, leaf = routines['sub_kernel'], routines['leaf_kernel_deep']
 
-    _, _, sub, leaf = _build_and_apply_4level(
-        driver_src, mid_src, sub_src, leaf_src, horizontal, block_dim,
-        'deep_driver', 'mid_kernel', 'sub_kernel', 'leaf_kernel_deep',
-        'deep_driver_mod#deep_driver', '#mid_kernel', '#sub_kernel', '#leaf_kernel_deep'
-    )
-
-    assert _has_block_loop(sub, block_dim), (
-        f"Intermediate kernel should have a block-dimension loop.\nCode:\n{fgen(sub)}"
-    )
-    assert _has_block_loop(leaf, block_dim), (
-        f"Leaf kernel should inherit block-section processing through the "
-        f"intermediate kernel.\nCode:\n{fgen(leaf)}"
-    )
-
-    calls = _find_calls_by_name(sub, 'leaf_kernel_deep')
-    assert calls, (
-        f"Intermediate kernel should still call leaf_kernel_deep.\n"
-        f"Code:\n{fgen(sub)}"
-    )
-    assert 'acc parallel loop gang' in fgen(leaf).lower(), (
-        f"Leaf kernel should own a parallel block loop after propagation.\n"
-        f"Code:\n{fgen(leaf)}"
-    )
+    assert _block_loops(sub, block_dim)
+    assert 'leaf_kernel_deep' in [call.name for call in FindNodes(ir.CallStatement).visit(sub.body)]
+    gang_params = _gang_loop_parameters(leaf, block_dim)
+    assert gang_params and all(params is not None for params in gang_params)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -1236,61 +814,72 @@ def test_real_pipeline_conditional_acc_prologue_outside_first_block_loop(
         frontend, horizontal, block_dim, tmp_path):
     """
     In the first conditional branch, ``!$acc enter data create`` and the
-    mode-flag setup must stay outside
-    the first inserted block loop.
+    mode-flag setup must stay outside the first inserted block loop.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_CONDITIONAL_ACC_PROLOGUE_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _build_scc_stack_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={
+            'conditional_acc_prologue_driver': ('conditional_acc_prologue_mid_kernel',),
+            'conditional_acc_prologue_mid_kernel': ('conditional_acc_prologue_sub_kernel',),
+            'conditional_acc_prologue_sub_kernel': ('conditional_acc_prologue_leaf_kernel',),
+            'conditional_acc_prologue_leaf_kernel': (),
+        },
+        fcodes={
+            'conditional_acc_prologue_driver': FCODE_CONDITIONAL_ACC_PROLOGUE_DRIVER,
+            'conditional_acc_prologue_mid_kernel': FCODE_CONDITIONAL_ACC_PROLOGUE_MID_KERNEL,
+            'conditional_acc_prologue_sub_kernel': FCODE_CONDITIONAL_ACC_PROLOGUE_SUB_KERNEL,
+            'conditional_acc_prologue_leaf_kernel': FCODE_CONDITIONAL_ACC_PROLOGUE_LEAF_KERNEL,
+        }
     )
-    mid_src = Sourcefile.from_source(
-        FCODE_CONDITIONAL_ACC_PROLOGUE_MID_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_CONDITIONAL_ACC_PROLOGUE_SUB_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    leaf_src = Sourcefile.from_source(
-        FCODE_CONDITIONAL_ACC_PROLOGUE_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    sub = routines['conditional_acc_prologue_sub_kernel']
 
-    _, _, sub, _ = _build_and_apply_4level_full_pipeline(
-        driver_src, mid_src, sub_src, leaf_src, horizontal, block_dim,
-        'conditional_acc_prologue_driver', 'conditional_acc_prologue_mid_kernel',
-        'conditional_acc_prologue_sub_kernel', 'conditional_acc_prologue_leaf_kernel',
-        'conditional_acc_prologue_driver_mod#conditional_acc_prologue_driver',
-        '#conditional_acc_prologue_mid_kernel', '#conditional_acc_prologue_sub_kernel',
-        '#conditional_acc_prologue_leaf_kernel'
-    )
-
-    block_loops = _get_block_loops(sub, block_dim)
-    assert block_loops, f"Expected block loop in transformed sub-kernel.\nCode:\n{fgen(sub)}"
+    block_loops = _block_loops(sub, block_dim)
+    assert block_loops
     first_loop = block_loops[0]
 
-    pragmas = FindNodes(ir.Pragma).visit(first_loop.body)
-    assignments = FindNodes(ir.Assignment).visit(first_loop.body)
-    enter_data_inside = [
-        p for p in pragmas
-        if p.keyword.lower() == 'acc'
-        and 'enter' in p.content.lower()
-        and 'data' in p.content.lower()
-        and 'create' in p.content.lower()
+    assert not [
+        p for p in FindNodes(ir.Pragma).visit(first_loop.body)
+        if p.keyword == 'acc' and p.content.startswith('enter data create')
     ]
-    mode_assigns_inside = [a for a in assignments if a.lhs == 'mode_flag']
+    assert not [a for a in FindNodes(ir.Assignment).visit(first_loop.body) if a.lhs == 'mode_flag']
 
-    assert not enter_data_inside, (
-        f"Conditional prologue reproducer: !$acc enter data create(...) should stay outside the first block loop.\n"
-        f"Found inside first block loop: {[fgen(p) for p in enter_data_inside]}\n"
-        f"First block loop:\n{fgen(first_loop)}\n\nFull sub-kernel:\n{fgen(sub)}"
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_real_pipeline_explicit_acc_data_regions_not_duplicated(frontend, horizontal, block_dim, tmp_path):
+    """
+    The real scc-stack pipeline must not duplicate explicit ACC data regions.
+
+    This reproduces the explicit-data-managed shape where a kernel already contains
+    explicit ``!$acc data`` and ``!$acc enter/exit data`` pragmas before SCC
+    annotation and pragma-model lowering are applied.
+    """
+    routines = _apply_pipeline(
+        _build_scc_stack_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={
+            'explicit_acc_data_driver': ('explicit_acc_data_mid_kernel',),
+            'explicit_acc_data_mid_kernel': ('explicit_acc_data_sub_kernel',),
+            'explicit_acc_data_sub_kernel': ('explicit_acc_data_leaf_kernel',),
+            'explicit_acc_data_leaf_kernel': (),
+        },
+        fcodes={
+            'explicit_acc_data_driver': FCODE_EXPLICIT_ACC_DATA_DRIVER,
+            'explicit_acc_data_mid_kernel': FCODE_EXPLICIT_ACC_DATA_MID_KERNEL,
+            'explicit_acc_data_sub_kernel': FCODE_EXPLICIT_ACC_DATA_SUB_KERNEL,
+            'explicit_acc_data_leaf_kernel': FCODE_EXPLICIT_ACC_DATA_LEAF_KERNEL,
+        }
     )
-    assert not mode_assigns_inside, (
-        f"Conditional prologue reproducer: mode-flag setup should stay outside the first block loop.\n"
-        f"Found inside first block loop: {[fgen(a) for a in mode_assigns_inside]}\n"
-        f"First block loop:\n{fgen(first_loop)}\n\nFull sub-kernel:\n{fgen(sub)}"
-    )
+    acc_pragmas = [p.content.lower() for p in FindNodes(ir.Pragma).visit(routines['explicit_acc_data_sub_kernel'].body)
+                   if p.keyword.lower() == 'acc']
+
+    assert len([p for p in acc_pragmas if p.startswith('data ')]) == 1
+    assert len([p for p in acc_pragmas if p == 'end data']) == 1
+    assert len([p for p in acc_pragmas if p.startswith('enter data')]) == 1
+    assert len([p for p in acc_pragmas if p.startswith('exit data')]) == 1
 
 
 # ===================================================================
-# Group 5: Vector and stack propagation
+# Vector kernels and stack propagation
 # ===================================================================
 
 FCODE_VEC_DRIVER = """
@@ -1322,6 +911,7 @@ contains
 end module vec_driver_mod
 """.strip()
 
+
 # Vector kernel: simple kernel called with !$loki small-kernels.
 # It should get !$acc routine seq or vector annotation, but not its own
 # pool allocator.
@@ -1343,6 +933,7 @@ subroutine vec_kernel(klon, klev, bnds, t, q)
   end do
 end subroutine vec_kernel
 """.strip()
+
 
 # Stack-propagation pattern: caller -> callee where callee has
 # local temporaries that get pool-allocated.
@@ -1368,6 +959,7 @@ subroutine stack_caller(klon, klev, bnds, opts, pfield)
   call stack_callee(klon, klev, bnds, opts, pfield)
 end subroutine stack_caller
 """.strip()
+
 
 FCODE_STACK_DRIVER = """
 module stack_driver_mod
@@ -1396,6 +988,7 @@ contains
   end subroutine stack_driver
 end module stack_driver_mod
 """.strip()
+
 
 FCODE_STACK_CALLEE = """
 subroutine stack_callee(klon, klev, bnds, opts, pfield)
@@ -1432,63 +1025,22 @@ end subroutine stack_callee
 
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_vector_kernel_no_pool_allocator(frontend, horizontal, block_dim, tmp_path):
+def test_vector_kernel(frontend, horizontal, block_dim, tmp_path):
     """
-    Simple leaf kernel: a kernel without sub-calls
-    should NOT get ISTSZ/ZSTACK at the kernel level.
+    A simple leaf kernel called with ``!$loki small-kernels`` gets
+    OpenACC annotations, but not its own pool allocator.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_VEC_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={'vec_driver': ('vec_kernel',), 'vec_kernel': ()},
+        fcodes={'vec_driver': FCODE_VEC_DRIVER, 'vec_kernel': FCODE_VEC_KERNEL}
     )
-    kernel_src = Sourcefile.from_source(
-        FCODE_VEC_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    vec_kernel = routines['vec_kernel']
 
-    _, vec_kernel = _build_and_apply_2level(
-        driver_src, kernel_src, horizontal, block_dim,
-        'vec_driver', 'vec_kernel',
-        'vec_driver_mod#vec_driver', '#vec_kernel'
-    )
-
-    var_names = _routine_var_names(vec_kernel)
-    assert 'istsz' not in var_names, (
-        f"Vector kernel should NOT have ISTSZ.\nVars: {sorted(var_names)}\n"
-        f"Code:\n{fgen(vec_kernel)}"
-    )
-    assert 'zstack' not in var_names, (
-        f"Vector kernel should NOT have ZSTACK.\nVars: {sorted(var_names)}\n"
-        f"Code:\n{fgen(vec_kernel)}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_vector_kernel_acc_routine(frontend, horizontal, block_dim, tmp_path):
-    """
-    Leaf kernel called with ``!$loki small-kernels``: should get
-    ``!$acc routine seq`` or ``!$acc routine vector`` annotation.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_VEC_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    kernel_src = Sourcefile.from_source(
-        FCODE_VEC_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, vec_kernel = _build_and_apply_2level(
-        driver_src, kernel_src, horizontal, block_dim,
-        'vec_driver', 'vec_kernel',
-        'vec_driver_mod#vec_driver', '#vec_kernel'
-    )
-
-    code_lower = fgen(vec_kernel).lower()
-    has_acc_routine = ('acc routine' in code_lower or
-                       'acc parallel loop gang' in code_lower)
-    assert has_acc_routine, (
-        f"Kernel should have !$acc routine or !$acc parallel loop gang.\n"
-        f"Code:\n{fgen(vec_kernel)}"
+    assert 'istsz' not in vec_kernel.variable_map
+    assert 'zstack' not in vec_kernel.variable_map
+    assert any(
+        content.startswith(('routine', 'parallel loop gang')) for content in _acc_pragma_contents(vec_kernel)
     )
 
 
@@ -1496,51 +1048,27 @@ def test_vector_kernel_acc_routine(frontend, horizontal, block_dim, tmp_path):
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
 def test_stack_arg_propagated_to_callee(frontend, horizontal, block_dim, tmp_path):
     """
-    Stack arg propagation: callee kernel with local
-    temporaries must get YDSTACK_L in its argument list, and the
-    caller's call must pass it.
+    Stack arg propagation: callee kernel with local temporaries must get
+    YDSTACK_L in its argument list, and the caller's call must pass it.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_STACK_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={'stack_driver': ('stack_caller',), 'stack_caller': ('stack_callee',), 'stack_callee': ()},
+        fcodes={
+            'stack_driver': FCODE_STACK_DRIVER, 'stack_caller': FCODE_STACK_CALLER,
+            'stack_callee': FCODE_STACK_CALLEE
+        }
     )
-    caller_src = Sourcefile.from_source(
-        FCODE_STACK_CALLER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    callee_src = Sourcefile.from_source(
-        FCODE_STACK_CALLEE, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    caller, callee = routines['stack_caller'], routines['stack_callee']
 
-    _, caller, callee = _build_and_apply_3level(
-        driver_src, caller_src, callee_src, horizontal, block_dim,
-        'stack_driver', 'stack_caller', 'stack_callee',
-        'stack_driver_mod#stack_driver', '#stack_caller', '#stack_callee'
-    )
-
-    # Callee should have stack arg (YDSTACK_L)
-    callee_arg_names = [str(a).lower() for a in callee.arguments]
-    has_stack = any('stack' in a for a in callee_arg_names)
-    assert has_stack, (
-        f"Callee should have YDSTACK_L in args.\n"
-        f"Args: {callee_arg_names}\nCode:\n{fgen(callee)}"
-    )
-
-    # Caller's call to callee must pass stack arg
-    calls = _find_calls_by_name(caller, 'stack_callee')
-    assert calls, f"Caller should call stack_callee.\nCode:\n{fgen(caller)}"
-    for call in calls:
-        kwarg_names = [kw[0].lower() for kw in (call.kwarguments or ())]
-        arg_strs = [str(a).lower() for a in call.arguments]
-        assert any('stack' in kw for kw in kwarg_names) or \
-               any('stack' in a for a in arg_strs), (
-            f"Call to stack_callee must pass YDSTACK_L.\n"
-            f"Kwargs: {kwarg_names}\nArgs: {arg_strs}\n"
-            f"Call: {fgen(call)}\nCode:\n{fgen(caller)}"
-        )
+    assert 'ydstack_l' in callee.arguments
+    calls = [call for call in FindNodes(ir.CallStatement).visit(caller.body) if call.name == 'stack_callee']
+    assert len(calls) == 1
+    assert 'ydstack_l' in CaseInsensitiveDict(calls[0].kwarguments)
 
 
 # ===================================================================
-# Group 6: Multi-driver-loop
+# Multiple driver loops
 # ===================================================================
 
 FCODE_MULTI_DRIVER = """
@@ -1593,6 +1121,7 @@ contains
 end module multi_driver_mod
 """.strip()
 
+
 FCODE_KERNEL_A = """
 module kernel_a_mod
   implicit none
@@ -1621,6 +1150,7 @@ contains
 end module kernel_a_mod
 """.strip()
 
+
 FCODE_KERNEL_B = """
 module kernel_b_mod
   implicit none
@@ -1642,6 +1172,7 @@ contains
   end subroutine kernel_b
 end module kernel_b_mod
 """.strip()
+
 
 FCODE_KERNEL_C = """
 module kernel_c_mod
@@ -1672,34 +1203,6 @@ end module kernel_c_mod
 """.strip()
 
 
-def _build_and_apply_multi_driver(
-        driver_source, kernel_sources, horizontal, block_dim,  # pylint: disable=unused-argument
-        driver_name, kernel_names, driver_item_name, kernel_item_names,
-        kernel_source_objs):
-    """
-    Build multi-kernel call tree. Only the driver gets 'driver' role;
-    kernels get 'kernel' role. All go through the pipeline.
-    """
-    pipeline = SCCSmallKernelsPipeline(
-        horizontal=horizontal, block_dim=block_dim, directive='openacc'
-    )
-    driver = driver_source[driver_name]
-    kernels = [src[name] for src, name in zip(kernel_source_objs, kernel_names)]
-    for k in kernels:
-        driver.enrich(k)
-
-    d_item = ProcedureItem(name=driver_item_name, source=driver_source)
-    k_items = [ProcedureItem(name=iname, source=src)
-               for iname, src in zip(kernel_item_names, kernel_source_objs)]
-    sgraph = SGraph.from_dict({d_item: k_items})
-
-    items = [(driver, 'driver', d_item, list(kernel_names))]
-    for k, ki in zip(kernels, k_items):
-        items.append((k, 'kernel', ki, []))
-    _apply_pipeline(pipeline, items, sgraph)
-    return driver, kernels
-
-
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
 @pytest.mark.xfail(reason=(
@@ -1707,118 +1210,43 @@ def _build_and_apply_multi_driver(
     'All-SK multi-loop drivers hoist block loops into kernels, removing '
     'ISTSZ/ZSTACK from the driver.'
 ))
-def test_multi_driver_loop_max_istsz(frontend, horizontal, block_dim, tmp_path):
+def test_multi_driver_loop_pool_allocator(frontend, horizontal, block_dim, tmp_path):
     """
-    Driver with multiple block loops:
-    ISTSZ must be aggregated via MAX across all driver loops, and
-    ZSTACK must be allocated.
+    Driver with multiple block loops: ISTSZ must be aggregated via MAX
+    across all driver loops, ZSTACK must be allocated, and each loop with
+    stack-needing calls must have ``YLSTACK_L = LOC(ZSTACK(...))`` inside.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_MULTI_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={
+            'multi_driver': ('kernel_a', 'kernel_b', 'kernel_c'),
+            'kernel_a': (), 'kernel_b': (), 'kernel_c': ()
+        },
+        fcodes={
+            'multi_driver': FCODE_MULTI_DRIVER, 'kernel_a': FCODE_KERNEL_A,
+            'kernel_b': FCODE_KERNEL_B, 'kernel_c': FCODE_KERNEL_C
+        }
     )
-    ka_src = Sourcefile.from_source(
-        FCODE_KERNEL_A, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    kb_src = Sourcefile.from_source(
-        FCODE_KERNEL_B, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    kc_src = Sourcefile.from_source(
-        FCODE_KERNEL_C, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    driver = routines['multi_driver']
 
-    driver, _ = _build_and_apply_multi_driver(
-        driver_src,
-        [ka_src, kb_src, kc_src],
-        horizontal, block_dim,
-        'multi_driver',
-        ['kernel_a', 'kernel_b', 'kernel_c'],
-        'multi_driver_mod#multi_driver',
-        ['kernel_a_mod#kernel_a', 'kernel_b_mod#kernel_b', 'kernel_c_mod#kernel_c'],
-        [ka_src, kb_src, kc_src]
-    )
+    # ISTSZ is aggregated with MAX and ZSTACK is allocated
+    assert 'istsz' in driver.variable_map
+    assert any(var == 'zstack' for alloc in FindNodes(ir.Allocation).visit(driver.body) for var in alloc.variables)
+    istsz_assigns = [a for a in FindNodes(ir.Assignment).visit(driver.body) if a.lhs == 'istsz']
+    assert istsz_assigns
+    assert 'max' in str(istsz_assigns[0].rhs).lower()
 
-    var_names = _routine_var_names(driver)
-    assert 'istsz' in var_names, (
-        f"Driver must have ISTSZ.\nVars: {sorted(var_names)}\n"
-        f"Code:\n{fgen(driver)}"
-    )
-
-    allocs = FindNodes(ir.Allocation).visit(driver.body)
-    assert any('zstack' in str(a).lower() for a in allocs), (
-        f"Driver must ALLOCATE ZSTACK.\n"
-        f"Allocations: {[fgen(a) for a in allocs]}\n"
-        f"Code:\n{fgen(driver)}"
-    )
-
-    # ISTSZ should use MAX (aggregating across loops)
-    assigns = FindNodes(ir.Assignment).visit(driver.body)
-    istsz_assigns = [a for a in assigns if str(a.lhs).lower() == 'istsz']
-    assert istsz_assigns, f"Driver must have ISTSZ assignment.\nCode:\n{fgen(driver)}"
-
-    istsz_rhs = str(istsz_assigns[0].rhs).lower()
-    assert 'max' in istsz_rhs, (
-        f"ISTSZ should use MAX to aggregate stack sizes.\n"
-        f"ISTSZ RHS: {istsz_rhs}\nCode:\n{fgen(driver)}"
-    )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-@pytest.mark.xfail(reason=(
-    'Multi-driver-loop pattern requires mixing SK and standard SCC pipelines.'
-))
-def test_multi_driver_loop_loc_assigns(frontend, horizontal, block_dim, tmp_path):
-    """
-    Driver with multiple block loops: each loop with stack-needing
-    calls must have ``YLSTACK_L = LOC(ZSTACK(...))`` inside.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_MULTI_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    ka_src = Sourcefile.from_source(
-        FCODE_KERNEL_A, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    kb_src = Sourcefile.from_source(
-        FCODE_KERNEL_B, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    kc_src = Sourcefile.from_source(
-        FCODE_KERNEL_C, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    driver, _ = _build_and_apply_multi_driver(
-        driver_src,
-        [ka_src, kb_src, kc_src],
-        horizontal, block_dim,
-        'multi_driver',
-        ['kernel_a', 'kernel_b', 'kernel_c'],
-        'multi_driver_mod#multi_driver',
-        ['kernel_a_mod#kernel_a', 'kernel_b_mod#kernel_b', 'kernel_c_mod#kernel_c'],
-        [ka_src, kb_src, kc_src]
-    )
-
-    # Find LOC(ZSTACK) assignments inside driver loops
-    driver_loops = FindNodes(ir.Loop).visit(driver.body)
-    loc_count = 0
-    for dl in driver_loops:
-        loop_assigns = FindNodes(ir.Assignment).visit(dl.body)
-        loc_assigns = [a for a in loop_assigns
-                       if 'ylstack_l' in str(a.lhs).lower()
-                       and 'loc' in str(a.rhs).lower()
-                       and 'zstack' in str(a.rhs).lower()]
-        loc_count += len(loc_assigns)
-
-    # At least loops 1 and 3 need LOC assigns (kernel_a and kernel_c
-    # have pool-allocated temporaries)
-    assert loc_count >= 2, (
-        f"At least 2 driver loops must have YLSTACK_L = LOC(ZSTACK(...)).\n"
-        f"Found {loc_count}.\nCode:\n{fgen(driver)}"
-    )
+    # At least the loops calling kernel_a and kernel_c, which have pool-allocated
+    # temporaries, set the stack pointer
+    loc_assigns = [
+        a for loop in FindNodes(ir.Loop).visit(driver.body) for a in FindNodes(ir.Assignment).visit(loop.body)
+        if a.lhs == 'ylstack_l' and 'loc(zstack' in str(a.rhs).lower()
+    ]
+    assert len(loc_assigns) >= 2
 
 
 # ===================================================================
-# Group 7: Edge cases
+# Edge cases
 # ===================================================================
 
 FCODE_PRIV_DRIVER = """
@@ -1864,6 +1292,7 @@ contains
 end module priv_driver_mod
 """.strip()
 
+
 FCODE_PRIV_KERNEL = """
 subroutine priv_kernel(klon, klev, ngpblks, bnds, t, q)
   use bnds_type_mod, only: bnds_type
@@ -1882,40 +1311,6 @@ subroutine priv_kernel(klon, klev, ngpblks, bnds, t, q)
   end do
 end subroutine priv_kernel
 """.strip()
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_derived_type_args_not_privatised(frontend, horizontal, block_dim, tmp_path):
-    """
-    Derived-type argument components (e.g. YDGEOMETRY%YRDIM) must NOT
-    appear in the ``private(...)`` clause of ``!$acc parallel loop gang``.
-    Only truly local variables should be privatised.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_PRIV_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    kernel_src = Sourcefile.from_source(
-        FCODE_PRIV_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    driver, _ = _build_and_apply_2level(
-        driver_src, kernel_src, horizontal, block_dim,
-        'priv_driver', 'priv_kernel',
-        'priv_driver_mod#priv_driver', '#priv_kernel'
-    )
-
-    code = fgen(driver)
-    private_matches = re.findall(r'private\(([^)]+)\)', code, re.IGNORECASE)
-
-    for match in private_matches:
-        privates = [p.strip().lower() for p in match.split(',')]
-        for priv in privates:
-            assert 'ydgeometry' not in priv, (
-                f"YDGEOMETRY component '{priv}' should NOT be in\n"
-                f"private() clause.\nprivate({match})\nCode:\n{code}"
-            )
 
 
 FCODE_ACC_EXIT_DRIVER = """
@@ -1947,6 +1342,7 @@ contains
   end subroutine acc_exit_driver
 end module acc_exit_driver_mod
 """.strip()
+
 
 FCODE_ACC_EXIT_KERNEL = """
 subroutine acc_exit_kernel(klon, klev, bnds, opts, pd, pt, psp)
@@ -1995,97 +1391,49 @@ end subroutine acc_exit_kernel
 
 @pytest.mark.parametrize('frontend', available_frontends(
     xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
+def test_derived_type_args_not_privatised(frontend, horizontal, block_dim, tmp_path):
+    """
+    Derived-type argument components (e.g. YDGEOMETRY%YRDIM) must NOT
+    appear in the ``private(...)`` or ``firstprivate(...)`` clauses of
+    ``!$acc parallel loop gang``. Only truly local variables should be
+    privatised.
+    """
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={'priv_driver': ('priv_kernel',), 'priv_kernel': ()},
+        fcodes={'priv_driver': FCODE_PRIV_DRIVER, 'priv_kernel': FCODE_PRIV_KERNEL}
+    )
+
+    gang_params = _gang_loop_parameters(routines['priv_kernel'], block_dim)
+    assert gang_params and all(params is not None for params in gang_params)
+    for routine in routines.values():
+        for params in _gang_loop_parameters(routine, block_dim):
+            for clause in ('private', 'firstprivate'):
+                assert not any(
+                    var.strip().lower().startswith('ydgeometry')
+                    for var in params.get(clause, '').split(',')
+                )
+
+
+@pytest.mark.parametrize('frontend', available_frontends(
+    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
 @pytest.mark.xfail(reason='Minimal SCC helper still sweeps explicit raw ACC enter/exit pragmas into block loops')
 def test_acc_exit_data_outside_block_loop(frontend, horizontal, block_dim, tmp_path):
     """
     ``!$acc enter/exit data`` directives must remain outside the block
     loop, not be swept inside by extract_block_sections.
     """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_ACC_EXIT_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
+    routines = _apply_pipeline(
+        _sk_pipeline(horizontal, block_dim), tmp_path, frontend,
+        call_tree={'acc_exit_driver': ('acc_exit_kernel',), 'acc_exit_kernel': ()},
+        fcodes={'acc_exit_driver': FCODE_ACC_EXIT_DRIVER, 'acc_exit_kernel': FCODE_ACC_EXIT_KERNEL}
     )
-    kernel_src = Sourcefile.from_source(
-        FCODE_ACC_EXIT_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
+    kernel = routines['acc_exit_kernel']
 
-    _, kernel = _build_and_apply_2level(
-        driver_src, kernel_src, horizontal, block_dim,
-        'acc_exit_driver', 'acc_exit_kernel',
-        'acc_exit_driver_mod#acc_exit_driver', '#acc_exit_kernel'
-    )
-
-    # Kernel should have a block loop
-    block_loops = _get_block_loops(kernel, block_dim)
-    assert block_loops, (
-        f"Kernel should have a block loop.\nCode:\n{fgen(kernel)}"
-    )
-
-    # Check that !$acc enter/exit data are NOT inside the block loop
-    for bl in block_loops:
-        block_pragmas = FindNodes(ir.Pragma).visit(bl.body)
-        enter_inside = [p for p in block_pragmas
-                        if p.keyword.lower() == 'acc'
-                        and 'enter' in p.content.lower()
-                        and 'data' in p.content.lower()
-                        and 'create' in p.content.lower()]
-        exit_inside = [p for p in block_pragmas
-                       if p.keyword.lower() == 'acc'
-                       and 'exit' in p.content.lower()
-                       and 'data' in p.content.lower()
-                       and 'delete' in p.content.lower()]
-
-        assert not enter_inside, (
-            f"!$acc enter data must NOT be inside block loop.\n"
-            f"Found: {[fgen(p) for p in enter_inside]}\nCode:\n{fgen(kernel)}"
-        )
-        assert not exit_inside, (
-            f"!$acc exit data must NOT be inside block loop.\n"
-            f"Found: {[fgen(p) for p in exit_inside]}\nCode:\n{fgen(kernel)}"
-        )
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    xfail=[(OMNI, 'OMNI fails to import undefined module.')]))
-def test_real_pipeline_explicit_acc_data_regions_not_duplicated(
-        frontend, horizontal, block_dim, tmp_path):
-    """
-    The real scc-stack pipeline must not duplicate explicit ACC data regions.
-
-    This reproduces the explicit-data-managed shape where a kernel already contains
-    explicit ``!$acc data`` and ``!$acc enter/exit data`` pragmas before SCC
-    annotation and pragma-model lowering are applied.
-    """
-    defs = _parse_modules(frontend, tmp_path)
-    driver_src = Sourcefile.from_source(
-        FCODE_EXPLICIT_ACC_DATA_DRIVER, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    mid_src = Sourcefile.from_source(
-        FCODE_EXPLICIT_ACC_DATA_MID_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    sub_src = Sourcefile.from_source(
-        FCODE_EXPLICIT_ACC_DATA_SUB_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-    leaf_src = Sourcefile.from_source(
-        FCODE_EXPLICIT_ACC_DATA_LEAF_KERNEL, frontend=frontend, definitions=defs, xmods=[tmp_path]
-    )
-
-    _, _, sub, _ = _build_and_apply_4level_full_pipeline(
-        driver_src, mid_src, sub_src, leaf_src,
-        horizontal, block_dim,
-        'explicit_acc_data_driver', 'explicit_acc_data_mid_kernel',
-        'explicit_acc_data_sub_kernel', 'explicit_acc_data_leaf_kernel',
-        'explicit_acc_data_driver_mod#explicit_acc_data_driver', '#explicit_acc_data_mid_kernel',
-        '#explicit_acc_data_sub_kernel', '#explicit_acc_data_leaf_kernel'
-    )
-
-    acc_pragmas = [p for p in FindNodes(ir.Pragma).visit(sub.body) if p.keyword.lower() == 'acc']
-    acc_data = [p for p in acc_pragmas if p.content.lower().startswith('data ')]
-    acc_end_data = [p for p in acc_pragmas if p.content.lower() == 'end data']
-    acc_enter_data = [p for p in acc_pragmas if p.content.lower().startswith('enter data')]
-    acc_exit_data = [p for p in acc_pragmas if p.content.lower().startswith('exit data')]
-
-    assert len(acc_data) == 1, f"Expected exactly one ACC data region.\nCode:\n{fgen(sub)}"
-    assert len(acc_end_data) == 1, f"Expected exactly one ACC end data pragma.\nCode:\n{fgen(sub)}"
-    assert len(acc_enter_data) == 1, f"Expected exactly one ACC enter data pragma.\nCode:\n{fgen(sub)}"
-    assert len(acc_exit_data) == 1, f"Expected exactly one ACC exit data pragma.\nCode:\n{fgen(sub)}"
+    block_loops = _block_loops(kernel, block_dim)
+    assert block_loops
+    for loop in block_loops:
+        assert not [
+            p for p in FindNodes(ir.Pragma).visit(loop.body)
+            if p.keyword == 'acc' and p.content.startswith(('enter data', 'exit data'))
+        ]
