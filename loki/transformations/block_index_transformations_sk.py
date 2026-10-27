@@ -691,6 +691,10 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         if not relevant_calls:
             return
 
+        # The driver-loop variable is re-created locally in each callee
+        driver_loop = item.trafo_data['LowerBlockIndex'].get('driver_loop')
+        driver_loop_var = driver_loop.variable if driver_loop is not None else None
+
         for call in relevant_calls:
             if str(call.name).lower() not in targets:
                 continue
@@ -703,9 +707,13 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
 
             # Compute and apply new arguments
             new_args, new_kwargs, already_arg = self._determine_new_args(
-                relevant_vars, call
+                relevant_vars, call, driver_loop_var=driver_loop_var
             )
             missing_args = self._apply_new_args_to_call(call, new_args, new_kwargs, already_arg)
+
+            # Ensure driver loop variable is declared in callee
+            if driver_loop_var is not None and driver_loop_var not in call.routine.variable_map:
+                call.routine.variables += (driver_loop_var.clone(scope=call.routine),)
 
             # Propagate imports for new args
             self._propagate_imports(new_args, call, all_import_map)

@@ -20,6 +20,7 @@ from loki.frontend import available_frontends
 from loki.ir import nodes as ir, FindNodes, pragmas_attached
 from loki.transformations.block_index_transformations import InjectBlockIndexTransformation
 from loki.transformations.block_index_transformations_sk import LowerBlockIndexSKTransformation
+from loki.types import BasicType
 
 
 @pytest.fixture
@@ -988,3 +989,68 @@ end subroutine sub_kernel
     assert kernel.variable_map['ztmp'].shape == ('nproma', 'nb')
     assert call.arguments == ('nproma', 'ztmp(:, :)', 'coef(:)')
     assert sub_kernel.variable_map['coef'].shape == (5,)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_nested_call_does_not_pass_block_loop_variable(tmp_path, frontend, block_dim):
+    """
+    Verify that the driver-loop variable is not passed as an argument to
+    nested small-kernels calls, but declared as a local variable in each
+    callee, where it is used for the re-inserted block loops.
+    """
+    fcode_driver = """
+subroutine driver(nproma, nb, field)
+  implicit none
+  integer, intent(in) :: nproma, nb
+  real, intent(inout) :: field(nproma, nb)
+  integer :: ibl, kbl
+
+  do ibl = 1, nb
+    kbl = ibl
+    !$loki small-kernels
+    call kernel(nproma, field(:, ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, field)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  !$loki small-kernels
+  call sub_kernel(nproma, field)
+end subroutine kernel
+"""
+    fcode_sub_kernel = """
+subroutine sub_kernel(nproma, field)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  field(1) = 1.0
+end subroutine sub_kernel
+"""
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend, xmods=[tmp_path])
+    driver.enrich(kernel)
+    kernel.enrich(sub_kernel)
+
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=('sub_kernel',))
+    sub_kernel_item = _make_item(sub_kernel, role='kernel')
+    sgraph = _build_sgraph([driver_item, kernel_item, sub_kernel_item])
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    trafo.transform_subroutine(driver, role='driver', targets=('kernel',), item=driver_item, sub_sgraph=sgraph)
+    trafo.transform_subroutine(kernel, role='kernel', targets=('sub_kernel',), item=kernel_item, sub_sgraph=sgraph)
+
+    # Neither call passes the driver-loop variable
+    for routine in (driver, kernel):
+        call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+        assert 'ibl' not in [name for name, _ in call.kwarguments]
+
+    # Both callees declare it as a local variable instead
+    for routine in (kernel, sub_kernel):
+        assert 'ibl' not in routine.arguments
+        assert routine.variable_map['ibl'].type.intent is None
+        assert routine.variable_map['ibl'].type.dtype == BasicType.INTEGER
