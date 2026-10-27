@@ -107,7 +107,9 @@ from loki.types import BasicType, DerivedType
 from loki.transformations.utilities import (
     find_driver_loops, check_routine_sequential
 )
-from loki.transformations.single_column.devector import extract_sections
+from loki.transformations.single_column.devector import (
+    extract_sections, is_unstructured_data_pragma
+)
 
 
 __all__ = [
@@ -474,12 +476,16 @@ class SCCBlockSectionTransformation(Transformation):
             List of node tuples representing extracted block sections.
         """
         def find_separators(nodes):
-            return [
+            # Small-kernels calls and unstructured data directives, which
+            # are not allowed inside compute regions, separate block sections
+            calls = [
                 call for call in FindNodes(ir.CallStatement).visit(nodes)
                 if is_loki_pragma(call.pragma, starts_with='small-kernels') and not (
                     call.routine is not BasicType.DEFERRED and check_routine_sequential(routine=call.routine)
                 )
             ]
+            pragmas = [p for p in FindNodes(ir.Pragma).visit(nodes) if is_unstructured_data_pragma(p)]
+            return calls + pragmas
 
         block_indices = cls._resolve_block_indices(routine, block_dim)
 

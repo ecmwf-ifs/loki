@@ -14,6 +14,7 @@ Tests for :mod:`loki.transformations.single_column.block`.
 import pytest
 
 from loki import Dimension, Sourcefile, fgen
+from loki.batch import ProcedureItem, SGraph
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
@@ -21,6 +22,7 @@ from loki.ir import (
 )
 from loki.tools import as_tuple, CaseInsensitiveDict
 
+from loki.transformations.single_column import SCCSmallKernelsPipeline
 from loki.transformations.single_column.block import (
     SCCBlockSectionTransformation,
     SCCBlockSectionToLoopTransformation,
@@ -1272,3 +1274,77 @@ end subroutine keep_driver
 
     # No BlockSectionTrafo should be set on the successor
     assert not kernel_item.trafo_data.get('BlockSectionTrafo', False)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_pipeline_unstructured_data_outside_block_loops(frontend):
+    """
+    Verify that the unstructured data directives for promoted kernel
+    temporaries are placed outside the block loops (and vector loops)
+    created by the small-kernels pipeline, as they are not allowed
+    inside compute regions.
+    """
+    fcode_driver = """
+subroutine sk_driver(klon, klev, ngpblks, kidia, kfdia, t)
+  implicit none
+  integer, intent(in) :: klon, klev, ngpblks, kidia, kfdia
+  real, intent(inout) :: t(klon, klev, ngpblks)
+  integer :: ibl
+
+  do ibl = 1, ngpblks
+    !$loki small-kernels
+    call sk_kernel(klon, klev, kidia, kfdia, t(:, :, ibl))
+  end do
+end subroutine sk_driver
+    """.strip()
+
+    fcode_kernel = """
+subroutine sk_kernel(klon, klev, kidia, kfdia, t)
+  implicit none
+  integer, intent(in) :: klon, klev, kidia, kfdia
+  real, intent(inout) :: t(klon, klev)
+  real :: ztmp(klon, klev)
+  integer :: jrof, jk
+
+  do jk = 1, klev
+    do jrof = kidia, kfdia
+      ztmp(jrof, jk) = t(jrof, jk) * 2.0
+      t(jrof, jk) = ztmp(jrof, jk) + 1.0
+    end do
+  end do
+end subroutine sk_kernel
+    """.strip()
+
+    horizontal = Dimension(name='horizontal', size='klon', index='jrof', lower='kidia', upper='kfdia')
+    block_dim = Dimension(name='block_dim', size='ngpblks', index='ibl')
+
+    driver_source = Sourcefile.from_source(fcode_driver, frontend=frontend)
+    kernel_source = Sourcefile.from_source(fcode_kernel, frontend=frontend)
+    driver, kernel = driver_source['sk_driver'], kernel_source['sk_kernel']
+    driver.enrich(kernel)
+
+    driver_item = ProcedureItem(name='#sk_driver', source=driver_source)
+    kernel_item = ProcedureItem(name='#sk_kernel', source=kernel_source)
+    sgraph = SGraph.from_dict({driver_item: [kernel_item]})
+
+    pipeline = SCCSmallKernelsPipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc')
+    for transformation in pipeline.transformations:
+        transformation.apply(driver, role='driver', item=driver_item, targets=('sk_kernel',), sub_sgraph=sgraph)
+        transformation.apply(kernel, role='kernel', item=kernel_item, targets=(), sub_sgraph=sgraph)
+
+    # The kernel has a block loop, offloaded as a parallel gang loop
+    loops = FindNodes(ir.Loop).visit(kernel.body)
+    assert loops and loops[0].variable == 'ibl'
+
+    # The data directives for the promoted temporary are not inside any loop,
+    # but at the top level of the kernel body, around the block loop
+    data_pragmas = [
+        p for p in FindNodes(ir.Pragma).visit(kernel.body)
+        if p.keyword == 'acc' and p.content.startswith(('enter data', 'exit data'))
+    ]
+    assert [p.content for p in data_pragmas] == ['enter data create(ztmp)', 'exit data delete(ztmp)']
+    for loop in loops:
+        assert not any(p in FindNodes(ir.Pragma).visit(loop.body) for p in data_pragmas)
+
+    body = kernel.body.body
+    assert body.index(data_pragmas[0]) < body.index(loops[0]) < body.index(data_pragmas[1])

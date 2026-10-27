@@ -29,6 +29,20 @@ __all__ = [
 _SEPARATOR_NODE_TYPES = (ir.Loop, ir.Conditional, ir.MultiConditional)
 
 
+def is_unstructured_data_pragma(pragma):
+    """
+    Check if :data:`pragma` is a ``!$loki unstructured-data`` or
+    ``!$loki exit unstructured-data`` directive.
+
+    Such directives are not allowed inside compute regions, and therefore
+    separate vector and block sections.
+    """
+    return (
+        is_loki_pragma(pragma, starts_with='unstructured-data') or
+        is_loki_pragma(pragma, starts_with='exit unstructured-data')
+    )
+
+
 def _add_separator(node, section, separator_nodes):
     """
     Add either the current node or its outermost parent node from the list of types
@@ -179,10 +193,12 @@ class SCCDevectorTransformation(Transformation):
             separators.append(call)
 
         for pragma in FindNodes(ir.Pragma).visit(section):
-            # Reductions over thread-parallel regions should be marked as a separator node
+            # Reductions over thread-parallel regions should be marked as a separator node,
+            # as well as unstructured data directives, which are not allowed in compute regions
             if (is_loki_pragma(pragma, starts_with='vector-reduction') or
                 is_loki_pragma(pragma, starts_with='end vector-reduction') or
-                is_loki_pragma(pragma, starts_with='separator')):
+                is_loki_pragma(pragma, starts_with='separator') or
+                is_unstructured_data_pragma(pragma)):
 
                 separators.append(pragma)
 
