@@ -14,9 +14,9 @@ Tests for :any:`LowerBlockIndexSKTransformation` and the extended
 
 import pytest
 
-from loki import Dimension, Module, Subroutine
-from loki.expression import symbols as sym
-from loki.frontend import available_frontends
+from loki import Dimension, Module, Sourcefile, Subroutine
+from loki.batch import ProcedureItem, SGraph
+from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes, pragmas_attached
 from loki.transformations.block_index_transformations import InjectBlockIndexTransformation
 from loki.transformations.block_index_transformations_sk import LowerBlockIndexSKTransformation
@@ -32,18 +32,6 @@ def block_dim():
     )
 
 
-@pytest.fixture
-def horizontal():
-    return Dimension(
-        name='horizontal', size='nproma', index='jl',
-        bounds=('1', 'nproma'),
-    )
-
-
-# -------------------------------------------------------------------
-# Fortran fixtures
-# -------------------------------------------------------------------
-
 FCODE_TYPE_MOD = """
 module type_mod
   implicit none
@@ -52,9 +40,6 @@ module type_mod
     integer :: kfdia
     integer :: kbl
   end type bnds_type
-  type :: geom_type
-    integer :: ngpblks
-  end type geom_type
 end module type_mod
 """
 
@@ -62,538 +47,348 @@ FCODE_PARKIND = """
 module parkind1
   implicit none
   integer, parameter :: jpim = selected_int_kind(9)
-  integer, parameter :: jprb = selected_real_kind(13, 300)
 end module parkind1
 """
 
 
-def _make_item(routine, role='kernel', targets=(), config=None):
-    """Create a minimal ProcedureItem-like mock for testing."""
-
-    class _MockItem:
-        def __init__(self, routine, role, targets, config):
-            self.routine = routine
-            self.role = role
-            self.targets = targets
-            self.local_name = routine.name.lower()
-            self.trafo_data = {}
-            self.config = config or {}
-
-    return _MockItem(routine, role, targets, config)
-
-
-def _build_sgraph(items):
-    """Build a minimal successor map from a list of items."""
-
-    class _MockSGraph:
-        def __init__(self, items):
-            self._map = {items[i]: [items[i+1]] for i in range(len(items)-1)}
-            if items:
-                self._map.setdefault(items[-1], [])
-
-        def successors(self, item):
-            return self._map.get(item, [])
-
-    return _MockSGraph(items)
-
-
-# -------------------------------------------------------------------
-# Tests
-# -------------------------------------------------------------------
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_driver_passes_relevant_vars(tmp_path, frontend, block_dim):
+def _apply_sk_lowering(tmp_path, frontend, block_dim, call_tree, fcodes, definitions=()):
     """
-    Verify that LowerBlockIndexSKTransformation passes driver-loop header
-    variables as new arguments to the callee.
+    Parse the routines in :data:`fcodes`, enrich them along :data:`call_tree`
+    and apply :any:`LowerBlockIndexSKTransformation` in call-tree order,
+    with the first routine in :data:`call_tree` as the driver.
+
+    Callees without source in :data:`fcodes` remain un-enriched.
+
+    Returns
+    -------
+    tuple of dict
+        The parsed routines and their scheduler items, keyed by name.
     """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field, ydbnds)
-  use type_mod, only: bnds_type
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  type(bnds_type), intent(in) :: ydbnds
-  integer :: ibl
+    sources = {
+        name: Sourcefile.from_source(fcode, frontend=frontend, definitions=definitions, xmods=[tmp_path])
+        for name, fcode in fcodes.items()
+    }
+    routines = {name: source[name] for name, source in sources.items()}
+    items = {name: ProcedureItem(name=f'#{name}', source=source) for name, source in sources.items()}
 
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  integer :: jl, jk
-
-  do jk = 1, nlev
-    do jl = 1, nproma
-      field(jl, jk) = 0.0
-    end do
-  end do
-end subroutine kernel
-"""
-    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
+    for name, callees in call_tree.items():
+        routines[name].enrich(tuple(routines[c] for c in callees if c in routines))
+    sgraph = SGraph.from_dict({
+        items[name]: [items[c] for c in callees if c in items] for name, callees in call_tree.items()
+    })
 
     trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
+    for idx, (name, callees) in enumerate(call_tree.items()):
+        trafo.transform_subroutine(
+            routines[name], role='driver' if idx == 0 else 'kernel', targets=callees,
+            item=items[name], sub_sgraph=sgraph
+        )
+    return routines, items
 
-    # Check that nb was added as kwarg to the call
-    calls = FindNodes(ir.CallStatement).visit(driver.body)
-    assert len(calls) == 1
-    call = calls[0]
-    kwarg_names = [k for k, _ in call.kwarguments]
-    assert 'nb' in [str(k).lower() for k in kwarg_names]
 
-    # Check that nb is now in kernel arguments
-    kernel_arg_names = [a.name.lower() for a in kernel.arguments]
-    assert 'nb' in kernel_arg_names
+def _calls(routine):
+    """Return the calls in :data:`routine`, keyed by callee name."""
+    return {str(call.name).lower(): call for call in FindNodes(ir.CallStatement).visit(routine.body)}
 
-    # Check trafo_data was propagated
-    assert 'LowerBlockIndex' in kernel_item.trafo_data
-    assert 'relevant_vars' in kernel_item.trafo_data['LowerBlockIndex']
-    assert 'driver_loop' in kernel_item.trafo_data['LowerBlockIndex']
+
+def _pragma_contents(routine):
+    """Return the contents of all pragmas in the body of :data:`routine`."""
+    return [p.content for p in FindNodes(ir.Pragma).visit(routine.body)]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_kernel_propagates_to_sub_kernel(tmp_path, frontend, block_dim):
+def test_sk_lower_block_index_driver(tmp_path, frontend, block_dim):
     """
-    Verify recursive propagation: driver -> kernel -> sub_kernel.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-
-  !$loki small-kernels
-  call sub_kernel(nproma, nlev, field)
-end subroutine kernel
-"""
-    fcode_sub_kernel = """
-subroutine sub_kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  field(1, 1) = 1.0
-end subroutine sub_kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend, xmods=[tmp_path])
-
-    driver.enrich(kernel)
-    kernel.enrich(sub_kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=('sub_kernel',))
-    sub_kernel_item = _make_item(sub_kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item, sub_kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-
-    # Process driver first
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # Now process kernel (it should propagate to sub_kernel)
-    trafo.transform_subroutine(
-        kernel, role='kernel', targets=('sub_kernel',),
-        item=kernel_item, sub_sgraph=sgraph
-    )
-
-    # Verify sub_kernel got trafo_data
-    assert 'LowerBlockIndex' in sub_kernel_item.trafo_data
-    assert 'relevant_vars' in sub_kernel_item.trafo_data['LowerBlockIndex']
-
-    # Verify nb was added to sub_kernel arguments
-    sub_kernel_arg_names = [a.name.lower() for a in sub_kernel.arguments]
-    assert 'nb' in sub_kernel_arg_names
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_promotes_local_arrays(tmp_path, frontend, block_dim):
-    """
-    Verify that callee-local arrays are promoted with the block dimension.
+    Test the lowering of small-kernels calls in a driver loop, including
+    new arguments from the loop header, promotion of kernel temporaries,
+    data pragmas, imports, dtype-matched keyword arguments, and calls that
+    are not lowered (no small-kernels pragma or not enriched).
     """
     fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  real :: tmp(nproma, nlev)
-  integer :: jl, jk
-
-  do jk = 1, nlev
-    do jl = 1, nproma
-      tmp(jl, jk) = field(jl, jk) * 2.0
-      field(jl, jk) = tmp(jl, jk)
-    end do
-  end do
-end subroutine kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # Check tmp was promoted to 3D (nproma, nlev, nb)
-    tmp_var = kernel.variable_map.get('tmp')
-    assert tmp_var is not None
-    assert len(tmp_var.shape) == 3
-    assert tmp_var.shape[-1] == 'nb'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_injects_unstructured_data_pragmas(tmp_path, frontend, block_dim):
-    """
-    Verify that !$loki unstructured-data create/delete pragmas are injected.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  real :: work(nproma)
-  integer :: jl, jk
-
-  do jk = 1, nlev
-    do jl = 1, nproma
-      work(jl) = field(jl, jk)
-      field(jl, jk) = work(jl) + 1.0
-    end do
-  end do
-end subroutine kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # Check pragmas in kernel body
-    pragmas = FindNodes(ir.Pragma).visit(kernel.body)
-    create_pragmas = [p for p in pragmas if 'unstructured-data create' in p.content]
-    delete_pragmas = [p for p in pragmas if 'unstructured-data delete' in p.content]
-    assert len(create_pragmas) == 1
-    assert len(delete_pragmas) == 1
-    assert 'work' in create_pragmas[0].content
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_does_not_duplicate_existing_loki_unstructured_data_pragmas(tmp_path, frontend, block_dim):
-    """
-    Verify that existing generic ``!$loki unstructured-data`` pragmas
-    suppress duplicate injection before ``PragmaModel`` lowering.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  real :: work(nproma)
-  integer :: jl, jk
-
-  !$loki unstructured-data create(work)
-  do jk = 1, nlev
-    do jl = 1, nproma
-      work(jl) = field(jl, jk)
-      field(jl, jk) = work(jl) + 1.0
-    end do
-  end do
-  !$loki exit unstructured-data delete(work)
-end subroutine kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    pragmas = FindNodes(ir.Pragma).visit(kernel.body)
-    create_pragmas = [p for p in pragmas if 'unstructured-data create' in p.content]
-    delete_pragmas = [p for p in pragmas if 'unstructured-data delete' in p.content]
-    assert len(create_pragmas) == 1
-    assert len(delete_pragmas) == 1
-    assert create_pragmas[0].content == 'unstructured-data create(work)'
-    assert delete_pragmas[0].content == 'exit unstructured-data delete(work)'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_replaces_block_index_with_range(tmp_path, frontend, block_dim):
-    """
-    Verify that block-index subscripts in call arguments are replaced
-    with range indices (:).
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  field(1, 1) = 0.0
-end subroutine kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # The call argument field(:,:,ibl) should become field(:,:,:)
-    calls = FindNodes(ir.CallStatement).visit(driver.body)
-    call = calls[0]
-    field_arg = call.arguments[2]  # third positional arg
-    assert all(isinstance(d, sym.RangeIndex) for d in field_arg.dimensions)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_imports_derived_types_and_kinds(tmp_path, frontend, block_dim):
-    """
-    Verify that derived-type and kind-parameter imports are propagated
-    to the callee when new arguments with those types are added.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field, ydbnds)
+subroutine driver(nproma, nlev, nb, field, coef, ydbnds)
   use type_mod, only: bnds_type
   use parkind1, only: jpim
   implicit none
   integer(kind=jpim), intent(in) :: nproma, nlev, nb
   real, intent(inout) :: field(nproma, nlev, nb)
+  real, intent(in) :: coef(5)
   type(bnds_type), intent(in) :: ydbnds
-  integer :: ibl, kidia, kfdia
-  kidia = ydbnds%kidia
-  kfdia = ydbnds%kfdia
+  integer :: ibl, kidia
 
   do ibl = 1, nb
     kidia = ydbnds%kidia
-    kfdia = ydbnds%kfdia
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  field(1, 1) = 0.0
-end subroutine kernel
-"""
-    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
-    parkind = Module.from_source(FCODE_PARKIND, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(
-        fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod, parkind]
-    )
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod, parkind])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # Check that kernel now imports from type_mod or parkind1
-    kernel_imports = list(kernel.imports)
-    imported_names = set()
-    for imp in kernel_imports:
-        for s in imp.symbols:
-            imported_names.add(s.name.lower())
-
-    # ydbnds has type bnds_type -> should propagate the import
-    # (only if ydbnds was passed as new arg — depends on dtype matching)
-    # At minimum, check that some import was added
-    kernel_arg_names = [a.name.lower() for a in kernel.arguments]
-    # kidia and kfdia are scalars used in the loop header assignments
-    # They should be passed (or their parent ydbnds via dtype match)
-    assert any(name in kernel_arg_names for name in ('kidia', 'kfdia', 'ydbnds'))
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_only_processes_pragma_annotated_calls(tmp_path, frontend, block_dim):
-    """
-    Verify that calls without the !$loki small-kernels pragma are not
-    modified by the transformation.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
     call regular_kernel(nproma, nlev, field(:,:,ibl))
     !$loki small-kernels
-    call sk_kernel(nproma, nlev, field(:,:,ibl))
+    call kernel(nproma, nlev, field(:,:,ibl), coef(:))
+    !$loki small-kernels
+    call kernel_bnds(nproma, nlev, field(:,:,ibl))
+    !$loki small-kernels
+    call unknown_kernel(nproma, nlev, field(:,:,ibl))
   end do
 end subroutine driver
 """
-    fcode_regular = """
+    fcode_regular_kernel = """
 subroutine regular_kernel(nproma, nlev, field)
   implicit none
   integer, intent(in) :: nproma, nlev
   real, intent(inout) :: field(nproma, nlev)
-  field(1,1) = 0.0
+  field(1, 1) = 0.0
 end subroutine regular_kernel
 """
-    fcode_sk = """
-subroutine sk_kernel(nproma, nlev, field)
+    fcode_kernel = """
+subroutine kernel(nproma, nlev, field, coef)
   implicit none
   integer, intent(in) :: nproma, nlev
   real, intent(inout) :: field(nproma, nlev)
-  field(1,1) = 0.0
-end subroutine sk_kernel
+  real, intent(in) :: coef(5)
+  real :: tmp(nproma, nlev)
+  integer :: jl, jk
+
+  do jk = 1, nlev
+    do jl = 1, nproma
+      tmp(jl, jk) = field(jl, jk) * coef(1)
+      field(jl, jk) = tmp(jl, jk)
+    end do
+  end do
+end subroutine kernel
 """
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    regular = Subroutine.from_source(fcode_regular, frontend=frontend, xmods=[tmp_path])
-    sk = Subroutine.from_source(fcode_sk, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(regular)
-    driver.enrich(sk)
+    fcode_kernel_bnds = """
+subroutine kernel_bnds(nproma, nlev, field, ydcpg_bnds)
+  use type_mod, only: bnds_type
+  implicit none
+  integer, intent(in) :: nproma, nlev
+  real, intent(inout) :: field(nproma, nlev)
+  type(bnds_type), intent(in) :: ydcpg_bnds
+  real :: work(nproma)
+  integer :: jl, jk
 
-    regular_item = _make_item(regular, role='kernel', targets=())
-    sk_item = _make_item(sk, role='kernel', targets=())
-    driver_item = _make_item(driver, role='driver', targets=('regular_kernel', 'sk_kernel'))
-
-    class _MockSGraph:
-        def successors(self, item):
-            if item is driver_item:
-                return [regular_item, sk_item]
-            return []
-
-    sgraph = _MockSGraph()
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('regular_kernel', 'sk_kernel'),
-        item=driver_item, sub_sgraph=sgraph
+  !$loki unstructured-data create(work)
+  do jk = 1, nlev
+    do jl = ydcpg_bnds%kidia, ydcpg_bnds%kfdia
+      work(jl) = field(jl, jk)
+      field(jl, jk) = work(jl) + 1.0
+    end do
+  end do
+  !$loki exit unstructured-data delete(work)
+end subroutine kernel_bnds
+"""
+    definitions = (
+        Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path]),
+        Module.from_source(FCODE_PARKIND, frontend=frontend, xmods=[tmp_path]),
     )
+    routines, items = _apply_sk_lowering(
+        tmp_path, frontend, block_dim,
+        call_tree={
+            'driver': ('regular_kernel', 'kernel', 'kernel_bnds', 'unknown_kernel'),
+            'regular_kernel': (), 'kernel': (), 'kernel_bnds': ()
+        },
+        fcodes={
+            'driver': fcode_driver, 'regular_kernel': fcode_regular_kernel,
+            'kernel': fcode_kernel, 'kernel_bnds': fcode_kernel_bnds
+        },
+        definitions=definitions
+    )
+    calls = _calls(routines['driver'])
 
-    # regular_kernel should be unchanged (still 2 args)
-    assert len(regular.arguments) == 3  # nproma, nlev, field
+    # Calls without small-kernels pragma or without enrichment are not modified
+    for name in ('regular_kernel', 'unknown_kernel'):
+        assert calls[name].arguments == ('nproma', 'nlev', 'field(:, :, ibl)')
+        assert not calls[name].kwarguments
+    assert routines['regular_kernel'].arguments == ('nproma', 'nlev', 'field(nproma, nlev)')
+    assert not items['regular_kernel'].trafo_data
 
-    # sk_kernel should have gained nb as argument
-    sk_arg_names = [a.name.lower() for a in sk.arguments]
-    assert 'nb' in sk_arg_names
+    # Block-index subscripts are replaced, unblocked arrays and the loop variable are not
+    # passed on, and loop-header variables (incl. derived-type roots) become new arguments
+    kernel = routines['kernel']
+    assert calls['kernel'].arguments == ('nproma', 'nlev', 'field(:, :, :)', 'coef(:)')
+    assert calls['kernel'].kwarguments == (('kidia', 'kidia'), ('nb', 'nb'), ('ydbnds', 'ydbnds'))
+    assert kernel.arguments == (
+        'nproma', 'nlev', 'field(nproma, nlev, nb)', 'coef(5)', 'kidia', 'nb', 'ydbnds'
+    )
+    assert kernel.variable_map['field'].shape == ('nproma', 'nlev', 'nb')
+    assert kernel.variable_map['ibl'].type.intent is None
+
+    # Imports for the derived type and kind of new arguments are added to the kernel
+    # (OMNI resolves kind parameters to their value, which requires no import)
+    assert 'bnds_type' in kernel.imported_symbols
+    if frontend == OMNI:
+        assert kernel.variable_map['nb'].type.kind == 4
+    else:
+        assert 'jpim' in kernel.imported_symbols
+
+    # Kernel temporaries are promoted and wrapped in unstructured data pragmas
+    assert kernel.variable_map['tmp'].shape == ('nproma', 'nlev', 'nb')
+    assert _pragma_contents(kernel) == ['unstructured-data create(tmp)', 'exit unstructured-data delete(tmp)']
+
+    # The bounds object is passed to the existing argument of the same type, and
+    # existing unstructured data pragmas are not duplicated
+    kernel_bnds = routines['kernel_bnds']
+    assert ('ydcpg_bnds', 'ydbnds') in calls['kernel_bnds'].kwarguments
+    assert 'ydbnds' not in kernel_bnds.arguments
+    assert 'ydcpg_bnds' in kernel_bnds.arguments
+    assert 'nb' in kernel_bnds.arguments
+    assert kernel_bnds.variable_map['work'].shape == ('nproma', 'nb')
+    assert _pragma_contents(kernel_bnds) == [
+        'unstructured-data create(work)', 'exit unstructured-data delete(work)'
+    ]
+
+    # Transformation state is stored for nested lowering in the kernels
+    for name in ('kernel', 'kernel_bnds'):
+        assert 'relevant_vars' in items[name].trafo_data['LowerBlockIndex']
+        assert 'driver_loop' in items[name].trafo_data['LowerBlockIndex']
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_lower_block_index_nested(tmp_path, frontend, block_dim):
+    """
+    Test the recursive lowering of small-kernels calls in kernels, where
+    arrays promoted at the previous level (with or without subscripts) span
+    the block dimension, while unblocked arrays and the driver-loop
+    variable are not passed on.
+    """
+    fcode_driver = """
+subroutine driver(nproma, nb, field, coef)
+  implicit none
+  integer, intent(in) :: nproma, nb
+  real, intent(inout) :: field(nproma, nb)
+  real, intent(in) :: coef(5)
+  integer :: ibl, kbl
+
+  do ibl = 1, nb
+    kbl = ibl
+    !$loki small-kernels
+    call kernel(nproma, field(:, ibl), coef(:))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, field, coef)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  real, intent(in) :: coef(5)
+  real :: ztmp(nproma)
+
+  ztmp(1) = coef(1)
+  !$loki small-kernels
+  call sub_kernel(nproma, ztmp(:), coef(:), field)
+  field(1) = ztmp(1)
+end subroutine kernel
+"""
+    fcode_sub_kernel = """
+subroutine sub_kernel(nproma, ztmp, coef, field)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: ztmp(nproma), field(nproma)
+  real, intent(in) :: coef(5)
+  ztmp(1) = coef(2)
+  field(1) = ztmp(1)
+end subroutine sub_kernel
+"""
+    routines, items = _apply_sk_lowering(
+        tmp_path, frontend, block_dim,
+        call_tree={'driver': ('kernel',), 'kernel': ('sub_kernel',), 'sub_kernel': ()},
+        fcodes={'driver': fcode_driver, 'kernel': fcode_kernel, 'sub_kernel': fcode_sub_kernel}
+    )
+    driver, kernel, sub_kernel = routines['driver'], routines['kernel'], routines['sub_kernel']
+
+    # The driver call spans the block dimension, but passes neither unblocked
+    # arrays nor the driver-loop variable
+    call = _calls(driver)['kernel']
+    assert call.arguments == ('nproma', 'field(:, :)', 'coef(:)')
+    assert call.kwarguments == (('kbl', 'kbl'), ('nb', 'nb'))
+
+    # The promoted kernel temporary and argument span the block dimension in the nested call
+    assert kernel.variable_map['ztmp'].shape == ('nproma', 'nb')
+    call = _calls(kernel)['sub_kernel']
+    assert call.arguments == ('nproma', 'ztmp(:, :)', 'coef(:)', 'field(:, :)')
+    assert call.kwarguments == (('kbl', 'kbl'), ('nb', 'nb'))
+
+    # The sub-kernel receives the propagated arguments and transformation state
+    assert sub_kernel.arguments == ('nproma', 'ztmp(nproma, nb)', 'coef(5)', 'field(nproma, nb)', 'kbl', 'nb')
+    assert 'relevant_vars' in items['sub_kernel'].trafo_data['LowerBlockIndex']
+
+    # Each callee declares the driver-loop variable locally, and unblocked arrays keep their shape
+    for routine in (kernel, sub_kernel):
+        assert routine.variable_map['ibl'].type.intent is None
+        assert routine.variable_map['ibl'].type.dtype == BasicType.INTEGER
+        assert routine.variable_map['coef'].shape == (5,)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_lower_block_index_derived_type_bounds(tmp_path, frontend):
+    """
+    Test the lowering with a derived-type block size and derived-type
+    loop-header variables, where the root object is passed once together
+    with indices used in its parents, and declared before its first use
+    in the bounds of other dummy arguments.
+    """
+    fcode_type_mod = """
+module geom_mod
+  implicit none
+  type :: bnds_type
+    integer :: kidia
+  end type bnds_type
+  type :: yrdim_type
+    integer :: ngpblks
+  end type yrdim_type
+  type :: geometry
+    type(yrdim_type) :: yrdim
+    type(bnds_type) :: bnds(4)
+  end type geometry
+end module geom_mod
+"""
+    fcode_driver = """
+subroutine driver(nproma, nb, geom, field, jj)
+  use geom_mod, only: geometry
+  implicit none
+  integer, intent(in) :: nproma, nb, jj
+  type(geometry), intent(in) :: geom
+  real, intent(inout) :: field(nproma, geom%yrdim%ngpblks)
+  integer :: ibl, jkglo, kidia
+
+  do ibl = 1, nb
+    jkglo = geom%yrdim%ngpblks
+    kidia = geom%bnds(jj)%kidia
+    !$loki small-kernels
+    call kernel(nproma, field(:, ibl))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, field)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  field(1) = 0.0
+end subroutine kernel
+"""
+    geom_block_dim = Dimension(
+        name='block_dim', size='geom%yrdim%ngpblks', index='ibl',
+        bounds=('1', 'geom%yrdim%ngpblks'), aliases=('jkglo',)
+    )
+    routines, _ = _apply_sk_lowering(
+        tmp_path, frontend, geom_block_dim,
+        call_tree={'driver': ('kernel',), 'kernel': ()},
+        fcodes={'driver': fcode_driver, 'kernel': fcode_kernel},
+        definitions=(Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path]),)
+    )
+    kernel = routines['kernel']
+
+    # The root object is passed once, together with the index used in its parents
+    call = _calls(routines['driver'])['kernel']
+    assert call.kwarguments == (
+        ('geom', 'geom'), ('jj', 'jj'), ('jkglo', 'jkglo'), ('kidia', 'kidia'), ('nb', 'nb')
+    )
+    assert kernel.arguments == (
+        'nproma', 'field(nproma, geom%yrdim%ngpblks)', 'geom', 'jj', 'jkglo', 'kidia', 'nb'
+    )
+    assert kernel.variable_map['field'].shape == ('nproma', 'geom%yrdim%ngpblks')
+
+    # The new derived-type dummy is declared before its use in the bounds of ``field``
+    decls = [decl for decl in FindNodes(ir.VariableDeclaration).visit(kernel.spec) if len(decl.symbols) == 1]
+    decl_pos = {decl.symbols[0].name.lower(): idx for idx, decl in enumerate(decls)}
+    assert decl_pos['geom'] < decl_pos['field']
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -629,485 +424,3 @@ end subroutine driver
         assert len(loops) == 1
         result_with_loop = trafo.get_block_index(routine, variable_map, loop=loops[0])
         assert result_with_loop == 'ibl'
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_dtype_matching_kwargs(tmp_path, frontend, block_dim):
-    """
-    Verify that when a derived-type member variable (e.g. ``ydbnds%kidia``)
-    appears in the driver loop header, its root parent (``ydbnds``) is
-    matched by dtype to an existing callee argument (``ydcpg_bnds``) and
-    passed as a keyword argument using the callee's argument name.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field, ydbnds)
-  use type_mod, only: bnds_type
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  type(bnds_type), intent(in) :: ydbnds
-  integer :: ibl, kidia
-
-  do ibl = 1, nb
-    kidia = ydbnds%kidia
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field, ydcpg_bnds)
-  use type_mod, only: bnds_type
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  type(bnds_type), intent(in) :: ydcpg_bnds
-  field(1, 1) = 0.0
-end subroutine kernel
-"""
-    type_mod = Module.from_source(FCODE_TYPE_MOD, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # ydbnds is NOT passed in the original call, but ydbnds%kidia appears
-    # in the loop body. The root parent ydbnds has dtype bnds_type which
-    # matches the callee's ydcpg_bnds argument — so ydbnds should be passed
-    # as a kwarg with key 'ydcpg_bnds' (the callee's arg name).
-    calls = FindNodes(ir.CallStatement).visit(driver.body)
-    call = calls[0]
-    kwarg_dict = {str(k).lower(): v for k, v in call.kwarguments}
-
-    # ydbnds passed as kwarg matching callee's ydcpg_bnds by dtype
-    assert 'ydcpg_bnds' in kwarg_dict
-    assert kwarg_dict['ydcpg_bnds'] == 'ydbnds'
-
-    # ydbnds should NOT appear as a new positional argument in the kernel
-    kernel_arg_names = [a.name.lower() for a in kernel.arguments]
-    assert 'ydbnds' not in kernel_arg_names
-    assert 'ydcpg_bnds' in kernel_arg_names  # existing arg kept
-    assert 'nb' in kernel_arg_names  # nb added as new arg
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_argument_dims_updated(tmp_path, frontend, block_dim):
-    """
-    Verify that callee argument array declarations are promoted from
-    2D to 3D when the call-site argument has higher rank.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  field(1, 1) = 0.0
-end subroutine kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # field in kernel should now be 3D: (nproma, nlev, nb)
-    field_var = kernel.variable_map['field']
-    assert len(field_var.shape) == 3
-    assert field_var.shape[-1] == 'nb'
-
-    # Verify dimensions match shape
-    assert len(field_var.dimensions) == 3
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_new_derived_dummy_declared_before_bounds_use(tmp_path, frontend):
-    """
-    Verify that newly-added derived-type dummies are declared before any
-    existing dummy-array declarations whose bounds are updated to use them.
-    """
-    fcode_type_mod = """
-module type_mod
-  implicit none
-  type :: yrdim_type
-    integer :: ngpblks
-  end type yrdim_type
-  type :: geometry
-    type(yrdim_type) :: yrdim
-  end type geometry
-end module type_mod
-"""
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, geom, field)
-  use type_mod, only: geometry
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  type(geometry), intent(in) :: geom
-  real, intent(inout) :: field(nproma, nlev, geom%yrdim%ngpblks)
-  integer :: ibl, jkglo
-
-  do ibl = 1, nb
-    jkglo = geom%yrdim%ngpblks
-    !$loki small-kernels
-    call kernel(nproma, nlev, field(:, :, ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, nlev, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev
-  real, intent(inout) :: field(nproma, nlev)
-  field(1, 1) = 0.0
-end subroutine kernel
-"""
-    type_mod = Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    driver.enrich(kernel)
-
-    geom_block_dim = Dimension(
-        name='block_dim', size='geom%yrdim%ngpblks', index='ibl',
-        bounds=('1', 'geom%yrdim%ngpblks'), aliases=('jkglo',)
-    )
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=geom_block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    decls = [decl for decl in FindNodes(ir.VariableDeclaration).visit(kernel.spec) if len(decl.symbols) == 1]
-    decl_pos = {decl.symbols[0].name.lower(): idx for idx, decl in enumerate(decls)}
-
-    assert 'geom' in [arg.name.lower() for arg in kernel.arguments]
-    assert kernel.variable_map['field'].shape[-1] == 'geom%yrdim%ngpblks'
-    assert decl_pos['geom'] < decl_pos['field']
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_relevant_vars_include_parent_indices(tmp_path, frontend, block_dim):
-    """
-    Verify that indices used in derived-type parents of driver-loop
-    assignments are passed to the callee, while the derived-type root
-    is passed only once.
-    """
-    fcode_type_mod = """
-module type_mod
-  implicit none
-  type :: bnds_type
-    integer :: kidia
-  end type bnds_type
-  type :: geom_type
-    type(bnds_type) :: bnds(4)
-  end type geom_type
-end module type_mod
-"""
-    fcode_driver = """
-subroutine driver(nproma, nb, field, ydgeom, jj)
-  use type_mod, only: geom_type
-  implicit none
-  integer, intent(in) :: nproma, nb, jj
-  real, intent(inout) :: field(nproma, nb)
-  type(geom_type), intent(in) :: ydgeom
-  integer :: ibl, kidia
-
-  do ibl = 1, nb
-    kidia = ydgeom%bnds(jj)%kidia
-    !$loki small-kernels
-    call kernel(nproma, field(:, ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, field)
-  implicit none
-  integer, intent(in) :: nproma
-  real, intent(inout) :: field(nproma)
-  field(1) = 0.0
-end subroutine kernel
-"""
-    type_mod = Module.from_source(fcode_type_mod, frontend=frontend, xmods=[tmp_path])
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path], definitions=[type_mod])
-    driver.enrich(kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=())
-    sgraph = _build_sgraph([driver_item, kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    call = FindNodes(ir.CallStatement).visit(driver.body)[0]
-    assert call.kwarguments == (
-        ('jj', 'jj'), ('kidia', 'kidia'), ('nb', 'nb'), ('ydgeom', 'ydgeom')
-    )
-    assert kernel.arguments == ('nproma', 'field(nproma, nb)', 'jj', 'kidia', 'nb', 'ydgeom')
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_deferred_call_skipped(tmp_path, frontend, block_dim):
-    """
-    Verify that un-enriched (DEFERRED) calls are skipped gracefully
-    with a warning, and the routine is not modified.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nlev, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nlev, nb
-  real, intent(inout) :: field(nproma, nlev, nb)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call unknown_kernel(nproma, nlev, field(:,:,ibl))
-  end do
-end subroutine driver
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    # Do NOT enrich — call remains DEFERRED
-
-    driver_item = _make_item(driver, role='driver', targets=('unknown_kernel',))
-    sgraph = _build_sgraph([driver_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    # Should not raise — just warn and skip
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('unknown_kernel',),
-        item=driver_item, sub_sgraph=sgraph
-    )
-
-    # Driver should be unchanged — call still has original arguments
-    calls = FindNodes(ir.CallStatement).visit(driver.body)
-    assert len(calls) == 1
-    assert len(calls[0].arguments) == 3  # nproma, nlev, field(:,:,ibl)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_call_args_keep_unblocked_arrays(tmp_path, frontend, block_dim):
-    """
-    Verify that only block-indexed or block-promoted array arguments of
-    small-kernels calls are extended to the full block dimension, while
-    array arguments without a block dimension remain unchanged.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nb, field, coef)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  real, intent(inout) :: field(nproma, nb)
-  real, intent(in) :: coef(5)
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call kernel(nproma, field(:, ibl), coef(:))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, field, coef)
-  implicit none
-  integer, intent(in) :: nproma
-  real, intent(inout) :: field(nproma)
-  real, intent(in) :: coef(5)
-  real :: ztmp(nproma)
-
-  ztmp(1) = coef(1)
-  !$loki small-kernels
-  call sub_kernel(nproma, ztmp(:), coef(:))
-  field(1) = ztmp(1)
-end subroutine kernel
-"""
-    fcode_sub_kernel = """
-subroutine sub_kernel(nproma, ztmp, coef)
-  implicit none
-  integer, intent(in) :: nproma
-  real, intent(inout) :: ztmp(nproma)
-  real, intent(in) :: coef(5)
-  ztmp(1) = coef(2)
-end subroutine sub_kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-    kernel.enrich(sub_kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=('sub_kernel',))
-    sub_kernel_item = _make_item(sub_kernel, role='kernel')
-    sgraph = _build_sgraph([driver_item, kernel_item, sub_kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(driver, role='driver', targets=('kernel',), item=driver_item, sub_sgraph=sgraph)
-    trafo.transform_subroutine(kernel, role='kernel', targets=('sub_kernel',), item=kernel_item, sub_sgraph=sgraph)
-
-    # The block-indexed argument spans the block dimension, the unblocked one is unchanged
-    call = FindNodes(ir.CallStatement).visit(driver.body)[0]
-    assert call.arguments == ('nproma', 'field(:, :)', 'coef(:)')
-    assert kernel.variable_map['coef'].shape == (5,)
-
-    # The promoted kernel temporary spans the block dimension, the unblocked one is unchanged
-    call = FindNodes(ir.CallStatement).visit(kernel.body)[0]
-    assert kernel.variable_map['ztmp'].shape == ('nproma', 'nb')
-    assert call.arguments == ('nproma', 'ztmp(:, :)', 'coef(:)')
-    assert sub_kernel.variable_map['coef'].shape == (5,)
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_nested_call_does_not_pass_block_loop_variable(tmp_path, frontend, block_dim):
-    """
-    Verify that the driver-loop variable is not passed as an argument to
-    nested small-kernels calls, but declared as a local variable in each
-    callee, where it is used for the re-inserted block loops.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  real, intent(inout) :: field(nproma, nb)
-  integer :: ibl, kbl
-
-  do ibl = 1, nb
-    kbl = ibl
-    !$loki small-kernels
-    call kernel(nproma, field(:, ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel(nproma, field)
-  implicit none
-  integer, intent(in) :: nproma
-  real, intent(inout) :: field(nproma)
-  !$loki small-kernels
-  call sub_kernel(nproma, field)
-end subroutine kernel
-"""
-    fcode_sub_kernel = """
-subroutine sub_kernel(nproma, field)
-  implicit none
-  integer, intent(in) :: nproma
-  real, intent(inout) :: field(nproma)
-  field(1) = 1.0
-end subroutine sub_kernel
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
-    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend, xmods=[tmp_path])
-    driver.enrich(kernel)
-    kernel.enrich(sub_kernel)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel',))
-    kernel_item = _make_item(kernel, role='kernel', targets=('sub_kernel',))
-    sub_kernel_item = _make_item(sub_kernel, role='kernel')
-    sgraph = _build_sgraph([driver_item, kernel_item, sub_kernel_item])
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(driver, role='driver', targets=('kernel',), item=driver_item, sub_sgraph=sgraph)
-    trafo.transform_subroutine(kernel, role='kernel', targets=('sub_kernel',), item=kernel_item, sub_sgraph=sgraph)
-
-    # Neither call passes the driver-loop variable
-    for routine in (driver, kernel):
-        call = FindNodes(ir.CallStatement).visit(routine.body)[0]
-        assert 'ibl' not in [name for name, _ in call.kwarguments]
-
-    # Both callees declare it as a local variable instead
-    for routine in (kernel, sub_kernel):
-        assert 'ibl' not in routine.arguments
-        assert routine.variable_map['ibl'].type.intent is None
-        assert routine.variable_map['ibl'].type.dtype == BasicType.INTEGER
-
-
-@pytest.mark.parametrize('frontend', available_frontends())
-def test_sk_multiple_calls_in_driver_loop(tmp_path, frontend, block_dim):
-    """
-    Verify that multiple small-kernels calls in the same driver loop are
-    all lowered with the variables from the loop header.
-    """
-    fcode_driver = """
-subroutine driver(nproma, nb, field)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  real, intent(inout) :: field(nproma, nb)
-  integer :: ibl, kbl
-
-  do ibl = 1, nb
-    kbl = ibl
-    !$loki small-kernels
-    call kernel_a(nproma, field(:, ibl))
-    !$loki small-kernels
-    call kernel_b(nproma, field(:, ibl))
-  end do
-end subroutine driver
-"""
-    fcode_kernel = """
-subroutine kernel_{name}(nproma, field)
-  implicit none
-  integer, intent(in) :: nproma
-  real, intent(inout) :: field(nproma)
-  field(1) = 0.0
-end subroutine kernel_{name}
-"""
-    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
-    kernels = [
-        Subroutine.from_source(fcode_kernel.format(name=name), frontend=frontend, xmods=[tmp_path])
-        for name in ('a', 'b')
-    ]
-    driver.enrich(kernels)
-
-    driver_item = _make_item(driver, role='driver', targets=('kernel_a', 'kernel_b'))
-    kernel_items = [_make_item(kernel) for kernel in kernels]
-
-    class _MockSGraph:
-        def successors(self, item):
-            return kernel_items if item is driver_item else []
-
-    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
-    trafo.transform_subroutine(
-        driver, role='driver', targets=('kernel_a', 'kernel_b'),
-        item=driver_item, sub_sgraph=_MockSGraph()
-    )
-
-    for call, kernel, kernel_item in zip(FindNodes(ir.CallStatement).visit(driver.body), kernels, kernel_items):
-        assert call.arguments == ('nproma', 'field(:, :)')
-        assert call.kwarguments == (('kbl', 'kbl'), ('nb', 'nb'))
-        assert kernel.arguments == ('nproma', 'field(nproma, nb)', 'kbl', 'nb')
-        assert 'driver_loop' in kernel_item.trafo_data['LowerBlockIndex']
