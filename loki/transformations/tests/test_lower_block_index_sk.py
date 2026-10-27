@@ -917,3 +917,74 @@ end subroutine driver
     calls = FindNodes(ir.CallStatement).visit(driver.body)
     assert len(calls) == 1
     assert len(calls[0].arguments) == 3  # nproma, nlev, field(:,:,ibl)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_sk_call_args_keep_unblocked_arrays(tmp_path, frontend, block_dim):
+    """
+    Verify that only block-indexed or block-promoted array arguments of
+    small-kernels calls are extended to the full block dimension, while
+    array arguments without a block dimension remain unchanged.
+    """
+    fcode_driver = """
+subroutine driver(nproma, nb, field, coef)
+  implicit none
+  integer, intent(in) :: nproma, nb
+  real, intent(inout) :: field(nproma, nb)
+  real, intent(in) :: coef(5)
+  integer :: ibl
+
+  do ibl = 1, nb
+    !$loki small-kernels
+    call kernel(nproma, field(:, ibl), coef(:))
+  end do
+end subroutine driver
+"""
+    fcode_kernel = """
+subroutine kernel(nproma, field, coef)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: field(nproma)
+  real, intent(in) :: coef(5)
+  real :: ztmp(nproma)
+
+  ztmp(1) = coef(1)
+  !$loki small-kernels
+  call sub_kernel(nproma, ztmp(:), coef(:))
+  field(1) = ztmp(1)
+end subroutine kernel
+"""
+    fcode_sub_kernel = """
+subroutine sub_kernel(nproma, ztmp, coef)
+  implicit none
+  integer, intent(in) :: nproma
+  real, intent(inout) :: ztmp(nproma)
+  real, intent(in) :: coef(5)
+  ztmp(1) = coef(2)
+end subroutine sub_kernel
+"""
+    driver = Subroutine.from_source(fcode_driver, frontend=frontend, xmods=[tmp_path])
+    kernel = Subroutine.from_source(fcode_kernel, frontend=frontend, xmods=[tmp_path])
+    sub_kernel = Subroutine.from_source(fcode_sub_kernel, frontend=frontend, xmods=[tmp_path])
+    driver.enrich(kernel)
+    kernel.enrich(sub_kernel)
+
+    driver_item = _make_item(driver, role='driver', targets=('kernel',))
+    kernel_item = _make_item(kernel, role='kernel', targets=('sub_kernel',))
+    sub_kernel_item = _make_item(sub_kernel, role='kernel')
+    sgraph = _build_sgraph([driver_item, kernel_item, sub_kernel_item])
+
+    trafo = LowerBlockIndexSKTransformation(block_dim=block_dim)
+    trafo.transform_subroutine(driver, role='driver', targets=('kernel',), item=driver_item, sub_sgraph=sgraph)
+    trafo.transform_subroutine(kernel, role='kernel', targets=('sub_kernel',), item=kernel_item, sub_sgraph=sgraph)
+
+    # The block-indexed argument spans the block dimension, the unblocked one is unchanged
+    call = FindNodes(ir.CallStatement).visit(driver.body)[0]
+    assert call.arguments == ('nproma', 'field(:, :)', 'coef(:)')
+    assert kernel.variable_map['coef'].shape == (5,)
+
+    # The promoted kernel temporary spans the block dimension, the unblocked one is unchanged
+    call = FindNodes(ir.CallStatement).visit(kernel.body)[0]
+    assert kernel.variable_map['ztmp'].shape == ('nproma', 'nb')
+    assert call.arguments == ('nproma', 'ztmp(:, :)', 'coef(:)')
+    assert sub_kernel.variable_map['coef'].shape == (5,)

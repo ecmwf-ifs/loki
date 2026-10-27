@@ -496,19 +496,25 @@ class LowerBlockIndexSKTransformation(LowerBlockIndexTransformation):
         """
         Replace block-index subscripts with range indices ``(:)`` in call
         arguments and keyword arguments.
+
+        Array arguments with fewer subscripts than their rank, i.e. arrays
+        promoted with the block dimension, are extended with a trailing
+        range index, while all other array arguments remain unchanged.
         """
-        block_dim_indices = [idx.lower() for idx in self.block_dim.indices]
+        block_dim_indices = self.block_dim.indices
 
         def _process_dims(var):
             """Replace block-dim indices in var.dimensions with RangeIndex."""
             if isinstance(var, sym.Array) and var.dimensions:
-                if any(str(d).lower() in block_dim_indices for d in var.dimensions):
+                if any(d in block_dim_indices for d in var.dimensions):
                     new_dim = tuple(
-                        sym.RangeIndex((None, None)) if str(d).lower() in block_dim_indices else d
+                        sym.RangeIndex((None, None)) if d in block_dim_indices else d
                         for d in var.dimensions
                     )
-                else:
+                elif len(var.dimensions) < len(var.shape):
                     new_dim = var.dimensions + (sym.RangeIndex((None, None)),)
+                else:
+                    return var
                 return var.clone(dimensions=new_dim)
             if isinstance(var, sym.Array):
                 new_dim = tuple(sym.RangeIndex((None, None)) for _ in var.shape)
