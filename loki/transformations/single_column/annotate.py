@@ -37,11 +37,33 @@ class SCCAnnotateTransformation(Transformation):
         to use for hoisted column arrays if hoisting is enabled.
     privatise_derived_types : bool, default: False
         Flag to enable privatising derived-type objects in driver loops.
+    horizontal : :any:`Dimension`, optional
+        ``Dimension`` object describing the horizontal iteration space,
+        used to identify bounds objects if :data:`bounds_on_host` is set.
+    bounds_on_host : bool, default: False
+        Flag to indicate that the derived-type objects holding the block index
+        or horizontal bounds (e.g. ``bnds`` for ``bnds%kbl``) are only available
+        on the host, as offloaded block loops use local copies of them (as in
+        the small-kernels pipeline). These are then excluded from the
+        ``!$loki device-present`` directives in kernels.
     """
 
-    def __init__(self, block_dim, privatise_derived_types=False):
+    def __init__(self, block_dim, privatise_derived_types=False, horizontal=None, bounds_on_host=False):
         self.block_dim = block_dim
         self.privatise_derived_types = privatise_derived_types
+        self.horizontal = horizontal
+        self.bounds_on_host = bounds_on_host
+
+    @property
+    def bounds_object_names(self):
+        """
+        The lower-case names of the derived-type objects holding the block
+        index or horizontal bounds, e.g. ``bnds`` for ``bnds%kbl``.
+        """
+        expressions = self.block_dim.indices
+        if self.horizontal is not None:
+            expressions += as_tuple(self.horizontal.lower) + as_tuple(self.horizontal.upper)
+        return {expr.split('%', maxsplit=1)[0].lower() for expr in expressions if '%' in expr}
 
     def annotate_vector_loops(self, routine):
         """
@@ -116,7 +138,9 @@ class SCCAnnotateTransformation(Transformation):
 
         For kernels with pragma-marked driver loops (nested drivers), only
         array and derived-type arguments used inside these driver loops
-        are declared device-present.
+        are declared device-present. If :attr:`bounds_on_host` is set,
+        the derived-type objects holding the block index or horizontal
+        bounds are excluded as well.
 
         Parameters
         ----------
@@ -155,6 +179,11 @@ class SCCAnnotateTransformation(Transformation):
                 (v.name_parts[0], v) for v in FindVariables().visit(driver_loops)
             )
             args = [a for a in args if a.name in used_roots]
+
+        # Bounds objects that only live on the host are never device-present
+        if self.bounds_on_host:
+            bounds_objects = self.bounds_object_names
+            args = [a for a in args if a.name.lower() not in bounds_objects]
 
         argnames = [str(a.name) for a in args]
 

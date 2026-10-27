@@ -807,7 +807,8 @@ SCCSmallKernelsPipeline = partial(
         SCCAnnotateTransformation,
         TemporariesPoolAllocatorPerDrvLoopTransformation,
         PragmaModelTransformation
-    )
+    ),
+    bounds_on_host=True
 )
 """
 Small-kernels SCC pipeline.
@@ -827,8 +828,8 @@ into the small-kernels GPU form.  It applies the following steps:
 7. Extract block sections (:any:`SCCBlockSectionTransformation`)
 8. Wrap block sections in loops
    (:any:`SCCBlockSectionToLoopTransformation`)
-9. Annotate with OpenACC directives
-   (:any:`SCCAnnotateTransformation`)
+9. Annotate with OpenACC directives, where the bounds objects only
+   live on the host (:any:`SCCAnnotateTransformation`)
 10. Per-driver-loop pool allocation
     (:any:`TemporariesPoolAllocatorPerDrvLoopTransformation`)
 11. Apply pragma model (:any:`PragmaModelTransformation`)

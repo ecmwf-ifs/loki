@@ -11,7 +11,8 @@ Tests for small-kernels-related fixes in devector.py and annotate.py.
 
 import pytest
 
-from loki import Dimension, Module, Subroutine
+from loki import Dimension, Module, Sourcefile, Subroutine
+from loki.batch import ProcedureItem, SGraph
 from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, Transformer, pragmas_attached, pragma_regions_attached,
@@ -19,6 +20,7 @@ from loki.ir import (
 )
 from loki.tools import as_tuple
 
+from loki.transformations.single_column import SCCSmallKernelsPipeline
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
 from loki.transformations.single_column.devector import SCCDevectorTransformation
 
@@ -441,3 +443,99 @@ end subroutine driver
     params = annotated_loop_params(firstprivate_derived_types=True)
     assert params['private'] == 'tmp'
     assert params['firstprivate'] == 'local_bnds'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('header, body, callee_pragma', [
+    # A routine with only small-kernels calls (no block loops of its own)
+    ('ydcpg_bnds%kbl = ibl', '', '!$loki small-kernels'),
+    # A nested driver whose loop header updates the bounds via a call
+    ('call update_bnds(ydcpg_bnds, ibl)', 't(ydcpg_bnds%kidia, 1) = 1.0', '!$loki small-kernels'),
+    # A nested driver calling a device kernel inside its block loops
+    ('ydcpg_bnds%kbl = ibl', 't(ydcpg_bnds%kidia, 1) = 1.0', ''),
+])
+def test_sk_pipeline_bounds_object_not_device_present(tmp_path, frontend, header, body, callee_pragma):
+    """
+    Verify that the bounds object, which only lives on the host in the
+    small-kernels pipeline, is not declared device-present in any kernel.
+    """
+    fcode_mod = """
+module bnds_mod
+  implicit none
+  type cpg_bnds_type
+    integer :: kidia, kfdia, kbl
+  end type cpg_bnds_type
+contains
+  subroutine update_bnds(bnds, kbl)
+    type(cpg_bnds_type), intent(inout) :: bnds
+    integer, intent(in) :: kbl
+    bnds%kbl = kbl
+  end subroutine update_bnds
+end module bnds_mod
+    """.strip()
+    fcode_driver = f"""
+subroutine driver(ngpblks, klon, ydcpg_bnds, t)
+  use bnds_mod, only: cpg_bnds_type, update_bnds
+  implicit none
+  integer, intent(in) :: ngpblks, klon
+  type(cpg_bnds_type), intent(inout) :: ydcpg_bnds
+  real, intent(inout) :: t(klon, 2, ngpblks)
+  integer :: ibl
+  do ibl = 1, ngpblks
+    {header}
+    !$loki small-kernels
+    call kernel(klon, ydcpg_bnds, t(:,:,ibl))
+  end do
+end subroutine driver
+    """.strip()
+    fcode_kernel = f"""
+subroutine kernel(klon, ydcpg_bnds, t)
+  use bnds_mod, only: cpg_bnds_type
+  implicit none
+  integer, intent(in) :: klon
+  type(cpg_bnds_type), intent(in) :: ydcpg_bnds
+  real, intent(inout) :: t(klon, 2)
+  {body}
+  {callee_pragma}
+  call child(klon, ydcpg_bnds, t)
+end subroutine kernel
+    """.strip()
+    fcode_child = """
+subroutine child(klon, ydcpg_bnds, t)
+  use bnds_mod, only: cpg_bnds_type
+  implicit none
+  integer, intent(in) :: klon
+  type(cpg_bnds_type), intent(in) :: ydcpg_bnds
+  real, intent(inout) :: t(klon, 2)
+  integer :: jrof
+  do jrof = ydcpg_bnds%kidia, ydcpg_bnds%kfdia
+    t(jrof, 1) = 2.0 * t(jrof, 1)
+  end do
+end subroutine child
+    """.strip()
+
+    bnds_mod = Module.from_source(fcode_mod, frontend=frontend, xmods=[tmp_path])
+    sources = {
+        name: Sourcefile.from_source(fcode, frontend=frontend, definitions=[bnds_mod], xmods=[tmp_path])
+        for name, fcode in (('driver', fcode_driver), ('kernel', fcode_kernel), ('child', fcode_child))
+    }
+    routines = {name: source[name] for name, source in sources.items()}
+    items = {name: ProcedureItem(name=f'#{name}', source=source) for name, source in sources.items()}
+    routines['driver'].enrich(routines['kernel'])
+    routines['kernel'].enrich(routines['child'])
+    sgraph = SGraph.from_dict({items['driver']: [items['kernel']], items['kernel']: [items['child']]})
+
+    horizontal = Dimension(name='horizontal', size='klon', index='jrof',
+                           lower=('kidia', 'ydcpg_bnds%kidia'), upper=('kfdia', 'ydcpg_bnds%kfdia', 'klon'))
+    block_dim = Dimension(name='block_dim', size='ngpblks', index=('ibl', 'ydcpg_bnds%kbl'))
+    pipeline = SCCSmallKernelsPipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc')
+    order = [('driver', 'driver', ('kernel',)), ('kernel', 'kernel', ('child',)), ('child', 'kernel', ())]
+    for transformation in pipeline.transformations:
+        for name, role, targets in (order[::-1] if transformation.reverse_traversal else order):
+            transformation.apply(routines[name], role=role, item=items[name], targets=targets, sub_sgraph=sgraph)
+
+    for routine in routines.values():
+        for pragma in FindNodes(ir.Pragma).visit(routine.body):
+            if pragma.keyword == 'acc' and pragma.content.startswith('data'):
+                params = get_pragma_parameters(pragma, starts_with='data', only_loki_pragmas=False)
+                assert 'ydcpg_bnds' not in [v.strip().lower() for v in params.get('present', '').split(',')]
