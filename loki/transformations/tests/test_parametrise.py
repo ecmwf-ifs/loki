@@ -55,9 +55,13 @@ def fixture_config():
     }
 
 
-def _compile_and_test(path_source_map, driver_path_map, tmp_path, a, b):
+def _compile_and_test(path_source_map, driver_path_map, tmp_path, a, b, alloc=None):
     """
     Compile the source code and call the driver function in order to test the results for correctness.
+
+    The arrays are allocated with shape ``alloc = (na, nb)``, which defaults to ``(a, b)``.
+    This allows to pass dimensions ``a`` and ``b`` that differ from the (parametrised) sizes
+    used in the kernels without causing out-of-bounds writes.
     """
     # Compile each file only once
     path_module_map = {
@@ -66,9 +70,10 @@ def _compile_and_test(path_source_map, driver_path_map, tmp_path, a, b):
     }
 
     # Run and validate each driver
+    na, nb = alloc or (a, b)
     for driver_name, stem in driver_path_map:
-        c = np.zeros((a, b), dtype=np.int32, order='F')
-        d = np.zeros((b,), dtype=np.int32, order='F')
+        c = np.zeros((na, nb), dtype=np.int32, order='F')
+        d = np.zeros((nb,), dtype=np.int32, order='F')
         if driver_name == 'driver':
             path_module_map[stem].driver(a, b, c, d)
             assert (c == 11).all()
@@ -80,15 +85,17 @@ def _compile_and_test(path_source_map, driver_path_map, tmp_path, a, b):
             assert False, f'Unknown driver name {driver_name}'
 
 
-def compile_and_test(scheduler, tmp_path, a=5, b=1):
+def compile_and_test(scheduler, tmp_path, a=5, b=1, alloc=None):
     """
     Run JIT compilation and execution in a short-lived subprocess.
+
+    See :any:`_compile_and_test` for the meaning of ``alloc``.
     """
     driver_path_map = [(item.local_name, item.source.path.stem) for item in scheduler.items if 'driver' in item.name]
     path_source_map = {item.source.path.stem: fgen(item.source) for item in scheduler.items if 'driver' in item.name}
     try:
         run_isolated(
-            _compile_and_test, path_source_map, driver_path_map, tmp_path, a, b,
+            _compile_and_test, path_source_map, driver_path_map, tmp_path, a, b, alloc,
             multiprocessing_context='spawn', exit_after_result=True
         )
     except RuntimeError as exc:
@@ -431,7 +438,9 @@ def test_parametrise_modified_callback_wrong_input(tmp_path, testdir, frontend, 
     check_arguments_and_parameter(scheduler=scheduler, subroutine_arguments=subroutine_arguments,
                                   call_arguments=call_arguments, parameter_variables=parameter_variables)
 
-    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=5, b=1)
+    # The wrong sizes are passed to the driver, but the arrays need to match the
+    # parametrised sizes since the kernels write to the full parametrised extent
+    compile_and_test(scheduler=scheduler, tmp_path=tmp_path, a=5, b=1, alloc=(dic2p['a'], dic2p['b']))
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
