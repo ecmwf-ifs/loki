@@ -611,6 +611,7 @@ contains
     real, intent(in) :: plnpr(:,:,:)
     integer :: ibl
 
+    !$loki data
     do ibl = 1, ngpblks
       bnds%kbl = ibl
       bnds%kstglo = 1 + (ibl - 1) * opts%klon
@@ -621,6 +622,7 @@ contains
       call conditional_acc_prologue_mid_kernel(opts%klon, opts%kflevg, bnds%kidia, bnds%kfdia, lvertfe, mode_intg, &
         & phi(:,:,ibl), phif(:,:,ibl), pt(:,:,ibl), pr(:,:,ibl), plnpr(:,:,ibl))
     end do
+    !$loki end data
   end subroutine conditional_acc_prologue_driver
 end module conditional_acc_prologue_driver_mod
 """.strip()
@@ -665,6 +667,7 @@ contains
     real, intent(in) :: plnpr(:,:,:)
     integer :: ibl
 
+    !$loki data
     do ibl = 1, ngpblks
       bnds%kbl = ibl
       bnds%kstglo = 1 + (ibl - 1) * opts%klon
@@ -674,6 +677,7 @@ contains
       !$loki small-kernels
       call explicit_acc_data_mid_kernel(opts%klon, opts%kflevg, bnds%kidia, bnds%kfdia, lvertfe, phi(:,:,ibl), phif(:,:,ibl), pt(:,:,ibl), pr(:,:,ibl), plnpr(:,:,ibl))
     end do
+    !$loki end data
   end subroutine explicit_acc_data_driver
 end module explicit_acc_data_driver_mod
 """.strip()
