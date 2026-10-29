@@ -1,0 +1,777 @@
+# SPDX-FileCopyrightText: 2018 European Centre for Medium-Range Weather Forecasts (ECMWF)
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileComment: In applying this licence, ECMWF does not waive the privileges and immunities
+# granted to it by virtue of its status as an intergovernmental organisation
+# nor does it submit to any jurisdiction.
+
+"""
+Transformations for extracting and re-injecting block-level computation
+sections in the small-kernels SCC pipeline.
+
+:any:`SCCBlockSectionTransformation` identifies contiguous IR regions
+referencing block-dimension variables, wraps them in labelled
+:any:`Section` nodes, and unwraps driver loops containing small-kernels
+pragma calls.
+
+:any:`SCCBlockSectionToLoopTransformation` re-wraps those labelled
+sections in cloned driver loops with ``!$loki loop driver`` pragmas and
+creates local copies of block-dimension index variables.
+
+Applied in sequence, the two transformations convert a driver + kernel
+pair from block-loop form into small-kernels form:
+
+**Driver before both transformations:**
+
+.. code-block:: fortran
+
+    do ibl = 1, nb
+      ydcpg_bnds%kbl = ibl
+      !$loki small-kernels
+      call kernel(ydcpg_bnds, nproma, nb, za)
+    end do
+
+**Driver after** :any:`SCCBlockSectionTransformation` **(loop unwrapped):**
+
+.. code-block:: fortran
+
+    ! former driver loop ...
+    ydcpg_bnds%kbl = ibl
+    call kernel(ydcpg_bnds, nproma, nb, za)
+    ! END: former driver loop ...
+
+**Kernel before both transformations:**
+
+.. code-block:: fortran
+
+    subroutine kernel(ydcpg_bnds, nproma, nb, za)
+      !$loki routine seq
+      za(1, ydcpg_bnds%kbl) = 1.0
+      !$loki small-kernels
+      call child(nproma, nb)
+      za(2, ydcpg_bnds%kbl) = 2.0
+    end subroutine
+
+**Kernel after** :any:`SCCBlockSectionTransformation` **(sections extracted):**
+
+.. code-block:: fortran
+
+    subroutine kernel(ydcpg_bnds, nproma, nb, za)
+      ! [block_section]
+      za(1, ydcpg_bnds%kbl) = 1.0
+      ! [end block_section]
+      call child(nproma, nb)
+      ! [block_section]
+      za(2, ydcpg_bnds%kbl) = 2.0
+      ! [end block_section]
+    end subroutine
+
+**Kernel after** :any:`SCCBlockSectionToLoopTransformation` **(block loops re-injected):**
+
+.. code-block:: fortran
+
+    subroutine kernel(ydcpg_bnds, nproma, nb, za)
+      local_ydcpg_bnds = ydcpg_bnds
+      ! START of Loki inserted block loop
+
+      !$loki loop driver vector_length(nproma)
+      do ibl = 1, nb
+        local_ydcpg_bnds%kbl = ibl
+        za(1, local_ydcpg_bnds%kbl) = 1.0
+      end do
+
+      ! END of Loki inserted block loop
+      call child(nproma, nb)
+      ! START of Loki inserted block loop
+
+      !$loki loop driver vector_length(nproma)
+      do ibl = 1, nb
+        local_ydcpg_bnds%kbl = ibl
+        za(2, local_ydcpg_bnds%kbl) = 2.0
+      end do
+
+      ! END of Loki inserted block loop
+    end subroutine
+"""
+
+from loki.analyse import dataflow_analysis_attached
+from loki.batch import Transformation
+from loki.ir import (
+    nodes as ir, FindNodes, FindVariables, Transformer,
+    NestedTransformer, is_loki_pragma, pragmas_attached,
+    SubstituteExpressions,
+)
+from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.types import BasicType, DerivedType
+
+from loki.transformations.utilities import (
+    find_driver_loops, check_routine_sequential
+)
+from loki.transformations.single_column.devector import (
+    extract_sections, is_unstructured_data_pragma
+)
+
+
+__all__ = [
+    'SCCBlockSectionTransformation', 'SCCBlockSectionToLoopTransformation',
+]
+
+
+class ReblockSectionTransformer(Transformer):
+    """
+    :any:`Transformer` that replaces :any:`Section` nodes labelled
+    with ``"block_section"`` with block-level loops across the
+    block dimension, using a cloned driver loop stored in
+    ``item.trafo_data['LowerBlockIndex']['driver_loop']``.
+
+    Parameters
+    ----------
+    routine : :any:`Subroutine`
+        The subroutine in which block sections should be wrapped.
+    item : :any:`Item`
+        The scheduler item for the routine, carrying ``trafo_data``.
+    horizontal : :any:`Dimension`
+        The dimension specifying the horizontal vector dimension
+        (used for ``vector_length`` pragma annotation).
+    local_copy_map : dict, optional
+        Map of variables to their local copies, which is applied to
+        the inserted block loops.
+
+    Attributes
+    ----------
+    reblocked : bool
+        Whether any block section was wrapped in a block loop.
+    """
+    # pylint: disable=unused-argument
+
+    def __init__(self, routine, item, horizontal, *args, local_copy_map=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.routine = routine
+        self.horizontal = horizontal
+        self.driver_loop = item.trafo_data.get('LowerBlockIndex', {}).get('driver_loop')
+        self.local_copy_map = local_copy_map or {}
+        self.reblocked = False
+
+    def visit_Section(self, s, **kwargs):
+        """
+        Replace ``block_section``-labelled :any:`Section` nodes with a
+        cloned driver loop containing the section body and a
+        ``!$loki loop driver`` pragma.
+        """
+        if s.label == 'block_section':
+            if self.driver_loop is None:
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: driver_loop is None but '
+                    f'a block section needs to be wrapped in a driver loop '
+                    f'for routine {self.routine.name}'
+                )
+            symbol_map = self.routine.symbol_map
+            sizes = tuple(
+                self.routine.resolve_typebound_var(size, symbol_map)
+                for size in self.horizontal.size_expressions
+                if size.split('%')[0] in symbol_map
+            )
+            vector_length = f' vector_length({sizes[0]})' if sizes else ''
+
+            block_loop = self.driver_loop.clone(
+                body=self.driver_loop.body + s.body,
+                pragma=(ir.Pragma(keyword='loki', content=f'loop driver{vector_length}'),)
+            )
+            if self.local_copy_map:
+                block_loop = SubstituteExpressions(self.local_copy_map).visit(block_loop)
+            self.reblocked = True
+
+            return (
+                ir.Comment(text='! START of Loki inserted block loop'),
+                ir.Comment(text=''),
+                block_loop,
+                ir.Comment(text=''),
+                ir.Comment(text='! END of Loki inserted block loop'),
+            )
+
+        # Rebuild section after recursing to children
+        return self._rebuild(s, self.visit(s.children))
+
+
+class SCCBlockSectionToLoopTransformation(Transformation):
+    """
+    Wrap identified block-level sections in driver block loops and
+    create local copies of derived-type arguments written in the
+    replayed driver-loop header.
+
+    This transformation operates on kernel routines that have been
+    processed by :any:`SCCBlockSectionTransformation` (which wraps
+    block-dimension computation regions in ``Section(label='block_section')``
+    nodes).  It:
+
+    1. Calls :any:`ReblockSectionTransformer` to replace those labelled
+       sections with cloned driver loops carrying ``!$loki loop driver``
+       pragmas.
+    2. Activates ``!$loki inactive-small-kernels`` pragmas by stripping
+       the ``inactive-small-kernels`` prefix.
+
+    The cloned driver loops replay the header of the original driver loop,
+    which typically assigns members of a bounds object (e.g.
+    ``ydcpg_bnds%kbl = ibl``). Such derived-type objects are dummy
+    arguments in the kernel, which may be ``intent(in)`` and cannot be
+    privatised in the offloaded block loop. Therefore, a local copy
+    (e.g. ``local_ydcpg_bnds = ydcpg_bnds``) is created before the block
+    loops and used inside them instead.
+
+    **Before** (after :any:`SCCBlockSectionTransformation`):
+
+    .. code-block:: fortran
+
+        subroutine kernel(ydcpg_bnds, nproma, nb)
+          ! [block_section]
+          za(1, ydcpg_bnds%kbl) = 1.0
+          ! [end block_section]
+          !$loki inactive-small-kernels data present(za)
+        end subroutine
+
+    **After** (with a driver-loop header ``ydcpg_bnds%kbl = ibl``):
+
+    .. code-block:: fortran
+
+        subroutine kernel(ydcpg_bnds, nproma, nb)
+          local_ydcpg_bnds = ydcpg_bnds
+          ! START of Loki inserted block loop
+
+          !$loki loop driver vector_length(nproma)
+          do ibl = 1, nb
+            local_ydcpg_bnds%kbl = ibl
+            za(1, local_ydcpg_bnds%kbl) = 1.0
+          end do
+
+          ! END of Loki inserted block loop
+          !$loki data present(za)
+        end subroutine
+
+    Parameters
+    ----------
+    horizontal : :any:`Dimension`
+        Dimension object describing the horizontal (column) dimension.
+    """
+
+    def __init__(self, horizontal):
+        self.horizontal = horizontal
+
+    @staticmethod
+    def activate_pragmas(routine):
+        """
+        Replace ``!$loki inactive-small-kernels`` pragmas with active
+        ``!$loki`` pragmas by stripping the ``inactive-small-kernels``
+        prefix from the pragma content.
+        """
+        pragmas = FindNodes(ir.Pragma).visit(routine.body)
+        for pragma in pragmas:
+            if is_loki_pragma(pragma, starts_with='inactive-small-kernels'):
+                pragma._update(
+                    content=pragma.content.replace('inactive-small-kernels', '')
+                )
+
+    @staticmethod
+    def get_local_copy_map(routine, driver_loop):
+        """
+        Determine local copies for derived-type dummy arguments that are
+        written in the header of the replayed driver loop.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The kernel routine into which the driver loop is replayed.
+        driver_loop : :any:`Loop` or None
+            The driver-loop template from ``trafo_data['LowerBlockIndex']``.
+
+        Returns
+        -------
+        dict
+            Map of derived-type dummy arguments to their ``local_`` copies.
+        """
+        if driver_loop is None:
+            return {}
+
+        variable_map = routine.variable_map
+        local_copy_map = {}
+        for assign in FindNodes(ir.Assignment).visit(driver_loop.body):
+            if not assign.lhs.parent:
+                continue
+            arg = variable_map.get(assign.lhs.parents[0].name)
+            if arg is None or not arg.type.intent or not isinstance(arg.type.dtype, DerivedType):
+                continue
+            local_copy_map[arg] = arg.clone(name=f'local_{arg.name}', type=arg.type.clone(intent=None))
+        return local_copy_map
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply block-section-to-loop transformation to a kernel
+        :any:`Subroutine`.
+
+        For kernel routines, this replaces ``block_section``-labelled
+        :any:`Section` nodes with driver block loops, activates
+        inactive small-kernels pragmas, and creates local copies of
+        derived-type arguments written in the replayed driver-loop header.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : str
+            Role of the subroutine in the call tree; only ``"kernel"``
+            is processed.
+        item : :any:`Item`
+            Scheduler item carrying ``trafo_data``.
+        """
+        role = kwargs['role']
+        item = kwargs.get('item', None)
+
+        if role == 'kernel':
+            driver_loop = item.trafo_data.get('LowerBlockIndex', {}).get('driver_loop')
+            local_copy_map = self.get_local_copy_map(routine, driver_loop)
+
+            reblock = ReblockSectionTransformer(
+                routine, item, self.horizontal, local_copy_map=local_copy_map
+            )
+            routine.body = reblock.visit(routine.body)
+            self.activate_pragmas(routine)
+
+            if reblock.reblocked and local_copy_map:
+                routine.variables += tuple(local_copy_map.values())
+                routine.body.prepend(tuple(
+                    ir.Assignment(lhs=local_var, rhs=var) for var, local_var in local_copy_map.items()
+                ))
+
+
+class SCCBlockSectionTransformation(Transformation):
+    """
+    Extract contiguous block-level computation sections from kernel
+    routines and wrap them in labelled :any:`Section` nodes for
+    downstream processing by :any:`SCCBlockSectionToLoopTransformation`.
+
+    For driver routines, this transformation marks successors with
+    ``BlockSectionTrafo`` in ``trafo_data`` and splits driver loops
+    at ``!$loki small-kernels`` pragma calls, moving these calls out of
+    the driver loop (see :meth:`split_driver_loop`).
+
+    For kernel routines (guarded by ``BlockSectionTrafo`` in
+    ``trafo_data``), the transformation:
+
+    1. Removes ``!$loki routine`` pragmas from spec and body.
+    2. Extracts contiguous IR sections that reference block-dimension
+       variables or contain non-deferred call statements, split at
+       call statements annotated with ``!$loki small-kernels`` pragmas.
+    3. Optionally trims those sections to only include nodes that
+       actually reference block-dimension symbols.
+    4. Wraps the resulting sections in ``Section(label='block_section')``
+       nodes via :any:`NestedTransformer`.
+
+    For a kernel routine like:
+
+    .. code-block:: fortran
+
+        subroutine kernel(nproma, nb, ibl, za, zb)
+          integer, intent(in) :: nproma, nb, ibl
+          real, intent(inout) :: za(nproma, nb), zb(nproma, nb)
+          !$loki routine seq
+          za(1, ibl) = 1.0
+          !$loki small-kernels
+          call child_kernel(nproma, nb)
+          zb(1, ibl) = 2.0
+        end subroutine
+
+    the transformation wraps block-dimension sections and removes the
+    ``!$loki routine`` pragma:
+
+    .. code-block:: fortran
+
+        subroutine kernel(nproma, nb, ibl, za, zb)
+          integer, intent(in) :: nproma, nb, ibl
+          real, intent(inout) :: za(nproma, nb), zb(nproma, nb)
+          ! [block_section]
+          za(1, ibl) = 1.0
+          ! [end block_section]
+          call child_kernel(nproma, nb)
+          ! [block_section]
+          zb(1, ibl) = 2.0
+          ! [end block_section]
+        end subroutine
+
+    For a driver routine, the block loop is split at small-kernels calls:
+
+    .. code-block:: fortran
+
+        ! Before:
+        do ibl = 1, nb
+          bnds%kbl = ibl
+          call other_kernel(nproma, za(:, ibl))
+          !$loki small-kernels
+          call kernel(nproma, nb, za, zb)
+        end do
+
+        ! After:
+        ! former driver loop ...
+        do ibl = 1, nb
+          bnds%kbl = ibl
+          call other_kernel(nproma, za(:, ibl))
+        end do
+        !$loki small-kernels
+        call kernel(nproma, nb, za, zb)
+        ! END: former driver loop ...
+
+    Parameters
+    ----------
+    block_dim : :any:`Dimension`
+        :any:`Dimension` object describing the block data dimension.
+    trim_block_sections : bool, optional
+        Flag to trigger trimming of extracted block sections to remove
+        nodes that are not assignments involving block-dimension arrays.
+        Default is ``True``.
+    """
+
+    def __init__(self, block_dim, trim_block_sections=True):
+        self.block_dim = block_dim
+        self.trim_block_sections = trim_block_sections
+
+    @staticmethod
+    def _resolve_block_indices(routine, block_dim):
+        """Resolve the block-dimension indices that are defined in *routine*."""
+        variable_map = routine.variable_map
+        return tuple(
+            routine.resolve_typebound_var(index, variable_map)
+            for index in block_dim.indices
+            if index.split('%', maxsplit=1)[0] in variable_map
+        )
+
+    @staticmethod
+    def _section_references_block_index(section, block_indices):
+        """Check if any of the given block indices is used in *section*."""
+        return any(var in block_indices for var in FindVariables().visit(section))
+
+    @classmethod
+    def extract_block_sections(cls, routine, section, block_dim):
+        """
+        Extract contiguous sections of nodes that contain block-level
+        computations, split at call statements annotated with
+        ``!$loki small-kernels`` pragmas.
+
+        Recursively processes :any:`Loop`, :any:`Conditional` and
+        :any:`MultiConditional` separator nodes to find nested block
+        sections.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine containing the section, in which block-dimension
+            indices are resolved.
+        section : tuple of :any:`Node`
+            A section of nodes from which to extract block-level
+            sub-sections.
+        block_dim : :any:`Dimension`
+            The dimension specifying the block dimension.
+
+        Returns
+        -------
+        list of tuple
+            List of node tuples representing extracted block sections.
+        """
+        def find_separators(nodes):
+            # Small-kernels calls and unstructured data directives, which
+            # are not allowed inside compute regions, separate block sections
+            calls = [
+                call for call in FindNodes(ir.CallStatement).visit(nodes)
+                if is_loki_pragma(call.pragma, starts_with='small-kernels') and not (
+                    call.routine is not BasicType.DEFERRED and check_routine_sequential(routine=call.routine)
+                )
+            ]
+            pragmas = [p for p in FindNodes(ir.Pragma).visit(nodes) if is_unstructured_data_pragma(p)]
+            return calls + pragmas
+
+        block_indices = cls._resolve_block_indices(routine, block_dim)
+
+        def keep_section(nodes):
+            # Keep only sections that reference block-dim indices or contain resolved calls
+            return cls._section_references_block_index(nodes, block_indices) or any(
+                call.routine is not BasicType.DEFERRED for call in FindNodes(ir.CallStatement).visit(nodes)
+            )
+
+        return extract_sections(section, find_separators, keep_section)
+
+    @classmethod
+    def get_trimmed_sections(cls, routine, block_dim, sections):
+        """
+        Trim extracted block sections to remove nodes that are not
+        assignments involving block-dimension arrays.
+
+        Uses :func:`dataflow_analysis_attached` to determine which
+        nodes reference block-dimension symbols.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine containing the sections.
+        block_dim : :any:`Dimension`
+            The dimension specifying the block dimension.
+        sections : tuple of tuple
+            The extracted block sections to trim.
+
+        Returns
+        -------
+        tuple of tuple
+            The trimmed block sections.
+        """
+        trimmed_sections = ()
+        block_indices = cls._resolve_block_indices(routine, block_dim)
+        with dataflow_analysis_attached(routine):
+            for sec in sections:
+                block_nodes = [
+                    node for node in sec
+                    if any(index in node.uses_symbols for index in block_indices)
+                ]
+                if block_nodes:
+                    start = sec.index(block_nodes[0])
+                    # Keep an unattached loop pragma with its loop
+                    if (start > 0
+                            and isinstance(sec[start - 1], ir.Pragma)
+                            and sec[start - 1].content.lstrip().lower().startswith('loop')):
+                        start -= 1
+                    end = sec.index(block_nodes[-1])
+                    trimmed_sections += (sec[start:end + 1],)
+                else:
+                    call_nodes = [
+                        node for node in sec
+                        if any(
+                            call
+                            for call in FindNodes(
+                                ir.CallStatement
+                            ).visit(node)
+                            if call.routine is not BasicType.DEFERRED
+                        )
+                    ]
+                    if call_nodes:
+                        start = sec.index(call_nodes[0])
+                        end = sec.index(call_nodes[-1])
+                        trimmed_sections += (sec[start:end + 1],)
+
+        return trimmed_sections
+
+    @staticmethod
+    def mark_small_kernels_successors(routine, successor_map):
+        """
+        Mark the successors called with ``!$loki small-kernels`` for
+        block-section extraction by setting ``BlockSectionTrafo`` in
+        their ``trafo_data``.
+
+        Calls to routines that are not successors in the scheduler graph
+        (e.g. library routines) are skipped.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine whose calls are inspected.
+        successor_map : :any:`CaseInsensitiveDict`
+            Mapping of callee names to their scheduler items.
+        """
+        with pragmas_attached(routine, ir.CallStatement):
+            for call in FindNodes(ir.CallStatement).visit(routine.body):
+                if not is_loki_pragma(call.pragma, starts_with='small-kernels'):
+                    continue
+                if (successor := successor_map.get(str(call.name))) is not None:
+                    successor.trafo_data['BlockSectionTrafo'] = True
+
+    def process_driver(self, routine, item, successor_map, targets):  # pylint: disable=unused-argument
+        """
+        Process a driver-level routine by marking call statements that
+        have ``!$loki small-kernels`` pragmas for block-section
+        treatment, and unwrapping driver loops that contain such calls.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The driver routine to process.
+        item : :any:`Item`
+            The scheduler item for the routine.
+        successor_map : :any:`CaseInsensitiveDict`
+            Mapping of callee names to their scheduler items.
+        targets : tuple of str
+            Target routine names for driver loop detection.
+        """
+        self.mark_small_kernels_successors(routine, successor_map)
+
+        loop_map = {}
+        with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
+            driver_loops = find_driver_loops(
+                section=routine.body, targets=targets
+            )
+            for driver_loop in driver_loops:
+                if (split_loop := self.split_driver_loop(driver_loop)) is not None:
+                    loop_map[driver_loop] = split_loop
+            if loop_map:
+                routine.body = Transformer(loop_map).visit(routine.body)
+
+    @staticmethod
+    def split_driver_loop(loop):
+        """
+        Split a driver loop at calls annotated with ``!$loki small-kernels``.
+
+        The small-kernels calls (or the outermost node in the loop body
+        containing them) are moved out of the loop, as the block loop is
+        re-created inside the called kernels. All remaining nodes stay in
+        copies of the driver loop, where the loop header, i.e. the leading
+        assignments of the loop body, is replicated in each copy. Copies
+        that would only contain the loop header are dropped.
+
+        This expects pragmas to be attached to loops, but not to calls.
+
+        Parameters
+        ----------
+        loop : :any:`Loop`
+            The driver loop to split.
+
+        Returns
+        -------
+        tuple of :any:`Node` or None
+            The nodes replacing the driver loop, or `None` if the loop
+            does not contain any small-kernels calls.
+        """
+        body = loop.body
+        sk_pragmas = [
+            p for p in FindNodes(ir.Pragma).visit(body)
+            if is_loki_pragma(p, starts_with='small-kernels')
+        ]
+        if not sk_pragmas:
+            return None
+
+        # Determine the positions of separator nodes in the loop body
+        separator_idx = set()
+        for pragma in sk_pragmas:
+            if pragma in body:
+                # Pragmas are not attached to calls, so the call is the next node
+                idx = body.index(pragma)
+                separator_idx |= {idx, idx + 1}
+            else:
+                ancestor = next(node for node in body if pragma in FindNodes(ir.Pragma).visit(node))
+                separator_idx.add(body.index(ancestor))
+
+        # The loop header consists of the leading assignments in the loop body
+        comment_types = (ir.Comment, ir.CommentBlock)
+        header_end = next(
+            (idx for idx, node in enumerate(body)
+             if idx in separator_idx or not isinstance(node, (ir.Assignment,) + comment_types)),
+            len(body)
+        )
+        while header_end > 0 and isinstance(body[header_end - 1], comment_types):
+            header_end -= 1
+        header = body[:header_end]
+
+        new_body = [ir.Comment(text='! former driver loop ...')]
+        segment, segment_start = (), 0
+        for idx, node in enumerate(body + (None,)):
+            if idx < len(body) and idx not in separator_idx:
+                segment += (node,)
+                continue
+
+            # Wrap the segment in a copy of the driver loop, if it contains
+            # more than just the loop header
+            content = segment[header_end:] if segment_start == 0 else segment
+            if any(not isinstance(n, comment_types) for n in content):
+                loop_body = segment if segment_start == 0 else header + segment
+                new_body += [loop.clone(body=loop_body)]
+            segment, segment_start = (), idx + 1
+
+            if node is not None:
+                new_body += [node]
+        new_body += [ir.Comment(text='! END: former driver loop ...')]
+        return tuple(new_body)
+
+    def process_kernel(self, routine, item, successor_map):
+        """
+        Extract block-level computation sections from a kernel routine
+        and wrap them in ``Section(label='block_section')`` nodes.
+
+        Only processes routines that have ``BlockSectionTrafo`` set in
+        their ``trafo_data`` (set by :meth:`process_driver` on the
+        caller side).
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The kernel routine to process.
+        item : :any:`Item`
+            The scheduler item for the routine.
+        successor_map : :any:`CaseInsensitiveDict`
+            Mapping of callee names to their scheduler items.
+        """
+        if not item.trafo_data.get('BlockSectionTrafo', False):
+            return
+
+        # Remove !$loki routine pragmas
+        pragmas = [
+            pragma
+            for pragma in FindNodes(ir.Pragma).visit(routine.ir)
+            if is_loki_pragma(pragma, starts_with='routine')
+        ]
+        pragma_map = {pragma: None for pragma in pragmas}
+        routine.spec = Transformer(pragma_map).visit(routine.spec)
+        routine.body = Transformer(pragma_map).visit(routine.body)
+
+        self.mark_small_kernels_successors(routine, successor_map)
+
+        with pragmas_attached(routine, ir.CallStatement):
+            sections = self.extract_block_sections(
+                routine, routine.body.body, self.block_dim
+            )
+
+        if self.trim_block_sections:
+            sections = self.get_trimmed_sections(
+                routine, self.block_dim, sections
+            )
+
+        section_mapper = {
+            s: ir.Section(body=s, label='block_section')
+            for s in sections
+            if s and any(
+                not isinstance(n, (ir.Comment, ir.Pragma, ir.CommentBlock))
+                for n in s
+            )
+        }
+        routine.body = NestedTransformer(section_mapper).visit(routine.body)
+
+    def transform_subroutine(self, routine, **kwargs):
+        """
+        Apply block-section extraction to a :any:`Subroutine`.
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            Subroutine to apply this transformation to.
+        role : str
+            Role of the subroutine in the call tree
+            (``"driver"`` or ``"kernel"``).
+        item : :any:`Item`
+            Scheduler item carrying ``trafo_data``.
+        targets : tuple of str, optional
+            Target routine names for driver loop detection.
+        sub_sgraph : optional
+            Sub-graph of the scheduler providing successor information.
+        """
+        targets = kwargs.get('targets', ())
+        item = kwargs.get('item', None)
+        role = kwargs.get('role', None)
+        sub_sgraph = kwargs.get('sub_sgraph', None)
+        successors = (
+            as_tuple(sub_sgraph.successors(item))
+            if sub_sgraph is not None
+            else ()
+        )
+
+        successor_map = CaseInsensitiveDict(
+            (successor.local_name, successor)
+            for successor in successors
+        )
+
+        if role == 'kernel':
+            self.process_kernel(routine, item, successor_map)
+        if role == 'driver':
+            self.process_driver(
+                routine, item, successor_map, targets=targets
+            )
