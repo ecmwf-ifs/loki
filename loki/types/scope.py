@@ -297,3 +297,52 @@ class Scope:
         if _type is None:
             return None
         return _type.dtype
+
+    def get_variable(self, name, dimensions=None, parent=None, fail=True):
+        """
+        Create the symbol for a variable declared in this scope or any of
+        its parents
+
+        This performs a recursive look-up of the type information for
+        :data:`name`, including derived type members via the type definition
+        of their parent, and instantiates the matching symbol class (see
+        :any:`Variable` for the dispatch rules). In contrast to
+        :any:`Variable`, this never modifies the symbol table.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable. For derived type members this is either
+            the member name together with :data:`parent`, or the fully
+            qualified name (e.g., ``a%b``), in which case the parent symbol
+            is created.
+        dimensions : tuple, optional
+            The array subscript for the variable. Providing it always
+            yields an :any:`Array`.
+        parent : :any:`Scalar` or :any:`Array`, optional
+            The derived type variable this variable belongs to.
+        fail : bool, optional
+            Flag to override the default failure when the variable was not
+            declared. If set to `False`, a :any:`DeferredTypeSymbol` is
+            returned for undeclared names.
+
+        Returns
+        -------
+        :any:`TypedSymbol` or :any:`MetaSymbol`
+            The symbol attached to this scope
+        """
+        from loki.expression.symbols import _get_symbol_class, _lookup_symbol_type  # pylint: disable=import-outside-toplevel,cyclic-import
+
+        if parent is not None:
+            name = f'{parent.name}%{name.split("%")[-1]}'
+        elif '%' in name:
+            parent = self.get_variable(name.rsplit('%', maxsplit=1)[0], fail=fail)
+
+        _type = _lookup_symbol_type(name, self, parent=parent)
+        if fail and _type is None:
+            raise KeyError(f'[Loki::Scope] Cannot get variable for undeclared symbol name: {name}')
+
+        symbol_class = _get_symbol_class(name, _type, dimensions)
+        if dimensions is not None:
+            return symbol_class(name=name, scope=self, parent=parent, dimensions=dimensions)
+        return symbol_class(name=name, scope=self, parent=parent)

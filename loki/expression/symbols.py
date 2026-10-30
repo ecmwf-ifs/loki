@@ -94,9 +94,15 @@ class TypedSymbol:
         self.scope = kwargs.pop('scope', None)
         self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
 
-        # Use provided type or try to determine from scope
+        # Store the provided type (in the scope's symbol table, if given),
+        # otherwise the type is looked up on demand and undeclared symbols
+        # are declared with deferred type
         self._type = None
-        self.type = kwargs.pop('type', None) or self.type
+        _type = kwargs.pop('type', None)
+        if _type is not None:
+            self.type = _type
+        elif self.scope is not None and self.type is None:
+            self.type = SymbolAttributes(BasicType.DEFERRED)
 
         super().__init__(*args, **kwargs)
 
@@ -147,41 +153,7 @@ class TypedSymbol:
         e.g. to distinguish between procedure calls and array subscripts for
         ambiguous derived type components.
         """
-        _type = scope.symbol_attrs.lookup(self.name)
-        if _type and _type.dtype:
-            # We have a clean entry in the symbol table which is not deferred
-            return _type
-
-        # Try a look-up via parent
-        if self.parent:
-            tdef_var = self.parent.variable_map.get(self.basename)
-            if not tdef_var and self.parent.scope is not scope:
-                # If the parent isn't delivering straight away (may happen e.g. for nested derived types)
-                # we'll try discovering its parent's type via the provided scope
-                parent = self._lookup_parent(scope)
-                if parent:
-                    tdef_var = parent.variable_map.get(self.basename)
-            if tdef_var:
-                return tdef_var.type
-
-        return _type
-
-    def _lookup_parent(self, scope):
-        """
-        Helper method to look-up parent variable using provided :data:`scope`
-        """
-        # Start at the root, i.e. the declared derived type object
-        parent_name = self.name_parts[0]
-        parent_type = scope.symbol_attrs.lookup(parent_name)
-        parent_var = Variable(name=parent_name, scope=scope, type=parent_type)
-        # Walk through nested derived types (if any)...
-        for name in self.name_parts[1:-1]:
-            if not parent_var:
-                # If the look-up fails somewhere we have to bail out
-                return None
-            parent_var = parent_var.variable_map.get(name)  # pylint: disable=no-member
-        # ...until we are at the actual parent
-        return parent_var
+        return _lookup_symbol_type(self.name, scope, parent=self.parent)
 
     @property
     def type(self):
@@ -298,14 +270,16 @@ class TypedSymbol:
             kwargs['name'] = self.name
         if 'scope' not in kwargs and self.scope:
             kwargs['scope'] = self.scope
-        if 'type' not in kwargs:
-            # If no type is given, check new scope
-            if 'scope' in kwargs and kwargs['scope'] and kwargs['name'] in kwargs['scope'].symbol_attrs:
-                kwargs['type'] = kwargs['scope'].symbol_attrs[kwargs['name']]
-            else:
-                kwargs['type'] = self.type
         if 'parent' not in kwargs and self.parent:
             kwargs['parent'] = self.parent
+        if 'type' not in kwargs:
+            # If no type is given, check new scope, or the parent for derived
+            # type members whose type is not known
+            scope, parent = kwargs.get('scope'), kwargs.get('parent')
+            _type = self.type
+            if scope and (kwargs['name'] in scope.symbol_attrs or (parent is not None and not (_type and _type.dtype))):
+                _type = _lookup_symbol_type(kwargs['name'], scope, parent=parent) or _type
+            kwargs['type'] = _type
         if 'case_sensitive' not in kwargs and self.case_sensitive:
             kwargs['case_sensitive'] = self.case_sensitive
 
@@ -359,10 +333,18 @@ class DeferredTypeSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint
     """
 
     def __init__(self, name, scope=None, **kwargs):
-        if kwargs.get('type') is None:
+        if kwargs.get('type') is None and scope is None:
             kwargs['type'] = SymbolAttributes(BasicType.DEFERRED)
-        assert kwargs['type'].dtype is BasicType.DEFERRED
+        assert kwargs.get('type') is None or kwargs['type'].dtype is BasicType.DEFERRED
         super().__init__(name=name, scope=scope, **kwargs)
+
+    @TypedSymbol.type.getter
+    def type(self):  # pylint: disable=invalid-overridden-method
+        """
+        Internal representation of the declared data type, which is
+        :any:`BasicType.DEFERRED` if the symbol is not declared in its scope
+        """
+        return TypedSymbol.type.fget(self) or SymbolAttributes(BasicType.DEFERRED)
 
     mapper_method = intern('map_deferred_type_symbol')
 
@@ -853,71 +835,119 @@ class Variable:
         _type = kwargs.get('type')
 
         if scope is not None and _type is None:
-            # Determine type information from scope if not provided explicitly
-            _type = cls._get_type_from_scope(name, scope, kwargs.get('parent'))
+            # Determine type information from scope if not provided explicitly,
+            # and store a deferred type for undeclared symbols
+            _type = _lookup_symbol_type(name, scope, parent=kwargs.get('parent'))
+            _type = _type or SymbolAttributes(BasicType.DEFERRED)
         kwargs['type'] = _type
-
-        if _type and isinstance(_type.dtype, ProcedureType):
-            # This is the name in a function/subroutine call
-            return ProcedureSymbol(**kwargs)
-
-        if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
-            # This the name of a derived type, as found in USE import statements
-            return DerivedTypeSymbol(**kwargs)
 
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
             # Convenience: This way we can construct Scalar variables with `dimensions=None`
             kwargs.pop('dimensions')
 
-        if kwargs.get('dimensions') is not None or (_type and _type.shape):
-            return Array(**kwargs)
-        if _type and _type.dtype:
-            return Scalar(**kwargs)
-        return DeferredTypeSymbol(**kwargs)
+        symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
+        return symbol_class(**kwargs)
 
-    @classmethod
-    def _get_type_from_scope(cls, name, scope, parent=None):
-        """
-        Helper method to determine the type of a symbol
 
-        If no entry is found in the scope's symbol table, a lookup via
-        the parent is attempted to construct the type for derived type
-        members.
+def _lookup_member_type(parent_type, name):
+    """
+    Look up the type of a derived type member in the type definition
 
-        Parameters
-        ----------
-        name : str
-            The symbol's name
-        scope : :any:`Scope`
-            The scope in which to search for the symbol's type
-        parent : :any:`MetaSymbol` or :any:`TypedSymbol`, optional
-            The symbol's parent (for derived type members)
+    Parameters
+    ----------
+    parent_type : :any:`SymbolAttributes` or `None`
+        The type of the derived type variable that the member belongs to
+    name : str
+        The member's name without the parent qualifier
 
-        Returns
-        -------
-        :any:`SymbolAttributes` or `None`
-        """
-        # 1. Try to find symbol in scope
-        stored_type = scope.symbol_attrs.lookup(name)
+    Returns
+    -------
+    :any:`SymbolAttributes` or `None`
+        The member's declared type, or `None` if it cannot be determined
+    """
+    if parent_type is None or not isinstance(parent_type.dtype, DerivedType):
+        return None
+    typedef = parent_type.dtype.typedef
+    if not typedef:
+        return None
+    member = typedef.variable_map.get(name)
+    return None if member is None else member.type
 
-        # 2. For derived type members, we can try to find it via the parent instead
-        if '%' in name and (not stored_type or not stored_type.dtype):
-            name_parts = name.split('%')
-            if not parent:
-                # Build the parent if not given
-                parent_type = scope.symbol_attrs.lookup(name_parts[0])
-                parent = Variable(name=name_parts[0], scope=scope, type=parent_type)
-                for pname in name_parts[1:-1]:
-                    if not parent:
-                        return None
-                    parent = parent.variable_map.get(pname)  # pylint: disable=no-member
-            if parent:
-                # Lookup type in parent's typedef
-                tdef_var = parent.variable_map.get(name_parts[-1])
-                if tdef_var:
-                    return tdef_var.type
 
-        return stored_type
+def _lookup_symbol_type(name, scope, parent=None):
+    """
+    Look up the type of a symbol in a scope without modifying it
+
+    If no complete entry is found in the scope's symbol table, the type
+    of derived type members is determined from the type definition of the
+    parent. If :data:`parent` is not given, or does not provide the type,
+    the parent's type is looked up in :data:`scope`.
+
+    Parameters
+    ----------
+    name : str
+        The symbol's fully qualified name
+    scope : :any:`Scope`
+        The scope in which to search for the symbol's type
+    parent : :any:`MetaSymbol` or :any:`TypedSymbol`, optional
+        The symbol's parent (for derived type members)
+
+    Returns
+    -------
+    :any:`SymbolAttributes` or `None`
+        The symbol's type, or `None` if the symbol is not declared
+    """
+    _type = scope.symbol_attrs.lookup(name)
+    if _type and _type.dtype:
+        # We have a clean entry in the symbol table which is not deferred
+        return _type
+
+    if '%' in name:
+        parent_name, basename = name.rsplit('%', maxsplit=1)
+        member_type = None
+        if parent is not None:
+            member_type = _lookup_member_type(parent.type, basename)
+        if member_type is None and (parent is None or parent.scope is not scope):
+            # The parent may not deliver straight away, e.g. for nested
+            # derived types, so we try discovering its type via the scope
+            member_type = _lookup_member_type(_lookup_symbol_type(parent_name, scope), basename)
+        if member_type is not None:
+            return member_type
+
+    return _type
+
+
+def _get_symbol_class(name, _type, dimensions=None):
+    """
+    Determine the symbol class for a given type, following the dispatch
+    rules described in :any:`Variable`
+
+    Parameters
+    ----------
+    name : str
+        The symbol's name
+    _type : :any:`SymbolAttributes` or `None`
+        The symbol's type
+    dimensions : tuple, optional
+        The symbol's array subscript
+
+    Returns
+    -------
+    type
+        One of :any:`ProcedureSymbol`, :any:`DerivedTypeSymbol`,
+        :any:`Array`, :any:`Scalar` or :any:`DeferredTypeSymbol`
+    """
+    if _type and isinstance(_type.dtype, ProcedureType):
+        # This is the name in a function/subroutine call
+        return ProcedureSymbol
+    if _type and isinstance(_type.dtype, DerivedType) and name.lower() == _type.dtype.name.lower():
+        # This the name of a derived type, as found in USE import statements
+        return DerivedTypeSymbol
+    if dimensions is not None or (_type and _type.shape):
+        return Array
+    if _type and _type.dtype:
+        return Scalar
+    return DeferredTypeSymbol
 
 
 class InlineDo(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf):
