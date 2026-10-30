@@ -154,7 +154,7 @@ class CreateEntryPointsTransformation(Transformation):
         )
         return driver_item
 
-    def _create_dispatcher_config(self, item, driver_items, scheduler_config):
+    def _configure_dispatcher(self, item, driver_items, scheduler_config):
         """
         Turn the entry-point item into a standalone dispatch layer driver without
         children in the dependency graph.
@@ -231,7 +231,7 @@ class CreateEntryPointsTransformation(Transformation):
             self._create_driver(routine, item, mode, item_factory, scheduler_config)
             for mode in (self.mode, self.baseline_mode)
         )
-        self._create_dispatcher_config(item, driver_items, scheduler_config)
+        self._configure_dispatcher(item, driver_items, scheduler_config)
         return driver_items
 
     def transform_subroutine(self, routine, **kwargs):
