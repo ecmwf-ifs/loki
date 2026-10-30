@@ -95,7 +95,7 @@ class CreateEntryPointsTransformation(Transformation):
     def _is_entry_point(routine, item):
         """Validate the entry-point configuration and report whether it is enabled."""
 
-        if not isinstance(item, ProcedureItem) or not item.config.get('entry-point', False):
+        if not isinstance(item, ProcedureItem) or not item.entry_point:
             return False
 
         condition = item.config.get('condition')
