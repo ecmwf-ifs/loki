@@ -17,7 +17,6 @@ from loki.ir import (
     pragma_regions_attached, get_pragma_parameters
 )
 from loki.expression import Variable, RangeIndex, IntLiteral
-from loki.expression import symbols as sym
 from loki.frontend import available_frontends
 from loki.logging import log_levels
 from loki.subroutine import Subroutine
@@ -1157,7 +1156,7 @@ def test_deepcopy_dataflow_analysis_ignore_calls_skips_unenriched_call():
     scope = Scope()
     _name = 'ABOR1_ACC'
     _type = SymbolAttributes(dtype=ProcedureType(_name))
-    name = sym.ProcedureSymbol(name=_name, type=_type, scope=scope)
+    name = scope.declare_variable(_name, type=_type)
     call = ir.CallStatement(name=name, arguments=())
 
     analysis = DeepcopyDataflowAnalysis(
@@ -1172,7 +1171,7 @@ def test_deepcopy_dataflow_analysis_unenriched_call_raises():
     scope = Scope()
     _name = 'ABOR1_ACC'
     _type = SymbolAttributes(dtype=ProcedureType(_name))
-    name = sym.ProcedureSymbol(name=_name, type=_type, scope=scope)
+    name = scope.declare_variable(_name, type=_type)
     call = ir.CallStatement(name=name, arguments=())
 
     analysis = DeepcopyDataflowAnalysis(successor_map={call: object()})

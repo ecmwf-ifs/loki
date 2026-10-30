@@ -477,15 +477,15 @@ end module test_module_rescope
 
     # Explicitly throw away type information from original module
     module.symbol_attrs.clear()
-    assert all(var.type is None for var in other_module_copy.variables)
+    assert all(var.type.dtype is BasicType.DEFERRED for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 
     # fgen of the rescoped copy should work
     assert fgen(module_copy) == ref_fgen
 
-    # fgen of the not rescoped copy should fail because the scope of the variables went away
-    with pytest.raises(AttributeError):
-        fgen(other_module_copy)
+    # fgen of the not rescoped copy lacks the type information, because the
+    # declarations in the scope of the variables went away
+    assert fgen(other_module_copy) != ref_fgen
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Parsing fails without dummy module provided')]))
@@ -515,15 +515,15 @@ end module test_module_rescope_clone
 
     # Explicitly throw away type information from original module
     module.symbol_attrs.clear()
-    assert all(var.type is None for var in other_module_copy.variables)
+    assert all(var.type.dtype is BasicType.DEFERRED for var in other_module_copy.variables)
     assert all(var.scope is not None for var in other_module_copy.variables)
 
     # fgen of the rescoped copy should work
     assert fgen(module_copy) == ref_fgen
 
-    # fgen of the not rescoped copy should fail because the scope of the variables went away
-    with pytest.raises(AttributeError):
-        fgen(other_module_copy)
+    # fgen of the not rescoped copy lacks the type information, because the
+    # declarations in the scope of the variables went away
+    assert fgen(other_module_copy) != ref_fgen
 
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'Parsing fails without dummy module provided')]

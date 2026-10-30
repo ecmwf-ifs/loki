@@ -91,6 +91,8 @@ class SymbolAttributes:
         """
         Compare :any:`SymbolAttributes` via internal comparison but without execptions.
         """
+        if not isinstance(other, SymbolAttributes):
+            return False
         return self.compare(other, ignore=None)
 
     def clone(self, **kwargs):

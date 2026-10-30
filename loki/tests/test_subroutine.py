@@ -48,8 +48,8 @@ end subroutine routine_arguments_add_remove
     # Create a new set of variables and add to local routine variables
     x = routine.variables[1]  # That's the symbol for variable 'x'
     real_type = routine.symbol_attrs['scalar']  # Type of variable 'maximum'
-    a = sym.Scalar(name='a', type=real_type, scope=routine)
-    b = sym.Array(name='b', dimensions=(x, ), type=real_type, scope=routine)
+    a = sym.Variable(name='a', type=real_type, scope=routine)
+    b = sym.Variable(name='b', dimensions=(x, ), type=real_type, scope=routine)
     c = sym.Variable(name='c', type=x.type, scope=routine)
 
     # Add new arguments and check that they are all in the routine spec
@@ -165,8 +165,8 @@ end subroutine routine_variables_add_remove
     x = routine.variable_map['x']  # That's the symbol for variable 'x'
     real_type = SymbolAttributes('real', kind=routine.variable_map['jprb'])
     int_type = SymbolAttributes('integer')
-    a = sym.Scalar(name='a', type=real_type, scope=routine)
-    b = sym.Array(name='b', dimensions=(x, ), type=real_type, scope=routine)
+    a = sym.Variable(name='a', type=real_type, scope=routine)
+    b = sym.Variable(name='b', dimensions=(x, ), type=real_type, scope=routine)
     c = sym.Variable(name='c', type=int_type, scope=routine)
 
     # Add new variables and check that they are all in the routine spec
@@ -902,7 +902,7 @@ end subroutine test_subroutine_rescope
     routine.members[0]._parent = None
     routine.members[0].symbol_attrs.clear()
     routine.members[0].symbol_attrs._parent = None
-    assert all(var.type is None for var in other_routine.variables)
+    assert all(var.type.dtype is BasicType.DEFERRED for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 
     # Replace member routine by copied routine
@@ -915,7 +915,7 @@ end subroutine test_subroutine_rescope
 
     # accessing any local type information should fail because either the scope got garbage
     # collected or its types are gonee
-    assert all(var.scope is None or var.type is None for var in other_routine.variables)
+    assert all(var.scope is None or var.type.dtype is BasicType.DEFERRED for var in other_routine.variables)
 
     # Make sure changes apply also to the KIND attribute
     if frontend == OMNI:
@@ -1014,7 +1014,7 @@ end subroutine test_subroutine_rescope_clone
     routine.members[0]._parent = None
     routine.members[0].symbol_attrs.clear()
     routine.members[0].symbol_attrs._parent = None
-    assert all(var.type is None for var in other_routine.variables)
+    assert all(var.type.dtype is BasicType.DEFERRED for var in other_routine.variables)
     assert all(var.scope is not None for var in other_routine.variables)
 
     # Replace member routine by copied routine
@@ -1027,7 +1027,7 @@ end subroutine test_subroutine_rescope_clone
 
     # accessing any local type information should fail because either the scope got garbage
     # collected or its types are gonee
-    assert all(var.scope is None or var.type is None for var in other_routine.variables)
+    assert all(var.scope is None or var.type.dtype is BasicType.DEFERRED for var in other_routine.variables)
 
     # fgen of the not rescoped routine should lack some type information and thus either fail or
     # produce a different output, depending on whether GC has already happened

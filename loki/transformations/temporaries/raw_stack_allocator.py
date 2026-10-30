@@ -207,8 +207,8 @@ class TemporariesRawStackTransformation(Transformation):
         """
 
         #Block variables
-        kgpblock = Scalar(name=self.block_dim.size, scope=routine, type=self.int_type)
-        jgpblock = Scalar(name=self.block_dim.index, scope=routine, type=self.int_type)
+        kgpblock = Variable(name=self.block_dim.size, scope=routine, type=self.int_type)
+        jgpblock = Variable(name=self.block_dim.index, scope=routine, type=self.int_type)
 
         #Full dimensions for arguments
         fulldim = (RangeIndex((None,None)), RangeIndex((None,None)))
@@ -223,7 +223,7 @@ class TemporariesRawStackTransformation(Transformation):
 
                 #Start integer names in the driver with 'J'
                 stack_size_name = self._get_stack_int_name('J', dtype, kind, 'STACK_SIZE')
-                stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type)
+                stack_size_var = Variable(name=stack_size_name, scope=routine, type=self.int_type)
 
                 #Create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
@@ -292,11 +292,11 @@ class TemporariesRawStackTransformation(Transformation):
 
                 #Start arguments integer names in kernels with 'K'
                 stack_size_name = self._get_stack_int_name('K', dtype, kind, 'STACK_SIZE')
-                stack_size_var = Scalar(name=stack_size_name, scope=routine, type=self.int_type.clone(intent='IN'))
+                stack_size_var = Variable(name=stack_size_name, scope=routine, type=self.int_type.clone(intent='IN'))
 
                 #Local variables start with 'J'
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
-                stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
+                stack_used_var = Variable(name=stack_used_name, scope=routine, type=self.int_type)
 
                 #Create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
@@ -412,8 +412,8 @@ class TemporariesRawStackTransformation(Transformation):
                 #Loop over arrays
                 for array in arrays:
 
-                    int_var = Scalar(name=self.local_int_var_name_pattern.format(name=array.name),
-                                     scope=routine, type=self.int_type)
+                    int_var = Variable(name=self.local_int_var_name_pattern.format(name=array.name),
+                                       scope=routine, type=self.int_type)
                     integers += [int_var]
 
                     #Computer array size
@@ -444,7 +444,7 @@ class TemporariesRawStackTransformation(Transformation):
                 #Compute stack used
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
-                stack_used_var = Scalar(name=stack_used_name, scope=routine, type=self.int_type)
+                stack_used_var = Variable(name=stack_used_name, scope=routine, type=self.int_type)
 
                 #List up integers and allocations generated
                 integers += [stack_used_var]
@@ -803,7 +803,8 @@ class TemporariesRawStackTransformation(Transformation):
                                       intent = stack_intent,
                                       shape = (RangeIndex((None, None))))
 
-        return Array(name=stack_name, type=stack_type, scope=routine)
+        routine.symbol_attrs[stack_name] = stack_type
+        return routine.get_variable(stack_name)
 
 
     def _get_horizontal_variable(self, routine):

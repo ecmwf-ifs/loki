@@ -554,6 +554,13 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
             return expr.scope
         return arg
 
+    def rebuild_node(replacement):
+        # Helper utility to rebuild symbols via clone, which declares their
+        # type in the retained scope
+        if isinstance(replacement, (TypedSymbol, MetaSymbol)):
+            return replacement.clone
+        return type(replacement)
+
     for _ in range(max_iterations):
         # We update the expression map by applying it to the children of each replacement
         # node, thus making sure node replacements are also applied to nested attributes,
@@ -564,7 +571,7 @@ def recursive_expression_map_update(expr_map, max_iterations=10, mapper_cls=Subs
         else:
             mapper = mapper_cls()
         prev_map, expr_map = expr_map, {
-            expr: type(replacement)(**{
+            expr: rebuild_node(replacement)(**{
                 name: apply_to_init_arg(name, arg, expr, mapper)
                 for name, arg in zip(replacement.init_arg_names, replacement.__getinitargs__())
             })

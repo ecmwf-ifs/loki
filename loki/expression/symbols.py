@@ -59,11 +59,14 @@ class TypedSymbol:
     it to a scope stores the type information locally.
 
     .. note::
-        Providing :attr:`scope` and :attr:`type` overwrites the corresponding
-        entry in the scope's symbol table. To not modify the type information
-        omit :attr:`type` or use ``type=None``.
+        Constructing a :class:`TypedSymbol` never modifies the scope's symbol
+        table. The type of a symbol with a :attr:`scope` is looked up in that
+        scope, and resolves to :any:`BasicType.DEFERRED` for undeclared names.
+        Providing a :attr:`type` that differs from the declaration in the
+        scope is an error.
 
-    Objects should always be created via the factory class :any:`Variable`.
+    Objects should be created via :meth:`Scope.get_variable` or
+    :meth:`Scope.declare_variable`, or via the factory class :any:`Variable`.
 
 
     Parameters
@@ -94,15 +97,17 @@ class TypedSymbol:
         self.scope = kwargs.pop('scope', None)
         self.case_sensitive = kwargs.pop('case_sensitive', config['case-sensitive'])
 
-        # Store the provided type (in the scope's symbol table, if given),
-        # otherwise the type is looked up on demand and undeclared symbols
-        # are declared with deferred type
+        # Without a scope, the type is stored locally. Otherwise it is looked
+        # up on demand and must be declared in the scope beforehand
         self._type = None
         _type = kwargs.pop('type', None)
-        if _type is not None:
-            self.type = _type
-        elif self.scope is not None and self.type is None:
-            self.type = SymbolAttributes(BasicType.DEFERRED)
+        if self.scope is None:
+            self._type = _type
+        elif _type is not None and _type != self._lookup_type(self.scope):
+            raise ValueError(
+                f'[Loki::TypedSymbol] Type for {self.name} differs from its declaration in the given scope. '
+                'Use Scope.declare_variable or Scope.update to declare it.'
+            )
 
         super().__init__(*args, **kwargs)
 
@@ -162,7 +167,7 @@ class TypedSymbol:
         """
         if self.scope is None:
             return self._type
-        return self._lookup_type(self.scope)
+        return self._lookup_type(self.scope) or SymbolAttributes(BasicType.DEFERRED)
 
     @type.setter
     def type(self, _type):
@@ -337,14 +342,6 @@ class DeferredTypeSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint
             kwargs['type'] = SymbolAttributes(BasicType.DEFERRED)
         assert kwargs.get('type') is None or kwargs['type'].dtype is BasicType.DEFERRED
         super().__init__(name=name, scope=scope, **kwargs)
-
-    @TypedSymbol.type.getter
-    def type(self):  # pylint: disable=invalid-overridden-method
-        """
-        Internal representation of the declared data type, which is
-        :any:`BasicType.DEFERRED` if the symbol is not declared in its scope
-        """
-        return TypedSymbol.type.fget(self) or SymbolAttributes(BasicType.DEFERRED)
 
     mapper_method = intern('map_deferred_type_symbol')
 
@@ -790,8 +787,9 @@ class Variable:
     .. note::
 
         Providing :attr:`scope` and :attr:`type` overwrites the corresponding
-        entry in the scope's symbol table. To not modify the type information
-        omit :attr:`type` or use ``type=None``.
+        entry in the scope's symbol table, and undeclared symbols are declared
+        with deferred type. To not modify the type information use
+        :meth:`Scope.get_variable` instead.
 
     Note that all :class:`TypedSymbol` and :class:`MetaSymbol` classes are
     intentionally quasi-immutable:
@@ -834,17 +832,29 @@ class Variable:
         scope = kwargs.get('scope')
         _type = kwargs.get('type')
 
-        if scope is not None and _type is None:
-            # Determine type information from scope if not provided explicitly,
-            # and store a deferred type for undeclared symbols
-            _type = _lookup_symbol_type(name, scope, parent=kwargs.get('parent'))
-            _type = _type or SymbolAttributes(BasicType.DEFERRED)
-        kwargs['type'] = _type
-
         if 'dimensions' in kwargs and kwargs['dimensions'] is None:
             # Convenience: This way we can construct Scalar variables with `dimensions=None`
             kwargs.pop('dimensions')
 
+        if scope is None:
+            symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
+            return symbol_class(**kwargs)
+
+        parent = kwargs.get('parent')
+        full_name = f'{parent.name}%{name.split("%")[-1]}' if parent is not None else name
+        if _type is None:
+            # Determine type information from scope if not provided explicitly
+            _type = _lookup_symbol_type(full_name, scope, parent=parent)
+
+        # Store the given or determined type in the symbol table, and a
+        # deferred type for undeclared symbols
+        if _type is None:
+            _type = SymbolAttributes(BasicType.DEFERRED)
+            scope.symbol_attrs[full_name] = _type
+        elif _type is not scope.symbol_attrs.lookup(full_name):
+            scope.symbol_attrs[full_name] = _type
+
+        kwargs.pop('type', None)
         symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
         return symbol_class(**kwargs)
 

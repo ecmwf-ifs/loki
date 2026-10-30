@@ -2587,7 +2587,7 @@ class FParser2IR(GenericVisitor):
         # thus we need to convert them to DerivedTypeSymbol
         values = tuple(
             (
-                sym.DerivedTypeSymbol(name=t.name, scope=kwargs['scope'], type=SymbolAttributes(dtype=t))
+                sym.Variable(name=t.name, scope=kwargs['scope'], type=SymbolAttributes(dtype=t))
                 if isinstance(t, DerivedType) else t,
                 i
             )

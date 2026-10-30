@@ -10,7 +10,7 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch.item import ProcedureItem
 from loki.batch.transformation import Transformation
 from loki.expression.symbols import (
-    Array, Scalar, Variable, Literal, Product, Sum, InlineCall,
+    Array, Variable, Literal, Product, Sum, InlineCall,
     IntLiteral, RangeIndex, DeferredTypeSymbol
 )
 from loki.expression.symbolic import is_dimension_constant, simplify
@@ -162,7 +162,8 @@ class BaseStackTransformation(Transformation):
                                       intent=stack_intent,
                                       shape=(RangeIndex((None, None))))
 
-        return Array(name=stack_name, type=stack_type, scope=routine)
+        routine.symbol_attrs[stack_name] = stack_type
+        return routine.get_variable(stack_name)
 
 
     def _get_horizontal_variable(self, routine):
@@ -188,7 +189,7 @@ class BaseStackTransformation(Transformation):
     def _get_int_var(self, name, scope, type=None): # pylint: disable=redefined-builtin
         if type is None:
             type = self.int_type
-        return Scalar(name=name, scope=scope, type=type)
+        return Variable(name=name, scope=scope, type=type)
 
     def _get_kind_name(self, kind):
         if isinstance(kind, InlineCall):

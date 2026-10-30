@@ -4,6 +4,8 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import pytest
+
 from loki.backend import cgen, fgen
 from loki.expression import symbols as sym
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
@@ -141,13 +143,12 @@ def test_symbol_recreation():
         ProcedureType(name='f', is_function=True, return_type=real_type)
     )
 
-    i = sym.Scalar(name='i', type=int_type, scope=scope)
-    a = sym.Array(name='a', type=real_type, scope=scope)
-    b = sym.Variable(
-        name='b', dimensions=(i,), type=int_type, scope=scope
-    )
-    t = sym.Scalar(name='t', type=log_type, scope=scope)
-    f = sym.ProcedureSymbol(name='f', type=proc_type, scope=scope)
+    i = scope.declare_variable('i', type=int_type)
+    scope.declare_variable('a', type=real_type)
+    a = sym.Array(name='a', scope=scope)
+    b = scope.declare_variable('b', type=int_type, dimensions=(i,))
+    t = scope.declare_variable('t', type=log_type)
+    f = scope.declare_variable('f', type=proc_type)
 
     # Basic variables and symbols
     exprs = [i, a, b, t, f]
@@ -197,3 +198,49 @@ def test_symbol_recreation():
             assert scoped_clone == expr
             assert scoped_clone is not expr
             assert scoped_clone.scope is expr.scope  # pylint: disable=no-member
+
+
+def test_symbol_constructor_side_effects():
+    """
+    Test that symbol constructors do not modify the symbol table, whereas
+    the deprecated :any:`Variable` factory still declares types
+    """
+    scope = Scope()
+    int_type = SymbolAttributes(BasicType.INTEGER)
+    real_type = SymbolAttributes(BasicType.REAL, shape=(5,))
+    scope.declare_variable('i', type=int_type)
+
+    # Constructors with a scope only look up the type
+    i = sym.Scalar(name='i', scope=scope)
+    assert i.type == int_type
+    j = sym.Scalar(name='j', scope=scope)
+    assert j.type.dtype is BasicType.DEFERRED
+    f = sym.ProcedureSymbol(name='f', scope=scope)
+    assert f.type.dtype is BasicType.DEFERRED
+    d = sym.DeferredTypeSymbol(name='d', scope=scope)
+    assert d.type.dtype is BasicType.DEFERRED
+    assert set(scope.symbol_attrs) == {'i'}
+
+    # Passing the declared type is allowed, but a different type is an error
+    i = sym.Scalar(name='i', scope=scope, type=scope.get_type('i'))
+    assert i.type.dtype == BasicType.INTEGER
+    with pytest.raises(ValueError):
+        sym.Scalar(name='i', scope=scope, type=SymbolAttributes(BasicType.LOGICAL))
+    with pytest.raises(ValueError):
+        sym.Array(name='a', scope=scope, type=real_type)
+    assert set(scope.symbol_attrs) == {'i'}
+    assert scope.get_type('i').dtype == BasicType.INTEGER
+
+    # Without a scope, the type is stored locally
+    a = sym.Array(name='a', type=real_type)
+    assert a.scope is None
+    assert a.type is real_type
+
+    # The deprecated factory declares given types and undeclared symbols
+    a = sym.Variable(name='a', scope=scope, type=real_type)
+    assert isinstance(a, sym.Array)
+    assert scope.get_type('a').shape == (5,)
+    k = sym.Variable(name='k', scope=scope)
+    assert isinstance(k, sym.DeferredTypeSymbol)
+    assert scope.get_type('k').dtype is BasicType.DEFERRED
+    assert set(scope.symbol_attrs) == {'i', 'a', 'k'}

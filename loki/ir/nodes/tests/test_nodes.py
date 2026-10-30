@@ -380,9 +380,7 @@ def test_callstatement_routine_types(scope):
     """Test type-checked access to call routine metadata."""
 
     callee = Subroutine(name='callee')
-    cname = sym.ProcedureSymbol(
-        name='callee', scope=scope, type=SymbolAttributes(dtype=ProcedureType(procedure=callee))
-    )
+    cname = scope.declare_variable('callee', dtype=ProcedureType(procedure=callee))
     call = ir.CallStatement(name=cname)
 
     assert isinstance(call.procedure_type, ProcedureType)
