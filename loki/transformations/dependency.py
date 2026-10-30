@@ -112,7 +112,10 @@ class CreateEntryPointsTransformation(Transformation):
 
     @staticmethod
     def _create_item_config(config, mode, **kwargs):
-        """Create a driver item configuration without entry-point selection data."""
+        """
+        Create a driver or dispatch layer config without
+        entry-point selection data.
+        """
 
         new_config = config.copy()
         for key in ('entry-point', 'condition', 'seed_routine'):
