@@ -19,3 +19,49 @@ Loki directives are translated to the corresponding pragmas in either programmin
    :file: /loki_pragma_model.csv
    :widths: 100, 100, 100
    :header-rows: 1
+
+OpenMP GPU thread limits
+------------------------
+
+:any:`PragmaModelTransformation` accepts ``emit_thread_limit=False`` to omit
+``thread_limit(...)`` from OpenMP GPU loop directives. The option defaults to
+True and applies to ordinary gang loops and combined gang/vector loops.
+Generic ``vlength`` metadata is retained, and OpenACC ``vector_length``
+translation is unaffected.
+
+The same option can be passed directly to SCC pipelines, for example::
+
+    SCCSVectorPipeline(
+        horizontal=horizontal, block_dim=blocking, directive='omp-gpu',
+        collapse_gang_vector=True, emit_thread_limit=False,
+    )
+
+Collapsing SCC-seq driver loops
+------------------------------
+
+The SCC-seq pipelines accept ``collapse_gang_vector=True`` to combine an
+already perfectly nested gang/vector loop pair using ``collapse(2)``. The
+option is disabled by default and supports ``directive='openacc'``,
+``directive='omp-gpu'`` and generic Loki output (``directive=False``). CPU
+OpenMP configurations retain the original separate loop annotations.
+
+:any:`SCCCollapseTransformation` runs after temporary-storage synthesis and
+before :any:`PragmaModelTransformation`. It requires rectangular, invariant
+loop bounds and unit steps, and accepts ordinary comments between the loops.
+It preserves ``vlength`` and ``async`` clauses. Nests with private/firstprivate
+or reduction clauses, conflicting annotations, unsupported control flow, or
+executable statements between the loops are left unchanged, with an informational
+diagnostic. In particular, stack-pointer initialization between the loops is
+not moved. Existing SCC annotations provide the underlying parallelism contract;
+this pass checks whether their loop mappings can be combined.
+
+The resulting generic outer directive is ``!$loki loop gang vector collapse(2)``;
+the inner vector directive is removed and both Fortran loops remain present.
+OpenACC lowering produces ``!$acc parallel loop gang vector collapse(2)``.
+OpenMP GPU lowering produces
+``!$omp target teams distribute parallel do collapse(2) thread_limit(...)``,
+with ``vlength`` supplying ``thread_limit`` when present. The matching generic
+end directive is ``!$loki end loop gang vector``, which lowers to
+``!$omp end target teams distribute parallel do``. As with existing OpenMP GPU
+loop mappings, ``async`` is not translated and execution is synchronous.
+Combined gang/vector directives cannot currently be lowered to CPU OpenMP.

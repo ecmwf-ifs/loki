@@ -1671,11 +1671,13 @@ def test_scc_inline_and_sequence_association(
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('pipeline,mode', [
-    (SCCVVectorPipeline, 'vector'),
-    (SCCSVectorPipeline, 'seq')
+@pytest.mark.parametrize('collapse_gang_vector', [False, True])
+@pytest.mark.parametrize('pipeline,mode,directive', [
+    (SCCVVectorPipeline, 'vector', 'openacc'),
+    (SCCSVectorPipeline, 'seq', 'openacc'),
+    (SCCSVectorPipeline, 'seq', 'omp-gpu')
 ])
-def test_scc_annotate_driver_loop(frontend, tmp_path, pipeline, mode):
+def test_scc_annotate_driver_loop(frontend, tmp_path, pipeline, mode, directive, collapse_gang_vector):
     """
     Test for issue #246 to ensure the correct loop in the loop nest
     is identified and annotated as driver loop
@@ -1725,8 +1727,9 @@ end module mod
     horizontal = Dimension('horizontal', index='JLON', bounds=['jlon_lower', 'klon'], size='KLON')
     block_dim = Dimension('block_dim', index='JBLK', size='NGPBLK')
 
-    # Test OpenACC annotations on non-hoisted version
-    for transform in pipeline(horizontal=horizontal, block_dim=block_dim, directive='openacc').transformations:
+    # Test GPU annotations on non-hoisted version
+    for transform in pipeline(horizontal=horizontal, block_dim=block_dim, directive=directive,
+                              collapse_gang_vector=collapse_gang_vector).transformations:
         transform.apply(source['wrapper'], role='driver', targets=['kernel'])
         transform.apply(source['kernel'], role='kernel')
 
@@ -1736,17 +1739,25 @@ end module mod
         assert len(pragmas) == 5
     else:
         assert len(pragmas) == 4
-    assert pragmas[0].keyword == 'acc'
-    assert pragmas[0].content == f'routine {mode}'
-    assert pragmas[1].keyword == 'acc'
-    assert pragmas[1].content == 'data present(arr)'
-    assert pragmas[-1].keyword == 'acc'
-    assert pragmas[-1].content == 'end data'
+    if directive == 'openacc':
+        assert pragmas[0].keyword == 'acc'
+        assert pragmas[0].content == f'routine {mode}'
+        assert pragmas[1].keyword == 'acc'
+        assert pragmas[1].content == 'data present(arr)'
+        assert pragmas[-1].keyword == 'acc'
+        assert pragmas[-1].content == 'end data'
+    else:
+        assert pragmas[0].keyword == 'omp'
+        assert pragmas[0].content == 'declare target'
+        assert pragmas[1].keyword == 'loki'
+        assert pragmas[1].content == 'device-present vars(arr)'
+        assert pragmas[-1].keyword == 'loki'
+        assert pragmas[-1].content == 'end device-present'
 
     # Ensure vector and seq loops are annotated, including privatized variable `b`
     with pragmas_attached(source['kernel'], Loop):
         kernel_loops = FindNodes(Loop).visit(source['kernel'].ir)
-        assert kernel_loops[0].pragma[-1].keyword == 'acc'
+        assert kernel_loops[0].pragma[-1].keyword == ('acc' if directive == 'openacc' else 'loki')
         assert kernel_loops[0].pragma[-1].content == f'loop {mode}'
         if mode == 'vector':
             assert len(kernel_loops) == 2
@@ -1756,12 +1767,22 @@ end module mod
             assert len(kernel_loops) == 1
 
     # Ensure a single outer parallel loop in driver
-    with pragmas_attached(source['wrapper'], Loop):
+    with pragmas_attached(source['wrapper'], Loop, attach_pragma_post=True):
         driver_loops = FindNodes(Loop).visit(source['wrapper'].body)
         if mode == 'vector':
             assert len(driver_loops) == 2
         else:
             assert len(driver_loops) == 3
         assert not driver_loops[0].pragma
-        assert driver_loops[1].pragma[-1].keyword == 'acc'
-        assert driver_loops[1].pragma[-1].content == 'parallel loop gang'
+        assert driver_loops[1].pragma[-1].keyword == ('acc' if directive == 'openacc' else 'omp')
+        if mode == 'seq' and collapse_gang_vector:
+            expected = ('parallel loop gang vector collapse(2)' if directive == 'openacc'
+                        else 'target teams distribute parallel do collapse(2)')
+            expected_end = ('end parallel loop' if directive == 'openacc'
+                            else 'end target teams distribute parallel do')
+            assert driver_loops[1].pragma[-1].content == expected
+            assert driver_loops[1].pragma_post[0].content == expected_end
+            assert not driver_loops[2].pragma
+        else:
+            expected = 'parallel loop gang' if directive == 'openacc' else 'target teams distribute'
+            assert driver_loops[1].pragma[-1].content == expected
