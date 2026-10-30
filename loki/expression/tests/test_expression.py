@@ -18,7 +18,8 @@ from loki import (
 )
 from loki.backend import cgen, fgen
 from loki.jit_build import jit_compile, clean_test
-from loki.expression import symbols as sym, parse_expr, AttachScopesMapper
+from loki.expression import operations as op
+from loki.expression import symbols as sym, parse_expr, AttachScopesMapper, simplify
 from loki.frontend import (
     available_frontends, OMNI, HAVE_FP, parse_fparser_expression
 )
@@ -455,6 +456,56 @@ end subroutine parenthesis
     # Make sure there are no additional brackets in the exponentials or numerators/denominators
     assert '\n'.join(l.lstrip() for l in fcode.splitlines()[-5:-3]) == fgen(stmts[1]).lower()
     assert fgen(stmts[2]) == fcode.splitlines()[-2].lstrip()
+
+
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Precedence not honoured')]))
+def test_parenthesis_denominator_product(frontend):
+    fcode = """
+subroutine parenthesis_denominator_product(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2
+  real(kind=jprb), intent(out) :: v3
+
+  v3 = (1._jprb / (v1*v2))**1.5_jprb
+end subroutine parenthesis_denominator_product
+""".strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    stmt = FindNodes(ir.Assignment).visit(routine.body)[0]
+
+    assert fgen(stmt) == fcode.splitlines()[-2].lstrip()
+
+
+def test_parenthesis_denominator_product_after_simplify():
+    fcode = """
+subroutine parenthesis_denominator_product_after_simplify(v1, v2, v3)
+  integer, parameter :: jprb = selected_real_kind(13,300)
+  real(kind=jprb), intent(in) :: v1, v2
+  real(kind=jprb), intent(out) :: v3
+
+  v3 = (1._jprb / (v1*v2))**1.5_jprb
+end subroutine parenthesis_denominator_product_after_simplify
+""".strip()
+    routine = Subroutine.from_source(fcode)
+    expr = FindNodes(ir.Assignment).visit(routine.body)[0].rhs
+
+    assert fgen(simplify(expr)) == '(1._jprb / (v1*v2))**1.5_jprb'
+
+
+def test_parenthesised_power_roundtrip():
+    scope = Scope()
+
+    expr_parenthesised = parse_expr('(a**b)**c', scope=scope)
+    expr_plain = parse_expr('a**b**c', scope=scope)
+
+    assert isinstance(expr_parenthesised, sym.Power)
+    assert isinstance(expr_parenthesised.base, op.ParenthesisedPow)
+    assert fgen(expr_parenthesised) == '(a**b)**c'
+
+    assert isinstance(expr_plain, sym.Power)
+    assert not isinstance(expr_plain.base, op.ParenthesisedPow)
+    assert isinstance(expr_plain.exponent, sym.Power)
+    assert not isinstance(expr_plain.exponent, op.ParenthesisedPow)
+    assert fgen(expr_plain) == 'a**b**c'
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
