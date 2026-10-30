@@ -26,7 +26,7 @@ from loki.config import config
 from loki.tools import (
     as_tuple, execute, gettempdir, filehash, CaseInsensitiveDict
 )
-from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, INTRINSIC_SCOPE
 
 
 __all__ = ['HAVE_OMNI', 'parse_omni_source', 'parse_omni_file', 'parse_omni_ast']
@@ -1237,12 +1237,14 @@ class OMNI2IR(GenericVisitor):
     def visit_functionCall(self, o, **kwargs):
 
         if 'is_intrinsic' in o.attrib:
-            # Register the ProcedureType in the scope before the name lookup
+            # Register the ProcedureType in the scope before the name lookup,
+            # unless it is a generic intrinsic procedure
             pname = o.find('name').text
-            proc_type = ProcedureType(
-                name=pname, is_function=True, is_intrinsic=True, procedure=None
-            )
-            kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type, is_intrinsic=True)
+            if kwargs['scope'].get_symbol_scope(pname) is not INTRINSIC_SCOPE:
+                proc_type = ProcedureType(
+                    name=pname, is_function=True, is_intrinsic=True, procedure=None
+                )
+                kwargs['scope'].symbol_attrs[pname] = SymbolAttributes(dtype=proc_type, is_intrinsic=True)
 
         if o.find('name') is not None:
             name = self.visit(o.find('name'), **kwargs)

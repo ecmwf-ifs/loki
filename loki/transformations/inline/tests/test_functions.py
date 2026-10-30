@@ -14,7 +14,7 @@ from loki.frontend import available_frontends, OMNI
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls
 )
-from loki.types import ProcedureType
+from loki.types import ProcedureType, INTRINSIC_SCOPE
 
 from loki.transformations.inline import (
     inline_elemental_functions, inline_statement_functions
@@ -411,7 +411,10 @@ end subroutine stmt_func
         assert assignments[1].rhs  ==  "3.0 + myfunc(3.0) + max(1.0, 2.0) + val + myfunc(val) + max(1.0, 2.0)"
 
     # Ensure all copies of the intrinsic call are correctly scoped
-    assert all(c.function.scope == routine for c in inline_calls)
+    assert all(
+        c.function.scope is (INTRINSIC_SCOPE if c.function.type.is_intrinsic else routine)
+        for c in inline_calls
+    )
     assert all(isinstance(c.function.type.dtype, ProcedureType) for c in inline_calls)
 
 
@@ -444,15 +447,15 @@ end subroutine test_inline_elementals
     inline_calls = tuple(FindInlineCalls().visit(routine.members[0].body))
     assert len(inline_calls) == 1
     assert inline_calls[0].function.type.is_intrinsic
-    assert inline_calls[0].function.scope == routine.members[0]
+    assert inline_calls[0].function.scope is INTRINSIC_SCOPE
 
     inline_elemental_functions(routine)
 
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     assert len(assigns) == 2
 
-    # Ensure that the intrinsic function has been rescoped
+    # Ensure that the intrinsic function is still bound to the intrinsic scope
     inline_calls = tuple(FindInlineCalls().visit(assigns[0]))
     assert len(inline_calls) == 1
     assert inline_calls[0].function.type.is_intrinsic
-    assert inline_calls[0].function.scope == routine
+    assert inline_calls[0].function.scope is INTRINSIC_SCOPE

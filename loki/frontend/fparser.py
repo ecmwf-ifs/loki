@@ -391,9 +391,10 @@ class FParser2IR(GenericVisitor):
         scope = kwargs.get('scope', None)
         parent = kwargs.get('parent')
         if parent:
+            # Derived type members belong to the scope of their parent
             assert hasattr(parent, 'scope'), f'[Loki::Frontend] Parent "{parent}" for AST node "{o}" has no scope!'
             scope = parent.scope
-        if scope:
+        elif scope:
             scope = scope.get_symbol_scope(name)
         return sym.Variable(name=name, parent=parent, scope=scope)
 

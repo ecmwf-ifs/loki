@@ -128,7 +128,8 @@ class Scope:
         This performs a recursive lookup in the :any:`SymbolTable` to find
         the scope in which :attr:`name` is declared. Note, that this may be
         the scope with a :any:`Import` of this name and not the original
-        declaration.
+        declaration. Generic intrinsic procedures that are not declared
+        otherwise are found in the read-only :any:`IntrinsicScope`.
 
         Parameters
         ----------
@@ -138,14 +139,18 @@ class Scope:
         Returns
         -------
         :any:`Scope` or `None`
-            The scope object in which the symbol is declared, or `None` if
-            not found
+            The scope object in which the symbol is declared, the
+            :any:`IntrinsicScope` for generic intrinsic procedures,
+            or `None` if not found
         """
+        from loki.types.intrinsics import INTRINSIC_SCOPE  # pylint: disable=import-outside-toplevel,cyclic-import
         scope = self
         while scope is not None:
             if name in scope.symbol_attrs:
                 return scope
             scope = scope.parent
+        if name in INTRINSIC_SCOPE.symbol_attrs:
+            return INTRINSIC_SCOPE
         return None
 
     def _reset_parent(self, parent):

@@ -9,6 +9,7 @@ Representation of symbol tables and scopes in
 :doc:`internal_representation`
 """
 
+from functools import lru_cache
 import weakref
 
 from loki.tools import as_tuple
@@ -126,6 +127,16 @@ class SymbolAttributes:
                    for k in keys if k not in ignore_attrs)
 
 
+@lru_cache(maxsize=1)
+def _intrinsic_symbol_table():
+    """
+    The read-only symbol table of generic intrinsic procedures that serves
+    as the final fallback for recursive look-ups
+    """
+    from loki.types.intrinsics import INTRINSIC_SYMBOL_TABLE  # pylint: disable=import-outside-toplevel,cyclic-import
+    return INTRINSIC_SYMBOL_TABLE
+
+
 class SymbolTable(dict):
     """
     Lookup table for symbol types that maps symbol names to :any:`SymbolAttributes`
@@ -230,8 +241,11 @@ class SymbolTable(dict):
             recursive look-up in parent tables
         """
         value = super().get(name, None)
-        if value is None and recursive and self.parent is not None:
-            return self.parent._lookup_formatted_name(name, recursive)
+        if value is None and recursive:
+            if self.parent is not None:
+                return self.parent._lookup_formatted_name(name, recursive)
+            # Fall back to the generic intrinsic procedures
+            return _intrinsic_symbol_table()._lookup_formatted_name(name, recursive)
         return value.clone() if value is not None else None
 
     def lookup(self, name, recursive=True):

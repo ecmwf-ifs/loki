@@ -16,12 +16,6 @@ from pymbolic.mapper import Mapper, WalkMapper, CombineMapper, IdentityMapper
 from pymbolic.mapper.stringifier import (
     StringifyMapper, PREC_NONE, PREC_SUM, PREC_CALL, PREC_PRODUCT
 )
-try:
-    from fparser.two.Fortran2003 import Intrinsic_Name
-    _intrinsic_fortran_names = Intrinsic_Name.function_names
-except ImportError:
-    _intrinsic_fortran_names = ()
-
 from loki.logging import debug
 from loki.tools import as_tuple, flatten
 from loki.types import SymbolAttributes, BasicType
@@ -791,7 +785,7 @@ class AttachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
                 expr = expr.rescope(symbol_scope)
         elif self.fail:
             raise RuntimeError(f'AttachScopesMapper: {expr!s} was not found in any scope')
-        elif expr not in _intrinsic_fortran_names:
+        else:
             debug('AttachScopesMapper: %s was not found in any scopes', str(expr))
         return expr
 
@@ -821,8 +815,8 @@ class AttachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     map_deferred_type_symbol = map_variable_symbol
 
     def map_procedure_symbol(self, expr, *args, **kwargs):
-        if expr.type and expr.type.is_intrinsic:
-            # Always rescope intrinsics to the closest scope
+        if expr.type and expr.type.is_intrinsic and kwargs['scope'].get_symbol_scope(expr.name) is None:
+            # Rescope intrinsics that are not declared anywhere to the closest scope
             return expr.clone(scope=kwargs['scope'])
         return self.map_variable_symbol(expr, *args, **kwargs)
 

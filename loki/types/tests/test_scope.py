@@ -8,13 +8,17 @@
 A collection of tests for :any:`SymbolAttrs`, :any:`SymbolTable` and :any:`Scope`.
 """
 
+from copy import deepcopy
+import pickle
 import pytest
 
-from loki import Module
+from loki import Module, Subroutine
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends
+from loki.ir import FindInlineCalls, FindNodes, nodes as ir
 from loki.types import (
-    INTEGER, REAL, BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes
+    INTEGER, REAL, BasicType, DerivedType, ProcedureType, Scope, SymbolAttributes,
+    GENERIC_INTRINSIC_FUNCTIONS, GENERIC_INTRINSIC_SUBROUTINES, INTRINSIC_SCOPE
 )
 
 
@@ -302,3 +306,158 @@ def test_scope_declare_variable():
     child.declare_variable('a', dtype='logical')
     assert child.get_type('a').dtype == BasicType.LOGICAL
     assert scope.get_type('a').dtype == INTEGER
+
+
+def test_intrinsic_scope():
+    """
+    Test the read-only :any:`IntrinsicScope` of generic intrinsic procedures
+    """
+    table = INTRINSIC_SCOPE.symbol_attrs
+    assert len(table) == len(GENERIC_INTRINSIC_FUNCTIONS) + len(GENERIC_INTRINSIC_SUBROUTINES)
+    assert 'min' in table and 'MIN' in table
+    assert 'dsqrt' not in table
+
+    min_type = table.lookup('min')
+    assert isinstance(min_type.dtype, ProcedureType)
+    assert min_type.is_intrinsic and min_type.dtype.is_intrinsic
+    assert min_type.dtype.is_function
+    assert not table.lookup('random_number').dtype.is_function
+
+    # Look-ups hand out copies that do not modify the table
+    min_type.foo = 'bar'
+    assert table.lookup('min').foo is None
+
+    # The table is read-only
+    with pytest.raises(TypeError):
+        table['min'] = SymbolAttributes(BasicType.REAL)
+    with pytest.raises(TypeError):
+        del table['min']
+    with pytest.raises(TypeError):
+        table.update({'foo': SymbolAttributes(BasicType.REAL)})
+    with pytest.raises(TypeError):
+        table.setdefault('foo')
+    with pytest.raises(TypeError):
+        table.clear()
+    with pytest.raises(TypeError):
+        INTRINSIC_SCOPE.declare_variable('foo', dtype=BasicType.REAL)
+    assert 'foo' not in table
+
+    # The scope and its table are singletons
+    assert pickle.loads(pickle.dumps(INTRINSIC_SCOPE)) is INTRINSIC_SCOPE
+    assert pickle.loads(pickle.dumps(table)) is table
+    assert deepcopy(INTRINSIC_SCOPE) is INTRINSIC_SCOPE
+
+
+def test_scope_intrinsic_lookup():
+    """
+    Test the look-up of generic intrinsic procedures from any :any:`Scope`
+    """
+    parent = Scope()
+    scope = Scope(parent=parent)
+
+    # Intrinsic procedures are found without table entries
+    assert scope.get_type('min').dtype.is_intrinsic
+    assert scope.get_symbol_scope('min') is INTRINSIC_SCOPE
+    assert scope.get_type('min', recursive=False, fail=False) is None
+    size = scope.get_variable('size')
+    assert isinstance(size, sym.ProcedureSymbol)
+    assert size.scope is scope
+    assert size.type.is_intrinsic
+    assert not scope.symbol_attrs and not parent.symbol_attrs
+
+    # The deprecated factory does not declare intrinsic procedures either
+    size = sym.Variable(name='size', scope=scope)
+    assert isinstance(size, sym.ProcedureSymbol)
+    assert not scope.symbol_attrs
+
+    # Declarations in user scopes shadow intrinsic procedures
+    parent.declare('sum', dtype='real')
+    assert scope.get_symbol_scope('sum') is parent
+    assert isinstance(scope.get_variable('sum'), sym.Scalar)
+    assert scope.get_type('sum').dtype == REAL
+
+    # Unknown names are still undeclared
+    with pytest.raises(KeyError):
+        scope.get_type('dsqrt')
+    assert scope.get_symbol_scope('dsqrt') is None
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_frontend_intrinsic_scope(tmp_path, frontend):
+    """
+    Test that frontends bind generic intrinsic procedures to the
+    :any:`IntrinsicScope` without declaring them
+    """
+    fcode = """
+module frontend_intrinsic_mod
+    implicit none
+    type geom_type
+        integer :: dim
+    end type geom_type
+contains
+    subroutine frontend_intrinsic(a, n, geom)
+        integer, intent(in) :: n
+        real(kind=8), intent(inout) :: a(n)
+        type(geom_type), intent(in) :: geom
+        real(kind=8) :: sum
+        sum = min(a(1), maxval(a)) + size(a) + dsqrt(a(1)) + geom%dim
+        call random_number(a)
+        a(1) = sum
+    end subroutine frontend_intrinsic
+end module frontend_intrinsic_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['frontend_intrinsic']
+
+    # Only user symbols and specific intrinsics are declared in the routine
+    for name in ('min', 'maxval', 'size', 'random_number'):
+        assert name not in routine.symbol_attrs
+        assert name not in module.symbol_attrs
+    assert 'dsqrt' in routine.symbol_attrs
+
+    calls = {str(c.function).lower(): c.function for c in FindInlineCalls().visit(routine.body)}
+    assert set(calls) == {'min', 'maxval', 'size', 'dsqrt'}
+    for name in ('min', 'maxval', 'size'):
+        assert isinstance(calls[name], sym.ProcedureSymbol)
+        assert calls[name].scope is INTRINSIC_SCOPE
+        assert calls[name].type.is_intrinsic
+    assert calls['dsqrt'].scope is routine
+    assert calls['dsqrt'].type.is_intrinsic
+
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+    assert call.name == 'random_number'
+    assert call.name.scope is INTRINSIC_SCOPE
+    assert not call.name.type.dtype.is_function
+
+    # The local variable shadows the intrinsic, and the member is not an intrinsic
+    assigns = FindNodes(ir.Assignment).visit(routine.body)
+    assert isinstance(assigns[0].lhs, sym.Scalar)
+    assert assigns[0].lhs.scope is routine
+    assert assigns[0].lhs.type.dtype == REAL
+    member = [v for v in assigns[0].rhs.children if v == 'geom%dim'][0]
+    assert isinstance(member, sym.Scalar)
+    assert member.scope is routine
+    assert member.type.dtype == INTEGER
+
+    # Unchanged output
+    assert routine.to_fortran().lower().count('min(a(1), maxval(a))') == 1
+
+
+def test_intrinsic_scope_subroutine_pickle(tmp_path):
+    """
+    Test that intrinsic procedures are rebound after pickling a routine
+    """
+    fcode = """
+subroutine intrinsic_pickle(a, n)
+    integer, intent(in) :: n
+    real, intent(inout) :: a(n)
+    a(1) = max(a(1), sum(a))
+end subroutine intrinsic_pickle
+"""
+    routine = Subroutine.from_source(fcode, xmods=[tmp_path])
+    other = pickle.loads(pickle.dumps(routine))
+    calls = FindInlineCalls().visit(other.body)
+    assert len(calls) == 2
+    assert all(c.function.scope is INTRINSIC_SCOPE for c in calls)
+    assert all(c.function.type.is_intrinsic for c in calls)
+    assert 'max' not in other.symbol_attrs

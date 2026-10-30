@@ -14,3 +14,4 @@ from loki.types.module_type import *  # noqa
 from loki.types.procedure_type import *  # noqa
 from loki.types.scope import *  # noqa
 from loki.types.symbol_table import *  # noqa
+from loki.types.intrinsics import *  # noqa

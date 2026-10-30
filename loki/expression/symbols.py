@@ -842,17 +842,17 @@ class Variable:
 
         parent = kwargs.get('parent')
         full_name = f'{parent.name}%{name.split("%")[-1]}' if parent is not None else name
-        if _type is None:
-            # Determine type information from scope if not provided explicitly
+        if _type is not None:
+            # Store an explicitly provided type in the symbol table
+            if _type != scope.symbol_attrs.lookup(full_name, recursive=False):
+                scope.symbol_attrs[full_name] = _type
+        else:
+            # Determine type information from scope, and store a deferred
+            # type for undeclared symbols
             _type = _lookup_symbol_type(full_name, scope, parent=parent)
-
-        # Store the given or determined type in the symbol table, and a
-        # deferred type for undeclared symbols
-        if _type is None:
-            _type = SymbolAttributes(BasicType.DEFERRED)
-            scope.symbol_attrs[full_name] = _type
-        elif _type is not scope.symbol_attrs.lookup(full_name):
-            scope.symbol_attrs[full_name] = _type
+            if _type is None:
+                _type = SymbolAttributes(BasicType.DEFERRED)
+                scope.symbol_attrs[full_name] = _type
 
         kwargs.pop('type', None)
         symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
