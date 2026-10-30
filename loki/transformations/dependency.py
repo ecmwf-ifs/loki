@@ -164,6 +164,9 @@ class CreateEntryPointsTransformation(Transformation):
             block.add(driver_item.scope_name)
             block.add(driver_item.name)
 
+        # We explicitly disable and block all children here, making the new dispatch an entirely
+        # standalone driver from a loki scheduler perspective. This is purely to allow it to be a part of the
+        # scheduler graph so that we can reuse existing loki machinery to write it to file.
         dispatcher_config = self._create_item_config(
             item.config, mode=self.baseline_mode, expand=False, replicate=False, block=tuple(block)
         )
