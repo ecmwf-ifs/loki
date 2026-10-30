@@ -240,3 +240,65 @@ end module scope_get_variable_mod
 
     # None of the look-ups modify the symbol table
     assert dict(routine.symbol_attrs) == symbol_attrs
+
+
+def test_scope_declare_variable():
+    """
+    Test the declaration of variables via :method:`declare_variable`
+    of :any:`Scope`
+    """
+    scope = Scope()
+
+    # Declaration via dtype and attributes
+    a = scope.declare_variable('a', dtype='real', kind=8)
+    assert isinstance(a, sym.Scalar)
+    assert a.scope is scope
+    assert a.type.dtype == REAL
+    assert a.type.kind == 8
+    assert scope.get_type('a').kind == 8
+
+    # Declaration via type, with attribute overrides and array shape
+    int_type = SymbolAttributes('integer', intent='in')
+    b = scope.declare_variable('b', type=int_type, shape=(5,))
+    assert isinstance(b, sym.Array)
+    assert b.type.dtype == INTEGER
+    assert b.type.intent == 'in'
+    assert b.shape == (5,)
+    assert not b.dimensions
+    assert int_type.shape is None
+
+    b_i = scope.declare_variable('b_i', type=int_type, dimensions=(sym.IntLiteral(1),))
+    assert isinstance(b_i, sym.Array)
+    assert b_i == 'b_i(1)'
+
+    # Procedure and derived type symbols
+    f = scope.declare_variable('f', dtype=ProcedureType('f', is_function=False))
+    assert isinstance(f, sym.ProcedureSymbol)
+    t = scope.declare_variable('t', dtype=DerivedType('my_type'))
+    assert isinstance(t, sym.Scalar)
+    assert isinstance(t.type.dtype, DerivedType)
+
+    # Round trip with get_variable
+    assert scope.get_variable('a') == a
+    assert scope.get_variable('b').shape == (5,)
+
+    # Re-declaration fails, unless requested otherwise
+    with pytest.raises(ValueError):
+        scope.declare_variable('a', dtype='integer')
+    a = scope.declare_variable('a', dtype='integer', fail=False)
+    assert isinstance(a, sym.Scalar)
+    assert a.type.dtype == INTEGER
+    assert a.type.kind is None
+
+    # Either type or dtype must be given
+    with pytest.raises(ValueError):
+        scope.declare_variable('c')
+    with pytest.raises(ValueError):
+        scope.declare_variable('c', type=int_type, dtype='integer')
+    assert 'c' not in scope.symbol_attrs
+
+    # Declarations in a child scope do not affect the parent
+    child = Scope(parent=scope)
+    child.declare_variable('a', dtype='logical')
+    assert child.get_type('a').dtype == BasicType.LOGICAL
+    assert scope.get_type('a').dtype == INTEGER

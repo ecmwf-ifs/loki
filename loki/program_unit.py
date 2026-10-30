@@ -684,6 +684,64 @@ class ProgramUnit(Scope):
         kwargs['scope'] = self
         return Variable(**kwargs)
 
+    def declare_variable(self, name, type=None, dtype=None, dimensions=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
+        """
+        Declare a new variable in this program unit and return the
+        corresponding symbol
+
+        In addition to :meth:`Scope.declare_variable`, which only adds the
+        type information to the symbol table, this adds a
+        :any:`VariableDeclaration` (or :any:`ProcedureDeclaration` for
+        procedure types) to the :attr:`spec`. Arrays are declared with
+        their :attr:`shape` as dimensions.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable to declare.
+        type : :any:`SymbolAttributes`, optional
+            The type of the variable. Any additional attributes given in
+            :data:`kwargs` are applied on top of it.
+        dtype : :any:`DataType` or str, optional
+            Basic data type of the variable, if :data:`type` is not given.
+        dimensions : tuple, optional
+            The array subscript for the returned symbol.
+        fail : bool, optional
+            Flag to override the default failure on attempted re-declaration,
+            in which case prior type information is replaced and the
+            symbol in an existing declaration is updated.
+        **kwargs : optional
+            Any additional attributes that should be stored as properties in
+            the symbol table.
+
+        Returns
+        -------
+        :any:`TypedSymbol` or :any:`MetaSymbol`
+            The symbol for the declared variable, as given by :meth:`get_variable`
+        """
+        decl = CaseInsensitiveDict(
+            (s.name, d) for d in self.declarations for s in d.symbols
+        ).get(name)
+        if fail and decl is not None:
+            raise ValueError(f'[Loki::ProgramUnit] Trying to re-declare already declared symbol name: {name}')
+
+        variable = super().declare_variable(
+            name, type=type, dtype=dtype, dimensions=dimensions, fail=fail, **kwargs
+        )
+
+        shape = variable.type.shape
+        decl_symbol = self.get_variable(name, dimensions=shape) if shape else self.get_variable(name)
+        if decl is not None:
+            decl._update(symbols=tuple(
+                decl_symbol if s.name.lower() == name.lower() else s for s in decl.symbols
+            ))
+        elif isinstance(variable.type.dtype, ProcedureType):
+            self.spec.append(ir.ProcedureDeclaration(symbols=(decl_symbol,)))
+        else:
+            self.spec.append(ir.VariableDeclaration(symbols=(decl_symbol,)))
+
+        return variable
+
     def parse_expr(self, expr_str, strict=False, evaluate=False, context=None):
         """
         Uses :meth:`parse_expr` to convert expression(s) represented

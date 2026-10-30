@@ -346,3 +346,49 @@ class Scope:
         if dimensions is not None:
             return symbol_class(name=name, scope=self, parent=parent, dimensions=dimensions)
         return symbol_class(name=name, scope=self, parent=parent)
+
+    def declare_variable(self, name, type=None, dtype=None, dimensions=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
+        """
+        Declare a new variable in the symbol table of this scope and
+        return the corresponding symbol
+
+        The type information is given either as :any:`SymbolAttributes` via
+        :data:`type`, or via :data:`dtype` and any additional attributes,
+        as for :meth:`declare`. Note that this only modifies the symbol
+        table, but does not create any declarations in the IR. To update
+        the type information of an existing variable, use :meth:`update`.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable to declare.
+        type : :any:`SymbolAttributes`, optional
+            The type of the variable. Any additional attributes given in
+            :data:`kwargs` are applied on top of it.
+        dtype : :any:`DataType` or str, optional
+            Basic data type of the variable, if :data:`type` is not given.
+        dimensions : tuple, optional
+            The array subscript for the returned symbol.
+        fail : bool, optional
+            Flag to override the default failure on attempted re-declaration,
+            in which case prior type information is replaced.
+        **kwargs : optional
+            Any additional attributes that should be stored as properties in
+            the symbol table.
+
+        Returns
+        -------
+        :any:`TypedSymbol` or :any:`MetaSymbol`
+            The symbol for the declared variable, as given by :meth:`get_variable`
+        """
+        if (type is None) == (dtype is None):
+            raise ValueError(f'[Loki::Scope] Need either type or dtype to declare symbol name: {name}')
+
+        if type is None:
+            self.declare(name, dtype, fail=fail, **kwargs)
+        else:
+            if fail and name in self.symbol_attrs:
+                raise ValueError(f'[Loki::Scope] Trying to re-declare already declared symbol name: {name}')
+            self.symbol_attrs[name] = type.clone(**kwargs) if kwargs else type
+
+        return self.get_variable(name, dimensions=dimensions)

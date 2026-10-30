@@ -16,7 +16,7 @@ from loki.ir import (
     nodes as ir, FindNodes, FindVariables, FindInlineCalls,
     FindTypedSymbols, Transformer
 )
-from loki.types import BasicType, DerivedType, SymbolAttributes
+from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes
 
 
 @pytest.fixture(scope='module', name='here')
@@ -206,6 +206,61 @@ integer :: c
     )
     # Ensure `maximum` has been removed from arguments, but they are otherwise unharmed
     assert routine.arguments == ('x', 'y', 'vector(x)')
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_routine_declare_variable(frontend):
+    """
+    Test the declaration of variables via :meth:`ProgramUnit.declare_variable`
+    """
+    fcode = """
+subroutine routine_declare_variable(n, x)
+  integer, intent(in) :: n
+  real, intent(inout) :: x(n)
+  x(:) = 0.
+end subroutine routine_declare_variable
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+    n = routine.get_variable('n')
+
+    # New scalar, array and procedure declarations are added to the spec
+    a = routine.declare_variable('a', dtype=BasicType.REAL, kind=sym.IntLiteral(8))
+    b = routine.declare_variable('b', dtype=BasicType.INTEGER, shape=(n,))
+    b_i = routine.declare_variable('b_i', dtype=BasicType.INTEGER, shape=(n,), dimensions=(n,))
+    f = routine.declare_variable('f', dtype=ProcedureType('f', is_function=False), external=True)
+    assert isinstance(a, sym.Scalar)
+    assert isinstance(b, sym.Array)
+    assert not b.dimensions
+    assert b_i == 'b_i(n)'
+    assert isinstance(f, sym.ProcedureSymbol)
+    assert all(v.scope is routine for v in (a, b, b_i, f))
+
+    assert routine.variables[-4:] == ('a', 'b(n)', 'b_i(n)', 'f')
+    assert routine.variable_map['b'].dimensions == ('n',)
+    decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
+    assert decls[-3].symbols == ('a',)
+    assert decls[-2].symbols == ('b(n)',)
+    proc_decls = FindNodes(ir.ProcedureDeclaration).visit(routine.spec)
+    assert len(proc_decls) == 1
+    assert proc_decls[0].symbols == ('f',)
+    assert proc_decls[0].symbols[0].type.external
+
+    code = fgen(routine.spec).lower()
+    assert 'real(kind=8) :: a' in code
+    assert 'integer :: b(n)' in code
+
+    # Re-declaration fails for declared variables and table entries,
+    # unless requested otherwise
+    with pytest.raises(ValueError):
+        routine.declare_variable('a', dtype=BasicType.INTEGER)
+    with pytest.raises(ValueError):
+        routine.declare_variable('x', dtype=BasicType.INTEGER)
+
+    x = routine.declare_variable('x', type=routine.get_type('x'), shape=(n, n), fail=False)
+    assert x.shape == ('n', 'n')
+    assert routine.variable_map['x'] == 'x(n, n)'
+    assert routine.arguments == ('n', 'x(n, n)')
+    assert len(FindNodes(ir.VariableDeclaration).visit(routine.spec)) == len(decls)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
