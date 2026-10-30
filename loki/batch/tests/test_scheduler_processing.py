@@ -886,6 +886,38 @@ def test_scheduler_mode_changing_transformations(mode_changing_scheduler_args, p
     assert len(pipelines['m1'].transformations) == 2
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.DEFAULT, ProcessingStrategy.PLAN])
+@pytest.mark.parametrize('mode_order, expected_mode', [
+    (('m1', 'm2', 'm3'), 'm3'),
+    (('m2', 'm1', 'm3'), 'm2'),
+])
+def test_scheduler_mode_changing_prefix_order(
+        mode_changing_scheduler_args, frontend, tmp_path, proc_strategy, mode_order, expected_mode):
+    """Prefixes see earlier mode changes, but earlier pipelines are not revisited."""
+
+    scheduler = Scheduler(
+        **mode_changing_scheduler_args, frontend=frontend, xmods=[tmp_path],
+        full_parse=proc_strategy == ProcessingStrategy.DEFAULT
+    )
+    pipelines = {
+        'm1': Pipeline(classes=(SetDriverModeTransformation, RecordItemsTransformation), mode='m2'),
+        'm2': Pipeline(classes=(SetDriverModeTransformation, RecordItemsTransformation), mode='m3'),
+        'm3': Pipeline(classes=(RecordItemsTransformation,)),
+    }
+    pipelines = {mode: pipelines[mode] for mode in mode_order}
+
+    scheduler.process(pipelines, proc_strategy=proc_strategy)
+
+    expected_items = {'#driver', f'#kernel_loki_{expected_mode}'}
+    assert {item.name: item.mode for item in scheduler.items} == {
+        name: expected_mode for name in expected_items
+    }
+    for mode, pipeline in pipelines.items():
+        record = pipeline.transformations[-1]
+        assert set(record.items) == (expected_items if mode == expected_mode else set())
+
+
 def test_scheduler_mode_changing_transformations_invalid(mode_changing_scheduler_args):
     """Mode-changing transformations must lead mode-specific pipelines."""
 

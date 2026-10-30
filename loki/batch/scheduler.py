@@ -583,6 +583,9 @@ class Scheduler:
             remaining transformations
         """
         remaining_pipelines = {}
+        # Prefixes run in pipeline insertion order against the updated graph and
+        # item modes. Mode changes can therefore cascade into later prefixes;
+        # earlier pipelines are not revisited.
         for mode, pipeline in pipelines.items():
             transformations = list(pipeline.transformations)
             num_leading = next(
