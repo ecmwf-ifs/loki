@@ -272,6 +272,90 @@ For individual items, this expansion can be disabled by setting ``expand=False``
 them in the scheduler config.
 
 
+Runtime dispatch entry points
+-----------------------------
+
+:any:`CreateEntryPointsTransformation` replaces a configured external subroutine
+with a dispatcher that selects between two generated implementation drivers at
+runtime. For example, assume ``src/`` contains an external subroutine ``target``
+with a logical argument ``flag``, together with the sources of its callees.
+Save the following configuration as ``entry_points.toml``:
+
+.. code-block:: toml
+
+    [default]
+    role = "kernel"
+    mode = "select"
+    expand = true
+    strict = true
+
+    [routines.target]
+    entry-point = true
+    condition = "flag"
+
+    [transformations.CreateEntryPointsTransformation]
+    module = "loki.transformations.dependency"
+
+    [transformations.CreateEntryPointsTransformation.options]
+    mode = "gpu"
+    baseline_mode = "baseline"
+
+    [transformations.FileWriteTransformation]
+    module = "loki.transformations.build_system"
+
+    [pipelines.select]
+    transformations = ["CreateEntryPointsTransformation"]
+
+    [pipelines.gpu]
+    transformations = ["FileWriteTransformation"]
+
+    [pipelines.baseline]
+    transformations = ["FileWriteTransformation"]
+
+The ``select`` mode is the initial selection mode: its pipeline contains the
+entry-point preparation, which must precede any ordinary transformations.
+It need not be the same as either implementation mode. Both ``gpu`` and
+``baseline`` pipelines must be present, even if no further transformations are
+required for one of them. This minimal example only writes the separated code;
+add application-specific GPU transformations before ``FileWriteTransformation``
+in the ``gpu`` pipeline to transform that implementation.
+
+Load and apply all pipelines together, rather than processing them individually:
+
+.. code-block:: python
+
+    from pathlib import Path
+
+    from loki.batch import Scheduler, SchedulerConfig
+    from loki.frontend import FP
+
+    config = SchedulerConfig.from_file('entry_points.toml')
+    output_dir = Path('build')
+    output_dir.mkdir(exist_ok=True)
+    scheduler = Scheduler(paths='src', config=config, frontend=FP, output_dir=output_dir)
+    scheduler.process(config.pipelines)
+
+Processing proceeds in three stages:
+
+#. Before mode propagation and separation, the ``select`` pipeline's
+   mode-changing prefix creates ``target_loki_gpu`` and
+   ``target_loki_baseline``, each wrapped in its own module and source file.
+   These implementation drivers receive the ``gpu`` and ``baseline`` modes.
+   The original ``target`` becomes the dispatcher and receives
+   ``baseline_mode``, i.e., ``baseline`` here, not its initial ``select`` mode.
+#. The scheduler propagates the implementation modes to their dependencies and
+   separates the call trees into mode-specific copies. The implementation
+   drivers are independent seeds: although the dispatcher calls them in
+   Fortran, those edges are excluded from the scheduler graph.
+#. The remaining ``gpu`` and ``baseline`` pipelines process their respective
+   trees. The dispatcher is processed by the ``baseline`` pipeline, which also
+   writes it to file with its original routine name and interface. At runtime,
+   ``flag`` selects the GPU implementation when true and the baseline when false.
+
+The baseline implementation's dependencies are still mode-separated; baseline
+here does not mean that the original sources are emitted unchanged.
+
+
 Filtering graph traversals
 --------------------------
 
