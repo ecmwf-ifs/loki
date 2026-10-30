@@ -13,12 +13,13 @@ authors = [
   {name = "ECMWF", email = "user_support_section@ecmwf.int"},
 ]
 description = "Experimental Fortran IR to facilitate source-to-source transformations"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dynamic = ["version", "readme"]
 dependencies = [
   "numpy >= 2.0",  # essential for tests, loop transformations and other dependencies
-  "pymbolic==2022.2",  # essential for expression tree
+  "pymbolic>=2025.1,<2026",  # essential for expression tree
+  "constantdict",  # essential for expression tree (immutable keyword argument mappings)
   "PyYAML",  # essential for loki-lint
   "pcpp",  # essential for preprocessing
   "more-itertools",  # essential for SCC transformation
@@ -32,7 +33,7 @@ dependencies = [
   "coloredlogs",  # optional for loki-build utility
   "junit_xml",  # optional for JunitXML output in loki-lint
   "codetiming",  # essential for scheduler and sourcefile timings
-  "pydantic>=2.0,<2.10.0",  # type checking for IR nodes
+  "pydantic>=2.0",  # type checking for IR nodes
 ]
 
 [project.optional-dependencies]

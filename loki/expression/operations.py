@@ -11,11 +11,16 @@ and bracket-aware and sub-expression grouping. Here we also add
 additional technical operations, such as cast and references.
 """
 
+# pymbolic >= 2025.1 generates ``__getinitargs__`` and ``init_arg_names`` via
+# ``expr_dataclass``, which pylint cannot see
+# pylint: disable=abstract-method
+
 from sys import intern
 import pymbolic.primitives as pmbl
 
 from loki.tools import as_tuple
 
+from loki.expression.base import ExpressionNode
 from loki.expression.literals import StringLiteral
 from loki.expression.mixins import loki_make_stringifier, StrCompareMixin
 
@@ -99,10 +104,23 @@ class ParenthesisedPow(Power):
     make_stringifier = loki_make_stringifier
 
 
-class StringConcat(StrCompareMixin, pmbl._MultiChildExpression):
+class StringConcat(StrCompareMixin, ExpressionNode):
     """
     Implements string concatenation in a way similar to :class:`Sum`.
+
+    Parameters
+    ----------
+    children : tuple
+        The expressions that are concatenated.
     """
+
+    init_arg_names = ('children',)
+
+    def __init__(self, children):
+        self.children = tuple(children)
+
+    def __getinitargs__(self):
+        return (self.children,)
 
     def __add__(self, other):
         if isinstance(other, (StringConcat, StringLiteral, pmbl.Variable)):
@@ -136,7 +154,7 @@ class Cast(StrCompareMixin, pmbl.Call):
     init_arg_names = ('name', 'expression', 'kind')
 
     def __init__(self, name, expression, kind=None, **kwargs):
-        assert kind is None or isinstance(kind, pmbl.Expression)
+        assert kind is None or isinstance(kind, ExpressionNode)
         self.kind = kind
         super().__init__(pmbl.make_variable(name), as_tuple(expression), **kwargs)
 
@@ -154,7 +172,7 @@ class Cast(StrCompareMixin, pmbl.Call):
         return self.parameters
 
 
-class Reference(StrCompareMixin, pmbl.Expression):
+class Reference(StrCompareMixin, ExpressionNode):
     """
     Internal representation of a Reference.
 
@@ -173,7 +191,7 @@ class Reference(StrCompareMixin, pmbl.Expression):
         return (self.expression, )
 
     def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
+        assert isinstance(expression, ExpressionNode)
         self.expression = expression
 
     @property
@@ -211,7 +229,7 @@ class Reference(StrCompareMixin, pmbl.Expression):
     mapper_method = intern('map_c_reference')
 
 
-class Dereference(StrCompareMixin, pmbl.Expression):
+class Dereference(StrCompareMixin, ExpressionNode):
     """
     Internal representation of a Dereference.
 
@@ -230,7 +248,7 @@ class Dereference(StrCompareMixin, pmbl.Expression):
         return (self.expression, )
 
     def __init__(self, expression):
-        assert isinstance(expression, pmbl.Expression)
+        assert isinstance(expression, ExpressionNode)
         self.expression = expression
 
     @property

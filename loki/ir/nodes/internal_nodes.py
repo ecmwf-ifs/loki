@@ -8,12 +8,12 @@
 
 from typing import Any, Tuple, Union, Optional
 
-from pymbolic.primitives import Expression
 from pydantic import field_validator
 
 from loki.ir.nodes.abstract_nodes import (
     Node, InternalNode, ScopedNode
 )
+from loki.expression.base import ExpressionNode
 from loki.expression import (
     symbols as sym, AttachScopesMapper, ExpressionDimensionsMapper
 )
@@ -104,7 +104,7 @@ class Section(InternalNode, _SectionBase):
 class _AssociateBase():
     """ Type definitions for :any:`Associate` node type. """
 
-    associations: Tuple[Tuple[Expression, Expression], ...]
+    associations: Tuple[Tuple[ExpressionNode, ExpressionNode], ...]
 
 
 @dataclass_strict(frozen=True)
@@ -199,8 +199,8 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
 class _LoopBase():
     """ Type definitions for :any:`Loop` node type. """
 
-    variable: Expression
-    bounds: Expression
+    variable: ExpressionNode
+    bounds: ExpressionNode
     body: Tuple[Node, ...]
     pragma: Optional[Tuple[Node, ...]] = None
     pragma_post: Optional[Tuple[Node, ...]] = None
@@ -263,7 +263,7 @@ class Loop(InternalNode, _LoopBase):
 class _WhileLoopBase():
     """ Type definitions for :any:`WhileLoop` node type. """
 
-    condition: Optional[Expression]
+    condition: Optional[ExpressionNode]
     body: Tuple[Node, ...]
     pragma: Optional[Node] = None
     pragma_post: Optional[Node] = None
@@ -324,7 +324,7 @@ class WhileLoop(InternalNode, _WhileLoopBase):
 class _ConditionalBase():
     """ Type definitions for :any:`Conditional` node type. """
 
-    condition: Expression
+    condition: ExpressionNode
     body: Tuple[Node, ...]
     else_body: Optional[Tuple[Node, ...]] = ()
     inline: bool = False
@@ -445,7 +445,7 @@ class _InterfaceBase():
 
     body: Tuple[Any, ...]
     abstract: bool = False
-    spec: Optional[Union[Expression, str]] = None
+    spec: Optional[Union[ExpressionNode, str]] = None
 
 
 @dataclass_strict(frozen=True)

@@ -13,7 +13,7 @@ import pymbolic.primitives as pmbl
 from pymbolic.mapper.evaluator import UnknownVariableError
 
 from loki.types import BasicType
-from loki.expression.mixins import StrCompareMixin
+from loki.expression.mixins import StrCompareMixin, ForeignMapperFallbackMixin
 
 
 __all__ = [
@@ -22,7 +22,7 @@ __all__ = [
 ]
 
 
-class _Literal(pmbl.Leaf):
+class _Literal(ForeignMapperFallbackMixin, pmbl.Leaf):
     """
     Base class for literals.
 
@@ -332,7 +332,7 @@ class Literal:
         return obj
 
 
-class LiteralList(StrCompareMixin, pmbl.AlgebraicLeaf):
+class LiteralList(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf):
     """
     A list of constant literals, e.g., as used in Array Initialization Lists.
     """

@@ -6,11 +6,10 @@
 
 import pytest
 
-import pymbolic.primitives as pmbl
 import pymbolic.mapper as pmbl_mapper
 
 from loki import Subroutine, Module, Scope
-from loki.expression import symbols as sym, parse_expr, LokiEvaluationMapper
+from loki.expression import symbols as sym, parse_expr, LokiEvaluationMapper, ExpressionNode
 from loki.frontend import (
     available_frontends, HAVE_FP, parse_fparser_expression
 )
@@ -52,7 +51,7 @@ def test_parse_expression(parse, source, ref):
     """
     scope = Scope()
     ir = parse(source, scope)  # pylint: disable=redefined-outer-name
-    assert isinstance(ir, pmbl.Expression)
+    assert isinstance(ir, ExpressionNode)
     assert str(ir) == ref
 
 

@@ -12,9 +12,9 @@ Control flow node classes for
 from itertools import chain
 from typing import Any, Tuple, Union, Optional
 
-from pymbolic.primitives import Expression
 from pydantic import field_validator
 
+from loki.expression.base import ExpressionNode
 from loki.ir.nodes.abstract_nodes import (
     Node, InternalNode, LeafNode, ScopedNode
 )
@@ -41,8 +41,8 @@ __all__ = [
 class _AssignmentBase():
     """ Type definitions for :any:`Assignment` node type. """
 
-    lhs: Expression
-    rhs: Expression
+    lhs: ExpressionNode
+    rhs: ExpressionNode
     ptr: bool = False
     comment: Optional[Node] = None
 
@@ -82,10 +82,10 @@ class Assignment(LeafNode, _AssignmentBase):
 class _ConditionalAssignmentBase():
     """ Type definitions for :any:`ConditionalAssignment` node type. """
 
-    lhs: Optional[Expression] = None
-    condition: Optional[Expression] = None
-    rhs: Optional[Expression] = None
-    else_rhs: Optional[Expression] = None
+    lhs: Optional[ExpressionNode] = None
+    condition: Optional[ExpressionNode] = None
+    rhs: Optional[ExpressionNode] = None
+    else_rhs: Optional[ExpressionNode] = None
 
 
 @dataclass_strict(frozen=True)
@@ -126,12 +126,12 @@ class ConditionalAssignment(LeafNode, _ConditionalAssignmentBase):
 class _CallStatementBase():
     """ Type definitions for :any:`CallStatement` node type. """
 
-    name: Expression
-    arguments: Optional[Tuple[Expression, ...]] = ()
-    kwarguments: Optional[Tuple[Tuple[str, Expression], ...]] = ()
+    name: ExpressionNode
+    arguments: Optional[Tuple[ExpressionNode, ...]] = ()
+    kwarguments: Optional[Tuple[Tuple[str, ExpressionNode], ...]] = ()
     pragma: Optional[Tuple[Node, ...]] = None
     not_active: Optional[bool] = None
-    chevron: Optional[Tuple[Expression, ...]] = None
+    chevron: Optional[Tuple[ExpressionNode, ...]] = None
 
 
 @dataclass_strict(frozen=True)
@@ -177,18 +177,18 @@ class CallStatement(LeafNode, _CallStatementBase):
     def __post_init__(self):
         super().__post_init__()
         assert isinstance(self.arguments, tuple)
-        assert all(isinstance(arg, Expression) for arg in as_tuple(self.arguments))
+        assert all(isinstance(arg, ExpressionNode) for arg in as_tuple(self.arguments))
 
         if self.kwarguments is not None:
             assert isinstance(self.kwarguments, tuple)
             assert all(
-                isinstance(a, tuple) and len(a) == 2 and isinstance(a[1], Expression)
+                isinstance(a, tuple) and len(a) == 2 and isinstance(a[1], ExpressionNode)
                 for a in self.kwarguments  # pylint: disable=not-an-iterable
             )
 
         if self.chevron is not None:
             assert isinstance(self.chevron, tuple)
-            assert all(isinstance(a, Expression) for a in self.chevron)  # pylint: disable=not-an-iterable
+            assert all(isinstance(a, ExpressionNode) for a in self.chevron)  # pylint: disable=not-an-iterable
             assert 2 <= len(self.chevron) <= 4
 
     def __repr__(self):
@@ -303,9 +303,9 @@ class CallStatement(LeafNode, _CallStatementBase):
 class _AllocationBase():
     """ Type definitions for :any:`Allocation` node type. """
 
-    variables: Tuple[Expression, ...]
-    data_source: Optional[Expression] = None
-    status_var: Optional[Expression] = None
+    variables: Tuple[ExpressionNode, ...]
+    data_source: Optional[ExpressionNode] = None
+    status_var: Optional[ExpressionNode] = None
 
 
 @dataclass_strict(frozen=True)
@@ -330,9 +330,9 @@ class Allocation(LeafNode, _AllocationBase):
     def __post_init__(self):
         super().__post_init__()
         assert is_iterable(self.variables)
-        assert all(isinstance(var, Expression) for var in self.variables)
-        assert self.data_source is None or isinstance(self.data_source, Expression)
-        assert self.status_var is None or isinstance(self.status_var, Expression)
+        assert all(isinstance(var, ExpressionNode) for var in self.variables)
+        assert self.data_source is None or isinstance(self.data_source, ExpressionNode)
+        assert self.status_var is None or isinstance(self.status_var, ExpressionNode)
 
     def __repr__(self):
         return f'Allocation:: {", ".join(str(var) for var in self.variables)}'
@@ -342,8 +342,8 @@ class Allocation(LeafNode, _AllocationBase):
 class _DeallocationBase():
     """ Type definitions for :any:`Deallocation` node type. """
 
-    variables: Tuple[Expression, ...]
-    status_var: Optional[Expression] = None
+    variables: Tuple[ExpressionNode, ...]
+    status_var: Optional[ExpressionNode] = None
 
 
 @dataclass_strict(frozen=True)
@@ -366,8 +366,8 @@ class Deallocation(LeafNode, _DeallocationBase):
     def __post_init__(self):
         super().__post_init__()
         assert is_iterable(self.variables)
-        assert all(isinstance(var, Expression) for var in self.variables)
-        assert self.status_var is None or isinstance(self.status_var, Expression)
+        assert all(isinstance(var, ExpressionNode) for var in self.variables)
+        assert self.status_var is None or isinstance(self.status_var, ExpressionNode)
 
     def __repr__(self):
         return f'Deallocation:: {", ".join(str(var) for var in self.variables)}'
@@ -377,7 +377,7 @@ class Deallocation(LeafNode, _DeallocationBase):
 class _NullifyBase():
     """ Type definitions for :any:`Nullify` node type. """
 
-    variables: Tuple[Expression, ...]
+    variables: Tuple[ExpressionNode, ...]
 
 
 @dataclass_strict(frozen=True)
@@ -398,7 +398,7 @@ class Nullify(LeafNode, _NullifyBase):
     def __post_init__(self):
         super().__post_init__()
         assert is_iterable(self.variables)
-        assert all(isinstance(var, Expression) for var in self.variables)
+        assert all(isinstance(var, ExpressionNode) for var in self.variables)
 
     def __repr__(self):
         return f'Nullify:: {", ".join(str(var) for var in self.variables)}'
@@ -533,7 +533,7 @@ class _ImportBase():
     """ Type definitions for :any:`Import` node type. """
 
     module: Optional[str]
-    symbols: Tuple[Expression, ...] = ()
+    symbols: Tuple[ExpressionNode, ...] = ()
     nature: Optional[str] = None
     c_import: bool = False
     f_include: bool = False
@@ -573,7 +573,7 @@ class Import(LeafNode, _ImportBase):
         super().__post_init__()
         assert self.module is None or isinstance(self.module, str)
         assert isinstance(self.symbols, tuple)
-        assert all(isinstance(s, (Expression, DataType)) for s in self.symbols)
+        assert all(isinstance(s, (ExpressionNode, DataType)) for s in self.symbols)
         assert self.nature is None or (
             isinstance(self.nature, str) and
             self.nature.lower() in ('intrinsic', 'non_intrinsic') and
@@ -595,8 +595,8 @@ class Import(LeafNode, _ImportBase):
 class _VariableDeclarationBase():
     """ Type definitions for :any:`VariableDeclaration` node type. """
 
-    symbols: Tuple[Expression, ...]
-    dimensions: Optional[Tuple[Expression, ...]] = None
+    symbols: Tuple[ExpressionNode, ...]
+    dimensions: Optional[Tuple[ExpressionNode, ...]] = None
     comment: Optional[Node] = None
     pragma: Optional[Node] = None
 
@@ -631,11 +631,11 @@ class VariableDeclaration(LeafNode, _VariableDeclarationBase):
         super().__post_init__()
         assert self.symbols is not None
         assert is_iterable(self.symbols)
-        assert all(isinstance(s, Expression) for s in self.symbols)
+        assert all(isinstance(s, ExpressionNode) for s in self.symbols)
 
         if self.dimensions is not None:
             assert is_iterable(self.dimensions)
-            assert all(isinstance(d, Expression) for d in self.dimensions)  # pylint: disable=not-an-iterable
+            assert all(isinstance(d, ExpressionNode) for d in self.dimensions)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in self.symbols)
@@ -646,8 +646,8 @@ class VariableDeclaration(LeafNode, _VariableDeclarationBase):
 class _ProcedureDeclarationBase():
     """ Type definitions for :any:`ProcedureDeclaration` node type. """
 
-    symbols: Tuple[Expression, ...]
-    interface: Optional[Union[Expression, DataType]] = None
+    symbols: Tuple[ExpressionNode, ...]
+    interface: Optional[Union[ExpressionNode, DataType]] = None
     external: bool = False
     module: bool = False
     generic: bool = False
@@ -694,8 +694,8 @@ class ProcedureDeclaration(LeafNode, _ProcedureDeclarationBase):
     def __post_init__(self):
         super().__post_init__()
         assert is_iterable(self.symbols)
-        assert all(isinstance(var, Expression) for var in self.symbols)
-        assert self.interface is None or isinstance(self.interface, (Expression, DataType))
+        assert all(isinstance(var, ExpressionNode) for var in self.symbols)
+        assert self.interface is None or isinstance(self.interface, (ExpressionNode, DataType))
 
         assert self.external + self.module + self.generic + self.final in (0, 1)
 
@@ -711,7 +711,7 @@ class _DataDeclarationBase():
     # TODO: This should only allow Expression instances but needs frontend changes
     # TODO: Support complex statements (LOKI-23)
     variable: Any
-    values: Tuple[Expression, ...]
+    values: Tuple[ExpressionNode, ...]
 
 
 @dataclass_strict(frozen=True)
@@ -734,9 +734,9 @@ class DataDeclaration(LeafNode, _DataDeclarationBase):
 
     def __post_init__(self):
         super().__post_init__()
-        assert isinstance(self.variable, (Expression, str, tuple))
+        assert isinstance(self.variable, (ExpressionNode, str, tuple))
         assert is_iterable(self.values)
-        assert all(isinstance(val, Expression) for val in self.values)
+        assert all(isinstance(val, ExpressionNode) for val in self.values)
 
     def __repr__(self):
         return f'DataDeclaration:: {str(self.variable)}'
@@ -746,9 +746,9 @@ class DataDeclaration(LeafNode, _DataDeclarationBase):
 class _StatementFunctionBase():
     """ Type definitions for :any:`StatementFunction` node type. """
 
-    variable: Expression
-    arguments: Tuple[Expression, ...]
-    rhs: Expression
+    variable: ExpressionNode
+    arguments: Tuple[ExpressionNode, ...]
+    rhs: ExpressionNode
     return_type: SymbolAttributes
 
 
@@ -778,8 +778,8 @@ class StatementFunction(ScopedNode, LeafNode, _StatementFunctionBase):
         super(ScopedNode, self).__post_init__(parent=parent)
         super(LeafNode, self).__post_init__()
 
-        assert isinstance(self.variable, Expression)
-        assert is_iterable(self.arguments) and all(isinstance(a, Expression) for a in self.arguments)
+        assert isinstance(self.variable, ExpressionNode)
+        assert is_iterable(self.arguments) and all(isinstance(a, ExpressionNode) for a in self.arguments)
         assert isinstance(self.return_type, SymbolAttributes)
 
     @property
@@ -947,8 +947,8 @@ class TypeDef(ScopedNode, InternalNode, _TypeDefBase):
 class _MultiConditionalBase():
     """ Type definitions for :any:`MultiConditional` node type. """
 
-    expr: Expression
-    values: Tuple[Tuple[Expression, ...], ...]
+    expr: ExpressionNode
+    values: Tuple[Tuple[ExpressionNode, ...], ...]
     bodies: Tuple[Any, ...]
     else_body: Tuple[Node, ...]
     name: Optional[str] = None
@@ -989,9 +989,9 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
 
     def __post_init__(self):
         super().__post_init__()
-        assert isinstance(self.expr, Expression)
+        assert isinstance(self.expr, ExpressionNode)
         assert is_iterable(self.values)
-        assert all(isinstance(v, tuple) and all(isinstance(c, Expression) for c in v)
+        assert all(isinstance(v, tuple) and all(isinstance(c, ExpressionNode) for c in v)
                                            for v in self.values)
         assert is_iterable(self.bodies) and all(is_iterable(b) for b in self.bodies)
         assert is_iterable(self.else_body)
@@ -1005,8 +1005,8 @@ class MultiConditional(LeafNode, _MultiConditionalBase):
 class _TypeConditionalBase():
     """ Type definitions for :any:`TypeConditional` node type. """
 
-    expr: Expression
-    values: Tuple[Tuple[Expression, bool], ...]
+    expr: ExpressionNode
+    values: Tuple[Tuple[ExpressionNode, bool], ...]
     bodies: Tuple[Any, ...]
     else_body: Tuple[Node, ...]
     name: Optional[str] = None
@@ -1039,10 +1039,10 @@ class TypeConditional(LeafNode, _TypeConditionalBase):
 
     def __post_init__(self):
         super().__post_init__()
-        assert isinstance(self.expr, Expression)
+        assert isinstance(self.expr, ExpressionNode)
         assert is_iterable(self.values)
         assert all(
-            isinstance(v, tuple) and len(v) == 2 and isinstance(v[0], Expression) and isinstance(v[1], bool)
+            isinstance(v, tuple) and len(v) == 2 and isinstance(v[0], ExpressionNode) and isinstance(v[1], bool)
             for v in self.values
         )
         assert is_iterable(self.bodies) and all(is_iterable(b) for b in self.bodies)
@@ -1057,9 +1057,9 @@ class TypeConditional(LeafNode, _TypeConditionalBase):
 class _ForallBase():
     """ Type definition for :any:`Forall` node type. """
 
-    named_bounds: Tuple[Tuple[Expression, Expression], ...]
+    named_bounds: Tuple[Tuple[ExpressionNode, ExpressionNode], ...]
     body: Tuple[Node, ...]
-    mask: Optional[Expression] = None
+    mask: Optional[ExpressionNode] = None
     name: Optional[str] = None
     inline: bool = False
 
@@ -1103,7 +1103,7 @@ class Forall(InternalNode, _ForallBase):
 class _MaskedStatementBase():
     """ Type definitions for :any:`MaskedStatement` node type. """
 
-    conditions: Tuple[Expression, ...]
+    conditions: Tuple[ExpressionNode, ...]
     bodies: Tuple[Tuple[Node, ...], ...]
     default: Optional[Tuple[Node, ...]] = None
     inline: bool = False
@@ -1133,7 +1133,7 @@ class MaskedStatement(LeafNode, _MaskedStatementBase):
 
     def __post_init__(self):
         super().__post_init__()
-        assert is_iterable(self.conditions) and all(isinstance(c, Expression) for c in self.conditions)
+        assert is_iterable(self.conditions) and all(isinstance(c, ExpressionNode) for c in self.conditions)
         assert is_iterable(self.bodies) and all(isinstance(c, tuple) for c in self.bodies)
         assert len(self.conditions) == len(self.bodies)
         assert is_iterable(self.default)
@@ -1149,7 +1149,7 @@ class MaskedStatement(LeafNode, _MaskedStatementBase):
 class _EnumerationBase():
     """ Type definitions for :any:`Enumeration` node type. """
 
-    symbols: Tuple[Expression, ...]
+    symbols: Tuple[ExpressionNode, ...]
 
 
 @dataclass_strict(frozen=True)
@@ -1172,7 +1172,7 @@ class Enumeration(LeafNode, _EnumerationBase):
     def __post_init__(self):
         super().__post_init__()
         if self.symbols is not None:
-            assert all(isinstance(s, Expression) for s in self.symbols)  # pylint: disable=not-an-iterable
+            assert all(isinstance(s, ExpressionNode) for s in self.symbols)  # pylint: disable=not-an-iterable
 
     def __repr__(self):
         symbols = ', '.join(str(var) for var in as_tuple(self.symbols))

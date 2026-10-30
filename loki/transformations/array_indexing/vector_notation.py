@@ -300,7 +300,7 @@ def resolve_vector_dimension(routine, dimension, derive_qualified_ranges=False,
     routine.variables += tuple(OrderedSet(transformer.index_vars))
 
 
-class IterationRangeShapeMapper(LokiIdentityMapper):
+class IterationRangeShapeMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
     """
     A mapper that derives the fully qualified iteration dimension for
     unbounded :any:`RangeIndex` indices in array expressions.
