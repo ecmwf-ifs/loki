@@ -11,17 +11,272 @@ import re
 from pathlib import Path
 import pytest
 
-from loki.batch import Pipeline, ProcedureItem, ModuleItem
+from loki.batch import Pipeline, ProcedureItem, ModuleItem, TransformationError
 from loki import (
     Scheduler, SchedulerConfig, ProcessingStrategy
 )
-from loki.frontend import available_frontends
+from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 from loki.tools import as_tuple
 from loki.transformations.dependency import (
-        DuplicateKernel, RemoveKernel
+    CreateEntryPointsTransformation, DuplicateKernel, RemoveKernel
 )
-from loki.transformations.build_system import FileWriteTransformation
+from loki.transformations.build_system import CMakePlanTransformation, FileWriteTransformation
+
+
+@pytest.fixture(name='fcode_entry_point')
+def fixture_fcode_entry_point(tmp_path):
+    """
+    An external entry-point routine with a module procedure and an external callee,
+    whose interface is provided via a C-style header import (as in the IFS).
+    """
+
+    (tmp_path/'helper_mod.F90').write_text('''
+module helper_mod
+contains
+  subroutine helper(n, field)
+    integer, intent(in) :: n
+    real, intent(inout) :: field(n)
+    field = field + 1.
+  end subroutine helper
+end module helper_mod
+''')
+
+    (tmp_path/'ext.F90').write_text('''
+subroutine ext(n)
+  integer, intent(in) :: n
+end subroutine ext
+''')
+
+    (tmp_path/'target.F90').write_text('''
+subroutine target(n, field, flag)
+  use helper_mod, only: helper
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: field(n)
+  logical, intent(in) :: flag
+#include "ext.intfb.h"
+  call helper(n, field)
+  call ext(n)
+end subroutine target
+''')
+
+
+@pytest.fixture(name='entry_point_config')
+def fixture_entry_point_config():
+    return {
+        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'mode': 'gpu', 'lib': 'lib'},
+        'routines': {
+            'target': {'entry-point': True, 'condition': 'flag'},
+        },
+    }
+
+
+@pytest.mark.usefixtures('fcode_entry_point')
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Interface header not available')]))
+def test_create_entry_point(frontend, tmp_path, entry_point_config):
+    """Create the dispatch layer and mode-specific driver variants for an external routine."""
+
+    scheduler = Scheduler(paths=tmp_path, config=entry_point_config, frontend=frontend, xmods=[tmp_path])
+    assert scheduler.seeds == ('target',)
+
+    scheduler.process(CreateEntryPointsTransformation(mode='gpu', baseline_mode='baseline'))
+
+    drivers = {
+        'target_loki_gpu_mod#target_loki_gpu': 'gpu',
+        'target_loki_baseline_mod#target_loki_baseline': 'baseline',
+    }
+    items = {'#target', 'helper_mod#helper', '#ext', *drivers}
+    assert scheduler.seeds == ('target', *drivers)
+    assert {item.name for item in scheduler.items} == items
+
+    # The dispatch layer retains the original item and has no children
+    dispatcher = scheduler['#target']
+    assert (dispatcher.role, dispatcher.mode, dispatcher.expand, dispatcher.replicate) == (
+        'driver', 'baseline', False, False
+    )
+    assert dispatcher.targets == ()
+    assert not scheduler.sgraph.successors(dispatcher)
+    assert set(dispatcher.block) == {'target_loki_gpu_mod', 'target_loki_baseline_mod', *drivers}
+
+    # The driver variants are module-wrapped in new files and call the original dependencies
+    for name, mode in drivers.items():
+        driver = scheduler[name]
+        assert (driver.role, driver.mode, driver.expand) == ('driver', mode, True)
+        assert driver.path == tmp_path/f'{driver.scope_name}.F90'
+        assert driver.orig_path == tmp_path/'target.F90'
+        assert {item.name for item in scheduler.sgraph.successors(driver)} == {'helper_mod#helper', '#ext'}
+        assert [call.name for call in FindNodes(ir.CallStatement).visit(driver.ir.body)] == ['helper', 'ext']
+        assert [imprt.module for imprt in driver.ir.imports] == ['helper_mod', 'ext.intfb.h']
+
+    # Entry-point selection data is removed and the scheduler config is updated
+    for name in ('#target', *drivers):
+        assert not {'entry-point', 'condition'} & set(scheduler[name].config)
+        assert scheduler.config.create_item_config(name)['mode'] == scheduler[name].mode
+
+    # The dispatch layer calls the driver variants depending on the condition and
+    # imports only the driver variants
+    routine = dispatcher.ir
+    conditional, = FindNodes(ir.Conditional).visit(routine.body)
+    assert conditional.condition == 'flag'
+    calls = FindNodes(ir.CallStatement).visit(conditional)
+    assert [call.name for call in calls] == ['target_loki_gpu', 'target_loki_baseline']
+    assert all(call.arguments == ('n', 'field', 'flag') for call in calls)
+    assert all(call.arguments[1].dimensions == () for call in calls)
+    assert routine.arguments[1].dimensions == ('n',)
+    assert [(imprt.module, imprt.symbols) for imprt in routine.imports] == [
+        ('target_loki_gpu_mod', ('target_loki_gpu',)),
+        ('target_loki_baseline_mod', ('target_loki_baseline',)),
+    ]
+
+    # Removing the entry-point configuration makes repeated application idempotent
+    scheduler.process(CreateEntryPointsTransformation(mode='gpu', baseline_mode='baseline'))
+    assert scheduler.seeds == ('target', *drivers)
+    assert {item.name for item in scheduler.items} == items
+
+
+@pytest.mark.usefixtures('fcode_entry_point')
+@pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'Interface header not available')]))
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.DEFAULT, ProcessingStrategy.PLAN])
+def test_create_entry_point_pipelines(frontend, tmp_path, entry_point_config, proc_strategy):
+    """
+    Separate the call trees of the driver variants via mode-specific pipelines,
+    and write or plan the generated files.
+    """
+
+    output_dir = tmp_path/'build'
+    output_dir.mkdir()
+    scheduler = Scheduler(
+        paths=tmp_path, config=entry_point_config, frontend=frontend, xmods=[tmp_path],
+        output_dir=output_dir, full_parse=proc_strategy == ProcessingStrategy.DEFAULT
+    )
+
+    pipelines = {
+        'gpu': Pipeline(classes=(CreateEntryPointsTransformation,), mode='gpu', baseline_mode='baseline'),
+        'baseline': Pipeline(),
+    }
+    scheduler.process(pipelines, proc_strategy=proc_strategy)
+
+    # Each driver variant calls its own mode-specific copy of the dependencies
+    expected_item_modes = {
+        '#target': 'baseline',
+        'target_loki_gpu_mod#target_loki_gpu': 'gpu',
+        'helper_loki_gpu_mod#helper_loki_gpu': 'gpu',
+        '#ext_loki_gpu': 'gpu',
+        'target_loki_baseline_mod#target_loki_baseline': 'baseline',
+        'helper_loki_baseline_mod#helper_loki_baseline': 'baseline',
+        '#ext_loki_baseline': 'baseline',
+    }
+    assert {item.name: item.mode for item in scheduler.items} == expected_item_modes
+
+    for mode in ('gpu', 'baseline'):
+        driver = scheduler[f'target_loki_{mode}_mod#target_loki_{mode}']
+        assert {item.name for item in scheduler.sgraph.successors(driver)} == {
+            f'helper_loki_{mode}_mod#helper_loki_{mode}', f'#ext_loki_{mode}'
+        }
+        if proc_strategy == ProcessingStrategy.DEFAULT:
+            assert [call.name for call in FindNodes(ir.CallStatement).visit(driver.ir.body)] == [
+                f'helper_loki_{mode}', f'ext_loki_{mode}'
+            ]
+            assert [imprt.module for imprt in driver.ir.imports] == [
+                f'helper_loki_{mode}_mod', f'ext_loki_{mode}.intfb.h'
+            ]
+
+    # Mapping of original source files to the generated files
+    expected_files = {
+        ('target.F90', 'target.baseline.F90'),
+        ('target.F90', 'target_loki_gpu_mod.gpu.F90'),
+        ('helper_mod.F90', 'helper_loki_gpu_mod.gpu.F90'),
+        ('ext.F90', 'ext_loki_gpu.gpu.F90'),
+        ('target.F90', 'target_loki_baseline_mod.baseline.F90'),
+        ('helper_mod.F90', 'helper_loki_baseline_mod.baseline.F90'),
+        ('ext.F90', 'ext_loki_baseline.baseline.F90'),
+    }
+
+    scheduler.process(FileWriteTransformation(), proc_strategy=proc_strategy)
+
+    if proc_strategy == ProcessingStrategy.DEFAULT:
+        written_files = {path.name for path in output_dir.iterdir()}
+        assert written_files == {generated for _, generated in expected_files}
+    else:
+        plan = CMakePlanTransformation()
+        scheduler.process(plan, proc_strategy=proc_strategy)
+
+        # Transformed and appended sources are aligned to encode the source-to-source mapping
+        sources_to_transform = plan.sources_to_transform['lib']
+        sources_to_append = plan.sources_to_append['lib']
+        assert len(sources_to_transform) == len(sources_to_append)
+        planned_files = {
+            (source.name, generated.name)
+            for source, generated in zip(sources_to_transform, sources_to_append)
+        }
+        assert planned_files == expected_files
+        assert plan.sources_to_remove['lib'] == [tmp_path/'target.F90']
+
+
+FCODE_ENTRY_POINT_INVALID = {
+    'subroutine': '''
+subroutine target(flag)
+  logical, intent(in) :: flag
+end subroutine target
+''',
+    'function': '''
+function target(flag)
+  logical, intent(in) :: flag
+  logical :: target
+  target = flag
+end function target
+''',
+    'module': '''
+module entry_mod
+  logical :: flag
+contains
+  subroutine target(a)
+    integer, intent(inout) :: a
+  end subroutine target
+end module entry_mod
+''',
+}
+
+
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.PLAN, ProcessingStrategy.DEFAULT])
+@pytest.mark.parametrize('fcode,name,condition,match', (
+    ('subroutine', 'target', None, 'non-empty string condition'),
+    ('subroutine', 'target', '', 'non-empty string condition'),
+    ('subroutine', 'target', 'flag .and.', 'Failed to parse'),
+    ('function', 'target', 'flag', 'not a function'),
+    ('module', 'entry_mod#target', 'flag', 'not a module procedure'),
+))
+def test_create_entry_point_invalid(fcode, name, condition, match, proc_strategy, tmp_path):
+    """
+    Reject invalid entry-point configurations, functions and module procedures.
+    Conditions are parsed only during transformation.
+    """
+
+    (tmp_path/'source.F90').write_text(FCODE_ENTRY_POINT_INVALID[fcode])
+    entry_config = {'entry-point': True}
+    if condition is not None:
+        entry_config['condition'] = condition
+
+    scheduler = Scheduler(
+        paths=tmp_path, config={'default': {'strict': True}, 'routines': {name: entry_config}},
+        full_parse=proc_strategy == ProcessingStrategy.DEFAULT
+    )
+    transformation = CreateEntryPointsTransformation(mode='gpu', baseline_mode='baseline')
+
+    if proc_strategy == ProcessingStrategy.PLAN and match == 'Failed to parse':
+        scheduler.process(transformation, proc_strategy=proc_strategy)
+    else:
+        with pytest.raises(TransformationError, match=match):
+            scheduler.process(transformation, proc_strategy=proc_strategy)
+
+
+@pytest.mark.parametrize('mode,baseline_mode', (('gpu', 'gpu'), ('gpu-a', 'gpu_a')))
+def test_create_entry_point_identical_modes(mode, baseline_mode):
+    """Reject modes that would yield identical driver variant names."""
+
+    with pytest.raises(ValueError, match='distinct'):
+        CreateEntryPointsTransformation(mode=mode, baseline_mode=baseline_mode)
 
 
 @pytest.fixture(scope='module', name='here')
@@ -425,9 +680,11 @@ def test_dependency_duplicate_remove_plan(tmp_path, frontend, duplicate_kernels,
     plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
     plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
 
-    transformed_items = {name.split('#')[0] or name[1:] for name in expected_items if not name.endswith('_new')}
+    # Duplicated items are generated from, and hence mapped to, the original source file
+    transformed_items = {(name.split('#')[0] or name[1:]).removesuffix('_new') for name in expected_items}
+    removed_items = {name.split('#')[0] or name[1:] for name in expected_items if not name.endswith('_new')}
     assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == transformed_items
-    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == transformed_items
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == removed_items
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'{name.split("#")[0] or name[1:]}.idem' for name in expected_items}
 
 
@@ -471,9 +728,11 @@ def test_dependency_duplicate_remove_plan_no_module(tmp_path, frontend, duplicat
     plan_dict = {k: v.split() for k, v in plan_pattern.findall(loki_plan)}
     plan_dict = {k: {Path(s).stem for s in v} for k, v in plan_dict.items()}
 
-    transformed_items = {name[1:] for name in expected_items if not name.endswith('_new')}
+    # Duplicated items are generated from, and hence mapped to, the original source file
+    transformed_items = {name[1:].removesuffix('_new') for name in expected_items}
+    removed_items = {name[1:] for name in expected_items if not name.endswith('_new')}
     assert plan_dict['LOKI_SOURCES_TO_TRANSFORM'] == transformed_items
-    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == transformed_items
+    assert plan_dict['LOKI_SOURCES_TO_REMOVE'] == removed_items
     assert plan_dict['LOKI_SOURCES_TO_APPEND'] == {f'{name[1:]}.idem' for name in expected_items}
 
 @pytest.fixture(name='fcode_as_module_extended')

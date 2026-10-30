@@ -13,7 +13,7 @@ from loki import (
     graphviz_present
 )
 from loki.batch import (
-    InterfaceItem, ModuleItem, ProcedureBindingItem, ProcedureItem,
+    InterfaceItem, ModuleItem, Pipeline, ProcedureBindingItem, ProcedureItem,
     ProcessingStrategy, Scheduler, SchedulerConfig,
     Transformation, TransformationError, TypeDefItem
 )
@@ -816,3 +816,123 @@ def test_scheduler_exception_handling(tmp_path, testdir, config, frontend, proc_
                 RuntimeErrorTransformation(fail_cls=fail_cls, fail_name=fail_name),
                 proc_strategy=proc_strategy
             )
+
+
+class SetDriverModeTransformation(Transformation):
+    """Assign a new transformation mode to driver items."""
+
+    changes_modes = True
+
+    def __init__(self, mode):
+        self.mode = mode
+
+    def transform_subroutine(self, routine, **kwargs):
+        item = kwargs['item']
+        if item.role == 'driver':
+            item.config['mode'] = self.mode
+
+    plan_subroutine = transform_subroutine
+
+
+class RecordItemsTransformation(Transformation):
+    """Record the names of the items processed by the transformation."""
+
+    def __init__(self):
+        self.items = []
+
+    def transform_subroutine(self, routine, **kwargs):
+        self.items.append(kwargs['item'].name)
+
+    plan_subroutine = transform_subroutine
+
+
+@pytest.fixture(name='mode_changing_scheduler_args')
+def fixture_mode_changing_scheduler_args(tmp_path):
+    (tmp_path/'routines.F90').write_text('''
+subroutine driver
+  call kernel
+end subroutine driver
+subroutine kernel
+end subroutine kernel
+''')
+    config = {
+        'default': {'role': 'kernel', 'expand': True, 'strict': True, 'mode': 'm1'},
+        'routines': {'driver': {'role': 'driver'}},
+    }
+    return {'paths': tmp_path, 'config': config}
+
+
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.DEFAULT, ProcessingStrategy.PLAN])
+def test_scheduler_mode_changing_transformations(mode_changing_scheduler_args, proc_strategy):
+    """Mode-changing transformations are applied before modes are propagated and separated."""
+
+    scheduler = Scheduler(**mode_changing_scheduler_args, full_parse=proc_strategy == ProcessingStrategy.DEFAULT)
+
+    pipelines = {
+        'm1': Pipeline(classes=(SetDriverModeTransformation, RecordItemsTransformation), mode='m2'),
+        'm2': Pipeline(classes=(RecordItemsTransformation,)),
+    }
+    m1_record = pipelines['m1'].transformations[1]
+    m2_record = pipelines['m2'].transformations[0]
+
+    scheduler.process(pipelines, proc_strategy=proc_strategy)
+
+    # The driver's new mode has been propagated to the separated kernel
+    assert {item.name: item.mode for item in scheduler.items} == {'#driver': 'm2', '#kernel_loki_m2': 'm2'}
+    assert not m1_record.items
+    assert set(m2_record.items) == {'#driver', '#kernel_loki_m2'}
+
+    # The pipelines passed to the scheduler are left unchanged
+    assert len(pipelines['m1'].transformations) == 2
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('proc_strategy', [ProcessingStrategy.DEFAULT, ProcessingStrategy.PLAN])
+@pytest.mark.parametrize('mode_order, expected_mode', [
+    (('m1', 'm2', 'm3'), 'm3'),
+    (('m2', 'm1', 'm3'), 'm2'),
+])
+def test_scheduler_mode_changing_prefix_order(
+        mode_changing_scheduler_args, frontend, tmp_path, proc_strategy, mode_order, expected_mode):
+    """Prefixes see earlier mode changes, but earlier pipelines are not revisited."""
+
+    scheduler = Scheduler(
+        **mode_changing_scheduler_args, frontend=frontend, xmods=[tmp_path],
+        full_parse=proc_strategy == ProcessingStrategy.DEFAULT
+    )
+    pipelines = {
+        'm1': Pipeline(classes=(SetDriverModeTransformation, RecordItemsTransformation), mode='m2'),
+        'm2': Pipeline(classes=(SetDriverModeTransformation, RecordItemsTransformation), mode='m3'),
+        'm3': Pipeline(classes=(RecordItemsTransformation,)),
+    }
+    pipelines = {mode: pipelines[mode] for mode in mode_order}
+
+    scheduler.process(pipelines, proc_strategy=proc_strategy)
+
+    expected_items = {'#driver', f'#kernel_loki_{expected_mode}'}
+    assert {item.name: item.mode for item in scheduler.items} == {
+        name: expected_mode for name in expected_items
+    }
+    for mode, pipeline in pipelines.items():
+        record = pipeline.transformations[-1]
+        assert set(record.items) == (expected_items if mode == expected_mode else set())
+
+
+def test_scheduler_mode_changing_transformations_invalid(mode_changing_scheduler_args):
+    """Mode-changing transformations must lead mode-specific pipelines."""
+
+    scheduler = Scheduler(**mode_changing_scheduler_args)
+
+    # Not at the beginning of the pipeline
+    pipeline = Pipeline(classes=(RecordItemsTransformation, SetDriverModeTransformation), mode='m2')
+    with pytest.raises(RuntimeError, match='beginning of pipeline m1'):
+        scheduler.process({'m1': pipeline})
+
+    # Not part of a dictionary of mode-specific pipelines
+    pipeline = Pipeline(classes=(SetDriverModeTransformation,), mode='m2')
+    with pytest.raises(RuntimeError, match='dictionary of mode-specific pipelines'):
+        scheduler.process(pipeline)
+
+    # Missing pipeline for assigned mode
+    with pytest.raises(RuntimeError, match='mode m2'):
+        scheduler.process({'m1': pipeline})
