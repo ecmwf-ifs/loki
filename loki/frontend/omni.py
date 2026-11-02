@@ -898,6 +898,8 @@ class OMNI2IR(GenericVisitor):
         prefix = []
         if o.attrib.get('is_pure') == 'true':
             prefix += ['PURE']
+        elif o.attrib.get('is_pure') == 'false' and o.attrib.get('is_elemental') == 'true':
+            prefix += ['IMPURE']
         if o.attrib.get('is_elemental') == 'true':
             prefix += ['ELEMENTAL']
         if o.attrib.get('is_recursive') == 'true':

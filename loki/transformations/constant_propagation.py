@@ -11,9 +11,10 @@ import itertools
 from loki.expression import (
     symbols as sym, get_pyrange, is_constant, SimplifyMapper
 )
-from loki.ir import nodes as ir, FindNodes, FindVariables, Transformer
+from loki.ir import nodes as ir, FindNodes, FindVariables, FindInlineCalls, Transformer
 from loki.subroutine import Subroutine
 from loki.tools import dict_override
+from loki.types import BasicType, ProcedureType
 
 from loki.transformations.transform_loop import LoopUnrollTransformer
 
@@ -51,8 +52,8 @@ def update_constants_map(lhs, value, constants_map):
 
 def invalidate_constants_map(lhs, constants_map):
     if isinstance(lhs, sym.Array):
-        for access in tuple(key for key in constants_map if key[0] == lhs.basename):
-            constants_map.pop((lhs.basename, access), None)
+        for key in tuple(key for key in constants_map if key[0] == lhs.basename):
+            constants_map.pop(key, None)
         return
 
     constants_map.pop((lhs.basename, ()), None)
@@ -102,10 +103,58 @@ class ConstantPropagationMapper(SimplifyMapper):
 class ConstantPropagationTransformer(Transformer):
     """Apply constant-propagation analysis as a transformation driver."""
 
+    def invalidate_call_constants(self, node, constants_map):
+        """
+        Invalidate constants potentially modified by calls in an IR subtree.
+
+        Pure procedures only invalidate writable actual arguments. Unknown or
+        impure procedures invalidate all constants, including non-argument state.
+        Inline intrinsics are treated as side-effect-free; intrinsic subroutine
+        calls are conservative barriers.
+
+        Parameters
+        ----------
+        node : :any:`Node` or expression
+            Subtree to inspect before substituting constants.
+        constants_map : dict
+            Known constants, updated in place.
+
+        Returns
+        -------
+        bool
+            Whether any call may modify state.
+        """
+        has_effects = False
+        calls = itertools.chain(FindNodes(ir.CallStatement).visit(node), FindInlineCalls().visit(node))
+        for call in calls:
+            if (
+                isinstance(call, sym.InlineCall)
+                and isinstance(call.procedure_type, ProcedureType)
+                and call.procedure_type.is_intrinsic
+            ):
+                continue
+
+            routine = call.routine
+            prefix = tuple(p.lower() for p in getattr(routine, 'prefix', ()) or ())
+            is_pure = 'pure' in prefix or ('elemental' in prefix and 'impure' not in prefix)
+            if routine is BasicType.DEFERRED or not is_pure:
+                constants_map.clear()
+                return True
+
+            for dummy, actual in call.arg_iter():
+                if dummy.type.intent != 'in':
+                    has_effects = True
+                    for variable in FindVariables().visit(actual):
+                        invalidate_constants_map(variable, constants_map)
+        return has_effects
+
     def visit_Assignment(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
 
+        if self.invalidate_call_constants(o, constants_map):
+            invalidate_constants_map(o.lhs, constants_map)
+            return o
         rhs_symbols = FindVariables().visit(o.rhs)
         if kwargs.get('within_loop', False) and o.lhs in rhs_symbols:
             # In loop bodies, skip "increment" updates to the LHS value
@@ -132,11 +181,17 @@ class ConstantPropagationTransformer(Transformer):
 
         return o._rebuild(lhs=new_lhs, rhs=new_rhs)
 
+    def visit_CallStatement(self, o, **kwargs):
+        """Account for call effects without replacing writable actual arguments."""
+        self.invalidate_call_constants(o, kwargs.get('constants_map', {}))
+        return o
+
     def visit_Conditional(self, o, **kwargs):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
 
-        new_condition = mapper(o.condition, constants_map=constants_map)
+        call_effects = self.invalidate_call_constants(o.condition, constants_map)
+        new_condition = o.condition if call_effects else mapper(o.condition, constants_map=constants_map)
 
         # Pass two copies of the constants map forward ...
         with dict_override(kwargs, {'constants_map': deepcopy(constants_map)}):
@@ -168,7 +223,10 @@ class ConstantPropagationTransformer(Transformer):
         constants_map = kwargs.get('constants_map', {})
         mapper = ConstantPropagationMapper()
 
-        new_bounds = mapper(o.bounds, constants_map=constants_map)
+        bounds_call_effects = self.invalidate_call_constants(o.bounds, constants_map)
+        new_bounds = o.bounds if bounds_call_effects else mapper(o.bounds, constants_map=constants_map)
+        # Body calls may change incoming constants on earlier loop iterations.
+        call_effects = self.invalidate_call_constants(o.body, constants_map)
 
         # When recursing into loops, send a flag down to trigger detection
         # of loop-variant assignments ("increment" updates to variables).
@@ -191,21 +249,42 @@ class ConstantPropagationTransformer(Transformer):
             and (is_constant(new_bounds.step) or new_bounds.step is None)
         )
 
-        if bounds_are_const:
+        if bounds_are_const and not call_effects:
             loop_constants_map = constants_map
 
             for assign in assignments:
-                if not set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
-                    assign_kwargs = dict(kwargs)
-                    assign_kwargs['constants_map'] = loop_constants_map
-                    self.visit_Assignment(assign, **assign_kwargs)
+                if set(FindVariables().visit(assign.rhs)).intersection(lhs_vars):
+                    invalidate_constants_map(assign.lhs, loop_constants_map)
+                    continue
+
+                assign_kwargs = dict(kwargs)
+                assign_kwargs['constants_map'] = loop_constants_map
+                self.visit_Assignment(assign, **assign_kwargs)
         else:
             for assign in assignments:
                 invalidate_constants_map(assign.lhs, constants_map)
 
+        self.invalidate_call_constants(o.body, constants_map)
         invalidate_constants_map(o.variable, constants_map)
 
         return o._rebuild(bounds=new_bounds, body=new_body)
+
+    def visit_WhileLoop(self, o, **kwargs):
+        """Invalidate loop-carried writes before rewriting a while loop."""
+        constants_map = kwargs.get('constants_map', {})
+        self.invalidate_call_constants(o, constants_map)
+        for assign in FindNodes(ir.Assignment).visit(o.body):
+            invalidate_constants_map(assign.lhs, constants_map)
+
+        with dict_override(kwargs, {
+                'within_loop': True, 'constants_map': deepcopy(constants_map)
+        }):
+            call_effects = self.invalidate_call_constants(o.condition, kwargs['constants_map'])
+            condition = o.condition if call_effects else ConstantPropagationMapper()(
+                o.condition, constants_map=kwargs['constants_map']
+            )
+            body = self.visit(o.body, **kwargs)
+        return o._rebuild(condition=condition, body=body)
 
     def generate_declarations_map(self, routine):
         """Build the initial constant map from declaration-time initializers."""
@@ -217,7 +296,7 @@ class ConstantPropagationTransformer(Transformer):
 
         declarations_map = {}
         for symbol in getattr(routine, 'symbols', ()):
-            if isinstance(symbol, sym.DeferredTypeSymbol) or symbol.initial is None:
+            if not isinstance(symbol, (sym.Scalar, sym.Array)) or symbol.initial is None:
                 continue
 
             if isinstance(symbol, sym.Array):

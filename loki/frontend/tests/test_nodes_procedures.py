@@ -212,10 +212,11 @@ end subroutine valid_fortran
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-def test_routine_prefix(frontend):
+@pytest.mark.parametrize('purity', ['pure', 'impure'])
+def test_routine_prefix(frontend, purity):
     """ Test matching of prefix attributes for subroutines """
-    fcode = """
-pure elemental subroutine my_routine(x, y)
+    fcode = f"""
+{purity} elemental subroutine my_routine(x, y)
   implicit none
   integer(kind=8), intent(inout) :: x, y
 
@@ -226,7 +227,7 @@ end subroutine my_routine
 
     assert routine.name == 'my_routine'
     assert len(routine.prefix) == 2
-    assert routine.prefix == ('PURE', 'ELEMENTAL')
+    assert routine.prefix == (purity.upper(), 'ELEMENTAL')
 
     assert isinstance(routine.body.body[-1], ir.Assignment)
     assert routine.body.body[-1].lhs == 'x'

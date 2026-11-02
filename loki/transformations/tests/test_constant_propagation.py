@@ -6,9 +6,9 @@
 
 import pytest
 
-from loki import Subroutine, available_frontends, jit_compile
+from loki import Module, Subroutine, available_frontends, jit_compile
 from loki.expression import symbols as sym
-from loki.ir import nodes as ir, FindNodes
+from loki.ir import nodes as ir, FindNodes, FindInlineCalls
 
 from loki.transformations.constant_propagation import (
     ConstantPropagationTransformer, ConstantPropagationMapper, do_constant_propagation
@@ -79,6 +79,27 @@ end subroutine const_prop_dynamic_array
     assert ('a', (sym.IntLiteral(1),)) not in constants_map
     assert ('a', (sym.IntLiteral(2),)) not in constants_map
     assert ('a', (sym.IntLiteral(3),)) not in constants_map
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_declarations_map_with_local_typedef(frontend, tmp_path):
+    """Local type definitions introduce symbols without an initial attribute."""
+    fcode = """
+subroutine const_prop_symbols_without_initial()
+  type wrapper
+    integer :: value
+  end type wrapper
+  type(wrapper) :: state
+  integer :: a = 1
+
+  a = a + state%value
+end subroutine const_prop_symbols_without_initial
+    """.strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+
+    declarations_map = ConstantPropagationTransformer().generate_declarations_map(routine)
+
+    assert declarations_map == {('a', ()): sym.IntLiteral(1)}
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -171,7 +192,7 @@ end subroutine const_prop_ops_int
 def test_constant_propagation_ops_bool_short_circuiting_expected_future(tmp_path, frontend):
     fcode = """
 subroutine test_constant_propagation_ops_bool_short_circuiting(a_and, a_or)
-  logical :: a = .true.
+  logical :: a
   logical :: b
   logical, intent(out) :: a_and, a_or
 
@@ -185,6 +206,7 @@ subroutine test_constant_propagation_ops_bool_short_circuiting(a_and, a_or)
   call random_seed(put=seed)
   call random_number(r)
 
+  a = .true.
   b = floor(r) == 0
 
   a_and = .not. a .and. b
@@ -314,6 +336,31 @@ end subroutine test_constant_propagation_for_loop_basic_no_unroll
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_for_loop_self_dependent_update_invalidates_constant(frontend):
+    fcode = """
+subroutine loop_self_dependent_update(a, out)
+  integer, intent(in) :: a(5)
+  integer, intent(out) :: out
+  integer :: i, s
+
+  s = 0
+  do i = 1, 5
+    s = s + a(i)
+  end do
+  out = s
+end subroutine loop_self_dependent_update
+""".strip()
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    transformed = do_constant_propagation(routine, unroll_loops=False)
+    assignments = FindNodes(ir.Assignment).visit(transformed.body)
+
+    assert [(a.lhs, a.rhs) for a in assignments] == [
+        ('s', 0), ('s', 's + a(i)'), ('out', 's')
+    ]
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
 def test_constant_propagation_for_loop_nested_siblings_no_unroll(frontend):
     fcode = """
 subroutine test_constant_propagation_loop_nested_siblings_no_unroll(c)
@@ -342,3 +389,171 @@ end subroutine test_constant_propagation_loop_nested_siblings_no_unroll
     assignments = [str(a) for a in FindNodes(ir.Assignment).visit(transformed.body)]
     assert 'Assignment:: c = 5' in assignments
     assert 'Assignment:: c = 3' in assignments
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('site', [
+    'out = change(x)',
+    'out = 0*change(x)',
+    'out = abs(change(x))',
+    'if (change(x) > 0) then\n  out = x\nend if',
+    'if (0*change(x) > 0) then\n  out = x\nend if',
+    'do i = 1, change(x)\n  out = x\nend do',
+    'do i = 1, 1 + 0*change(x)\n  out = x\nend do',
+    'do i = 1, 3\n  out = x\n  s = s + change(x)\nend do',
+    'do while (change(x) > 0)\n  out = x\nend do',
+    'call update(x)',
+])
+def test_constant_propagation_unknown_call_effects(frontend, site):
+    """Invalidate before substitution, including skipped loop-carried updates."""
+    fcode = f"""
+subroutine caller(out, after, other)
+  integer, intent(out) :: out, after, other
+  integer, external :: change
+  integer :: i, x, y, s
+  x = 2
+  y = 4
+  s = 0
+  {site}
+  after = x
+  other = y
+end subroutine caller
+"""
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    do_constant_propagation(routine)
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    assert assignments[-2].rhs == 'x'
+    assert assignments[-1].rhs == 'y'
+    if 'out = x' in site:
+        assert next(a for a in assignments if a.lhs == 'out').rhs == 'x'
+    if 's = s +' in site:
+        assert next(a for a in assignments if a.lhs == 's' and a.rhs != 0).rhs == 's + change(x)'
+    if site == 'call update(x)':
+        assert FindNodes(ir.CallStatement).visit(routine.body)[0].arguments == ('x',)
+    else:
+        calls = FindInlineCalls().visit(routine.body)
+        assert tuple(call.parameters for call in calls if call.function == 'change') == (('x',),)
+    if site == 'out = 0*change(x)':
+        assert next(a for a in assignments if a.lhs == 'out').rhs == '0*change(x)'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('prefix', ['', 'pure', 'elemental', 'impure elemental'])
+@pytest.mark.parametrize('in_loop', [False, True])
+def test_constant_propagation_call_argument_effects(frontend, tmp_path, prefix, in_loop):
+    """Pure calls invalidate writable keyword/array arguments, preserving inputs."""
+    element = 'a' if 'elemental' in prefix else 'a(1)'
+    body = f'before = x\ncall update(value=x, array=a)\nafter = x\narray_after = {element}'
+    if in_loop:
+        body = f'do i = 1, 3\n{body}\nend do'
+    # Elemental procedures require scalar arguments.
+    shape = '' if 'elemental' in prefix else '(2)'
+    initial = '5' if 'elemental' in prefix else '(/5, 6/)'
+    fcode = f"""
+module calls_mod
+contains
+  {prefix} subroutine update(value, array)
+    integer, intent(inout) :: value
+    integer, intent(out) :: array{shape}
+    value = value + 1
+    array = value
+  end subroutine update
+  subroutine caller(before, after, other, array_after)
+    integer, intent(out) :: before, after, other, array_after
+    integer :: x, y, i
+    integer :: a{shape} = {initial}
+    x = 2
+    y = 4
+    {body}
+    other = y
+  end subroutine caller
+end module calls_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['caller']
+    routine.enrich(module.subroutines)
+
+    do_constant_propagation(routine)
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    is_pure = prefix in ('pure', 'elemental')
+    assert next(a for a in assignments if a.lhs == 'before').rhs == ('x' if in_loop else 2)
+    assert next(a for a in assignments if a.lhs == 'after').rhs == 'x'
+    assert next(a for a in assignments if a.lhs == 'array_after').rhs == element
+    assert assignments[-1].rhs == (4 if is_pure else 'y')
+    call = FindNodes(ir.CallStatement).visit(routine.body)[0]
+    assert call.kwarguments == (('value', 'x'), ('array', 'a'))
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+@pytest.mark.parametrize('in_loop', [False, True])
+def test_constant_propagation_impure_function_state(frontend, tmp_path, in_loop):
+    """Impure functions may modify both their arguments and module state."""
+    body = 'before = state\ns = s + change(x)'
+    if in_loop:
+        body = f'do i = 1, 3\n{body}\nend do'
+    fcode = f"""
+module state_mod
+  integer :: state
+contains
+  integer function change(x)
+    integer, intent(inout) :: x
+    x = x + 1
+    state = state + 1
+    change = x
+  end function change
+  subroutine caller(before, after, other)
+    integer, intent(out) :: before, after, other
+    integer :: x, s, i
+    x = 2
+    s = 0
+    state = 4
+    {body}
+    after = x
+    other = state
+  end subroutine caller
+end module state_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['caller']
+    routine.enrich(module.subroutines)
+
+    do_constant_propagation(routine)
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    assert next(a for a in assignments if a.lhs == 'before').rhs == ('state' if in_loop else 4)
+    assert next(a for a in assignments if a.lhs == 's' and a.rhs != 0).rhs == 's + change(x)'
+    assert assignments[-2].rhs == 'x'
+    assert assignments[-1].rhs == 'state'
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_constant_propagation_pure_function_and_intrinsic(frontend, tmp_path):
+    """Side-effect-free calls retain constant propagation into and after calls."""
+    fcode = """
+module pure_calls_mod
+contains
+  pure integer function double(x)
+    integer, intent(in) :: x
+    double = 2*x
+  end function double
+  subroutine caller(out, after)
+    integer, intent(out) :: out, after
+    integer :: x
+    x = 3
+    out = double(abs(x))
+    after = x
+  end subroutine caller
+end module pure_calls_mod
+"""
+    module = Module.from_source(fcode, frontend=frontend, xmods=[tmp_path])
+    routine = module['caller']
+    routine.enrich(module.subroutines)
+
+    do_constant_propagation(routine)
+
+    assignments = FindNodes(ir.Assignment).visit(routine.body)
+    assert assignments[-2].rhs == 'double(abs(3))'
+    assert assignments[-1].rhs == 3
