@@ -368,7 +368,9 @@ def test_parametrise_modified_callback(tmp_path, testdir, frontend, config):
 
     def stop_execution(**kwargs):
         msg = kwargs.get("msg")
-        abort = (ir.CallStatement(name=sym.Variable(name="stop_execution"), arguments=(sym.StringLiteral(f'{msg}'),)),)
+        abort = (ir.CallStatement(
+            name=sym.DeferredTypeSymbol(name="stop_execution"), arguments=(sym.StringLiteral(f'{msg}'),)
+        ),)
         return abort
 
     abort_callbacks = (error_stop, stop_execution)

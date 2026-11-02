@@ -24,47 +24,47 @@ def test_variable_symbols():
     dtype_type = SymbolAttributes(dtype)
 
     # A simple integer scalar parameter with inital value
-    i = sym.Variable(name='i', type=int_type, scope=scope)
+    i = scope.declare_variable('i', type=int_type)
     assert isinstance(i, sym.Scalar) and i == 'i'
     assert isinstance(i.symbol, sym.VariableSymbol)
     assert i.type.parameter and i.initial == 42
 
     # A derived-type scalar variable
-    r = sym.Variable(name='r', type=dtype_type)
+    r = scope.declare_variable('r', type=dtype_type)
     assert isinstance(r, sym.Scalar) and r == 'r'
     assert isinstance(r.symbol, sym.VariableSymbol)  # Why not DerivedTypeSymbol?
     assert isinstance(r.type.dtype, DerivedType) and r.type.dtype.name == 'DerDieDas'
     assert r.type.dtype.typedef == BasicType.DEFERRED
 
     # A scalar variable with an unknown type
-    x = sym.Variable(name='x', type=deferred_type)
+    x = scope.declare_variable('x', type=deferred_type)
     assert isinstance(x, sym.DeferredTypeSymbol) and x == 'x'
     # For unknown-type, we don't create a meta-symbol - should we though?
     # assert isinstance(x.symbol, sym.VariableSymbol)
 
     # A simple array variable with a single dimension access
-    a = sym.Variable(name='a', dimensions=(i,), type=real_type, scope=scope)
+    a = scope.declare_variable('a', type=real_type, dimensions=(i,))
     assert isinstance(a, sym.Array) and a == 'a(i)'
     assert isinstance(a.symbol, sym.VariableSymbol)
     assert a.type.kind == 'rick' and a.dimensions == (i,)
 
     # Update the shape and create another instance of "a" that shares the shape
     assert not a.type.shape
-    a.clone(type=a.type.clone(shape=(i,)))
+    scope.update('a', shape=(i,))
     assert a.type.shape == ('i',)
-    j = sym.Variable(name='j', type=int_type, scope=scope)
-    a_j = sym.Variable(name='a', dimensions=(j,), scope=scope)
+    j = scope.declare_variable('j', type=int_type)
+    a_j = scope.get_variable('a', dimensions=(j,))
     assert a_j == 'a(j)' and a.shape == ('i',)
 
     # A scalar variable access on a derived-type parent variable
-    b = sym.Variable(name='b', parent=r, type=real_type, scope=scope)
+    b = scope.declare_variable('b', type=real_type, parent=r)
     assert isinstance(b, sym.Scalar) and b == 'r%b'
     assert isinstance(b.symbol, sym.VariableSymbol)
     assert b.parent == 'r' and b.parent.type.dtype.name == 'DerDieDas'
     assert b.type.kind == 'rick'
 
     # A two-dimensional array access on a derived-type parent variable
-    c = sym.Variable(name='c', dimensions=(i, i), parent=r, type=real_type, scope=scope)
+    c = scope.declare_variable('c', type=real_type, parent=r, dimensions=(i, i))
     assert isinstance(c, sym.Array) and c == 'r%c(i, i)'
     assert isinstance(c.symbol, sym.VariableSymbol)
     assert c.parent == 'r' and c.parent.type.dtype.name == 'DerDieDas'
@@ -82,13 +82,13 @@ def test_procedure_symbols():
     func_type = SymbolAttributes(
         ProcedureType(name='f', is_function=True, return_type=real_type)
     )
-    x = sym.Variable(name='x', type=real_type, scope=scope)
-    i = sym.Variable(name='i', type=int_type, scope=scope)
-    n = sym.Variable(name='n', type=int_type, scope=scope)
+    x = scope.declare_variable('x', type=real_type)
+    i = scope.declare_variable('i', type=int_type)
+    n = scope.declare_variable('n', type=int_type)
     r_n = sym.LoopRange((sym.IntLiteral(1), n))
 
-    # A simple procedure symbol created via the generic ``Variable``
-    f = sym.Variable(name='f', type=func_type, scope=scope)
+    # A simple procedure symbol created via the scope
+    f = scope.declare_variable('f', type=func_type)
     assert isinstance(f, sym.ProcedureSymbol) and f == 'f'
     assert isinstance(f.type.dtype, ProcedureType)
     assert f.type.dtype.is_function
@@ -116,7 +116,7 @@ def test_procedure_symbols():
 
     # Native C reference and dereference inline intrinsics
     g_type = real_type.clone(parameter=True, initial=sym.Literal(9.81))
-    g = sym.Variable(name='g', type=g_type, scope=scope)
+    g = scope.declare_variable('g', type=g_type)
 
     ref = sym.Reference(expression=g)
     assert ref.expression == 'g' and ref.name =='g'

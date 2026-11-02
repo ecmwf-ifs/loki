@@ -297,7 +297,8 @@ def test_simplify(source,ref):
 
 
 def test_simplify_string_concat():
-    a = sym.Variable(name='a')
+    scope = Scope()
+    a = scope.get_variable('a', fail=False)
 
     expr = sym.StringConcat((sym.StringLiteral('Hel'), sym.StringLiteral('lo')))
     assert expr == "'Hel'//'lo'"

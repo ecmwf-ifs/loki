@@ -34,14 +34,14 @@ def test_pickle_expression():
 
     # Ensure basic variable components are picklable
     t = SymbolAttributes(BasicType.INTEGER)
-    v1 = symbols.Variable(name='v1', type=t)
+    v1 = symbols.Scalar(name='v1', type=t)
     assert v1.symbol == loads(dumps(v1.symbol))
     assert v1.type == loads(dumps(v1.type))
     assert v1 == loads(dumps(v1))
 
     # Now we add a scope to the expression and replicate both
     scope = Scope()
-    v2 = symbols.Variable(name='v2', scope=scope, type=t)
+    v2 = scope.declare_variable('v2', type=t)
     scope_new = loads(dumps(scope))
     v2_new = loads(dumps(v2))
 
@@ -55,8 +55,8 @@ def test_pickle_expression():
 
     # And now, one more time but with arrays!
     scope = Scope()
-    i = symbols.Variable(name='i', scope=scope, type=t)
-    v3 = symbols.Variable(name='v3', dimensions=(i,), scope=scope, type=t)
+    i = scope.declare_variable('i', type=t)
+    v3 = scope.declare_variable('v3', type=t, dimensions=(i,))
     scope_new = loads(dumps(scope))
     v3_new = loads(dumps(v3))
     v3_new = AttachScopes().visit(v3_new, scope=scope_new)

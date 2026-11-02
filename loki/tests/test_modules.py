@@ -411,9 +411,10 @@ end module module_variables_add_remove
     x = module.variable_map['x']  # That's the symbol for variable 'x'
     real_type = SymbolAttributes('real', kind=module.variable_map['jprb'])
     int_type = SymbolAttributes('integer')
-    a = sym.Variable(name='a', type=real_type, scope=module)
-    b = sym.Variable(name='b', dimensions=(x, ), type=real_type, scope=module)
-    c = sym.Variable(name='c', type=int_type, scope=module)
+    module.symbol_attrs.update({'a': real_type, 'b': real_type, 'c': int_type})
+    a = module.get_variable('a')
+    b = module.get_variable('b', dimensions=(x, ))
+    c = module.get_variable('c')
 
     # Add new variables and check that they are all in the module spec
     module.variables += (a, b, c)

@@ -97,16 +97,16 @@ end module test_scoped_nodes_mod
     associate = FindNodes(ir.Associate).visit(routine.body)[0]
 
     # Build some symbiols and check their type
-    c = routine.Variable(name='c')
+    c = routine.get_variable('c')
     assert c.type.dtype == BasicType.REAL
     assert c.type.kind in ('jprb', 8)
-    i = routine.Variable(name='i')
+    i = routine.get_variable('i')
     assert i.type.dtype == BasicType.INTEGER
-    jprb = routine.Variable(name='jprb')
+    jprb = routine.get_variable('jprb')
     assert jprb.type.dtype == BasicType.INTEGER
     assert jprb.type.initial == 8
 
-    a_i = routine.Variable(name='a', dimensions=(i,))
+    a_i = routine.get_variable('a', dimensions=(i,))
     assert a_i == 'a(i)'
     assert isinstance(a_i, sym.Array)
     assert a_i.dimensions == (i,)
@@ -114,7 +114,7 @@ end module test_scoped_nodes_mod
     assert a_i.type.kind in ('jprb', 8)
 
     # Build another, but from the associate node
-    b_i = associate.Variable(name='b', dimensions=(i,))
+    b_i = associate.get_variable('b', dimensions=(i,))
     assert b_i == 'b(i)'
     assert isinstance(b_i, sym.Array)
     assert b_i.dimensions == (i,)

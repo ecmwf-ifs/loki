@@ -64,7 +64,8 @@ END SUBROUTINE   MY_TEST_ROUTINE
     decls = FindNodes(ir.VariableDeclaration).visit(routine.spec)
     assigns = FindNodes(ir.Assignment).visit(routine.body)
     rick = routine.variable_map['RICK']
-    bob = routine.Variable(name='BOB', type=rick.type)  # This replicates type info!
+    routine.symbol_attrs['BOB'] = rick.type  # This replicates type info!
+    bob = routine.get_variable('BOB')
     sub_rick = SubstituteExpressions({rick: bob}, invalidate_source=True)
 
     routine.spec = sub_rick.visit(routine.spec)

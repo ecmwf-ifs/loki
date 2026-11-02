@@ -16,7 +16,7 @@ from loki.ir import (
     nodes as ir, FindNodes, is_loki_pragma, pragmas_attached,
     pragma_regions_attached, get_pragma_parameters
 )
-from loki.expression import Variable, RangeIndex, IntLiteral
+from loki.expression import RangeIndex, IntLiteral
 from loki.frontend import available_frontends
 from loki.logging import log_levels
 from loki.subroutine import Subroutine
@@ -920,9 +920,7 @@ end subroutine kernel
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
     shape = as_tuple([RangeIndex((None, None))] * depth)
-    var = Variable(name='var', type=SymbolAttributes(BasicType.INTEGER, shape=shape), dimensions=shape, scope=routine)
-
-    routine.variables += (var,)
+    var = routine.declare_variable('var', dtype=BasicType.INTEGER, shape=shape, dimensions=shape)
     assign = ir.Assignment(lhs=var.clone(dimensions=None), rhs=IntLiteral(0)) # pylint:disable=no-member
     pragma = ir.Pragma(keyword='loki', content='update device( var )')
     body = (assign, pragma)
@@ -946,7 +944,7 @@ def test_dummy_field_array_typdef_config(rank, suff):
     scope = Scope()
     typedef = ir.TypeDef(name=f'field_{rank}{suff}_array', parent=scope) # pylint: disable=unexpected-keyword-arg
     _type = SymbolAttributes(DerivedType(typedef=typedef))
-    var = Variable(name='field_array', scope=scope, type=_type)
+    var = scope.declare_variable('field_array', type=_type)
 
     trafo = DataOffloadDeepcopyTransformation(mode='offload')
     typedef_config = trafo.create_dummy_field_array_typedef_config(var)

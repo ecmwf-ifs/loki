@@ -1074,22 +1074,22 @@ def test_string_compare():
     type_int = SymbolAttributes(dtype=BasicType.INTEGER)
     type_real = SymbolAttributes(dtype=BasicType.REAL)
 
-    i = sym.Variable(name='i', scope=scope, type=type_int)
-    j = sym.Variable(name='j', scope=scope, type=type_int)
+    i = scope.declare_variable('i', type=type_int)
+    j = scope.declare_variable('j', type=type_int)
 
     # Test a scalar variable
-    u = sym.Variable(name='u', scope=scope, type=SymbolAttributes(dtype=BasicType.REAL))
+    u = scope.declare_variable('u', dtype=BasicType.REAL)
     assert all(u == exp for exp in ['u', 'U', 'u ', 'U '])
     assert not all(u == exp for exp in ['u()', '_u', 'U()', '_U'])
 
     # Test an array variable
-    v = sym.Variable(name='v', dimensions=(i, j), scope=scope, type=type_real)
+    v = scope.declare_variable('v', type=type_real, dimensions=(i, j))
     assert all(v == exp for exp in ['v(i,j)', 'v(i, j)', 'v (i , j)', 'V(i,j)', 'V(I, J)'])
     assert not all(v == exp for exp in ['v(i,j())', 'v(i,_j)', '_V(i,j)'])
 
     # Test a standard array dimension range
     r = sym.RangeIndex(children=(i, j))
-    w = sym.Variable(name='w', dimensions=(r,), scope=scope, type=type_real)
+    w = scope.declare_variable('w', type=type_real, dimensions=(r,))
     assert all(w == exp for exp in ['w(i:j)', 'w (i : j)', 'W(i:J)', ' w( I:j)'])
 
     # Test simple arithmetic expressions
@@ -1543,9 +1543,9 @@ def test_expression_container_matching():
     t_real = SymbolAttributes(BasicType.REAL)
     t_int = SymbolAttributes(BasicType.INTEGER)
 
-    i = sym.Variable(name='i', scope=scope, type=t_int)
-    a = sym.Variable(name='a', scope=scope, type=t_real)
-    b = sym.Variable(name='b', scope=scope, type=t_real, dimensions=(i,))
+    i = scope.declare_variable('i', type=t_int)
+    a = scope.declare_variable('a', type=t_real)
+    b = scope.declare_variable('b', type=t_real, dimensions=(i,))
 
     # Test for simple containment of scalars
     assert a in (a, b)
@@ -1642,7 +1642,7 @@ def test_typebound_resolution(expr):
 
     scope = Scope()
     name_parts = expr.split('%', maxsplit=1)
-    var = sym.Variable(name=name_parts[0], scope=scope)
+    var = scope.get_variable(name_parts[0], fail=False)
 
     if len(name_parts) > 1:
         var = var.get_derived_type_member(name_parts[1]) # pylint: disable=no-member

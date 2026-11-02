@@ -13,6 +13,7 @@ from loki.ir import nodes as ir, FindNodes
 from loki.transformations.constant_propagation import (
     ConstantPropagationTransformer, ConstantPropagationMapper, do_constant_propagation
 )
+from loki.types import Scope
 
 
 def test_constant_propagation_analysis_declarations_map():
@@ -48,7 +49,8 @@ def test_constant_propagation_mapper_folds_expressions():
 
 def test_constant_propagation_mapper_short_circuits_boolean_ops():
     mapper = ConstantPropagationMapper()
-    dyn = sym.Variable(name='dyn')
+    scope = Scope()
+    dyn = scope.get_variable('dyn', fail=False)
 
     assert mapper(sym.LogicalOr((sym.LogicLiteral(True), dyn))) == sym.LogicLiteral(True)
     assert mapper(sym.LogicalAnd((sym.LogicLiteral(False), dyn))) == sym.LogicLiteral(False)

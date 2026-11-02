@@ -307,7 +307,8 @@ def test_transformation_post_apply_subroutine(tmp_path, frontend, post_apply_res
 
         def transform_subroutine(self, routine, **kwargs):
             i = routine.variable_map['i']
-            j = i.clone(name='j', scope=tmp_routine, type=i.type.clone(intent=None))
+            tmp_routine.symbol_attrs['j'] = i.type.clone(intent=None)
+            j = i.clone(name='j', scope=tmp_routine)
             routine.variables += (j,)
             routine.body.append(ir.Assignment(lhs=j, rhs=IntLiteral(2)))
             routine.body.append(ir.Assignment(lhs=i, rhs=j))
@@ -362,7 +363,8 @@ def test_transformation_post_apply_module(tmp_path, frontend, post_apply_rescope
 
         def transform_module(self, module, **kwargs):
             i = module.variable_map['i']
-            j = i.clone(name='j', scope=tmp_scope, type=i.type.clone(intent=None))
+            tmp_scope.symbol_attrs['j'] = i.type.clone(intent=None)
+            j = i.clone(name='j', scope=tmp_scope)
             module.variables += (j,)
             routine = module.subroutines[0]
             routine.body.prepend(ir.Assignment(lhs=i, rhs=j))

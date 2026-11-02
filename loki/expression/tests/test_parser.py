@@ -698,7 +698,8 @@ def test_expression_parser_evaluate_returns_loki_literals():
     """
     Test that evaluated expressions contain Loki literals instead of Python values
     """
-    a = sym.Variable(name='a')
+    scope = Scope()
+    a = scope.get_variable('a', fail=False)
 
     assert isinstance(parse_expr('.true.', evaluate=True), sym.LogicLiteral)
     assert isinstance(parse_expr('1 + 2', evaluate=True), sym.IntLiteral)

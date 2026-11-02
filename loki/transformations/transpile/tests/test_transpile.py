@@ -71,15 +71,15 @@ end subroutine transpile_case_sensitivity
 
     routine = Subroutine.from_source(fcode, frontend=frontend)
 
-    var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=case_sensitive)
-    var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=case_sensitive)
+    var_thread_idx = sym.DeferredTypeSymbol(name="threadIdx", case_sensitive=case_sensitive)
+    var_x = sym.DeferredTypeSymbol(name="x", parent=var_thread_idx, case_sensitive=case_sensitive)
     assignment = ir.Assignment(lhs=routine.variable_map['a'], rhs=var_x)
     routine.arguments=routine.arguments + (routine.arguments[0].clone(name='sOmE_vAr', case_sensitive=case_sensitive),
-            sym.Variable(name="oTher_VaR", case_sensitive=case_sensitive, type=routine.arguments[0].type.clone()))
+            sym.Scalar(name="oTher_VaR", case_sensitive=case_sensitive, type=routine.arguments[0].type.clone()))
 
-    call = ir.CallStatement(sym.Variable(name='somE_cALl', case_sensitive=case_sensitive),
+    call = ir.CallStatement(sym.DeferredTypeSymbol(name='somE_cALl', case_sensitive=case_sensitive),
             arguments=(routine.variable_map['a'],))
-    inline_call = sym.InlineCall(function=sym.Variable(name='somE_InlINeCaLl', case_sensitive=case_sensitive),
+    inline_call = sym.InlineCall(function=sym.DeferredTypeSymbol(name='somE_InlINeCaLl', case_sensitive=case_sensitive),
             parameters=(sym.IntLiteral(1),))
     inline_call_assignment = ir.Assignment(lhs=routine.variable_map['a'], rhs=inline_call)
     routine.body = (routine.body, assignment, call, inline_call_assignment)

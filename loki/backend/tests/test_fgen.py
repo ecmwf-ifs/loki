@@ -11,7 +11,7 @@ from loki.backend import fgen
 from loki.expression import symbols as sym
 from loki.frontend import available_frontends, OMNI
 from loki.ir import DataDeclaration
-from loki.types import ProcedureType, BasicType
+from loki.types import ProcedureType, BasicType, Scope
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
@@ -119,8 +119,9 @@ def test_fgen_print_format_statements():
     """
     Test correct formatting of PRINT and FORMAT statements.
     """
-    n = sym.Variable(name='n')
-    x = sym.Variable(name='x')
+    scope = Scope()
+    n = scope.get_variable('n', fail=False)
+    x = scope.get_variable('x', fail=False)
 
     assert fgen(ir.PrintStmt(('*', sym.StringLiteral('n='), n))) == "PRINT *, 'n=', n"
     assert fgen(ir.PrintStmt((sym.IntLiteral(100), sym.StringLiteral('x='), x, n))) == "PRINT 100, 'x=', x, n"

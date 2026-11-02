@@ -48,9 +48,10 @@ end subroutine routine_arguments_add_remove
     # Create a new set of variables and add to local routine variables
     x = routine.variables[1]  # That's the symbol for variable 'x'
     real_type = routine.symbol_attrs['scalar']  # Type of variable 'maximum'
-    a = sym.Variable(name='a', type=real_type, scope=routine)
-    b = sym.Variable(name='b', dimensions=(x, ), type=real_type, scope=routine)
-    c = sym.Variable(name='c', type=x.type, scope=routine)
+    routine.symbol_attrs.update({'a': real_type, 'b': real_type, 'c': x.type})
+    a = routine.get_variable('a')
+    b = routine.get_variable('b', dimensions=(x, ))
+    c = routine.get_variable('c')
 
     # Add new arguments and check that they are all in the routine spec
     routine.arguments += (a, b, c)
@@ -165,9 +166,10 @@ end subroutine routine_variables_add_remove
     x = routine.variable_map['x']  # That's the symbol for variable 'x'
     real_type = SymbolAttributes('real', kind=routine.variable_map['jprb'])
     int_type = SymbolAttributes('integer')
-    a = sym.Variable(name='a', type=real_type, scope=routine)
-    b = sym.Variable(name='b', dimensions=(x, ), type=real_type, scope=routine)
-    c = sym.Variable(name='c', type=int_type, scope=routine)
+    routine.symbol_attrs.update({'a': real_type, 'b': real_type, 'c': int_type})
+    a = routine.get_variable('a')
+    b = routine.get_variable('b', dimensions=(x, ))
+    c = routine.get_variable('c')
 
     # Add new variables and check that they are all in the routine spec
     routine.variables += (a, b, c)
@@ -1540,7 +1542,7 @@ end subroutine
 
     # Instead, we can creatae a deferred type variable in the scope and
     # resolve members relative to it
-    not_tt = sym.Variable(name='not_tt', scope=routine)
+    not_tt = routine.get_variable('not_tt', fail=False)
     assert not_tt.type.dtype == BasicType.DEFERRED  # pylint: disable=no-member
     not_tt_invalid = not_tt.get_derived_type_member('invalid')  # pylint: disable=no-member
     assert not_tt_invalid == 'not_tt%invalid'

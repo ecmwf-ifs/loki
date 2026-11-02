@@ -19,9 +19,9 @@ def test_dimension_properties():
     """
     scope = Scope()
     type_int = SymbolAttributes(dtype=BasicType.INTEGER)
-    i = sym.Variable(name='i', type=type_int, scope=scope)
-    n = sym.Variable(name='n', type=type_int, scope=scope)
-    z = sym.Variable(name='z', type=type_int, scope=scope)
+    i = scope.declare_variable('i', type=type_int)
+    n = scope.declare_variable('n', type=type_int)
+    z = scope.declare_variable('z', type=type_int)
     one = sym.IntLiteral(1)
     two = sym.IntLiteral(2)
 
@@ -44,9 +44,9 @@ def test_dimension_properties():
         index=('i', 'idx'), lower=('1', 'start'), upper=('n', 'end'), size='z'
     )
     assert multi.index == i
-    assert multi.indices == (i, sym.Variable(name='idx', type=type_int, scope=scope))
-    assert multi.lower == (one, sym.Variable(name='start', type=type_int, scope=scope))
-    assert multi.upper == (n, sym.Variable(name='end', type=type_int, scope=scope))
+    assert multi.indices == (i, 'idx')
+    assert multi.lower == (one, 'start')
+    assert multi.upper == (n, 'end')
     assert multi.size == z
     # Check derived properties
     assert multi.bounds ==  (one, n)
@@ -119,11 +119,11 @@ def test_dimension_config(tmp_path):
     scope = Scope()
     type_int = SymbolAttributes(dtype=BasicType.INTEGER)
     type_deferred = SymbolAttributes(dtype=BasicType.DEFERRED)
-    ibl = sym.Variable(name='ibl', type=type_int, scope=scope)
-    nblocks = sym.Variable(name='nblocks', type=type_int, scope=scope)
-    start = sym.Variable(name='start', type=type_int, scope=scope)
-    end = sym.Variable(name='end', type=type_int, scope=scope)
-    dim = sym.Variable(name='dim', type=type_deferred, scope=scope)
+    ibl = scope.declare_variable('ibl', type=type_int)
+    nblocks = scope.declare_variable('nblocks', type=type_int)
+    start = scope.declare_variable('start', type=type_int)
+    end = scope.declare_variable('end', type=type_int)
+    dim = scope.declare_variable('dim', type=type_deferred)
     one = sym.IntLiteral(1)
 
     config_str = """

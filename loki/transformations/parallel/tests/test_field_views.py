@@ -10,7 +10,7 @@ from loki import Subroutine, Dimension
 from loki.frontend import available_frontends, OMNI
 from loki.ir import nodes as ir, FindNodes
 from loki.expression import symbols as sym
-from loki.types import BasicType, SymbolAttributes, Scope
+from loki.types import BasicType, Scope
 from loki.logging import WARNING
 
 from loki.transformations.field_api import (
@@ -175,10 +175,11 @@ def test_get_field_type():
         for type_name in types:
             for dim in range(1, 4):
                 shape = tuple(None for _ in range(dim))
-                a = sym.Variable(name='test_array',
-                                 type=SymbolAttributes(BasicType.REAL,
-                                                       shape=shape,
-                                                       kind=sym.Variable(name=type_name)))
+                scope = Scope()
+                a = scope.declare_variable(
+                    'test_array', dtype=BasicType.REAL, shape=shape,
+                    kind=scope.get_variable(type_name, fail=False)
+                )
                 generated.append(get_field_type(a))
         return generated
 
@@ -215,8 +216,8 @@ def test_field_api_call_namegen(transfer_type, accessor_type):
         assert call.name.name.lower() == f'field%sync_{target}_{mode_str[mode.name]}'
 
     routine = Subroutine('routine')
-    field_object = sym.Variable(name='field')
-    access_ptr = sym.Variable(name='field_access_ptr')
+    field_object = routine.get_variable('field', fail=False)
+    access_ptr = routine.get_variable('field_access_ptr', fail=False)
 
     # verify that get_device_data calls are generated corectly
     get_device_data = field_get_device_data(field_object, access_ptr, transfer_type, scope=routine,
@@ -250,8 +251,8 @@ def test_field_api_call_namegen(transfer_type, accessor_type):
 @pytest.mark.parametrize("field_get_fn", [field_get_device_data, field_get_host_data])
 def test_field_get_data(field_get_fn, accessor_type):
     scope= Scope()
-    fptr = sym.Variable(name='fptr_var')
-    dev_ptr = sym.Variable(name='data_var')
+    fptr = scope.get_variable('fptr_var', fail=False)
+    dev_ptr = scope.get_variable('data_var', fail=False)
     queue = sym.IntLiteral(1)
     blk_bounds = sym.Array(name='blk_bounds', scope=scope, dimensions=(None, None))
 
@@ -285,7 +286,7 @@ def test_field_get_data(field_get_fn, accessor_type):
 @pytest.mark.parametrize("field_sync_fn", [field_sync_device, field_sync_host])
 def test_field_sync(field_sync_fn):
     scope= Scope()
-    fptr = sym.Variable(name='fptr_var')
+    fptr = scope.get_variable('fptr_var', fail=False)
     queue = sym.IntLiteral(1)
     blk_bounds = sym.Array(name='blk_bounds', scope=scope, dimensions=(None, None))
 
