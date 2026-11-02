@@ -257,9 +257,11 @@ class SccLowLevelLaunchConfiguration(Transformation):
                 if str(call.name).lower() in as_tuple(targets):
                     new_args = ()
                     if upper.name not in call.routine.arguments:
-                        new_args += (upper.clone(type=upper.type.clone(intent='in'), scope=call.routine),)
+                        call.routine.symbol_attrs[upper.name] = upper.type.clone(intent='in')
+                        new_args += (upper.clone(scope=call.routine),)
                     if step.name not in call.routine.arguments:
-                        new_args += (step.clone(type=step.type.clone(intent='in'), scope=call.routine),)
+                        call.routine.symbol_attrs[step.name] = step.type.clone(intent='in')
+                        new_args += (step.clone(scope=call.routine),)
                     new_kwargs = tuple((_.name, _) for _ in new_args)
                     if new_args:
                         call.routine.arguments = list(call.routine.arguments) + list(new_args)
@@ -306,21 +308,21 @@ class SccLowLevelLaunchConfiguration(Transformation):
 
             # CUDA thread mapping
             if self.mode == 'cuf':
-                var_thread_idx = sym.Variable(name="THREADIDX")
-                var_x = sym.Variable(name="X", parent=var_thread_idx)
+                var_thread_idx = sym.DeferredTypeSymbol(name="THREADIDX")
+                var_x = sym.DeferredTypeSymbol(name="X", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="threadIdx"))
-                var_thread_idx = sym.Variable(name="threadIdx", case_sensitive=True)
-                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
+                var_thread_idx = sym.DeferredTypeSymbol(name="threadIdx", case_sensitive=True)
+                var_x = sym.Scalar(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
             horizontal_assignment = ir.Assignment(lhs=routine.variable_map[horizontal.index], rhs=var_x)
 
             if self.mode == 'cuf':
-                var_thread_idx = sym.Variable(name="BLOCKIDX")
-                var_x = sym.Variable(name="Z", parent=var_thread_idx)
+                var_thread_idx = sym.DeferredTypeSymbol(name="BLOCKIDX")
+                var_x = sym.DeferredTypeSymbol(name="Z", parent=var_thread_idx)
             else:
                 ctype = SymbolAttributes(DerivedType(name="blockIdx"))
-                var_thread_idx = sym.Variable(name="blockIdx", case_sensitive=True)
-                var_x = sym.Variable(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
+                var_thread_idx = sym.DeferredTypeSymbol(name="blockIdx", case_sensitive=True)
+                var_x = sym.Scalar(name="x", parent=var_thread_idx, case_sensitive=True, type=ctype)
             block_dim_assignment = ir.Assignment(lhs=routine.variable_map[block_dim.index], rhs=var_x)
 
             condition = sym.LogicalAnd((sym.Comparison(routine.variable_map[block_dim.index], '<=',
@@ -340,14 +342,15 @@ class SccLowLevelLaunchConfiguration(Transformation):
                     if horizontal_index.name in call.routine.variables:
                         call.routine.symbol_attrs.update({horizontal_index.name:\
                                 call.routine.variable_map[horizontal_index.name].type.clone(intent='in')})
-                    additional_args += (horizontal_index.clone(type=horizontal_index.type.clone(intent='in'),
-                                                               scope=call.routine),)
+                    else:
+                        call.routine.symbol_attrs[horizontal_index.name] = horizontal_index.type.clone(intent='in')
+                    additional_args += (horizontal_index.clone(scope=call.routine),)
                 if horizontal_index.name not in call.arg_map:
                     additional_kwargs += ((horizontal_index.name, horizontal_index.clone(scope=routine)),)
 
                 if block_dim_index.name not in call.routine.arguments:
-                    additional_args += (block_dim_index.clone(type=block_dim_index.type.clone(intent='in',
-                        scope=call.routine)),)
+                    call.routine.symbol_attrs[block_dim_index.name] = block_dim_index.type.clone(intent='in')
+                    additional_args += (block_dim_index.clone(scope=call.routine),)
                     additional_kwargs += ((block_dim_index.name, block_dim_index.clone(scope=routine)),)
                 if additional_kwargs:
                     call._update(kwarguments=call.kwarguments+additional_kwargs)
@@ -404,9 +407,9 @@ class SccLowLevelLaunchConfiguration(Transformation):
             new_shape = as_tuple(s for s in old_shape if s not in horizontal.size_expressions)
 
             if old_shape and old_shape[0] in horizontal.size_expressions:
-                new_type = v.type.clone(shape=new_shape or None)
+                routine.symbol_attrs[v.name] = v.type.clone(shape=new_shape or None)
                 new_dims = v.dimensions[1:] or None
-                vmap[v] = v.clone(dimensions=new_dims, type=new_type)
+                vmap[v] = v.clone(dimensions=new_dims)
 
         routine.body = SubstituteExpressions(vmap).visit(routine.body)
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
@@ -426,14 +429,17 @@ class SccLowLevelLaunchConfiguration(Transformation):
         """
 
         d_type = SymbolAttributes(DerivedType("dim3"))
-        blockdim_var = sym.Variable(name="BLOCKDIM", type=d_type)
-        griddim_var = sym.Variable(name="GRIDDIM", type=d_type)
+        routine.symbol_attrs["BLOCKDIM"] = d_type
+        routine.symbol_attrs["GRIDDIM"] = d_type
+        blockdim_var = routine.get_variable("BLOCKDIM")
+        griddim_var = routine.get_variable("GRIDDIM")
         if self.mode == 'cuf':
             routine.spec.append(ir.VariableDeclaration(symbols=(griddim_var, blockdim_var)))
 
         # istat: status of CUDA runtime function (e.g. for cudaDeviceSynchronize(), cudaMalloc(), cudaFree(), ...)
         i_type = SymbolAttributes(BasicType.INTEGER)
-        routine.spec.append(ir.VariableDeclaration(symbols=(sym.Variable(name="istat", type=i_type),)))
+        routine.symbol_attrs["istat"] = i_type
+        routine.spec.append(ir.VariableDeclaration(symbols=(routine.get_variable("istat"),)))
 
         blockdim_assignment = None
         griddim_assignment = None
@@ -638,7 +644,8 @@ class SccLowLevelDataOffload(Transformation):
             if var in routine.arguments:
                 if isinstance(var, sym.Scalar) and var not in derived_type_variables\
                         and var.type.intent.lower() == 'in':
-                    var_map[var] = var.clone(type=var.type.clone(value=True))
+                    routine.update(var.name, value=True)
+                    var_map[var] = var.clone()
             else:
                 if isinstance(var, sym.Array):
                     dimensions = list(var.dimensions)
@@ -654,7 +661,8 @@ class SccLowLevelDataOffload(Transformation):
                             shape.remove(horizontal.size)
                             relevant_local_arrays.append(var.name)
                             vtype = var.type.clone(device=True, shape=shape)
-                        var_map[var] = var.clone(dimensions=as_tuple(dimensions), type=vtype)
+                        routine.symbol_attrs[var.name] = vtype
+                        var_map[var] = var.clone(dimensions=as_tuple(dimensions))
 
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
@@ -694,9 +702,10 @@ class SccLowLevelDataOffload(Transformation):
 
         var_map = {}
         for var in variables:
-            new_var = var.clone(name=f"{var.name}_d", type=var.type.clone(intent=None, imported=None,
-                                                                          allocatable=None, device=True,
-                                                                          module=None))
+            routine.symbol_attrs[f"{var.name}_d"] = var.type.clone(
+                intent=None, imported=None, allocatable=None, device=True, module=None
+            )
+            new_var = var.clone(name=f"{var.name}_d", scope=routine)
             var_map[var] = new_var
             routine.spec.append(ir.VariableDeclaration((new_var,)))
             routine.body.prepend(ir.Assignment(lhs=new_var, rhs=var))
@@ -799,15 +808,16 @@ class SccLowLevelDataOffload(Transformation):
             routine.spec.append(ir.Comment(''))
             routine.spec.append(ir.Comment('! Device arrays'))
             for array in relevant_arrays:
-                vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
+                routine.symbol_attrs[f"{array.name}_d"] = array.type.clone(
+                    device=True, allocatable=True, intent=None
+                )
                 vdimensions = [sym.RangeIndex((None, None))] * len(array.shape)
-                var = array.clone(name=f"{array.name}_d", type=vtype, dimensions=as_tuple(vdimensions))
+                var = array.clone(name=f"{array.name}_d", dimensions=as_tuple(vdimensions))
                 routine.spec.append(ir.VariableDeclaration(symbols=as_tuple(var)))
 
             # Allocation
             for array in reversed(relevant_arrays):
-                vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                routine.body.prepend(ir.Allocation((array.clone(name=f"{array.name}_d", type=vtype,
+                routine.body.prepend(ir.Allocation((array.clone(name=f"{array.name}_d",
                                                             dimensions=routine.variable_map[array.name].dimensions),)))
             routine.body.prepend(ir.Comment('! Device array allocation'))
             routine.body.prepend(ir.Comment(''))
@@ -820,8 +830,7 @@ class SccLowLevelDataOffload(Transformation):
             # or: insert_index = routine.body.body.index(calls[0])
             # Copy host to device
             for array in reversed(relevant_arrays):
-                vtype = array.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                lhs = array.clone(name=f"{array.name}_d", type=vtype, dimensions=())
+                lhs = array.clone(name=f"{array.name}_d", dimensions=())
                 rhs = array.clone(dimensions=())
                 if insert_index is not None:
                     routine.body.insert(insert_index, ir.Assignment(lhs=lhs, rhs=rhs))
@@ -843,8 +852,7 @@ class SccLowLevelDataOffload(Transformation):
             for v in reversed(relevant_arrays):
                 if v.type.intent != "in":
                     lhs = v.clone(dimensions=())
-                    vtype = v.type.clone(device=True, allocatable=True, intent=None, shape=None)
-                    rhs = v.clone(name=f"{v.name}_d", type=vtype, dimensions=())
+                    rhs = v.clone(name=f"{v.name}_d", dimensions=())
                     if insert_index is None:
                         routine.body.append(ir.Assignment(lhs=lhs, rhs=rhs))
                     else:
@@ -863,8 +871,7 @@ class SccLowLevelDataOffload(Transformation):
                 arguments = []
                 for arg in call.arguments:
                     if arg in relevant_arrays:
-                        vtype = arg.type.clone(device=True, allocatable=True, intent=None)
-                        arguments.append(arg.clone(name=f"{arg.name}_d", type=vtype, dimensions=()))
+                        arguments.append(arg.clone(name=f"{arg.name}_d", scope=routine, dimensions=()))
                     else:
                         arguments.append(arg)
                 call_map[call] = call.clone(arguments=as_tuple(arguments))

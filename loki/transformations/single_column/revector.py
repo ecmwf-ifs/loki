@@ -377,7 +377,8 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
 
             if self.horizontal.index not in routine.variables:
                 jl = get_integer_variable(routine, self.horizontal.index)
-                routine.arguments += (jl.clone(type=jl.type.clone(intent='in')),)
+                routine.symbol_attrs[jl.name] = jl.type.clone(intent='in')
+                routine.arguments += (jl,)
             else:
                 single_variable_declaration(routine, variables=(self.horizontal.index,))
                 routine.symbol_attrs.update({self.horizontal.index:\
@@ -398,7 +399,8 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
                     if call.routine.name.lower() in ignore:
                         if self.horizontal.index not in call.routine.variables:
                             jl = get_integer_variable(call.routine, self.horizontal.index)
-                            call.routine.arguments += (jl.clone(type=jl.type.clone(intent='in')),)
+                            call.routine.symbol_attrs[jl.name] = jl.type.clone(intent='in')
+                            call.routine.arguments += (jl,)
                         else:
                             single_variable_declaration(call.routine, variables=(self.horizontal.index,))
                             call.routine.symbol_attrs.update({self.horizontal.index:\
@@ -443,8 +445,8 @@ class SCCSeqRevectorTransformation(BaseRevectorTransformation):
                                 # loop bound(s) could be derived types ...
                                 ltmp = self._get_loop_bound(self.horizontal.lower, call_arg_map)
                                 utmp = self._get_loop_bound(self.horizontal.upper, call_arg_map)
-                                lower = ltmp[0] if ltmp[1] is None else sym.Variable(name=ltmp[1], parent=ltmp[0])
-                                upper = utmp[0] if utmp[1] is None else sym.Variable(name=utmp[1], parent=utmp[0])
+                                lower = ltmp[0] if ltmp[1] is None else ltmp[0].get_derived_type_member(ltmp[1])
+                                upper = utmp[0] if utmp[1] is None else utmp[0].get_derived_type_member(utmp[1])
                                 # wrap call with horizontal loop
                                 loop_bounds = (lower, upper)
                                 call_map[call] = wrap_vector_section((updated_call,), routine, bounds=loop_bounds,
