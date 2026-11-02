@@ -5,8 +5,9 @@
 # nor does it submit to any jurisdiction.
 
 from abc import abstractmethod
+import warnings
 
-from loki.expression import Variable, parse_expr
+from loki.expression import parse_expr
 from loki.frontend import (
     Frontend, parse_omni_source, parse_fparser_source,
     RegexParserClass, preprocess_cpp, sanitize_input
@@ -15,7 +16,7 @@ from loki.ir import (
     nodes as ir, FindNodes, Transformer, ExpressionTransformer
 )
 from loki.logging import debug
-from loki.tools import CaseInsensitiveDict, as_tuple, flatten
+from loki.tools import CaseInsensitiveDict, LokiDeprecationWarning, as_tuple, flatten
 from loki.types import DerivedType, ProcedureType, Scope
 
 
@@ -670,6 +671,10 @@ class ProgramUnit(Scope):
 
         This invokes the :any:`Variable` with this node as the scope.
 
+        .. deprecated::
+            Use :meth:`get_variable` to obtain symbols for declared variables,
+            and :meth:`declare_variable` to declare new variables.
+
         Parameters
         ----------
         name : str
@@ -681,8 +686,14 @@ class ProgramUnit(Scope):
         dimensions : :any:`ArraySubscript`, optional
             The array subscript expression.
         """
+        from loki.expression.symbols import _create_variable  # pylint: disable=import-outside-toplevel
+        warnings.warn(
+            f'[Loki::{type(self).__name__}] The Variable factory method is deprecated. '
+            'Use get_variable or declare_variable instead.',
+            LokiDeprecationWarning, stacklevel=2
+        )
         kwargs['scope'] = self
-        return Variable(**kwargs)
+        return _create_variable(**kwargs)
 
     def declare_variable(self, name, type=None, dtype=None, dimensions=None, parent=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
         """

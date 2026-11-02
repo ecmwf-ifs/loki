@@ -9,13 +9,14 @@
 from abc import abstractmethod
 from collections import OrderedDict
 from typing import Tuple, Union, Optional
+import warnings
 
 from pydantic import field_validator
 
-from loki.expression import Variable, parse_expr
+from loki.expression import parse_expr
 from loki.frontend.source import Source
 from loki.tools import (
-    dataclass_strict, sanitize_tuple, CaseInsensitiveDict
+    dataclass_strict, sanitize_tuple, CaseInsensitiveDict, LokiDeprecationWarning
 )
 from loki.types import Scope
 
@@ -323,6 +324,10 @@ class ScopedNode(Scope):
 
         This invokes the :any:`Variable` with this node as the scope.
 
+        .. deprecated::
+            Use :meth:`get_variable` to obtain symbols for declared variables,
+            and :meth:`declare_variable` to declare new variables.
+
         Parameters
         ----------
         name : str
@@ -334,8 +339,14 @@ class ScopedNode(Scope):
         dimensions : :any:`ArraySubscript`, optional
             The array subscript expression.
         """
+        from loki.expression.symbols import _create_variable  # pylint: disable=import-outside-toplevel
+        warnings.warn(
+            f'[Loki::{type(self).__name__}] The Variable factory method is deprecated. '
+            'Use get_variable or declare_variable instead.',
+            LokiDeprecationWarning, stacklevel=2
+        )
         kwargs['scope'] = self
-        return Variable(**kwargs)
+        return _create_variable(**kwargs)
 
     def parse_expr(self, expr_str, strict=False, evaluate=False, context=None):
         """

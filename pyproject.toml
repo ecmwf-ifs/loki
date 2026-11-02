@@ -93,3 +93,9 @@ namespaces = false
 
 # Enable SCM versioning
 [tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+# Ensure that Loki does not use its own deprecated APIs
+filterwarnings = [
+  "error::loki.tools.LokiDeprecationWarning",
+]

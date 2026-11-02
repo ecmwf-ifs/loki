@@ -379,7 +379,8 @@ def test_scope_intrinsic_lookup():
     assert not scope.symbol_attrs and not parent.symbol_attrs
 
     # The deprecated factory does not declare intrinsic procedures either
-    size = sym.Variable(name='size', scope=scope)
+    with pytest.deprecated_call():
+        size = sym.Variable(name='size', scope=scope)
     assert isinstance(size, sym.ProcedureSymbol)
     assert not scope.symbol_attrs
 

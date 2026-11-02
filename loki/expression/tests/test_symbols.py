@@ -4,10 +4,14 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
+import warnings
 import pytest
 
+from loki import Subroutine
 from loki.backend import cgen, fgen
 from loki.expression import symbols as sym
+from loki.ir import nodes as ir
+from loki.tools import LokiDeprecationWarning
 from loki.types import BasicType, DerivedType, ProcedureType, SymbolAttributes, Scope
 
 
@@ -237,13 +241,49 @@ def test_symbol_constructor_side_effects():
     assert a.type is real_type
 
     # The deprecated factory declares given types and undeclared symbols
-    a = sym.Variable(name='a', scope=scope, type=real_type)
+    with pytest.deprecated_call():
+        a = sym.Variable(name='a', scope=scope, type=real_type)
     assert isinstance(a, sym.Array)
     assert scope.get_type('a').shape == (5,)
-    k = sym.Variable(name='k', scope=scope)
+    with pytest.deprecated_call():
+        k = sym.Variable(name='k', scope=scope)
     assert isinstance(k, sym.DeferredTypeSymbol)
     assert scope.get_type('k').dtype is BasicType.DEFERRED
     assert set(scope.symbol_attrs) == {'i', 'a', 'k'}
+
+
+def test_symbol_deprecations():
+    """
+    Test deprecation warnings for symbol creation that implicitly
+    modifies symbol tables
+    """
+    routine = Subroutine(name='routine')
+    int_type = SymbolAttributes(BasicType.INTEGER)
+    real_type = SymbolAttributes(BasicType.REAL)
+
+    # The factory and the factory methods on scopes are deprecated
+    with pytest.deprecated_call():
+        sym.Variable(name='i', scope=routine, type=int_type)
+    with pytest.deprecated_call():
+        routine.Variable(name='j', type=int_type)
+    with pytest.deprecated_call():
+        associate = ir.Associate(associations=(), body=(), parent=routine)  # pylint: disable=unexpected-keyword-arg
+        associate.Variable(name='k')
+
+    # Updating the type of a scoped symbol via clone is deprecated...
+    i = routine.get_variable('i')
+    with pytest.deprecated_call():
+        i.clone(type=real_type)
+    with pytest.deprecated_call():
+        sym.Scalar(name='x', type=real_type).clone(scope=routine, type=real_type)
+
+    # ...but not cloning without a type, or storing a type locally on an unscoped symbol
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', LokiDeprecationWarning)
+        i.clone(name='i2')
+        i.clone(scope=None, type=real_type)
+        sym.Scalar(name='x', type=real_type).clone(type=int_type)
+        i.rescope(Scope())
 
 
 def test_symbol_type_immutable():

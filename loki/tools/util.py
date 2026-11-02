@@ -39,8 +39,19 @@ __all__ = [
     'auto_post_mortem_debugger', 'set_excepthook', 'timeout',
     'WeakrefProperty', 'group_by_class', 'replace_windowed',
     'dict_override', 'stdchannel_redirected',
-    'stdchannel_is_captured', 'graphviz_present', 'OrderedSet'
+    'stdchannel_is_captured', 'graphviz_present', 'OrderedSet',
+    'LokiDeprecationWarning'
 ]
+
+
+class LokiDeprecationWarning(DeprecationWarning):
+    """
+    Warning category for deprecated Loki APIs
+
+    A dedicated subclass of :any:`DeprecationWarning` allows to filter
+    warnings for deprecated Loki functionality, independently of
+    deprecation warnings raised by third-party packages.
+    """
 
 
 def _is_atomic_iterable_ir_node(obj):

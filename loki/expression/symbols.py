@@ -12,12 +12,13 @@ Expression tree node classes for
 """
 
 from itertools import chain
+import warnings
 import weakref
 from sys import intern
 from constantdict import constantdict
 import pymbolic.primitives as pmbl
 
-from loki.tools import as_tuple, CaseInsensitiveDict
+from loki.tools import as_tuple, CaseInsensitiveDict, LokiDeprecationWarning
 from loki.types import BasicType, DataType, DerivedType, ProcedureType, SymbolAttributes, Scope
 from loki.config import config
 
@@ -287,6 +288,20 @@ class TypedSymbol:
     def clone(self, **kwargs):
         """
         Replicate the object with the provided overrides.
+
+        .. deprecated::
+            Providing :data:`type` for a symbol that is attached to a scope
+            implicitly updates the scope's symbol table and is deprecated.
+            Declare the type via the scope instead, e.g., using
+            :meth:`Scope.update` or :meth:`Scope.declare_variable`.
+        """
+        _warn_clone_type(kwargs, self.scope)
+        return self._clone(**kwargs)
+
+    def _clone(self, **kwargs):
+        """
+        Implementation of :meth:`clone` that does not warn about
+        deprecated arguments
         """
         # Add existing meta-info to the clone arguments, only if we have them.
         if 'name' not in kwargs and self.name:
@@ -306,7 +321,7 @@ class TypedSymbol:
         if 'case_sensitive' not in kwargs and self.case_sensitive:
             kwargs['case_sensitive'] = self.case_sensitive
 
-        return Variable(**kwargs)
+        return _create_variable(**kwargs)
 
     def rescope(self, scope):
         """
@@ -320,8 +335,8 @@ class TypedSymbol:
         if self.type:
             existing_type = self._lookup_type(scope)
             if existing_type:
-                return self.clone(scope=scope, type=existing_type)
-        return self.clone(scope=scope)
+                return self._clone(scope=scope, type=existing_type)
+        return self._clone(scope=scope)
 
     def get_derived_type_member(self, name_str):
         """
@@ -621,8 +636,20 @@ class MetaSymbol(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf
     def clone(self, **kwargs):
         """
         Replicate the object with the provided overrides.
+
+        .. deprecated::
+            Providing :data:`type` for a symbol that is attached to a scope
+            is deprecated, see :meth:`TypedSymbol.clone`.
         """
-        return self.symbol.clone(**kwargs)
+        _warn_clone_type(kwargs, self.scope)
+        return self._clone(**kwargs)
+
+    def _clone(self, **kwargs):
+        """
+        Implementation of :meth:`clone` that does not warn about
+        deprecated arguments
+        """
+        return self.symbol._clone(**kwargs)
 
     def rescope(self, scope):
         """
@@ -741,17 +768,17 @@ class Array(MetaSymbol):
 
     mapper_method = intern('map_array')
 
-    def clone(self, **kwargs):
+    def _clone(self, **kwargs):
         """
         Replicate the :class:`Array` variable with the provided overrides.
 
-        Note, if :data:`dimensions` is set to ``None`` and :data:`type` updated
-        to have no shape, this will create a :any:`Scalar` variable.
+        Note, if :data:`dimensions` is set to ``None`` and the type has no
+        shape, this will create a :any:`Scalar` variable.
         """
         # Add existing meta-info to the clone arguments, only if we have them.
         if self.dimensions and 'dimensions' not in kwargs:
             kwargs['dimensions'] = self.dimensions
-        return super().clone(**kwargs)
+        return super()._clone(**kwargs)
 
     def rescope(self, scope):
         """
@@ -765,13 +792,19 @@ class Array(MetaSymbol):
         if self.type:
             existing_type = scope.symbol_attrs.lookup(self.name)
             if existing_type:
-                return self.clone(scope=scope, type=existing_type, dimensions=self.dimensions)
-        return self.clone(scope=scope, dimensions=self.dimensions)
+                return self._clone(scope=scope, type=existing_type, dimensions=self.dimensions)
+        return self._clone(scope=scope, dimensions=self.dimensions)
 
 
 class Variable:
     """
     Factory class for :any:`TypedSymbol` or :any:`MetaSymbol` classes
+
+    .. deprecated::
+        Use :meth:`Scope.get_variable` to obtain symbols for declared
+        variables, and :meth:`Scope.declare_variable` (or
+        :meth:`ProgramUnit.declare_variable`) to declare new variables.
+        Symbols without a scope can be created via the symbol classes.
 
     This is a convenience constructor to provide a uniform interface for
     instantiating different symbol types. It checks the symbol's type
@@ -790,7 +823,7 @@ class Variable:
 
     All objects created by this factory implement :class:`TypedSymbol`. A
     :class:`TypedSymbol` object can be associated with a specific :any:`Scope` in
-    which it is declared. In that case, all type information is cached in that
+    which it is declared. In that case, all type information is stored in that
     scope's :any:`SymbolTable`. Creating :class:`TypedSymbol` without attaching
     it to a scope stores the type information locally.
 
@@ -798,30 +831,14 @@ class Variable:
 
         Providing :attr:`scope` and :attr:`type` overwrites the corresponding
         entry in the scope's symbol table, and undeclared symbols are declared
-        with deferred type. To not modify the type information use
-        :meth:`Scope.get_variable` instead.
+        with deferred type. :meth:`Scope.get_variable` and
+        :meth:`Scope.declare_variable` make these updates explicit:
 
-    Note that all :class:`TypedSymbol` and :class:`MetaSymbol` classes are
-    intentionally quasi-immutable:
-    Changing any of their attributes, including attaching them to a scope and
-    modifying their type, should always be done via the :meth:`clone` method:
+        .. code-block::
 
-    .. code-block::
-
-        var = Variable(name='foo')
-        var = var.clone(scope=scope, type=SymbolAttributes(BasicType.INTEGER))
-        var = var.clone(type=var.type.clone(dtype=BasicType.REAL))
-
-    Attaching a symbol to a new scope without updating any stored type information
-    (but still inserting type information if it doesn't exist, yet), can be done
-    via the dedicated :meth:`rescope` method. This is essentially a :meth:`clone`
-    invocation but without the type update:
-
-    .. code-block::
-
-        var = Variable(name='foo', type=SymbolAttributes(BasicType.INTEGER), scope=scope)
-        unscoped_var = Variable(name='foo', type=SymbolAttributes(BasicType.REAL))
-        scoped_var = unscoped_var.rescope(scope)  # scoped_var will have INTEGER type
+            var = scope.declare_variable('foo', dtype=BasicType.INTEGER)
+            scope.update('foo', dtype=BasicType.REAL)
+            var = scope.get_variable('foo')
 
     Parameters
     ----------
@@ -838,35 +855,70 @@ class Variable:
     """
 
     def __new__(cls, **kwargs):
-        name = kwargs['name']
-        scope = kwargs.get('scope')
-        _type = kwargs.get('type')
+        _warn_deprecated(
+            '[Loki::Variable] The Variable factory is deprecated. Use Scope.get_variable or '
+            'Scope.declare_variable instead.'
+        )
+        return _create_variable(**kwargs)
 
-        if 'dimensions' in kwargs and kwargs['dimensions'] is None:
-            # Convenience: This way we can construct Scalar variables with `dimensions=None`
-            kwargs.pop('dimensions')
 
-        if scope is None:
-            symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
-            return symbol_class(**kwargs)
+def _warn_deprecated(message):
+    """
+    Emit a :any:`LokiDeprecationWarning` attributed to the caller of the
+    deprecated function
+    """
+    warnings.warn(message, LokiDeprecationWarning, stacklevel=3)
 
-        parent = kwargs.get('parent')
-        full_name = f'{parent.name}%{name.split("%")[-1]}' if parent is not None else name
-        if _type is not None:
-            # Store an explicitly provided type in the symbol table
-            if _type != scope.symbol_attrs.lookup(full_name, recursive=False):
-                scope.symbol_attrs[full_name] = _type
-        else:
-            # Determine type information from scope, and store a deferred
-            # type for undeclared symbols
-            _type = _lookup_symbol_type(full_name, scope, parent=parent)
-            if _type is None:
-                _type = SymbolAttributes(BasicType.DEFERRED)
-                scope.symbol_attrs[full_name] = _type
 
-        kwargs.pop('type', None)
+def _warn_clone_type(kwargs, scope):
+    """
+    Warn about deprecated type updates via ``clone(type=...)`` for symbols
+    that are attached to a scope
+    """
+    if kwargs.get('type') is not None and kwargs.get('scope', scope) is not None:
+        warnings.warn(
+            '[Loki::TypedSymbol] Updating the type of a scoped symbol via clone(type=...) is deprecated. '
+            'Declare the type via the scope, e.g., Scope.update, instead.',
+            LokiDeprecationWarning, stacklevel=3
+        )
+
+
+def _create_variable(**kwargs):
+    """
+    Implementation of the deprecated :any:`Variable` factory
+
+    This is used internally by :meth:`TypedSymbol.clone` to create the
+    replicated symbol.
+    """
+    name = kwargs['name']
+    scope = kwargs.get('scope')
+    _type = kwargs.get('type')
+
+    if 'dimensions' in kwargs and kwargs['dimensions'] is None:
+        # Convenience: This way we can construct Scalar variables with `dimensions=None`
+        kwargs.pop('dimensions')
+
+    if scope is None:
         symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
         return symbol_class(**kwargs)
+
+    parent = kwargs.get('parent')
+    full_name = f'{parent.name}%{name.split("%")[-1]}' if parent is not None else name
+    if _type is not None:
+        # Store an explicitly provided type in the symbol table
+        if _type != scope.symbol_attrs.lookup(full_name, recursive=False):
+            scope.symbol_attrs[full_name] = _type
+    else:
+        # Determine type information from scope, and store a deferred
+        # type for undeclared symbols
+        _type = _lookup_symbol_type(full_name, scope, parent=parent)
+        if _type is None:
+            _type = SymbolAttributes(BasicType.DEFERRED)
+            scope.symbol_attrs[full_name] = _type
+
+    kwargs.pop('type', None)
+    symbol_class = _get_symbol_class(name, _type, kwargs.get('dimensions'))
+    return symbol_class(**kwargs)
 
 
 def _lookup_member_type(parent_type, name):

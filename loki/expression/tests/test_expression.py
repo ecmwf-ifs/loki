@@ -1161,14 +1161,15 @@ def test_variable_factory(kwargs, reftype):
     Test the factory class :any:`Variable` and the dispatch to correct classes.
     """
     scope = Scope()
-    assert isinstance(sym.Variable(name='var', scope=scope, **kwargs), reftype)
+    with pytest.deprecated_call():
+        assert isinstance(sym.Variable(name='var', scope=scope, **kwargs), reftype)
 
 
 def test_variable_factory_invalid():
     """
     Test invalid variable instantiations
     """
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError), pytest.deprecated_call():
         _ = sym.Variable()
 
 
@@ -1214,7 +1215,8 @@ def test_variable_rebuild(initype, inireftype, newtype, newreftype):
     Test that rebuilding a variable object changes class according to symmbol type
     """
     scope = Scope()
-    var = sym.Variable(name='var', scope=scope, type=initype)
+    with pytest.deprecated_call():
+        var = sym.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
     assert 'var' in scope.symbol_attrs
     scope.symbol_attrs['var'] = newtype
@@ -1265,10 +1267,12 @@ def test_variable_clone_class(initype, inireftype, newtype, newreftype):
     Test that cloning a variable object changes class according to symbol type
     """
     scope = Scope()
-    var = sym.Variable(name='var', scope=scope, type=initype)
+    with pytest.deprecated_call():
+        var = sym.Variable(name='var', scope=scope, type=initype)
     assert isinstance(var, inireftype)
     assert 'var' in scope.symbol_attrs
-    var = var.clone(type=newtype)  # pylint: disable=no-member
+    with pytest.deprecated_call():
+        var = var.clone(type=newtype)  # pylint: disable=no-member
     assert isinstance(var, newreftype)
 
 @pytest.mark.parametrize('initype,newtype,reftype', [
@@ -1298,9 +1302,14 @@ def test_variable_clone_type(initype, newtype, reftype):
     Test type updates are handled as expected and types are never ``None``.
     """
     scope = Scope()
-    var = sym.Variable(name='var', scope=scope, type=initype)
+    with pytest.deprecated_call():
+        var = sym.Variable(name='var', scope=scope, type=initype)
     assert 'var' in scope.symbol_attrs
-    new = var.clone(type=newtype)  # pylint: disable=no-member
+    if newtype is None:
+        new = var.clone(type=newtype)  # pylint: disable=no-member
+    else:
+        with pytest.deprecated_call():
+            new = var.clone(type=newtype)  # pylint: disable=no-member
     assert new.type == reftype
 
 
@@ -1311,7 +1320,8 @@ def test_variable_without_scope():
     """
     # pylint: disable=no-member
     # Create a plain variable without type or scope
-    var = sym.Variable(name='var')
+    with pytest.deprecated_call():
+        var = sym.Variable(name='var')
     assert isinstance(var, sym.DeferredTypeSymbol)
     assert var.type and var.type.dtype is BasicType.DEFERRED
     # Attach a scope with a data type for this variable
@@ -1324,7 +1334,8 @@ def test_variable_without_scope():
     assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.INTEGER
     # Change the data type via constructor
-    var = var.clone(type=SymbolAttributes(BasicType.REAL))
+    with pytest.deprecated_call():
+        var = var.clone(type=SymbolAttributes(BasicType.REAL))
     assert isinstance(var, sym.Scalar)
     assert var.type.dtype is BasicType.REAL
     assert scope.symbol_attrs['var'].dtype is BasicType.REAL

@@ -263,6 +263,9 @@ class DerivedTypeArgumentsTransformation(Transformation):
         kernel for a given derived type variable member use :data:`var`
         """
         new_name = var.name.replace('%', '_')
+        if kwargs.get('type') is not None and (scope := kwargs.get('scope', var.scope)) is not None:
+            # Declare the given type for the expanded variable in its scope
+            scope.symbol_attrs[new_name] = kwargs.pop('type')
         return var.clone(name=new_name, parent=None, **kwargs)
 
     @staticmethod
