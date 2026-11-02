@@ -2098,7 +2098,7 @@ end module test_elemental_inline_unlinked_mod
     resolve_vector_dimension(routine, dimension=dim, derive_qualified_ranges=True)
 
     inline_call = next(iter(FindInlineCalls().visit(routine.body)))
-    inline_call.function.type = inline_call.function.type.clone(dtype=ProcedureType(
+    inline_call.function.scope.update(inline_call.name, dtype=ProcedureType(
         name=inline_call.name, is_function=True,
         return_type=inline_call.function.type.dtype.return_type
     ))
@@ -2147,7 +2147,7 @@ end module test_elemental_inline_unenriched_mod
     source = Sourcefile.from_source(fcode, frontend=frontend, xmods=[tmp_path])
     routine = source['test_elemental_inline_unenriched']
     inline_call = next(iter(FindInlineCalls().visit(routine.body)))
-    inline_call.function.type = inline_call.function.type.clone(dtype=BasicType.DEFERRED)
+    inline_call.function.scope.update(inline_call.name, dtype=BasicType.DEFERRED)
 
     resolve_vector_notation(routine)
 

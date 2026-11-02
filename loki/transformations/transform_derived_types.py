@@ -362,7 +362,7 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 if isinstance(decl, ProcedureDeclaration) and not decl.generic:
                     for proc in decl.symbols:
                         if routine.name == proc or routine.name in as_tuple(proc.type.bind_names):
-                            proc.type = proc.type.clone(pass_attr=False)
+                            proc.scope.update(proc.name, pass_attr=False)
 
         trafo_data['expansion_map'] = expansion_map
         return trafo_data
@@ -757,7 +757,7 @@ class TypeboundProcedureCallTransformation(Transformation):
         for arg in routine.arguments:
             type_ = arg.type
             if type_.polymorphic and not type_.intent:
-                arg.type = type_.clone(intent='inout')
+                routine.update(arg.name, intent='inout')
 
     def transform_subroutine(self, routine, **kwargs):
         """

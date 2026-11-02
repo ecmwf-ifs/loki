@@ -386,8 +386,7 @@ def test_callstatement_routine_types(scope):
     assert isinstance(call.procedure_type, ProcedureType)
     assert call.routine is callee
 
-    unresolved = sym.ProcedureSymbol(name='unresolved')
-    unresolved.type = SymbolAttributes(dtype=BasicType.DEFERRED)
+    unresolved = sym.ProcedureSymbol(name='unresolved', scope=scope)
     deferred_call = ir.CallStatement(name=unresolved)
 
     assert deferred_call.procedure_type is BasicType.DEFERRED
@@ -398,8 +397,9 @@ def test_callstatement_routine_types(scope):
 def test_callstatement_invalid_routine_type():
     """Test runtime failure for invalid call routine type metadata."""
 
+    # Corrupt the locally stored type of an unscoped symbol
     cname = sym.ProcedureSymbol(name='broken')
-    cname.type = SymbolAttributes(dtype=BasicType.DEFERRED)
+    cname._type = SymbolAttributes(dtype=BasicType.DEFERRED)  # pylint: disable=protected-access
     cname.type.dtype = object()
     call = ir.CallStatement(name=cname)
 

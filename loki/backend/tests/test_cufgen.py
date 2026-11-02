@@ -65,17 +65,17 @@ end module transformation_module_cufgen
 
     for var in driver.variables:
         if "device" in var.name:
-            var.type = var.type.clone(device=True)
+            driver.update(var.name, device=True)
         if "managed" in var.name:
-            var.type = var.type.clone(managed=True)
+            driver.update(var.name, managed=True)
         if "constant" in var.name:
-            var.type = var.type.clone(constant=True)
+            driver.update(var.name, constant=True)
         if "shared" in var.name:
-            var.type = var.type.clone(shared=True)
+            driver.update(var.name, shared=True)
         if "pinned" in var.name:
-            var.type = var.type.clone(pinned=True)
+            driver.update(var.name, pinned=True)
         if "texture" in var.name:
-            var.type = var.type.clone(texture=True)
+            driver.update(var.name, texture=True)
 
     call_map = {}
     for call in FindNodes(ir.CallStatement).visit(driver.body):

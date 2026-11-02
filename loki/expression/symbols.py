@@ -134,6 +134,20 @@ class TypedSymbol:
         """
         return (self.name, None, self._parent, self._type, self.case_sensitive, )
 
+    def __setstate__(self, state):
+        """
+        Restore the symbol from the tuple of initialisation arguments
+
+        Unpickled symbols are not attached to a scope, so that the type
+        information is stored locally until the symbol is rescoped.
+        """
+        assert len(self.init_arg_names) == len(state), type(self)
+        for name, value in zip(self.init_arg_names, state):
+            if name == 'type':
+                self._type = value
+            else:
+                setattr(self, name, value)
+
     @property
     def scope(self):
         """
@@ -168,21 +182,6 @@ class TypedSymbol:
         if self.scope is None:
             return self._type
         return self._lookup_type(self.scope) or SymbolAttributes(BasicType.DEFERRED)
-
-    @type.setter
-    def type(self, _type):
-        """
-        Update the stored type information
-        """
-        if self._scope is None:
-            # Store locally if not attached to a scope
-            self._type = _type
-        elif _type is None:
-            # Store deferred type if unknown
-            self.scope.symbol_attrs[self.name] = SymbolAttributes(BasicType.DEFERRED)
-        elif _type is not self.scope.symbol_attrs.lookup(self.name):
-            # Update type if it differs from stored type
-            self.scope.symbol_attrs[self.name] = _type
 
     @property
     def parent(self):
@@ -399,10 +398,6 @@ class VariableSymbol(StrCompareMixin, TypedSymbol, pmbl.Variable):  # pylint: di
         """
         return self.type.initial
 
-    @initial.setter
-    def initial(self, value):
-        self.type.initial = value
-
     mapper_method = intern('map_variable_symbol')
 
 
@@ -573,13 +568,6 @@ class MetaSymbol(StrCompareMixin, ForeignMapperFallbackMixin, pmbl.AlgebraicLeaf
         ``INTENT``, ``KIND`` etc.
         """
         return self.symbol.type
-
-    @type.setter
-    def type(self, _type):
-        """
-        Update the :any:`SymbolAttributes` declared for this symbol
-        """
-        self.symbol.type = _type
 
     @property
     def variables(self):

@@ -244,3 +244,25 @@ def test_symbol_constructor_side_effects():
     assert isinstance(k, sym.DeferredTypeSymbol)
     assert scope.get_type('k').dtype is BasicType.DEFERRED
     assert set(scope.symbol_attrs) == {'i', 'a', 'k'}
+
+
+def test_symbol_type_immutable():
+    """
+    Test that the type of symbols can only be changed via their scope
+    """
+    scope = Scope()
+    i = scope.declare_variable('i', dtype=BasicType.INTEGER)
+    a = scope.declare_variable('a', dtype=BasicType.REAL, shape=(5,), initial=sym.IntLiteral(1))
+
+    with pytest.raises(AttributeError):
+        i.type = SymbolAttributes(BasicType.REAL)
+    with pytest.raises(AttributeError):
+        a.type = SymbolAttributes(BasicType.REAL)
+    with pytest.raises(AttributeError):
+        a.initial = sym.IntLiteral(2)
+
+    # Type updates go through the scope and are visible to existing symbols
+    scope.update('i', dtype=BasicType.REAL)
+    assert i.type.dtype is BasicType.REAL
+    scope.update('a', initial=sym.IntLiteral(2))
+    assert a.initial == 2

@@ -804,12 +804,12 @@ class AttachScopesMapper(LokiIdentityMapper):  # pylint: disable=abstract-method
             # We call the parent handler to take care of properties like initial value, kind etc.,
             # all of which should be declared at or above the scope of the expression
             kwargs['scope'] = new_expr.scope
-        map_fn = getattr(super(), new_expr.mapper_method)
 
         # If we cannot resolve scope or type of an expression, we mark it as deferred
         if not new_expr.scope and not new_expr.type:
-            new_expr.type = SymbolAttributes(dtype=BasicType.DEFERRED)
+            new_expr = new_expr.clone(type=SymbolAttributes(dtype=BasicType.DEFERRED))
 
+        map_fn = getattr(super(), new_expr.mapper_method)
         return map_fn(new_expr, *args, **kwargs)
 
     map_deferred_type_symbol = map_variable_symbol
