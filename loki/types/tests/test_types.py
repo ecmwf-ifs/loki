@@ -173,13 +173,12 @@ end module test_type_derived_type_mod
     assert all(v.scope is routine for v in b.variables)
     assert all(v.scope is routine for v in c.variables)
 
-    # Ensure all member variable have an entry in the local symbol table
-    assert routine.symbol_attrs['a%a'].shape == (':',)
-    assert routine.symbol_attrs['a%b'].shape == (':',':')
-    assert routine.symbol_attrs['b%a'].shape == (':',)
-    assert routine.symbol_attrs['b%b'].shape == (':',':')
-    assert routine.symbol_attrs['c%a'].shape == (':',)
-    assert routine.symbol_attrs['c%b'].shape == (':',':')
+    # Ensure member variables resolve their type via the type definition
+    # without creating entries in the local symbol table
+    for var in (a, b, c):
+        assert var.variable_map['a'].type.shape == (':',)
+        assert var.variable_map['b'].type.shape == (':',':')
+    assert not any('%' in name for name in routine.symbol_attrs)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(skip=[(OMNI, 'OMNI cannot deal with deferred type info')]))
@@ -244,9 +243,11 @@ end module my_types_mod
     assert a.scope is routine
     assert b.scope is routine
 
-    # Ensure all member variable have an entry in the local symbol table
-    assert routine.symbol_attrs['arg_b%a'].shape == (':',)
-    assert routine.symbol_attrs['arg_b%b'].shape == (':',':')
+    # Ensure member variables resolve their type via the type definition
+    # without creating entries in the local symbol table
+    assert a.type.shape == (':',)
+    assert b.type.shape == (':',':')
+    assert not any('%' in name for name in routine.symbol_attrs)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

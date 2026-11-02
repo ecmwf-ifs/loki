@@ -245,6 +245,19 @@ end module scope_get_variable_mod
     # None of the look-ups modify the symbol table
     assert dict(routine.symbol_attrs) == symbol_attrs
 
+    # Member enumeration resolves types without modifying the symbol table
+    inner = outer.variable_map['inner']
+    assert inner.scope is routine
+    assert inner.variable_map['x'].type.dtype == REAL
+    assert isinstance(inner.variable_map['y'], sym.Array)
+    assert dict(routine.symbol_attrs) == symbol_attrs
+
+    # Explicit entries for members in the scope take precedence
+    routine.symbol_attrs['outer%inner%x'] = SymbolAttributes(REAL, shape=(sym.IntLiteral(3),))
+    assert isinstance(routine.get_variable('outer%inner%x'), sym.Array)
+    assert isinstance(outer.variable_map['inner'].variable_map['x'], sym.Array)
+    assert outer.variable_map['inner'].variable_map['x'].type.shape == (3,)
+
 
 def test_scope_declare_variable():
     """

@@ -923,6 +923,7 @@ end module derived_type_linked_list
 
     # Test on-the-fly creation of variable lists
     # Chase the next-chain to the limit with a buffer
+    symbol_attrs = dict(routine.symbol_attrs)
     var = routine.variable_map['x']
     name = 'x'
     for _ in range(min(1000, getrecursionlimit()-len(stack())-50)):
@@ -931,6 +932,9 @@ end module derived_type_linked_list
         assert var.type.dtype.typedef is module.typedef_map['list_t']
         name = f'{name}%next'
         assert var.name == name
+
+    # Ensure the member enumeration did not cache types in the symbol table
+    assert dict(routine.symbol_attrs) == symbol_attrs
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

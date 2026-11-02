@@ -232,10 +232,29 @@ class TypedSymbol:
         if _type and isinstance(_type.dtype, DerivedType):
             if not _type.dtype.typedef:
                 return ()
-            return tuple(
-                v.clone(name=f'{self.name}%{v.name}', scope=self.scope, type=v.type, parent=self)
-                for v in _type.dtype.typedef.variables
-            )
+            name = self.name
+            if self.scope is None:
+                return tuple(
+                    v.clone(name=f'{name}%{v.name}', scope=None, type=v.type, parent=self)
+                    for v in _type.dtype.typedef.variables
+                )
+
+            # Resolve the members' types from the type definition, unless the
+            # scope has an explicit entry for a member, without traversing the
+            # parent chain again for each member
+            members = ()
+            for v in _type.dtype.typedef.variables:
+                member_name = f'{name}%{v.name}'
+                member_type = self.scope.symbol_attrs.lookup(member_name)
+                if not (member_type and member_type.dtype):
+                    member_type = v.type
+                dimensions = getattr(v, 'dimensions', None)
+                symbol_class = _get_symbol_class(member_name, member_type, dimensions)
+                if dimensions is None:
+                    members += (symbol_class(name=member_name, scope=self.scope, parent=self),)
+                else:
+                    members += (symbol_class(name=member_name, scope=self.scope, parent=self, dimensions=dimensions),)
+            return members
         return None
 
     @property
@@ -880,6 +899,11 @@ def _lookup_member_type(parent_type, name):
     typedef = parent_type.dtype.typedef
     if not typedef:
         return None
+    # Members are declared in the type definition's own symbol table,
+    # except for those inherited from a parent type
+    member_type = typedef.symbol_attrs.lookup(name, recursive=False)
+    if member_type is not None:
+        return member_type
     member = typedef.variable_map.get(name)
     return None if member is None else member.type
 
@@ -890,8 +914,10 @@ def _lookup_symbol_type(name, scope, parent=None):
 
     If no complete entry is found in the scope's symbol table, the type
     of derived type members is determined from the type definition of the
-    parent. If :data:`parent` is not given, or does not provide the type,
-    the parent's type is looked up in :data:`scope`.
+    parent. The parent chain is traversed iteratively, using the scope of
+    each parent symbol, until a declared type is found. If a parent
+    symbol from a different scope does not provide the type, the parent's
+    type is looked up in :data:`scope` instead.
 
     Parameters
     ----------
@@ -907,23 +933,33 @@ def _lookup_symbol_type(name, scope, parent=None):
     :any:`SymbolAttributes` or `None`
         The symbol's type, or `None` if the symbol is not declared
     """
+    # Walk up the parent chain until we find a clean entry in a symbol
+    # table which is not deferred, or reach the declared root variable
+    members = []
     _type = scope.symbol_attrs.lookup(name)
-    if _type and _type.dtype:
-        # We have a clean entry in the symbol table which is not deferred
-        return _type
-
-    if '%' in name:
+    while not (_type and _type.dtype) and '%' in name:
         parent_name, basename = name.rsplit('%', maxsplit=1)
-        member_type = None
-        if parent is not None:
-            member_type = _lookup_member_type(parent.type, basename)
-        if member_type is None and (parent is None or parent.scope is not scope):
+        members.append((basename, parent_name, scope, parent, _type))
+        name = parent_name
+        if parent is None:
+            _type = scope.symbol_attrs.lookup(name)
+        elif not isinstance(parent, (TypedSymbol, MetaSymbol)) or parent.scope is None:
+            # The parent provides its type without a scope
+            _type = parent.type
+            break
+        else:
+            scope, parent = parent.scope, parent.parent
+            _type = scope.symbol_attrs.lookup(name)
+
+    # Walk back down, determining each member's type from the type
+    # definition of its parent
+    for basename, parent_name, member_scope, member_parent, member_entry in reversed(members):
+        member_type = _lookup_member_type(_type, basename)
+        if member_type is None and member_parent is not None and member_parent.scope is not member_scope:
             # The parent may not deliver straight away, e.g. for nested
             # derived types, so we try discovering its type via the scope
-            member_type = _lookup_member_type(_lookup_symbol_type(parent_name, scope), basename)
-        if member_type is not None:
-            return member_type
-
+            member_type = _lookup_member_type(_lookup_symbol_type(parent_name, member_scope), basename)
+        _type = member_entry if member_type is None else member_type
     return _type
 
 
