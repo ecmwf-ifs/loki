@@ -491,6 +491,20 @@ end subroutine parenthesis_denominator_product_after_simplify
     assert fgen(simplify(expr)) == '(1._jprb / (v1*v2))**1.5_jprb'
 
 
+@pytest.mark.parametrize('source, expected', [
+    ('(a**b)**c', '(a**b)**c'),
+    ('a**b**c', 'a**b**c'),
+    ('(a**(b + 0))**c', '(a**b)**c'),
+    ('(2**3)**c', '8**c'),
+    ('(a**1)**c', 'a**c'),
+])
+def test_parenthesised_power_simplify(source, expected):
+    """Preserve power associativity when generating simplified expressions."""
+    expr = simplify(parse_expr(source, scope=Scope()))
+
+    assert fgen(expr) == expected
+
+
 def test_parenthesised_power_roundtrip():
     scope = Scope()
 

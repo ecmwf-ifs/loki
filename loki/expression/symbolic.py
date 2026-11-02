@@ -666,7 +666,7 @@ class SimplifyMapper(LokiIdentityMapper):
                 if isinstance(base, literal_types) and exponent_value > 0 and float(exponent_value).is_integer():
                     return sym.Literal(base_value ** int(exponent_value))
 
-        return sym.Power(base, exponent)
+        return type(expr)(base, exponent)
 
     map_parenthesised_add = map_sum
     map_parenthesised_mul = map_product
