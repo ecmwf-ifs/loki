@@ -10,7 +10,7 @@ from loki.analyse import dataflow_analysis_attached
 from loki.batch.item import ProcedureItem
 from loki.batch.transformation import Transformation
 from loki.expression.symbols import (
-    Array, Variable, Literal, Product, Sum, InlineCall,
+    Array, Literal, Product, Sum, InlineCall,
     IntLiteral, RangeIndex, DeferredTypeSymbol
 )
 from loki.expression.symbolic import is_dimension_constant, simplify
@@ -22,7 +22,7 @@ from loki.ir.nodes import (
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.tools import as_tuple, CaseInsensitiveDict
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, SymbolAttributes, INTRINSIC_SCOPE
 from loki.transformations.utilities import recursive_expression_map_update, single_variable_declaration
 
 
@@ -175,7 +175,8 @@ class BaseStackTransformation(Transformation):
             if call.routine:
                 arg_map.update(dict(call.arg_iter()))
 
-        var = Variable(name=self.horizontal.size, scope=routine, type=self.int_type)
+        routine.symbol_attrs[self.horizontal.size] = self.int_type
+        var = routine.get_variable(self.horizontal.size, fail=False)
         if var in arg_map:
             return arg_map[var]
         return var
@@ -189,7 +190,8 @@ class BaseStackTransformation(Transformation):
     def _get_int_var(self, name, scope, type=None): # pylint: disable=redefined-builtin
         if type is None:
             type = self.int_type
-        return Variable(name=name, scope=scope, type=type)
+        scope.symbol_attrs[name] = type
+        return scope.get_variable(name)
 
     def _get_kind_name(self, kind):
         if isinstance(kind, InlineCall):
@@ -308,7 +310,8 @@ class BaseStackTransformation(Transformation):
 
                 stack_type = stack_var.type.clone(shape=(RangeIndex((None,None)), RangeIndex((None,None))),
                                                   allocatable=True)
-                stack_var = stack_var.clone(type=stack_type)
+                routine.symbol_attrs[stack_var.name] = stack_type
+                stack_var = routine.get_variable(stack_var.name)
 
                 stack_alloc = Allocation(variables=(stack_var.clone(dimensions=(stack_dict[dtype][kind], kgpblock)),))
                 stack_dealloc = Deallocation(variables=(stack_var.clone(dimensions=None),))
@@ -392,7 +395,8 @@ class BaseStackTransformation(Transformation):
                 shape = (stack_size_var,)
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 stack_type = stack_var.type.clone(shape=as_tuple(shape), target=True)
-                stack_var = stack_var.clone(type=stack_type)
+                routine.symbol_attrs[stack_var.name] = stack_type
+                stack_var = routine.get_variable(stack_var.name)
 
                 # pass on the stack variable from stack_used + 1 to stack_size
                 # pass stack_size - stack_used to stack size in called kernel
@@ -401,9 +405,8 @@ class BaseStackTransformation(Transformation):
                 stack_arg_dict[dtype][kind] = (stack_size_var, stack_var.clone(dimensions=arg_dims), stack_used_var)
 
                 # create stack_vars pair
-                stack_args += [stack_size_var,
-                               stack_var.clone(dimensions=stack_type.shape, type=stack_var.type.clone(contiguous=True)),
-                               stack_used_arg]
+                routine.update(stack_var.name, contiguous=True)
+                stack_args += [stack_size_var, stack_var.clone(dimensions=stack_type.shape), stack_used_arg]
                 stack_vars += [stack_used_var]
                 pragma_vars.append(stack_var.name)
 
@@ -585,7 +588,9 @@ class BaseStackTransformation(Transformation):
                 if len(stacks) == 1:
                     kind_dict[kind] = stacks[0]
                 else:
-                    kind_dict[kind] = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stacks))
+                    kind_dict[kind] = InlineCall(
+                        function=INTRINSIC_SCOPE.get_variable('MAX'), parameters=as_tuple(stacks)
+                    )
 
         return stack_dict
 

@@ -9,7 +9,7 @@ from collections import  defaultdict
 
 from loki.batch import Transformation
 from loki.expression import (
-    IntLiteral, LogicLiteral, Variable, Array, Sum, Literal,
+    IntLiteral, LogicLiteral, DeferredTypeSymbol, Array, Sum, Literal,
     Product, InlineCall, Comparison, RangeIndex, Cast,
     ProcedureSymbol, simplify, is_dimension_constant,
     DetachScopesMapper
@@ -22,7 +22,7 @@ from loki.ir import (
 )
 from loki.logging import warning, debug
 from loki.tools import as_tuple, OrderedSet
-from loki.types import SymbolAttributes, BasicType, DerivedType
+from loki.types import SymbolAttributes, BasicType, DerivedType, INTRINSIC_SCOPE
 
 from loki.transformations.utilities import recursive_expression_map_update, find_driver_loops
 
@@ -308,7 +308,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return routine.variable_map[f'{self.stack_local_var_name}_{self.stack_ptr_name}']
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=self.stack_int_type_kind)
-        stack_var = Variable(name=f'{self.stack_local_var_name}_{self.stack_ptr_name}', type=stack_type, scope=routine)
+        routine.symbol_attrs[f'{self.stack_local_var_name}_{self.stack_ptr_name}'] = stack_type
+        stack_var = routine.get_variable(f'{self.stack_local_var_name}_{self.stack_ptr_name}')
         routine.variables += (stack_var,)
         return stack_var
 
@@ -323,7 +324,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, kind=self.stack_int_type_kind)
         var_name = f'{self.stack_local_var_name}_{self.stack_end_name}'
-        stack_var_end = Variable(name=var_name, type=stack_type, scope=routine)
+        routine.symbol_attrs[var_name] = stack_type
+        stack_var_end = routine.get_variable(var_name)
         routine.variables += (stack_var_end,)
         return stack_var_end
 
@@ -339,7 +341,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
         var_name = f'{self.stack_argument_name}_{self.stack_ptr_name}'
-        stack_arg = Variable(name=var_name, type=stack_type, scope=routine)
+        routine.symbol_attrs[var_name] = stack_type
+        stack_arg = routine.get_variable(var_name)
         routine.arguments += (stack_arg,)
 
         return stack_arg
@@ -356,7 +359,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         stack_type = SymbolAttributes(dtype=BasicType.INTEGER, intent='inout', kind=self.stack_int_type_kind)
         var_name = f'{self.stack_argument_name}_{self.stack_end_name}'
-        stack_arg_end = Variable(name=var_name, type=stack_type, scope=routine)
+        routine.symbol_attrs[var_name] = stack_type
+        stack_arg_end = routine.get_variable(var_name)
         routine.arguments += (stack_arg_end,)
 
         return stack_arg_end
@@ -365,19 +369,13 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         """
         Utility routine to get the stack pointer variable
         """
-        return Variable(
-                name=f'{self.stack_local_var_name}_{self.stack_ptr_name}',
-                scope=routine
-                )
+        return routine.get_variable(f'{self.stack_local_var_name}_{self.stack_ptr_name}', fail=False)
 
     def _get_stack_end(self, routine):
         """
         Utility routine to get the stack end pointer variable
         """
-        return Variable(
-            name=f'{self.stack_local_var_name}_{self.stack_end_name}',
-            scope=routine
-        )
+        return routine.get_variable(f'{self.stack_local_var_name}_{self.stack_end_name}', fail=False)
 
     def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
         stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
@@ -400,7 +398,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
     def _get_stack_type(self, routine):
         stack_type = SymbolAttributes(
             dtype=BasicType.REAL,
-            kind=Variable(name='REAL64', scope=routine),
+            kind=routine.get_variable('REAL64', fail=False),
             shape=(RangeIndex((None, None)), RangeIndex((None, None))),
             allocatable=True,
         )
@@ -432,14 +430,15 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         else:
             # Create a variable for the stack size and assign the size
             stack_size_var_type = SymbolAttributes(BasicType.INTEGER, kind=self.stack_size_var_kind)
-            stack_size_var = Variable(name=self.stack_size_name, type=stack_size_var_type)
+            routine.symbol_attrs[self.stack_size_name] = stack_size_var_type
+            stack_size_var = routine.get_variable(self.stack_size_name)
 
             # Retrieve kind parameter of stack storage
-            _kind = routine.symbol_map.get('REAL64', None) or Variable(name='REAL64')
+            _kind = routine.symbol_map.get('REAL64', None) or routine.get_variable('REAL64', fail=False)
 
             # Convert stack_size from bytes to integer
             stack_type_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
-            stack_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
+            stack_type_bytes = InlineCall(DeferredTypeSymbol(name='C_SIZEOF'),
                                           parameters=as_tuple(stack_type_bytes))
             stack_size_assign = Assignment(lhs=stack_size_var, rhs=stack_size)
             body_prepend += [stack_size_assign]
@@ -452,10 +451,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             # Create a variable for the stack storage array and create corresponding
             # allocation/deallocation statements
             stack_type = self._get_stack_type(routine)
-            stack_storage = Variable(
-                name=self.stack_storage_name, type=stack_type,
-                dimensions=stack_type.shape, scope=routine
-            )
+            routine.symbol_attrs[self.stack_storage_name] = stack_type
+            stack_storage = routine.get_variable(self.stack_storage_name, dimensions=stack_type.shape)
             variables_append += [stack_storage]
 
             block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
@@ -566,7 +563,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return stack_sizes[0]
 
         # Re-build the max expressions, taking into account the local stack size and calls to successors
-        stack_size = InlineCall(function=Variable(name='MAX'), parameters=as_tuple(stack_sizes), kw_parameters=())
+        stack_size = InlineCall(
+            function=INTRINSIC_SCOPE.get_variable('MAX'), parameters=as_tuple(stack_sizes), kw_parameters=()
+        )
         return stack_size
 
     def _get_c_sizeof_arg(self, arr):
@@ -619,7 +618,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
 
         if self.cray_ptr_loc_rhs:
             ptr_assignment = Assignment(lhs=ptr_var, rhs=InlineCall(
-                        function=Variable(name='LOC'),
+                        function=DeferredTypeSymbol(name='LOC'),
                         parameters=(
                             stack_storage.clone(
                                 dimensions=(stack_ptr.clone(),)
@@ -639,14 +638,14 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             else:
                 dims += (d,)
         dim = Product(dims)
-        arr_type_bytes = InlineCall(Variable(name='C_SIZEOF'),
+        arr_type_bytes = InlineCall(DeferredTypeSymbol(name='C_SIZEOF'),
                                             parameters=as_tuple(self._get_c_sizeof_arg(arr)))
         arr_size = Product((dim, arr_type_bytes))
 
         # Allocation is expressed in terms of REAL64, i.e., 8 byte values
         # We obtain the allocation size by dividing the required size by 8 and rounding up,
         # i.e., (size + 7) // 8, with the division implemented as bit shifts
-        ishift_func = InlineCall(function=Variable(name='ISHFT'))
+        ishift_func = InlineCall(function=INTRINSIC_SCOPE.get_variable('ISHFT'))
         arr_size = ishift_func.clone(parameters=(Sum((arr_size, 7)), -3))
 
         # Increment stack size
@@ -725,13 +724,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if self.cray_ptr_loc_rhs:
             stack_type = SymbolAttributes(
                     dtype=BasicType.REAL,
-                    kind=Variable(name='REAL64', scope=routine),
+                    kind=routine.get_variable('REAL64', fail=False),
                     shape=(RangeIndex((None, None)),), intent='inout', contiguous=True,
             )
-            stack_storage = Variable(
-                    name=self.stack_storage_name, type=stack_type,
-                    dimensions=stack_type.shape, scope=routine,
-            )
+            routine.symbol_attrs[self.stack_storage_name] = stack_type
+            stack_storage = routine.get_variable(self.stack_storage_name, dimensions=stack_type.shape)
             arg_pos = [routine.arguments.index(arg) for arg in routine.arguments if arg.type.optional]
             if arg_pos:
                 routine.arguments = routine.arguments[:arg_pos[0]] + (stack_storage,) + routine.arguments[arg_pos[0]:]
@@ -750,7 +747,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         stack_ptr = self._get_stack_ptr(routine)
         stack_end = self._get_stack_end(routine)
         for arr in temporary_arrays:
-            ptr_var = Variable(name=self.local_ptr_var_name_pattern.format(name=arr.name), scope=routine)
+            ptr_var = routine.get_variable(self.local_ptr_var_name_pattern.format(name=arr.name), fail=False)
             declarations += [GenericStmt(f'POINTER({ptr_var.name}, {arr.name})')]  # pylint: disable=no-member
             allocation, stack_size = self._create_stack_allocation(stack_ptr, stack_end, ptr_var, arr,
                     stack_size, stack_storage)
@@ -869,10 +866,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             else:
                 ptr_assignment = Assignment(
                     lhs=stack_ptr, rhs=InlineCall(
-                        function=Variable(name='LOC'),
+                        function=DeferredTypeSymbol(name='LOC'),
                         parameters=(
                             stack_storage.clone(
-                                dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+                                dimensions=(Literal(1), routine.get_variable(self.block_dim.index, fail=False))
                             ),
                         ),
                         kw_parameters=None
@@ -889,7 +886,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                 )
             else:
                 _real_size_bytes = Cast(name='REAL', expression=Literal(1), kind=_kind)
-                _real_size_bytes = InlineCall(Variable(name='C_SIZEOF'),
+                _real_size_bytes = InlineCall(DeferredTypeSymbol(name='C_SIZEOF'),
                                               parameters=as_tuple(_real_size_bytes))
                 stack_incr = Assignment(
                     lhs=stack_end, rhs=Sum((stack_ptr, Product((stack_size_var, _real_size_bytes))))
@@ -1005,7 +1002,7 @@ class EcstackPoolAllocatorTransformation(TemporariesPoolAllocatorTransformation)
     def import_ecstack(routine):
         if not 'ECSTACK' in routine.imported_symbols:
             imp = Import(
-                    module='ECSTACK_MOD', symbols=as_tuple(Variable(name='ECSTACK')),
+                    module='ECSTACK_MOD', symbols=as_tuple(DeferredTypeSymbol(name='ECSTACK')),
             )
             routine.spec.prepend(imp)
 
@@ -1032,7 +1029,7 @@ class EcstackPoolAllocatorTransformation(TemporariesPoolAllocatorTransformation)
     def _get_stack_type(self, routine):
         stack_type = SymbolAttributes(
             dtype=BasicType.REAL,
-            kind=Variable(name='REAL64', scope=routine),
+            kind=routine.get_variable('REAL64', fail=False),
             shape=(RangeIndex((None, None)), RangeIndex((None, None))),
             pointer=True, contiguous=True
         )

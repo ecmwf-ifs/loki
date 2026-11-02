@@ -185,7 +185,11 @@ class HoistVariablesAnalysis(Transformation):
 
                 if isinstance(var, sym.Array):
                     dimensions = SubstituteExpressions(arg_map).visit(var.dimensions)
-                    hoist_variables.append(var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions)))
+                    # Detach the variable from the child's scope to store the
+                    # adapted shape locally until it is declared in the driver
+                    hoist_variables.append(
+                        var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions), scope=None)
+                    )
                 else:
                     hoist_variables.append(var)
             item.trafo_data[self._key]["to_hoist"].extend(hoist_variables)
@@ -277,9 +281,10 @@ class HoistVariablesTransformation(Transformation):
             # We build the list of temporaries that are hoisted to the calling routine
             # Because this requires adding an intent, we need to make sure they are not
             # declared together with non-hoisted variables
+            for var in item.trafo_data[self._key]['to_hoist']:
+                routine.symbol_attrs[var.name] = var.type.clone(intent='inout')
             hoisted_temporaries = tuple(
-                var.clone(type=var.type.clone(intent='inout'), scope=routine)
-                for var in item.trafo_data[self._key]['to_hoist']
+                var.clone(scope=routine) for var in item.trafo_data[self._key]['to_hoist']
             )
             single_variable_declaration(routine, variables=[var.clone(dimensions=None) for var in hoisted_temporaries])
             routine.arguments += hoisted_temporaries
@@ -299,12 +304,13 @@ class HoistVariablesTransformation(Transformation):
                 continue
 
             successor_item = successor_map[str(call.routine.name)]
+            # The hoisted variables have been declared in this routine
+            hoisted_variables = [
+                var.clone(scope=routine) for var in successor_item.trafo_data[self._key]["hoist_variables"]
+            ]
             if self.as_kwarguments:
                 to_hoist = successor_item.trafo_data[self._key]["to_hoist"]
-                _hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
-                hoisted_variables = zip(to_hoist, _hoisted_variables)
-            else:
-                hoisted_variables = successor_item.trafo_data[self._key]["hoist_variables"]
+                hoisted_variables = zip(to_hoist, hoisted_variables)
             if role == "driver":
                 call_map[call] = self.driver_call_argument_remapping(
                     routine=routine, call=call, variables=hoisted_variables
@@ -547,11 +553,9 @@ class HoistTemporaryArraysTransformationAllocatable(HoistVariablesTransformation
             The array to be declared, allocated and de-allocated.
         """
         for var in variables:
-            routine.variables += as_tuple(
-                var.clone(
-                    dimensions=as_tuple([sym.RangeIndex((None, None))] * len(var.dimensions)),
-                    type=var.type.clone(allocatable=True), scope=routine
-                )
-            )
-            routine.body.prepend(Allocation((var.clone(),)))
-            routine.body.append(Deallocation((var.clone(dimensions=None),)))
+            routine.symbol_attrs[var.name] = var.type.clone(allocatable=True)
+            routine.variables += as_tuple(routine.get_variable(
+                var.name, dimensions=as_tuple([sym.RangeIndex((None, None))] * len(var.dimensions))
+            ))
+            routine.body.prepend(Allocation((routine.get_variable(var.name, dimensions=var.dimensions),)))
+            routine.body.append(Deallocation((routine.get_variable(var.name),)))

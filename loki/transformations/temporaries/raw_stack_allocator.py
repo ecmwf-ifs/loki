@@ -11,7 +11,7 @@ from loki.backend.fgen import fgen
 from loki.batch.item import ProcedureItem
 from loki.batch.transformation import Transformation
 from loki.expression.symbols import (
-    Array, Scalar, Variable, Literal, Product, Sum, InlineCall,
+    Array, Scalar, Literal, Product, Sum, InlineCall,
     IntLiteral, RangeIndex, DeferredTypeSymbol
 )
 from loki.expression.symbolic import is_dimension_constant, simplify
@@ -21,7 +21,7 @@ from loki.ir.nodes import Assignment, CallStatement, Pragma
 from loki.ir.find import FindNodes
 from loki.ir.transformer import Transformer
 from loki.tools import as_tuple, OrderedSet
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType, SymbolAttributes, INTRINSIC_SCOPE
 
 
 __all__ = ['TemporariesRawStackTransformation']
@@ -207,8 +207,8 @@ class TemporariesRawStackTransformation(Transformation):
         """
 
         #Block variables
-        kgpblock = Variable(name=self.block_dim.size, scope=routine, type=self.int_type)
-        jgpblock = Variable(name=self.block_dim.index, scope=routine, type=self.int_type)
+        kgpblock = self._get_int_var(routine, self.block_dim.size)
+        jgpblock = self._get_int_var(routine, self.block_dim.index)
 
         #Full dimensions for arguments
         fulldim = (RangeIndex((None,None)), RangeIndex((None,None)))
@@ -223,21 +223,20 @@ class TemporariesRawStackTransformation(Transformation):
 
                 #Start integer names in the driver with 'J'
                 stack_size_name = self._get_stack_int_name('J', dtype, kind, 'STACK_SIZE')
-                stack_size_var = Variable(name=stack_size_name, scope=routine, type=self.int_type)
+                stack_size_var = self._get_int_var(routine, stack_size_name)
 
                 #Create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 horizontal_size = self._get_horizontal_variable(routine)
                 if self.driver_horizontal:
                     # If override is specified, use a separate horizontal in the driver
-                    horizontal_size = Variable(
-                        name=self.driver_horizontal, scope=routine, type=self.int_type
-                    )
+                    horizontal_size = self._get_int_var(routine, self.driver_horizontal)
 
                 stack_type = stack_var.type.clone(
                     shape=(horizontal_size, stack_dict[dtype][kind], kgpblock)
                 )
-                stack_var = stack_var.clone(type=stack_type)
+                routine.symbol_attrs[stack_var.name] = stack_type
+                stack_var = routine.get_variable(stack_var.name)
 
                 #Add the variables to the stack_arg_dict with dimensions (:,:,j_block)
                 if dtype in stack_arg_dict:
@@ -292,16 +291,17 @@ class TemporariesRawStackTransformation(Transformation):
 
                 #Start arguments integer names in kernels with 'K'
                 stack_size_name = self._get_stack_int_name('K', dtype, kind, 'STACK_SIZE')
-                stack_size_var = Variable(name=stack_size_name, scope=routine, type=self.int_type.clone(intent='IN'))
+                stack_size_var = self._get_int_var(routine, stack_size_name, self.int_type.clone(intent='IN'))
 
                 #Local variables start with 'J'
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
-                stack_used_var = Variable(name=stack_used_name, scope=routine, type=self.int_type)
+                stack_used_var = self._get_int_var(routine, stack_used_name)
 
                 #Create the stack variable and its type with the correct shape
                 stack_var = self._get_stack_var(routine, dtype, kind)
                 stack_type = stack_var.type.clone(shape=(self._get_horizontal_variable(routine), stack_size_var))
-                stack_var = stack_var.clone(type=stack_type)
+                routine.symbol_attrs[stack_var.name] = stack_type
+                stack_var = routine.get_variable(stack_var.name)
 
                 #Pass on the stack variable from stack_used + 1 to stack_size
                 #Pass stack_size - stack_used to stack size in called kernel
@@ -412,8 +412,7 @@ class TemporariesRawStackTransformation(Transformation):
                 #Loop over arrays
                 for array in arrays:
 
-                    int_var = Variable(name=self.local_int_var_name_pattern.format(name=array.name),
-                                       scope=routine, type=self.int_type)
+                    int_var = self._get_int_var(routine, self.local_int_var_name_pattern.format(name=array.name))
                     integers += [int_var]
 
                     #Computer array size
@@ -444,7 +443,7 @@ class TemporariesRawStackTransformation(Transformation):
                 #Compute stack used
                 stack_used = simplify(Sum((int_var, array_size)))
                 stack_used_name = self._get_stack_int_name('J', dtype, kind, 'STACK_USED')
-                stack_used_var = Variable(name=stack_used_name, scope=routine, type=self.int_type)
+                stack_used_var = self._get_int_var(routine, stack_used_name)
 
                 #List up integers and allocations generated
                 integers += [stack_used_var]
@@ -781,7 +780,9 @@ class TemporariesRawStackTransformation(Transformation):
                 if len(stacks) == 1:
                     kind_dict[kind] = stacks[0]
                 else:
-                    kind_dict[kind] = InlineCall(function = Variable(name = 'MAX'), parameters = as_tuple(stacks))
+                    kind_dict[kind] = InlineCall(
+                        function=INTRINSIC_SCOPE.get_variable('MAX'), parameters=as_tuple(stacks)
+                    )
 
         return stack_dict
 
@@ -811,7 +812,24 @@ class TemporariesRawStackTransformation(Transformation):
         """
         Get a scalar int variable corresponding to horizontal dimension with routine as scope
         """
-        return Variable(name=self.horizontal.size, scope=routine, type=self.int_type)
+        return self._get_int_var(routine, self.horizontal.size)
+
+    def _get_int_var(self, routine, name, _type=None):
+        """
+        Declare an integer variable in the symbol table of :data:`routine`
+        and return the corresponding symbol
+
+        Parameters
+        ----------
+        routine : :any:`Subroutine`
+            The routine in which to declare the variable
+        name : str
+            The name of the variable
+        _type : :any:`SymbolAttributes`, optional
+            The type of the variable (default: :attr:`int_type`)
+        """
+        routine.symbol_attrs[name] = _type or self.int_type
+        return routine.get_variable(name, fail=False)
 
     def _get_horizontal_range(self, routine):
         """

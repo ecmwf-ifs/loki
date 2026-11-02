@@ -57,11 +57,10 @@ class SCCHoistTemporaryArraysTransformation(HoistVariablesTransformation):
 
         block_var = get_integer_variable(routine, self.block_dim.size)
         block_var = substitute_variables_for_definitions(routine, variables=block_var)[0]
+        for v in variables:
+            routine.symbol_attrs[v.name] = v.type.clone(shape=v.shape + (block_var,))
         routine.variables += tuple(
-            v.clone(
-                dimensions=v.dimensions + (block_var,),
-                type=v.type.clone(shape=v.shape + (block_var,))
-            ) for v in variables
+            routine.get_variable(v.name, dimensions=v.dimensions + (block_var,)) for v in variables
         )
 
         # Add explicit device-side allocations/deallocations for hoisted temporaries
