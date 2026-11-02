@@ -278,8 +278,8 @@ class OMNI2IR(GenericVisitor):
                 name = f'OPERATOR({name})'
 
         if o.attrib.get('local_name'):
-            return (name, sym.Variable(name=o.attrib['local_name']))
-        return sym.Variable(name=name)
+            return (name, sym.DeferredTypeSymbol(name=o.attrib['local_name']))
+        return sym.DeferredTypeSymbol(name=name)
 
     visit_rename = visit_renamable
 
@@ -297,7 +297,7 @@ class OMNI2IR(GenericVisitor):
             scope = kwargs['scope']
             if name not in scope.symbol_attrs:
                 scope.symbol_attrs[name] = SymbolAttributes(ProcedureType(name, is_generic=True))
-            spec = sym.Variable(name=name, scope=kwargs['scope'])
+            spec = scope.get_variable(name)
         else:
             spec = None
 
@@ -604,7 +604,7 @@ class OMNI2IR(GenericVisitor):
                     # relevant symbol table entries, and then extract the dtype
                     try:
                         symbol_scope = scope.get_symbol_scope(_type.dtype.name)
-                        interface = symbol_scope.Variable(name=_type.dtype.name)
+                        interface = symbol_scope.get_variable(_type.dtype.name, fail=False)
                         _type = _type.clone(dtype=interface.type.dtype)
                     except AttributeError:
                         # Interface symbol could not be found
@@ -686,7 +686,11 @@ class OMNI2IR(GenericVisitor):
                         interface = v.type.dtype.return_type
                     else:
                         iface_name = v.type.dtype.name
-                        interface = sym.Variable(name=iface_name, scope=kwargs['scope'].get_symbol_scope(iface_name))
+                        iface_scope = kwargs['scope'].get_symbol_scope(iface_name)
+                        if iface_scope is None:
+                            interface = sym.DeferredTypeSymbol(name=iface_name)
+                        else:
+                            interface = iface_scope.get_variable(iface_name)
                     body += [ir.ProcedureDeclaration(symbols=(v,), interface=interface)]
                 else:
                     body += [ir.VariableDeclaration(symbols=(v,))]
@@ -957,7 +961,8 @@ class OMNI2IR(GenericVisitor):
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            name = name.clone(scope=associate, type=_type)
+            associate.symbol_attrs[name.name] = _type
+            name = associate.get_variable(name.name)
             rescoped_associations += [(expr, name)]
         associations = as_tuple(rescoped_associations)
 
@@ -1143,18 +1148,16 @@ class OMNI2IR(GenericVisitor):
     def visit_FenumDecl(self, o, **kwargs):
         enum_type = self.type_map[o.attrib['type']]
 
-        # Build the list of symbols
-        symbols = []
+        # Declare the symbols in the current scope
+        scope = kwargs['scope']
+        symbols = ()
         for i in enum_type.findall('symbols/id'):
-            var = self.visit(i.find('name'), **kwargs)
+            name = i.find('name').text
             initial = i.find('value')
             if initial is not None:
                 initial = self.visit(initial, **kwargs)
-            _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
-            symbols += [var.clone(type=_type)]
-
-        # Put symbols in the right scope (that should register their type in that scope's symbol table)
-        symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
+            scope.symbol_attrs[name] = SymbolAttributes(BasicType.INTEGER, initial=initial)
+            symbols += (scope.get_variable(name),)
 
         # Create the enum
         return ir.Enumeration(symbols=symbols, source=kwargs['source'])
@@ -1162,11 +1165,10 @@ class OMNI2IR(GenericVisitor):
     def visit_FmemberRef(self, o, **kwargs):
         parent = self.visit(o.find('varRef'), **kwargs)
         name = f'{parent.name}%{o.attrib["member"]}'
-        variable = sym.Variable(name=name, parent=parent)
-        return variable
+        return sym.DeferredTypeSymbol(name=name, parent=parent)
 
     def visit_name(self, o, **kwargs):
-        return sym.Variable(name=o.text)
+        return sym.DeferredTypeSymbol(name=o.text)
 
     visit_Var = visit_name
 
@@ -1283,7 +1285,7 @@ class OMNI2IR(GenericVisitor):
         _type = self.type_from_type_attrib(o.attrib['type'], **kwargs)
         assert isinstance(_type.dtype, DerivedType)
 
-        name = sym.Variable(name=_type.dtype.name)
+        name = sym.DeferredTypeSymbol(name=_type.dtype.name)
         args = [self.visit(a, **kwargs) for a in o]
 
         # Separate keyword argument from positional arguments

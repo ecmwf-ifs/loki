@@ -396,7 +396,9 @@ class FParser2IR(GenericVisitor):
             scope = parent.scope
         elif scope:
             scope = scope.get_symbol_scope(name)
-        return sym.Variable(name=name, parent=parent, scope=scope)
+        if scope is None:
+            return sym.DeferredTypeSymbol(name=name, parent=parent)
+        return scope.get_variable(name, parent=parent, fail=False)
 
     def visit_Type_Name(self, o, **kwargs):
         """
@@ -832,21 +834,21 @@ class FParser2IR(GenericVisitor):
         # Declare basic variable type and create variable symbol
         vname = o.children[0].tostr()
         scope.declare(vname, **dict(_type.__dict__), fail=False)
-        var = self.visit(o.children[0], **kwargs)
 
+        dimensions = None
         if o.children[1]:
             dimensions = as_tuple(self.visit(o.children[1], **kwargs))
-            var = var.clone(dimensions=dimensions, type=var.type.clone(shape=dimensions))
+            scope.update(vname, shape=dimensions)
 
         if o.children[2]:
             char_length = self.visit(o.children[2], **kwargs)
-            var = var.clone(type=var.type.clone(length=char_length))
+            scope.update(vname, length=char_length)
 
         if o.children[3]:
             init = self.visit(o.children[3], **kwargs)
-            var = var.clone(type=var.type.clone(initial=init))
+            scope.update(vname, initial=init)
 
-        return var
+        return scope.get_variable(vname, dimensions=dimensions)
 
     def visit_Explicit_Shape_Spec(self, o, **kwargs):
         """
@@ -1011,7 +1013,8 @@ class FParser2IR(GenericVisitor):
                 # imported from another module or sits in an intfb.h header file.
                 # So, we create a ProcedureType object with the interface name and use that
                 dtype = ProcedureType(interface.name)
-                interface = interface.clone(type=interface.type.clone(dtype=dtype))
+                scope.symbol_attrs[interface.name] = interface.type.clone(dtype=dtype)
+                interface = scope.get_variable(interface.name)
             _type = interface.type.clone(**attrs)
         else:
             interface = return_type.dtype
@@ -1063,7 +1066,12 @@ class FParser2IR(GenericVisitor):
         var = self.visit(o.children[0], **kwargs)
         assert o.children[1] == '=>'
         init = self.visit(o.children[2], **kwargs)
-        return var.clone(type=var.type.clone(initial=init))
+        if var.scope is None:
+            # Undeclared procedure pointers are declared by the enclosing
+            # procedure declaration, using the locally stored type
+            return var.clone(type=var.type.clone(initial=init))
+        var.scope.update(var.name, initial=init)
+        return var
 
     #
     # Array constructor
@@ -1700,7 +1708,7 @@ class FParser2IR(GenericVisitor):
         * ``'ASSIGNMENT'`` (`str`) followed by
         * ``'='`` (`str`)
         """
-        return sym.Variable(name=str(o))
+        return sym.DeferredTypeSymbol(name=str(o))
 
     def visit_Procedure_Stmt(self, o, **kwargs):
         """
@@ -2586,12 +2594,12 @@ class FParser2IR(GenericVisitor):
 
         # Type_Name in the Type_Guard_Stmts will be converted to DerivedType objects,
         # thus we need to convert them to DerivedTypeSymbol
+        scope = kwargs['scope']
+        for t, _ in values:
+            if isinstance(t, DerivedType):
+                scope.symbol_attrs[t.name] = SymbolAttributes(dtype=t)
         values = tuple(
-            (
-                sym.Variable(name=t.name, scope=kwargs['scope'], type=SymbolAttributes(dtype=t))
-                if isinstance(t, DerivedType) else t,
-                i
-            )
+            (scope.get_variable(t.name) if isinstance(t, DerivedType) else t, i)
             for (t, i) in values
         )
 
@@ -2889,7 +2897,10 @@ class FParser2IR(GenericVisitor):
 
         # `name` is a DerivedType but we represent a constructor call as InlineCall for
         # which we need ProcedureSymbol
-        name = sym.Variable(name=name.name, scope=scope)
+        if scope is None:
+            name = sym.DeferredTypeSymbol(name=name.name)
+        else:
+            name = scope.get_variable(name.name, fail=False)
 
         if o.children[1] is not None:
             arguments = self.visit(o.children[1], **kwargs)
@@ -2942,15 +2953,13 @@ class FParser2IR(GenericVisitor):
             if isinstance(c, Fortran2003.Enumerator_Def_Stmt)
         )
 
-        # Update type information for symbols with deferred type
-        # (applies to all constant that are defined without explicit value)
-        symbols = tuple(
-            s.clone(type=SymbolAttributes(BasicType.INTEGER)) if not s.type.dtype else s
-            for s in symbols
-        )
-
-        # Put symbols in the right scope (that should register their type in that scope's symbol table)
-        symbols = tuple(s.rescope(scope=kwargs['scope']) for s in symbols)
+        # Declare all constants that are defined without explicit value
+        # (constants with explicit value are declared by their enumerator)
+        scope = kwargs['scope']
+        for s in symbols:
+            if s.name not in scope.symbol_attrs:
+                scope.symbol_attrs[s.name] = SymbolAttributes(BasicType.INTEGER)
+        symbols = tuple(scope.get_variable(s.name) for s in symbols)
 
         # Create the enum and make sure there's nothing else left to do
         source = self.get_source(enum_def_stmt, end_node=end_enum_stmt)
@@ -2983,10 +2992,10 @@ class FParser2IR(GenericVisitor):
           must evaluate to an integer
         """
         assert o.children[1] == '='
-        symbol = self.visit(o.children[0], **kwargs)
         initial = self.visit(o.children[2], **kwargs)
-        _type = SymbolAttributes(BasicType.INTEGER, initial=initial)
-        return symbol.clone(type=_type)
+        name = o.children[0].tostr()
+        kwargs['scope'].symbol_attrs[name] = SymbolAttributes(BasicType.INTEGER, initial=initial)
+        return kwargs['scope'].get_variable(name)
 
     #
     # FORALL construct
@@ -3203,7 +3212,7 @@ class FParser2IR(GenericVisitor):
             if kind.isdigit():
                 kind = sym.Literal(value=int(kind))
             else:
-                kind = AttachScopesMapper()(sym.Variable(name=kind), scope=kwargs['scope'])
+                kind = AttachScopesMapper()(sym.DeferredTypeSymbol(name=kind), scope=kwargs['scope'])
             return sym.Literal(value=val, type=_type, kind=kind)
         return sym.Literal(value=val, type=_type)
 
@@ -3274,7 +3283,7 @@ class FParser2IR(GenericVisitor):
     def visit_Proc_Component_Ref(self, o, **kwargs):
         '''This is the compound object for accessing procedure components of a variable.'''
         pname = o.items[0].tostr().lower()
-        v = AttachScopesMapper()(sym.Variable(name=pname), scope=kwargs['scope'])
+        v = AttachScopesMapper()(sym.DeferredTypeSymbol(name=pname), scope=kwargs['scope'])
         for i in o.items[1:-1]:
             if i != '%':
                 v = self.visit(i, parent=v, source=kwargs.get('source'), scope=kwargs['scope'])

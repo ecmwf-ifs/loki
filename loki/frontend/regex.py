@@ -18,7 +18,6 @@ from codetiming import Timer
 
 from loki import ir
 from loki.config import config
-from loki.expression import symbols as sym
 from loki.frontend.source import Source, FortranReader
 from loki.frontend.util import combine_multiline_pragmas
 from loki.logging import debug
@@ -606,8 +605,8 @@ class InterfacePattern(Pattern):
 
         if match['spec']:
             spec = match['spec'].replace(' ', '')
-            type_ = SymbolAttributes(ProcedureType(name=spec, is_generic=True))
-            spec = sym.Variable(name=spec, type=type_, scope=scope)
+            scope.symbol_attrs[spec] = SymbolAttributes(ProcedureType(name=spec, is_generic=True))
+            spec = scope.get_variable(spec)
         else:
             spec = None
 
@@ -658,10 +657,9 @@ class ProcedureStatementPattern(Pattern):
         is_module = match['module'] is not None
 
         procedures = match['procedures'].replace(' ', '').split(',')
-        symbols = [
-            sym.Variable(name=s, type=SymbolAttributes(ProcedureType(name=s)), scope=scope)
-            for s in procedures
-        ]
+        for s in procedures:
+            scope.symbol_attrs[s] = SymbolAttributes(ProcedureType(name=s))
+        symbols = [scope.get_variable(s) for s in procedures]
         return ir.ProcedureDeclaration(
             symbols=symbols, module=is_module, source=reader.source_from_current_line()
         )
@@ -781,12 +779,13 @@ class ProcedureBindingPattern(Pattern):
         symbols = []
         for s in bindings:
             if len(s) == 1:
-                type_ = SymbolAttributes(ProcedureType(name=s[0]))
-                symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
+                scope.symbol_attrs[s[0]] = SymbolAttributes(ProcedureType(name=s[0]))
             else:
                 type_ = SymbolAttributes(ProcedureType(name=s[1]))
-                bind_name = sym.Variable(name=s[1], type=type_, scope=scope.parent)
-                symbols += [sym.Variable(name=s[0], type=type_.clone(bind_names=(bind_name,)), scope=scope)]
+                scope.parent.symbol_attrs[s[1]] = type_
+                bind_name = scope.parent.get_variable(s[1])
+                scope.symbol_attrs[s[0]] = type_.clone(bind_names=(bind_name,))
+            symbols += [scope.get_variable(s[0])]
 
         return ir.ProcedureDeclaration(symbols=symbols, source=reader.source_from_current_line())
 
@@ -831,7 +830,8 @@ class GenericBindingPattern(Pattern):
         bindings = match['bindings'].replace(' ', '').split(',')
         name = match['name']
         type_ = SymbolAttributes(ProcedureType(name=name, is_generic=True), bind_names=as_tuple(bindings))
-        symbols = (sym.Variable(name=name, type=type_, scope=scope),)
+        scope.symbol_attrs[name] = type_
+        symbols = (scope.get_variable(name),)
         return ir.ProcedureDeclaration(symbols=symbols, generic=True, source=reader.source_from_current_line())
 
 
@@ -879,15 +879,12 @@ class ImportPattern(Pattern):
                 for s in imports:
                     if not s[0]:
                         continue
-                    if len(s) == 1:
-                        symbols += [sym.Variable(name=s[0], type=type_, scope=scope)]
-                    else:
-                        symbols += [sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope)]
+                    scope.symbol_attrs[s[0]] = type_ if len(s) == 1 else type_.clone(use_name=s[1])
+                    symbols += [scope.get_variable(s[0])]
             else:
-                rename_list = [
-                    (s[1], sym.Variable(name=s[0], type=type_.clone(use_name=s[1]), scope=scope))
-                    for s in imports
-                ]
+                for s in imports:
+                    scope.symbol_attrs[s[0]] = type_.clone(use_name=s[1])
+                rename_list = [(s[1], scope.get_variable(s[0])) for s in imports]
                 symbols = None
         else:
             rename_list = None
@@ -945,12 +942,14 @@ class VariableDeclarationPattern(Pattern):
         if match['param']:
             param = match['param'].strip().strip('()').split('=')
             if len(param) == 1 or param[0].lower() == 'kind':
-                type_ = type_.clone(kind=sym.Variable(name=param[-1], scope=scope))
+                type_ = type_.clone(kind=scope.get_variable(param[-1], fail=False))
 
         variables = self._remove_quoted_string_nested_parentheses(match['variables'])  # Remove dimensions
         variables = re.sub(r'=(?:>)?[^,]*(?=,|$)', r'', variables) # Remove initialization
         variables = variables.replace(' ', '').split(',')  # Variable names without white space
-        variables = tuple(sym.Variable(name=v, type=type_, scope=scope) for v in variables)
+        for v in variables:
+            scope.symbol_attrs[v] = type_
+        variables = tuple(scope.get_variable(v) for v in variables)
         return ir.VariableDeclaration(variables, source=reader.source_from_current_line())
 
 class CallPattern(Pattern):
@@ -992,14 +991,9 @@ class CallPattern(Pattern):
         call = self._remove_quoted_string_nested_parentheses(call)  # Remove arguments and dimension expressions
         call = call.replace(' ', '')  # Remove any white space
 
-        name_parts = call.split('%')
-        name = sym.Variable(name=name_parts[0], scope=scope)
-        for cname in name_parts[1:]:
-            name = sym.Variable(name=name.name + '%' + cname, parent=name, scope=scope)  # pylint:disable=no-member
-
-        scope.symbol_attrs[call] = scope.symbol_attrs.lookup(call).clone(
-            dtype=ProcedureType(name=call, is_function=False)
-        )
+        _type = scope.symbol_attrs.lookup(call) or SymbolAttributes(BasicType.DEFERRED)
+        scope.symbol_attrs[call] = _type.clone(dtype=ProcedureType(name=call, is_function=False))
+        name = scope.get_variable(call, fail=False)
 
         source = reader.source_from_current_line()
         if match['conditional']:

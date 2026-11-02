@@ -291,11 +291,10 @@ class RangeIndexTransformer(Transformer):
         vmap = {}
         for v in self.retriever.retrieve(o.symbols):
             dimensions = tuple(d.upper if self.is_one_index(d) else d for d in v.dimensions)
-            _type = v.type
-            if _type.shape:
-                shape = tuple(d.upper if self.is_one_index(d) else d for d in _type.shape)
-                _type = _type.clone(shape=shape)
-            vmap[v] = v.clone(dimensions=dimensions, type=_type)
+            if v.type.shape:
+                shape = tuple(d.upper if self.is_one_index(d) else d for d in v.type.shape)
+                v.scope.update(v.name, shape=shape)
+            vmap[v] = v.clone(dimensions=dimensions)
 
         mapper = SubstituteExpressionsMapper(vmap)
         return o.clone(symbols=mapper(o.symbols, recurse_to_declaration_attributes=True))

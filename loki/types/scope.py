@@ -352,7 +352,7 @@ class Scope:
             return symbol_class(name=name, scope=self, parent=parent, dimensions=dimensions)
         return symbol_class(name=name, scope=self, parent=parent)
 
-    def declare_variable(self, name, type=None, dtype=None, dimensions=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
+    def declare_variable(self, name, type=None, dtype=None, dimensions=None, parent=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
         """
         Declare a new variable in the symbol table of this scope and
         return the corresponding symbol
@@ -374,6 +374,10 @@ class Scope:
             Basic data type of the variable, if :data:`type` is not given.
         dimensions : tuple, optional
             The array subscript for the returned symbol.
+        parent : :any:`Scalar` or :any:`Array`, optional
+            The derived type variable the declared variable belongs to. This
+            declares an explicit type for the member in this scope, which
+            takes precedence over the type definition.
         fail : bool, optional
             Flag to override the default failure on attempted re-declaration,
             in which case prior type information is replaced.
@@ -386,6 +390,9 @@ class Scope:
         :any:`TypedSymbol` or :any:`MetaSymbol`
             The symbol for the declared variable, as given by :meth:`get_variable`
         """
+        if parent is not None:
+            name = f'{parent.name}%{name.split("%")[-1]}'
+
         if (type is None) == (dtype is None):
             raise ValueError(f'[Loki::Scope] Need either type or dtype to declare symbol name: {name}')
 
@@ -396,4 +403,4 @@ class Scope:
                 raise ValueError(f'[Loki::Scope] Trying to re-declare already declared symbol name: {name}')
             self.symbol_attrs[name] = type.clone(**kwargs) if kwargs else type
 
-        return self.get_variable(name, dimensions=dimensions)
+        return self.get_variable(name, dimensions=dimensions, parent=parent)
