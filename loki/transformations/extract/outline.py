@@ -5,7 +5,7 @@
 # nor does it submit to any jurisdiction.
 
 from loki.analyse import dataflow_analysis_attached
-from loki.expression import symbols as sym, Variable
+from loki.expression import symbols as sym
 from loki.ir import (
     CallStatement, PragmaRegion, Section, FindNodes,
     FindVariables, Transformer, is_loki_pragma,
@@ -127,10 +127,10 @@ def outline_region(region, name, imports, intent_map=None):
         for arg in args:
             local_var = region_routine_var_map.get(arg.name, arg)
             # Sanitise argument types
-            local_var = local_var.clone(
-                type=local_var.type.clone(intent=intent, allocatable=None, target=None),
-                scope=region_routine
+            region_routine.symbol_attrs[local_var.name] = local_var.type.clone(
+                intent=intent, allocatable=None, target=None
             )
+            local_var = local_var.clone(scope=region_routine)
 
             region_routine_var_map[arg.name] = local_var
             region_routine_arguments += [local_var]
@@ -151,7 +151,7 @@ def outline_region(region, name, imports, intent_map=None):
     # Create the call according to the wrapped code region
     call_arg_map = {v.name: v for v in region_in_args + region_inout_args + region_out_args}
     call_arguments = tuple(call_arg_map[a.name] for a in region_routine_arguments)
-    call = CallStatement(name=Variable(name=name), arguments=call_arguments, kwarguments=())
+    call = CallStatement(name=sym.DeferredTypeSymbol(name=name), arguments=call_arguments, kwarguments=())
 
     return call, region_routine
 

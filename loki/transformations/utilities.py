@@ -168,7 +168,7 @@ def replace_intrinsics(routine, function_map=None, symbol_map=None, case_sensiti
     callmap = {}
     for call in FindInlineCalls(unique=False).visit(routine.ir):
         if call.name in symbol_map:
-            callmap[call] = sym.Variable(name=symbol_map[call.name], scope=routine)
+            callmap[call] = routine.get_variable(symbol_map[call.name], fail=False)
 
         if call.name in function_map:
             callmap[call.function] = sym.ProcedureSymbol(name=function_map[call.name], scope=routine)
@@ -397,7 +397,7 @@ class IsoFortranEnvMapper:
         kind = self._selected_int_kind(r)
         if kind in byte_kind_map:
             kind_name = byte_kind_map[kind]
-            self.used_names[kind_name] = sym.Variable(name=kind_name, scope=scope)
+            self.used_names[kind_name] = scope.get_variable(kind_name, fail=False)
             return self.used_names[kind_name]
         return sym.IntLiteral(-1)
 
@@ -443,7 +443,7 @@ class IsoFortranEnvMapper:
         kind = self._selected_real_kind(p, r, radix)
         if kind in byte_kind_map:
             kind_name = byte_kind_map[kind]
-            self.used_names[kind_name] = sym.Variable(name=kind_name, scope=scope)
+            self.used_names[kind_name] = scope.get_variable(kind_name, fail=False)
             return self.used_names[kind_name]
         return sym.IntLiteral(-1)
 
@@ -604,8 +604,8 @@ def get_integer_variable(routine, name):
     if name.split('%', maxsplit=1)[0] in symbol_map:
         v_index = routine.resolve_typebound_var(name, symbol_map)
     else:
-        dtype = SymbolAttributes(BasicType.INTEGER)
-        v_index = sym.Variable(name=name, type=dtype, scope=routine)
+        routine.symbol_attrs[name] = SymbolAttributes(BasicType.INTEGER)
+        v_index = routine.get_variable(name, fail=False)
     return v_index
 
 

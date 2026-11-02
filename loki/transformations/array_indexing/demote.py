@@ -56,8 +56,8 @@ def demote_variables(routine, variable_names, dimensions):
         new_shape = tuple(s for s in old_shape if s not in dimensions)
         new_dims = tuple(d for d, s in zip(v.dimensions, old_shape) if s in new_shape)
 
-        new_type = v.type.clone(shape=new_shape or None)
-        vmap[v] = v.clone(dimensions=new_dims or None, type=new_type)
+        routine.symbol_attrs[v.name] = v.type.clone(shape=new_shape or None)
+        vmap[v] = v.clone(dimensions=new_dims or None)
 
     # Propagate the new dimensions to declarations and routine bodys
     routine.body = SubstituteExpressions(vmap).visit(routine.body)

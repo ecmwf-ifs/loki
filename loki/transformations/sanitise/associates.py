@@ -175,14 +175,14 @@ class ResolveAssociateMapper(LokiIdentityMapper):  # pylint: disable=abstract-me
         expr_dims = self.rec(expr.dimensions, *args, **kwargs)
 
         # Recurse over the type's shape
-        _type = expr.type
-        if expr.type.shape:
-            new_shape = self.rec(expr.type.shape, *args, **kwargs)
-            _type = expr.type.clone(shape=new_shape)
+        new_shape = self.rec(expr.type.shape, *args, **kwargs) if expr.type.shape else None
+        is_shape_changed = new_shape is not None and new_shape != expr.type.shape
 
         # Stop if scope is not an associate
         if not isinstance(expr.scope, ir.Associate):
-            return expr.clone(dimensions=expr_dims, type=_type)
+            if is_shape_changed:
+                expr.scope.symbol_attrs[expr.name] = expr.type.clone(shape=new_shape)
+            return expr.clone(dimensions=expr_dims)
 
         new = self.map_scalar(expr, *args, **kwargs)
 
@@ -194,7 +194,9 @@ class ResolveAssociateMapper(LokiIdentityMapper):  # pylint: disable=abstract-me
         else:
             new_dims = expr_dims
 
-        return new.clone(dimensions=new_dims, type=_type)
+        if is_shape_changed:
+            new.scope.symbol_attrs[new.name] = expr.type.clone(shape=new_shape)
+        return new.clone(dimensions=new_dims)
 
     map_variable_symbol = map_scalar
     map_deferred_type_symbol = map_scalar

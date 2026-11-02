@@ -34,6 +34,19 @@ __all__ = [
 ]
 
 
+def _declare_integer_variable(name, scope):
+    """
+    Declare an integer variable in :data:`scope` and return its symbol
+
+    If no :data:`scope` is given, an unscoped symbol is returned.
+    """
+    _type = SymbolAttributes(BasicType.INTEGER)
+    if scope is None:
+        return sym.Scalar(name=name, type=_type)
+    scope.symbol_attrs[name] = _type
+    return scope.get_variable(name)
+
+
 class _OutermostVarRetriever(ExpressionRetriever):  # pylint: disable=abstract-method
     """
     Like :class:`ExpressionRetriever` but does not recurse into
@@ -841,15 +854,13 @@ class ResolveVectorNotationTransformer(Transformer):
                     if ivar in index_range_map or ivar in reserved_ivars:
                         if not create_new_loop_indices:
                             continue
-                        vtype = SymbolAttributes(BasicType.INTEGER)
-                        ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
+                        ivar = _declare_integer_variable(f'{basename}_{i}', scope)
                         synthesized_ivars.add(ivar)
                 else:
                     # Skip if we're not supposed to create new indices
                     if not create_new_loop_indices or dim == sym.RangeIndex((None, None)):
                         continue
-                    vtype = SymbolAttributes(BasicType.INTEGER)
-                    ivar = sym.Variable(name=f'{basename}_{i}', type=vtype, scope=scope)
+                    ivar = _declare_integer_variable(f'{basename}_{i}', scope)
                     synthesized_ivars.add(ivar)
                 shape_index_map[(i, dim)] = ivar
                 index_range_map[ivar] = dim
@@ -931,10 +942,7 @@ class ResolveVectorNotationTransformer(Transformer):
                         if existing is not None and existing != member:
                             # Name collision with a different variable — skip substitution
                             continue
-                    vtype = SymbolAttributes(BasicType.INTEGER)
-                    new_scalar = sym.Variable(
-                        name=scalar_name, type=vtype, scope=self.scope
-                    )
+                    new_scalar = _declare_integer_variable(scalar_name, self.scope)
                     subst_map[member] = new_scalar
                     # Record new variable and assignment for insertion
                     new_vars += (new_scalar,)

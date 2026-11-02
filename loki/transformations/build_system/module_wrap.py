@@ -5,7 +5,6 @@
 # nor does it submit to any jurisdiction.
 
 from loki.batch import Transformation, SchedulerConfig
-from loki.expression import Variable
 from loki.ir import Import, Section, Interface, FindNodes, Transformer
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -132,7 +131,7 @@ class ModuleWrapTransformation(Transformation):
                     # Create a new module import with explicitly qualified symbol
                     modname = f'{target_symbol}{self.module_suffix}'
                     _update_item(target_symbol.lower(), modname)
-                    new_symbol = Variable(name=target_symbol, scope=source)
+                    new_symbol = source.get_variable(target_symbol, fail=False)
                     new_import = im.clone(module=modname, c_import=False, symbols=(new_symbol,))
                     source.spec.prepend(new_import)
 
@@ -162,7 +161,7 @@ class ModuleWrapTransformation(Transformation):
                     if targets and b.name.lower() in targets:
                         # Create a new module import with explicitly qualified symbol
                         modname = f'{b.name}{self.module_suffix}'
-                        new_symbol = Variable(name=f'{b.name}', scope=source)
+                        new_symbol = source.get_variable(b.name, fail=False)
                         new_import = Import(module=modname, c_import=False, symbols=(new_symbol,))
                         source.spec.prepend(new_import)
 

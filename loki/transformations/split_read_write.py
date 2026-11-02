@@ -73,9 +73,10 @@ class SplitReadWriteWalk(Transformer):
 
                 # define var to store temporary assignment
                 self.temp_count += 1
-                _type = o.lhs.type.clone(shape=as_tuple(_shape), intent=None)
-                tmp_var = o.lhs.clone(name=f'loki_temp_{self.temp_count}',
-                                      dimensions=as_tuple(_dims), type=_type)
+                o.lhs.scope.symbol_attrs[f'loki_temp_{self.temp_count}'] = o.lhs.type.clone(
+                    shape=as_tuple(_shape), intent=None
+                )
+                tmp_var = o.lhs.clone(name=f'loki_temp_{self.temp_count}', dimensions=as_tuple(_dims))
                 self.lhs_var_map[o.lhs] = tmp_var
                 self.tmp_vars += [tmp_var,]
 

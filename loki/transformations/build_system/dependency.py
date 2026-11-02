@@ -267,8 +267,9 @@ class DependencyTransformation(Transformation):
             if targets is None or call.name in targets:
                 orig_name = str(call.name)
                 new_name = f'{orig_name}{self.suffix}'
-                new_type = call.name.type.clone(dtype=ProcedureType(name=new_name))
-                call._update(name=call.name.clone(name=new_name, type=new_type))
+                scope = call.name.scope or routine
+                scope.symbol_attrs[new_name] = call.name.type.clone(dtype=ProcedureType(name=new_name))
+                call._update(name=call.name.clone(name=new_name, scope=scope))
                 _update_item(orig_name, str(call.name))
 
         inline_call_map = {}
@@ -278,8 +279,9 @@ class DependencyTransformation(Transformation):
             if targets is None or call.function in targets:
                 orig_name = str(call.name)
                 new_name = f'{orig_name}{self.suffix}'
-                new_type = call.function.type.clone(dtype=ProcedureType(name=new_name))
-                inline_call_map[call] = call.clone(function=call.function.clone(name=new_name, type=new_type))
+                scope = call.function.scope or routine
+                scope.symbol_attrs[new_name] = call.function.type.clone(dtype=ProcedureType(name=new_name))
+                inline_call_map[call] = call.clone(function=call.function.clone(name=new_name, scope=scope))
                 _update_item(orig_name, new_name)
 
         if inline_call_map:

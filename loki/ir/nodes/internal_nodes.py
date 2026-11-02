@@ -182,7 +182,8 @@ class Associate(ScopedNode, Section, _AssociateBase):  # pylint: disable=too-man
                     # For a scalar expression, we remove the shape
                     shape = None
                 _type = SymbolAttributes(BasicType.DEFERRED, shape=shape)
-            name = name.clone(scope=self, type=_type)
+            self.symbol_attrs[name.name] = _type
+            name = name.clone(scope=self)
             rescoped_associations += ((expr, name),)
 
         self._update(associations=rescoped_associations)

@@ -324,10 +324,10 @@ class ParametriseTransformation(Transformation):
                 symbols = []
                 for smbl in decl.symbols:
                     if smbl in vars2p:
-                        parameter_declarations.append(decl.clone(symbols=(smbl.clone(
-                            type=decl.symbols[0].type.clone(parameter=True, intent=None,
-                                                            initial=sym.IntLiteral(
-                                                                dic2p[smbl.name]))),))) # or smbl.name?
+                        smbl.scope.symbol_attrs[smbl.name] = decl.symbols[0].type.clone(
+                            parameter=True, intent=None, initial=sym.IntLiteral(dic2p[smbl.name])
+                        )
+                        parameter_declarations.append(decl.clone(symbols=(smbl.clone(),)))
                     else:
                         symbols.append(smbl.clone())
 

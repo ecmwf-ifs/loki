@@ -52,9 +52,9 @@ class HoistTemporaryArraysDeviceAllocatableTransformation(HoistVariablesTransfor
             The variable to be declared
         """
         for var in variables:
-            vtype = var.type.clone(device=True, allocatable=True)
+            routine.symbol_attrs[var.name] = var.type.clone(device=True, allocatable=True)
             routine.variables += tuple([var.clone(scope=routine, dimensions=as_tuple(
-                [sym.RangeIndex((None, None))] * (len(var.dimensions))), type=vtype)])
+                [sym.RangeIndex((None, None))] * (len(var.dimensions))))])
 
             allocations = FindNodes(ir.Allocation).visit(routine.body)
             if allocations:

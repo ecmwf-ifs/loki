@@ -15,7 +15,7 @@ from loki.module import Module
 from loki.tools import as_tuple
 from loki.types import SymbolAttributes, BasicType, DerivedType
 from loki.expression import (
-    symbols as sym, Variable, Array, RangeIndex
+    symbols as sym, Array, RangeIndex
 )
 from loki.transformations.array_indexing import resolve_vector_dimension
 from loki.transformations.sanitise import do_resolve_associates
@@ -110,8 +110,10 @@ class BlockViewToFieldViewTransformation(Transformation):
     def _build_parkind_import(self, field_array_module, wrapper_types):
 
         deferred_type = SymbolAttributes(BasicType.DEFERRED, imported=True)
-        _vars = {Variable(name='JP' + self._get_parkind_suffix(t), type=deferred_type, scope=field_array_module)
-                for t in wrapper_types}
+        names = {'JP' + self._get_parkind_suffix(t) for t in wrapper_types}
+        for name in names:
+            field_array_module.symbol_attrs[name] = deferred_type
+        _vars = {field_array_module.get_variable(name) for name in names}
 
         return ir.Import(module='PARKIND1', symbols=as_tuple(_vars))
 
@@ -139,22 +141,19 @@ class BlockViewToFieldViewTransformation(Transformation):
             pointer_type = SymbolAttributes(basetype, pointer=True, kind=kind, shape=view_shape)
             contig_pointer_type = pointer_type.clone(contiguous=True, shape=array_shape)
 
-            pointer_var = Variable(name='P', type=pointer_type, dimensions=view_shape)
-            contig_pointer_var = pointer_var.clone(name='P_FIELD', type=contig_pointer_type, dimensions=array_shape) # pylint: disable=no-member
-
-            decls = (ir.VariableDeclaration(symbols=(pointer_var,)),)
-            decls += (ir.VariableDeclaration(symbols=(contig_pointer_var,)),)
-
             field_object_type = SymbolAttributes(DerivedType(name=_type.lower().replace('_array', '')),
                                                  pointer=True, polymorphic=True)
-            field_object = Variable(name='F_P', type=field_object_type)
-            decls += (ir.VariableDeclaration(symbols=(field_object,)),)
 
-            typedefs += (ir.TypeDef(name=_type, body=decls, parent=field_array_module),) # pylint: disable=unexpected-keyword-arg
+            typedef = ir.TypeDef(name=_type, body=(), parent=field_array_module) # pylint: disable=unexpected-keyword-arg
+            typedef.symbol_attrs['P'] = pointer_type
+            typedef.symbol_attrs['P_FIELD'] = contig_pointer_type
+            typedef.symbol_attrs['F_P'] = field_object_type
 
-        # attach a scope to the symbols in the newly created typedefs
-        for typedef in typedefs:
-            typedef.rescope_symbols()
+            decls = (ir.VariableDeclaration(symbols=(typedef.get_variable('P', dimensions=view_shape),)),)
+            decls += (ir.VariableDeclaration(symbols=(typedef.get_variable('P_FIELD', dimensions=array_shape),)),)
+            decls += (ir.VariableDeclaration(symbols=(typedef.get_variable('F_P'),)),)
+            typedef._update(body=decls)
+            typedefs += (typedef,)
 
         return typedefs
 
@@ -212,12 +211,13 @@ class BlockViewToFieldViewTransformation(Transformation):
         if (parent := var.parent):
             parent = self.build_ydvars_global_gfl_ptr(parent)
 
-        _type = var.type
-        if 'gfl_ptr' in var.basename.lower():
-            _type = parent.variable_map['gfl_ptr_g'].type
-
-        return var.clone(name=var.name.upper().replace('GFL_PTR', 'GFL_PTR_G'),
-                         parent=parent, type=_type)
+        basename = var.basename.upper().replace('GFL_PTR', 'GFL_PTR_G')
+        if parent is None:
+            return var.clone(name=basename)
+        # The member's type is resolved via the type definition of the new parent
+        return parent.scope.get_variable(
+            basename, parent=parent, dimensions=getattr(var, 'dimensions', None), fail=False
+        )
 
     def process_body(self, body, item, successors, targets, exclude_var_names):
 
@@ -236,9 +236,12 @@ class BlockViewToFieldViewTransformation(Transformation):
         _vars = [v for v in _vars if not any(e in v for e in exclude_var_names)]
 
         # replace per-block view pointers with full field pointers
-        vmap = {var: var.clone(name=var.name_parts[-1] + '_FIELD',
-                               type=var.parent.variable_map[var.name_parts[-1] + '_FIELD'].type)
-                for var in _vars}
+        vmap = {
+            var: var.parent.scope.get_variable(
+                var.name_parts[-1] + '_FIELD', parent=var.parent, dimensions=var.dimensions, fail=False
+            )
+            for var in _vars
+        }
 
         # replace thread-private GFL_PTR with global
         if self.global_gfl_ptr:
@@ -557,8 +560,11 @@ class LowerBlockIndexTransformation(Transformation):
             if new_args:
                 call._update(kwarguments=call.kwarguments+tuple((new_arg.name, new_arg) for new_arg in new_args))
                 if call.routine.name not in processed_routines:
-                    call.routine.arguments += tuple((variable_map[new_arg.name].clone(scope=call.routine,
-                        type=new_arg.type.clone(intent='in')) for new_arg in new_args))
+                    for new_arg in new_args:
+                        call.routine.symbol_attrs[new_arg.name] = new_arg.type.clone(intent='in')
+                    call.routine.arguments += tuple(
+                        variable_map[new_arg.name].clone(scope=call.routine) for new_arg in new_args
+                    )
             # update dimensions and shape
             var_map = {}
             call_variable_map = call.routine.variable_map
@@ -567,8 +573,8 @@ class LowerBlockIndexTransformation(Transformation):
                     call_routine_var = call_variable_map[arg.name]
                     new_dims = call_routine_var.dimensions + (call_variable_map[call_block_dim_size.name],)
                     new_shape = call_routine_var.shape + (call_variable_map[call_block_dim_size.name],)
-                    new_type = call_routine_var.type.clone(shape=new_shape)
-                    var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims, type=new_type)
+                    call.routine.symbol_attrs[arg.name] = call_routine_var.type.clone(shape=new_shape)
+                    var_map[call_routine_var] = call_routine_var.clone(dimensions=new_dims)
             call.routine.spec = SubstituteExpressions(var_map).visit(call.routine.spec)
             if role == 'driver':
                 _arguments = ()
@@ -676,8 +682,8 @@ class LowerBlockLoopTransformation(Transformation):
     def arg_to_local_var(routine, var):
         new_args = tuple(arg for arg in routine.arguments if arg.name.lower() != var.name.lower())
         routine.arguments = new_args
-        routine.variables += (routine.variable_map[var.name].clone(scope=routine,
-            type=routine.variable_map[var.name].type.clone(intent=None)),)
+        routine.update(var.name, intent=None)
+        routine.variables += (routine.variable_map[var.name],)
 
     def local_var(self, call, variables):
         inv_call_arg_map = {v: k for k, v in call.arg_map.items()}

@@ -34,9 +34,10 @@ class LoopSplittingVariables:
             error("LoopSplittingVariables: Block size argument must be an integer constant or a scalar variable")
             raise ValueError('Block size must a be a an integer constant or a scalar variable')
 
-        self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size",
-                                               type=loop_var.type.clone(parameter=True,
-                                                                        initial=blk_size)),  # pylint: disable=possibly-used-before-assignment
+        loop_var.scope.symbol_attrs[loop_var.name + "_loop_block_size"] = loop_var.type.clone(
+            parameter=True, initial=blk_size  # pylint: disable=possibly-used-before-assignment
+        )
+        self._splitting_vars = (loop_var.clone(name=loop_var.name + "_loop_block_size"),
                                 loop_var.clone(name=loop_var.name + "_loop_num_blocks"),
                                 loop_var.clone(name=loop_var.name + "_loop_block_idx"),
                                 loop_var.clone(name=loop_var.name + "_loop_local"),
@@ -264,10 +265,12 @@ def block_loop_arrays(routine: Subroutine, splitting_vars, inner_loop: ir.Loop,
                    isinstance(var, sym.Array) and any(
                        bi in var for bi in blocking_indices))
     name_map = {a.name: a.name + '_block' for a in arrays}
+    for a in arrays:
+        routine.symbol_attrs[name_map[a.name]] = blocked_type(a)
     block_arrays = tuple(
-        a.clone(name=name_map[a.name],
-                dimensions=blocked_shape(a, blocking_indices, splitting_vars.block_size),
-                type=blocked_type(a)) for a in arrays)
+        a.clone(name=name_map[a.name], scope=routine,
+                dimensions=blocked_shape(a, blocking_indices, splitting_vars.block_size))
+        for a in arrays)
     routine.variables += block_arrays
 
     # Replace arrays in loop with blocked arrays and update idx

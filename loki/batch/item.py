@@ -9,7 +9,7 @@ import sys
 
 from loki.batch.configure import SchedulerConfig, ItemConfig
 from loki.expression import (
-    TypedSymbol, MetaSymbol, ProcedureSymbol, Variable
+    TypedSymbol, MetaSymbol, ProcedureSymbol
 )
 from loki.frontend import REGEX, RegexParserClass
 from loki.ir import (
@@ -991,7 +991,7 @@ class ProcedureBindingItem(Item):
         symbol_name = f'{symbol.name}'
         for name_part in name_parts[2:-1]:
             symbol_name += '%' + name_part
-            symbol = Variable(name=symbol_name, parent=symbol, scope=symbol.scope)
+            symbol = symbol.scope.get_variable(name_part, parent=symbol, fail=False)
         # ...and explicitly instantiate the final symbol as ProcedureSymbol
         proc_name = f'{symbol_name}%{name_parts[-1]}'
         return as_tuple(ProcedureSymbol(name=proc_name, parent=symbol, scope=symbol.scope))

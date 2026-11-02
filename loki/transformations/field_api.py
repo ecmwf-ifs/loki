@@ -104,7 +104,8 @@ class FieldPointerMap:
         shape = (sym.RangeIndex((None, None)),) * (len(a.shape)+1)
         dataptr_type = a.type.clone(pointer=True, contiguous=True, shape=shape, intent=None)
         base_name = a.name if a.parent is None else '_'.join(a.name.split('%'))
-        return sym.Variable(name=self.ptr_prefix + base_name, type=dataptr_type, dimensions=shape)
+        self.scope.symbol_attrs[self.ptr_prefix + base_name] = dataptr_type
+        return self.scope.get_variable(self.ptr_prefix + base_name, dimensions=shape)
 
     @staticmethod
     def field_ptr_from_view(field_view):

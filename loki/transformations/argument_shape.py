@@ -24,7 +24,7 @@ from loki.expression import Array, symbols as sym, simplify
 from loki.ir import (
     FindNodes, CallStatement, Transformer, FindVariables, SubstituteExpressions
 )
-from loki.tools import as_tuple, CaseInsensitiveDict, OrderedSet
+from loki.tools import as_tuple, OrderedSet
 from loki.types import BasicType
 
 
@@ -71,12 +71,14 @@ class ArgumentArrayShapeAnalysis(Transformation):
                     if all(d == ':' for d in arg.shape):
                         if len(val.shape) == len(arg.shape):
                             # We're passing the full value array, copy shape
-                            vmap[arg] = arg.clone(type=arg.type.clone(shape=val.shape))
+                            routine.update(arg.name, shape=val.shape)
+                            vmap[arg] = arg.clone()
                         else:
                             # Passing a sub-array of val, find the right index
                             new_shape = [s for s, d in zip(val.shape, val.dimensions)
                                          if d == ':']
-                            vmap[arg] = arg.clone(type=arg.type.clone(shape=new_shape))
+                            routine.update(arg.name, shape=new_shape)
+                            vmap[arg] = arg.clone()
 
                     elif str(arg.shape[-1])[-1] == '*':
                         expl_shape_len = len(arg.shape) - 1
@@ -104,19 +106,12 @@ class ArgumentArrayShapeAnalysis(Transformation):
                             new_shape[expl_shape_len] = sym.RangeIndex((lower, upper))
                         else:
                             new_shape[expl_shape_len] = expl_size
-                        vmap[arg] = arg.clone(type=arg.type.clone(shape=as_tuple(new_shape)))
+                        routine.update(arg.name, shape=as_tuple(new_shape))
+                        vmap[arg] = arg.clone()
 
-            # Propagate the updated variables to variable definitions in routine
+            # Propagate the updated variables to variable definitions in routine;
+            # variable instances in the body pick up the new shape from the symbol table
             routine.variables = [vmap.get(v, v) for v in routine.variables]
-
-            # And finally propagate this to the variable instances
-            vname_map = CaseInsensitiveDict((k.name, v) for k, v in vmap.items())
-            vmap_body = {}
-            for v in FindVariables(unique=False).visit(routine.body):
-                if v.name in vname_map:
-                    new_shape = vname_map[v.name].shape
-                    vmap_body[v] = v.clone(type=v.type.clone(shape=new_shape))
-            routine.body = SubstituteExpressions(vmap_body).visit(routine.body)
 
 
 class ExplicitArgumentArrayShapeTransformation(Transformation):
@@ -179,7 +174,9 @@ class ExplicitArgumentArrayShapeTransformation(Transformation):
             new_args = tuple(d for d in dim_vars if d not in callee.arguments)
             new_args = tuple(d for d in new_args if d.type.dtype == BasicType.INTEGER)
             new_args = tuple(d for d in new_args if d not in imported_symbols)
-            new_args = tuple(d.clone(scope=routine, type=d.type.clone(intent='IN')) for d in new_args)
+            for d in new_args:
+                routine.symbol_attrs[d.name] = d.type.clone(intent='IN')
+            new_args = tuple(d.clone(scope=routine) for d in new_args)
             callee.arguments += new_args
 
             # Map all local dimension args to unknown callee dimension args

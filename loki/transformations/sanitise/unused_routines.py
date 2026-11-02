@@ -58,7 +58,8 @@ class SanitiseUnusedRoutineTransformation(Transformation):
     def _deferred_shape(symbol):
         """Clone one array symbol with all declared dimensions rewritten to deferred shape."""
         new_shape = tuple(sym.RangeIndex((None, None)) for _ in symbol.type.shape)
-        return symbol.clone(dimensions=new_shape, type=symbol.type.clone(shape=new_shape))
+        symbol.scope.symbol_attrs[symbol.name] = symbol.type.clone(shape=new_shape)
+        return symbol.clone(dimensions=new_shape)
 
     @staticmethod
     def _should_keep_with_deferred_shape(symbol):

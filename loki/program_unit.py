@@ -313,7 +313,7 @@ class ProgramUnit(Scope):
                 # Import all symbols
                 rename_list = CaseInsensitiveDict((k, v) for k, v in as_tuple(imprt.rename_list))
                 symbols = [
-                    Variable(name=str(rename_list.get(symbol.name, symbol.name)), scope=self)
+                    self.get_variable(str(rename_list.get(symbol.name, symbol.name)), fail=False)
                     for symbol in module.symbols
                 ]
 
@@ -684,7 +684,7 @@ class ProgramUnit(Scope):
         kwargs['scope'] = self
         return Variable(**kwargs)
 
-    def declare_variable(self, name, type=None, dtype=None, dimensions=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
+    def declare_variable(self, name, type=None, dtype=None, dimensions=None, parent=None, fail=True, **kwargs):  # pylint: disable=redefined-builtin
         """
         Declare a new variable in this program unit and return the
         corresponding symbol
@@ -706,6 +706,10 @@ class ProgramUnit(Scope):
             Basic data type of the variable, if :data:`type` is not given.
         dimensions : tuple, optional
             The array subscript for the returned symbol.
+        parent : :any:`Scalar` or :any:`Array`, optional
+            The derived type variable the declared variable belongs to. In
+            this case, only the type information is declared, as for
+            :meth:`Scope.declare_variable`, without adding a declaration.
         fail : bool, optional
             Flag to override the default failure on attempted re-declaration,
             in which case prior type information is replaced and the
@@ -719,6 +723,11 @@ class ProgramUnit(Scope):
         :any:`TypedSymbol` or :any:`MetaSymbol`
             The symbol for the declared variable, as given by :meth:`get_variable`
         """
+        if parent is not None:
+            return super().declare_variable(
+                name, type=type, dtype=dtype, dimensions=dimensions, parent=parent, fail=fail, **kwargs
+            )
+
         decl = CaseInsensitiveDict(
             (s.name, d) for d in self.declarations for s in d.symbols
         ).get(name)

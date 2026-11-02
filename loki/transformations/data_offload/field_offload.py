@@ -7,7 +7,7 @@
 from loki.analyse import dataflow_analysis_attached
 from loki.batch import Transformation
 from loki.expression import Array, symbols as sym, parse_expr
-from loki.types import BasicType, SymbolAttributes
+from loki.types import BasicType
 from loki.ir import (
     nodes as ir, FindNodes, FindVariables, Transformer,
     SubstituteExpressions, pragma_regions_attached, is_loki_pragma, pragmas_attached
@@ -360,16 +360,13 @@ def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
     offset:
         Variable holding the offset in the blocked loop.
     """
-    queue = sym.Variable(name='loki_block_queue', type=SymbolAttributes(BasicType.INTEGER),
-                         scope=routine)
-    nqueues = sym.Variable(name='loki_block_nqueues', type=SymbolAttributes(BasicType.INTEGER,
-                                                                            parameter=True,
-                                                                            initial=sym.IntLiteral(num_queues)),
-                           scope=routine)
-    offset = sym.Variable(name='loki_block_offset', type=SymbolAttributes(BasicType.INTEGER),
-                          scope=routine)
-    # add variables to routine variable map
-    routine.variables += (queue, nqueues, offset)
+    # declare the new variables in the routine
+    queue = routine.declare_variable('loki_block_queue', dtype=BasicType.INTEGER, fail=False)
+    nqueues = routine.declare_variable(
+        'loki_block_nqueues', dtype=BasicType.INTEGER, parameter=True,
+        initial=sym.IntLiteral(num_queues), fail=False
+    )
+    offset = routine.declare_variable('loki_block_offset', dtype=BasicType.INTEGER, fail=False)
 
     # set queue and offset in loop
     async_blocking_body = (

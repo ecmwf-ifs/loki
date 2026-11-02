@@ -741,10 +741,10 @@ class GlobalVarHoistTransformation(Transformation):
                 continue
             new_arguments.append(var.parents[0] if var.parent else var)
         new_arguments = OrderedSet(new_arguments) # remove duplicates
-        new_arguments = [
-            arg.clone(scope=routine, type=arg.type.clone(
+        for arg in new_arguments:
+            routine.symbol_attrs[arg.name] = arg.type.clone(
                 intent='inout' if arg in all_defines_vars else 'in',
                 parameter=False, initial=None
-            )) for arg in new_arguments
-        ]
+            )
+        new_arguments = [arg.clone(scope=routine) for arg in new_arguments]
         routine.arguments += tuple(sorted(new_arguments, key=lambda symbol: symbol.name))

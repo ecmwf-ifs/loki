@@ -94,7 +94,7 @@ def add_block_loops(routine, dimension, default_type=None):
     # Ensure that local integer variables are declared
     for v in (lidx, bupper, bidx):
         if not v in routine.variable_map:
-            routine.variables += (v.clone(type=dtype),)
+            routine.declare_variable(v.name, type=dtype, fail=False)
 
     def _create_block_loop(body, scope):
         """

@@ -17,7 +17,7 @@ from collections import defaultdict
 
 from loki.batch import Transformation
 from loki.expression import (
-    InlineCall, Variable, RangeIndex, ExpressionRetriever,
+    InlineCall, DeferredTypeSymbol, RangeIndex, ExpressionRetriever,
     SubstituteExpressionsMapper
 )
 from loki.ir import (
@@ -456,9 +456,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
                 # This new symbol has been declared in the symbol_scope we inherited it from
                 while symbol_scope.parent:
                     symbol_scope = symbol_scope.parent
-                new_imports[symbol_scope.name.lower()].add(
-                    symbol.clone(scope=scope, type=symbol.type.clone(imported=True))
-                )
+                scope.symbol_attrs[symbol.name] = symbol.type.clone(imported=True)
+                new_imports[symbol_scope.name.lower()].add(symbol.clone(scope=scope))
 
             else:
                 _warn(symbol)
@@ -489,9 +488,8 @@ class DerivedTypeArgumentsTransformation(Transformation):
                     ))
                 elif typedef.parent is not routine.parent:
                     # Derived type needs to be imported
-                    new_imports[typedef.parent.name.lower()].add(
-                        Variable(name=type_.dtype.name, scope=routine, type=type_.clone(imported=True))
-                    )
+                    routine.symbol_attrs[type_.dtype.name] = type_.clone(imported=True)
+                    new_imports[typedef.parent.name.lower()].add(routine.get_variable(type_.dtype.name))
 
             if type_.kind:
                 for module, symbols in cls._get_imports_for_expr(type_.kind, routine, symbol_map).items():
@@ -611,7 +609,10 @@ def get_procedure_symbol_from_typebound_procedure_symbol(proc_symbol, routine_na
             # If the binding doesn't have any specific bind_names, this means the
             # corresponding subroutine has the same name and should be declared
             # in the same module as the typedef
-            new_name = Variable(name=local_var.name, scope=local_parent.type.dtype.typedef.parent)
+            if (typedef_scope := local_parent.type.dtype.typedef.parent) is None:
+                new_name = DeferredTypeSymbol(name=local_var.name)
+            else:
+                new_name = typedef_scope.get_variable(local_var.name, fail=False)
         return new_name
 
     # We don't have any binding information available
@@ -811,7 +812,9 @@ class TypeboundProcedureCallTransformation(Transformation):
         imported_symbols = routine.imported_symbols
         new_imports = []
         for module_name, proc_symbols in new_procedure_imports.items():
-            new_symbols = tuple(Variable(name=s, scope=routine) for s in proc_symbols if s not in imported_symbols)
+            new_symbols = tuple(
+                routine.get_variable(s, fail=False) for s in proc_symbols if s not in imported_symbols
+            )
             if new_symbols:
                 new_imports += [Import(module=module_name, symbols=new_symbols)]
 

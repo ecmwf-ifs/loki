@@ -251,8 +251,7 @@ def _get_callee_result_var(routine):
     if routine.result_name.lower() in routine.variable_map:
         callee_result_var = routine.variable_map[routine.result_name]
     else:
-        callee_result_var_type = routine.symbol_attrs[routine.result_name]
-        callee_result_var = sym.Variable(name=routine.result_name, type=callee_result_var_type, scope=routine)
+        callee_result_var = routine.get_variable(routine.result_name)
     return callee_result_var
 
 

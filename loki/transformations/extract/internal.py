@@ -182,10 +182,9 @@ def extract_internal_procedure(procedure, name):
     # Here also rescoping all variables to the scope of `inner` and specifying intent as "inout",
     # if not set in `procedure` scope.
     # Note: After these lines, `inner` should be self-contained or there is a bug.
-    inner.arguments += tuple(
-        v.clone(type=v.type.clone(intent=v.type.intent or 'inout'), scope=inner)
-        for v in vars_to_resolve
-    )
+    for v in vars_to_resolve:
+        inner.symbol_attrs[v.name] = v.type.clone(intent=v.type.intent or 'inout')
+    inner.arguments += tuple(v.clone(scope=inner) for v in vars_to_resolve)
     inner.spec.prepend(imports_to_add)
 
     ## TRANSFORMING CALLS TO `inner` in `procedure`.

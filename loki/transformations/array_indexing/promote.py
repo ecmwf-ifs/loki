@@ -116,8 +116,9 @@ def promote_variables(routine, variable_names, pos, index=None, size=None):
             var_pos = [pos] * len(var_shapes)
         var_shapes = [d[:p] + size + d[p:] for d, p in zip(var_shapes, var_pos)]
 
-        var_map = {v: v.clone(type=v.type.clone(shape=shape), dimensions=shape)
-                   for v, shape in zip(var_list, var_shapes)}
+        for v, shape in zip(var_list, var_shapes):
+            routine.symbol_attrs[v.name] = v.type.clone(shape=shape)
+        var_map = {v: v.clone(dimensions=shape) for v, shape in zip(var_list, var_shapes)}
         routine.spec = SubstituteExpressions(var_map).visit(routine.spec)
 
 

@@ -252,7 +252,13 @@ class Subroutine(ProgramUnit):
         """
         Return the procedure symbol for this subroutine
         """
-        return sym.Variable(name=self.name, type=SymbolAttributes(self.procedure_type), scope=self.parent)
+        _type = SymbolAttributes(self.procedure_type)
+        if self.parent is None:
+            return sym.ProcedureSymbol(name=self.name, type=_type)
+        if self.parent.symbol_attrs.lookup(self.name, recursive=False) != _type:
+            # Make sure the symbol in the parent scope refers to this routine
+            self.parent.symbol_attrs[self.name] = _type
+        return self.parent.get_variable(self.name)
 
     @property
     def procedure_type(self):
@@ -288,7 +294,7 @@ class Subroutine(ProgramUnit):
         #Note that if the map is not loaded, Python will recreate it for every arguement,
         #resulting in a large overhead.
         symbol_map = self.symbol_map
-        return as_tuple(symbol_map.get(arg, sym.Variable(name=arg)) for arg in self._dummies)
+        return as_tuple(symbol_map.get(arg, sym.DeferredTypeSymbol(name=arg)) for arg in self._dummies)
 
     @arguments.setter
     def arguments(self, arguments):
@@ -413,7 +419,8 @@ class Subroutine(ProgramUnit):
                             node.parent = None
 
                 # Need to update the call's symbol to establish link to routine
-                symbol = symbol.clone(scope=self, type=symbol.type.clone(dtype=routine.procedure_type))
+                self.symbol_attrs[symbol.name] = symbol.type.clone(dtype=routine.procedure_type)
+                symbol = symbol.clone(scope=self)
                 call._update(name=symbol)
 
         # Rebuild local symbols to ensure correct symbol types

@@ -20,7 +20,7 @@ from loki.transformations.utilities import find_driver_loops
 from loki.transformations.loop_blocking import (
     LoopSplittingVariables, split_loop, block_loop_arrays
 )
-from loki.types import SymbolAttributes, BasicType
+from loki.types import BasicType, Scope
 from loki.logging import ERROR
 
 """
@@ -51,7 +51,8 @@ def array_access_symbols(node):
 
 
 def test_loop_splitting_vars(caplog):
-    loop_var = sym.Variable(name='i', type=SymbolAttributes(BasicType.INTEGER))
+    scope = Scope()
+    loop_var = scope.declare_variable('i', dtype=BasicType.INTEGER)
 
     # Test init with int block size
     blk_size = 1
@@ -60,7 +61,7 @@ def test_loop_splitting_vars(caplog):
     assert isinstance(loop_var, sym.Scalar) and loop_var.type.dtype == BasicType.INTEGER
 
     # Test init with scalar
-    blk_size = sym.Variable(name='i', type=SymbolAttributes(BasicType.INTEGER))
+    blk_size = scope.get_variable('i')
     loop_splitting_vars = LoopSplittingVariables(loop_var, blk_size)
     loop_var = loop_splitting_vars.loop_var
     assert isinstance(loop_var, sym.Scalar) and loop_var.type.dtype == BasicType.INTEGER

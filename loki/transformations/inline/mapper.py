@@ -20,13 +20,23 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         raise NotImplementedError
 
+    @staticmethod
+    def _rescope_symbol(expr, scope, parent, **kwargs):
+        """
+        Copy the type of an imported symbol into :data:`scope` and
+        return the symbol rescoped to it
+        """
+        name = f'{parent.name}%{expr.basename}' if parent is not None else expr.name
+        scope.symbol_attrs[name] = expr.type
+        return expr.clone(scope=scope, parent=parent, **kwargs)
+
     def map_scalar(self, expr, *args, **kwargs):
         parent = self.rec(expr.parent, *args, **kwargs) if expr.parent is not None else None
 
         scope = kwargs.get('scope') or expr.scope
         # We're re-scoping an imported symbol
         if expr.scope != scope:
-            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
+            return self._rescope_symbol(expr, scope, parent)
         return expr.clone(parent=parent)
 
     map_deferred_type_symbol = map_scalar
@@ -41,7 +51,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         scope = kwargs.get('scope') or expr.scope
         # We're re-scoping an imported symbol
         if expr.scope != scope:
-            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent, dimensions=dimensions)
+            return self._rescope_symbol(expr, scope, parent, dimensions=dimensions)
         return expr.clone(parent=parent, dimensions=dimensions)
 
     def map_procedure_symbol(self, expr, *args, **kwargs):
@@ -50,7 +60,7 @@ class InlineSubstitutionMapper(LokiIdentityMapper):
         scope = kwargs.get('scope') or expr.scope
         # We're re-scoping an imported symbol
         if expr.scope != scope:
-            return expr.clone(scope=scope, type=expr.type.clone(), parent=parent)
+            return self._rescope_symbol(expr, scope, parent)
         return expr.clone(parent=parent)
 
     def map_inline_call(self, expr, *args, **kwargs):

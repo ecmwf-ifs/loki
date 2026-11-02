@@ -250,7 +250,7 @@ def add_firstprivate_copies(routine, fprivate_map):
         lhs = parse_expr(lcl, scope=routine)
         rhs = parse_expr(gbl, scope=routine)
         if not lhs in routine.variable_map:
-            routine.variables += (lhs.clone(type=rhs.type.clone(intent=None)),)
+            routine.declare_variable(lhs.name, type=rhs.type.clone(intent=None), fail=False)
 
     class InjectExplicitCopyTransformer(Transformer):
         """" Inject assignments that match the firstprivate map in parallel regions """

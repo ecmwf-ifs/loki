@@ -74,8 +74,8 @@ def invert_array_indices(routine):
         if isinstance(v, sym.Array):
             rdim = as_tuple(reversed(v.dimensions))
             if v.shape:
-                rshape = as_tuple(reversed(v.shape))
-                vmap[v] = v.clone(dimensions=rdim, type=v.type.clone(shape=rshape))
+                routine.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(reversed(v.shape)))
+                vmap[v] = v.clone(dimensions=rdim)
             else:
                 vmap[v] = v.clone(dimensions=rdim)
     routine.variables = [vmap.get(v, v) for v in routine.variables]
@@ -93,8 +93,8 @@ def normalize_range_indexing(routine):
         if isinstance(v, sym.Array):
             new_dims = [d.upper if is_one_index(d) else d for d in v.dimensions]
             new_shape = [d.upper if is_one_index(d) else d for d in v.shape]
-            new_type = v.type.clone(shape=as_tuple(new_shape))
-            vmap[v] = v.clone(dimensions=as_tuple(new_dims), type=new_type)
+            routine.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(new_shape))
+            vmap[v] = v.clone(dimensions=as_tuple(new_dims))
     routine.variables = [vmap.get(v, v) for v in routine.variables]
 
 
@@ -141,9 +141,12 @@ def flatten_arrays(routine, order='F', start_index=1):
 
     routine.body = SubstituteExpressions(array_map).visit(routine.body)
 
-    routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape)),
-                                 type=v.type.clone(shape=as_tuple(sym.Product(v.shape))))
-                         if isinstance(v, sym.Array) else v for v in routine.variables]
+    variables = routine.variables
+    for v in variables:
+        if isinstance(v, sym.Array):
+            routine.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(sym.Product(v.shape)))
+    routine.variables = [v.clone(dimensions=as_tuple(sym.Product(v.shape))) if isinstance(v, sym.Array) else v
+                         for v in variables]
 
 
 def normalize_array_shape_and_access(routine):
@@ -186,8 +189,8 @@ def normalize_array_shape_and_access(routine):
                 if is_explicit_range_index(d) else d for d in v.dimensions]
             new_shape = [sym.RangeIndex((1, simplify(d.upper - d.lower + 1)))
                 if is_explicit_range_index(d) else d for d in v.shape]
-            new_type = v.type.clone(shape=as_tuple(new_shape))
-            vmap[v] = v.clone(dimensions=as_tuple(new_dims), type=new_type)
+            routine.symbol_attrs[v.name] = v.type.clone(shape=as_tuple(new_shape))
+            vmap[v] = v.clone(dimensions=as_tuple(new_dims))
     routine.variables = [vmap.get(v, v) for v in routine.variables]
     normalize_range_indexing(routine)
 
@@ -403,7 +406,8 @@ class LowerConstantArrayIndices(Transformation):
                     new_dims += (size,)
                 else:
                     new_dims += (var.shape[original_index],)
-            vmap[var] = var.clone(dimensions=new_dims, type=var.type.clone(shape=new_dims))
+            routine.symbol_attrs[var.name] = var.type.clone(shape=new_dims)
+            vmap[var] = var.clone(dimensions=new_dims)
         routine.spec = SubstituteExpressions(vmap).visit(routine.spec)
         # adapt the variable usage, thus the indexing/dimension
         vmap = {}
