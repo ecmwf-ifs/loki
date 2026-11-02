@@ -9,7 +9,7 @@ from pathlib import Path
 from loki.backend import cgen, cudagen, cppgen
 from loki.batch import Transformation
 from loki.expression import (
-    symbols as sym, Variable, InlineCall, Scalar, Array,
+    symbols as sym, InlineCall, Scalar, Array,
     ProcedureSymbol, Dereference, Reference, ExpressionRetriever,
     SubstituteExpressionsMapper
 )
@@ -263,13 +263,15 @@ class FortranCTransformation(Transformation):
 
         # Create declarations for module variables
         if self.language == 'c':
-            module_variables = {
-                im.module.lower(): [
-                    s.clone(scope=kernel, type=s.type.clone(imported=None, module=None)) for s in im.symbols
+            module_variables = {}
+            for im in kernel.imports:
+                symbols = [
+                    s for s in im.symbols
                     if isinstance(s, Scalar) and s.type.dtype is not BasicType.DEFERRED and not s.type.parameter
                 ]
-                for im in kernel.imports
-            }
+                for s in symbols:
+                    kernel.symbol_attrs[s.name] = s.type.clone(imported=None, module=None)
+                module_variables[im.module.lower()] = [s.clone(scope=kernel) for s in symbols]
             kernel.variables += as_tuple(flatten(list(module_variables.values())))
 
             # Create calls to getter routines for module variables
@@ -340,7 +342,7 @@ class FortranCTransformation(Transformation):
         for call in calls:
             if call.name not in as_tuple(targets):
                 continue
-            call._update(name=Variable(name=f'{call.name}_c'.lower()))
+            call._update(name=sym.DeferredTypeSymbol(name=f'{call.name}_c'.lower()))
         # inline calls (to functions)
         callmap = {}
         for call in FindInlineCalls(unique=False).visit(routine.body):
@@ -374,6 +376,6 @@ class FortranCTransformation(Transformation):
             if assignment.lhs == blockdim:
                 blockdim_assignment = assignment.clone()
         kernel_launch.body = (ir.Comment(text="! here should be the launcher ...."),
-                griddim_assignment, blockdim_assignment, ir.CallStatement(name=Variable(name=kernel.name),
-                    arguments=call_arguments, chevron=(sym.Variable(name="griddim"),
-                        sym.Variable(name="blockdim"))))
+                griddim_assignment, blockdim_assignment, ir.CallStatement(name=sym.DeferredTypeSymbol(name=kernel.name),
+                    arguments=call_arguments, chevron=(sym.DeferredTypeSymbol(name="griddim"),
+                        sym.DeferredTypeSymbol(name="blockdim"))))

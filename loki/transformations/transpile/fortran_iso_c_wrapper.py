@@ -134,15 +134,15 @@ def c_intrinsic_kind(_type, scope):
         The containing scope in which to clone the type symbol
     """
     if _type.dtype == BasicType.LOGICAL:
-        return sym.Variable(name='int', scope=scope)
+        return scope.get_variable('int', fail=False)
     if _type.dtype == BasicType.INTEGER:
-        return sym.Variable(name='int', scope=scope)
+        return scope.get_variable('int', fail=False)
     if _type.dtype == BasicType.REAL:
         kind = str(_type.kind)
         if kind.lower() in ('real32', 'c_float'):
-            return sym.Variable(name='float', scope=scope)
+            return scope.get_variable('float', fail=False)
         if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double'):
-            return sym.Variable(name='double', scope=scope)
+            return scope.get_variable('double', fail=False)
     return None
 
 
@@ -161,7 +161,7 @@ def iso_c_intrinsic_import(scope, use_c_ptr=False):
     import_symbols = ['c_int', 'c_double', 'c_float']
     if use_c_ptr:
         import_symbols += ['c_ptr', 'c_loc']
-    symbols = as_tuple(sym.Variable(name=name, scope=scope) for name in import_symbols)
+    symbols = as_tuple(scope.get_variable(name, fail=False) for name in import_symbols)
     isoc_import = ir.Import(module='iso_c_binding', symbols=symbols)
     return isoc_import
 
@@ -181,16 +181,16 @@ def iso_c_intrinsic_kind(_type, scope, is_array=False, use_c_ptr=False):
         pass the corresponding argument. Default is ``False``.
     """
     if _type.dtype == BasicType.INTEGER:
-        return sym.Variable(name='c_int', scope=scope)
+        return scope.get_variable('c_int', fail=False)
 
     if _type.dtype == BasicType.REAL:
         kind = str(_type.kind)
         if kind.lower() in ('real32', 'c_float'):
-            return sym.Variable(name='c_float', scope=scope)
+            return scope.get_variable('c_float', fail=False)
         if kind.lower() in ('real64', 'jprb', 'selected_real_kind(13, 300)', 'c_double', 'c_ptr'):
             if use_c_ptr and is_array:
-                return sym.Variable(name='c_ptr', scope=scope)
-            return sym.Variable(name='c_double', scope=scope)
+                return scope.get_variable('c_ptr', fail=False)
+            return scope.get_variable('c_double', fail=False)
 
     return None
 
@@ -214,7 +214,8 @@ def c_struct_typedef(derived, use_c_ptr=False):
     declarations = []
     for v in variables:
         ctype = v.type.clone(kind=iso_c_intrinsic_kind(v.type, typedef, use_c_ptr=use_c_ptr))
-        vnew = v.clone(name=v.basename.lower(), scope=typedef, type=ctype)
+        typedef.symbol_attrs[v.basename.lower()] = ctype
+        vnew = v.clone(name=v.basename.lower(), scope=typedef)
         declarations += (ir.VariableDeclaration(symbols=(vnew,)),)
     typedef._update(body=as_tuple(declarations))
     return typedef
@@ -276,7 +277,8 @@ def generate_iso_c_interface(routine, bind_name, c_structs, scope, use_c_ptr=Fal
             dimensions = None
         else:
             dimensions = arg.dimensions if isinstance(arg, sym.Array) else None
-        var = sym.Variable(name=arg.name, dimensions=dimensions, type=ctype, scope=intf_routine)
+        intf_routine.symbol_attrs[arg.name] = ctype
+        var = intf_routine.get_variable(arg.name, dimensions=dimensions)
         intf_routine.variables += (var,)
         intf_routine.arguments += (var,)
 
@@ -336,7 +338,8 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
     for arg in routine.arguments:
         if isinstance(arg.type.dtype, DerivedType):
             ctype = SymbolAttributes(DerivedType(name=c_structs[arg.type.dtype.name.lower()].name))
-            cvar = sym.Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
+            wrapper.symbol_attrs[f'{arg.name}_c'] = ctype
+            cvar = wrapper.get_variable(f'{arg.name}_c')
             cast_in = sym.InlineCall(sym.ProcedureSymbol('transfer', scope=wrapper),
                                      parameters=(arg,), kw_parameters={'mold': cvar})
             casts_in += [ir.Assignment(lhs=cvar, rhs=cast_in)]
@@ -346,7 +349,7 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
             casts_out += [ir.Assignment(lhs=arg, rhs=cast_out)]
             local_arg_map[arg.name] = cvar
 
-    arguments = tuple(local_arg_map[a.name] if a.name in local_arg_map else sym.Variable(name=a.name)
+    arguments = tuple(local_arg_map[a.name] if a.name in local_arg_map else sym.DeferredTypeSymbol(name=a.name)
                       for a in routine.arguments)
     use_device_addr = []
     if use_c_ptr:
@@ -354,7 +357,8 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
         for arg in routine.arguments:
             if isinstance(arg, sym.Array):
                 new_dims = tuple(sym.RangeIndex((None, None)) for _ in arg.dimensions)
-                arg_map[arg] = arg.clone(dimensions=new_dims, type=arg.type.clone(target=True))
+                routine.update(arg.name, target=True)
+                arg_map[arg] = arg.clone(dimensions=new_dims)
         routine.spec = SubstituteExpressions(arg_map).visit(routine.spec)
 
         call_arguments = []
@@ -367,8 +371,7 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
                 call_arguments.append(c_loc)
                 use_device_addr.append(arg.name)
             elif isinstance(arg.type.dtype, DerivedType):
-                cvar = sym.Variable(name=f'{arg.name}_c', type=ctype, scope=wrapper)
-                call_arguments.append(cvar)
+                call_arguments.append(wrapper.get_variable(f'{arg.name}_c'))
             else:
                 call_arguments.append(arg)
     else:
@@ -380,7 +383,7 @@ def generate_iso_c_wrapper_routine(routine, c_structs, bind_name=None, use_c_ptr
             ir.Pragma(keyword='acc', content=f'host_data use_device({", ".join(use_device_addr)})')
         ]
     wrapper_body += [
-        ir.CallStatement(name=sym.Variable(name=interface.body[0].name), arguments=call_arguments)
+        ir.CallStatement(name=sym.DeferredTypeSymbol(name=interface.body[0].name), arguments=call_arguments)
     ]
     if language in ['cuda', 'hip']:
         wrapper_body += [ir.Pragma(keyword='acc', content='end host_data')]
@@ -444,10 +447,11 @@ def generate_iso_c_wrapper_module(module, use_c_ptr=False, language='c'):
                 )
                 if isoctype.kind in ['c_int', 'c_float', 'c_double']:
                     getter.spec.append(ir.Import(module='iso_c_binding', symbols=(isoctype.kind, )))
+                getter.symbol_attrs[gettername] = isoctype
                 getter.body = ir.Section(
-                    body=(ir.Assignment(lhs=sym.Variable(name=gettername, scope=getter), rhs=v),)
+                    body=(ir.Assignment(lhs=getter.get_variable(gettername), rhs=v),)
                 )
-                getter.variables = as_tuple(sym.Variable(name=gettername, type=isoctype, scope=getter))
+                getter.variables = as_tuple(getter.get_variable(gettername))
                 wrappers += [getter]
         wrapper_module.contains = ir.Section(body=(ir.ContainsStmt(), *wrappers))
 
@@ -493,8 +497,8 @@ def generate_c_header(module):
                 # Note that we force lower-case on all struct variables
                 if isinstance(v, sym.Array):
                     new_shape = as_tuple(d for d in v.shape if not isinstance(d, sym.RangeIndex))
-                    new_type = v.type.clone(shape=new_shape)
-                    variables += [v.clone(name=v.name.lower(), type=new_type, scope=header_td)]
+                    header_td.symbol_attrs[v.name.lower()] = v.type.clone(shape=new_shape)
+                    variables += [v.clone(name=v.name.lower(), scope=header_td)]
                 else:
                     variables += [v.clone(name=v.name.lower(), scope=header_td)]
             declarations += [ir.VariableDeclaration(
