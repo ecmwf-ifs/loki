@@ -640,11 +640,16 @@ class LokiIdentityMapper(IdentityMapper):  # pylint: disable=abstract-method
         else:
             shape = symbol.type.shape
 
-        if (getattr(symbol, 'symbol', symbol) is expr.symbol and
-                all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ())) and
-                all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))):
+        is_shape_changed = not all(d is orig_d for d, orig_d in zip_longest(shape or (), symbol.type.shape or ()))
+        if (getattr(symbol, 'symbol', symbol) is expr.symbol and not is_shape_changed and
+                all(d is orig_d for d, orig_d in zip_longest(dimensions or (), expr.dimensions or ()))):
             return self._rebuild(expr)
-        return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape), parent=parent)
+        if symbol.scope is None:
+            return symbol.clone(dimensions=dimensions, type=symbol.type.clone(shape=shape), parent=parent)
+        if is_shape_changed:
+            # Update symbol table entry
+            symbol.scope.symbol_attrs[symbol.name] = symbol.type.clone(shape=shape)
+        return symbol.clone(dimensions=dimensions, parent=parent)
 
     def map_array_subscript(self, expr, *args, **kwargs):
         raise RuntimeError('Recursion should have ended at map_array')

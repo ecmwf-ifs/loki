@@ -117,7 +117,9 @@ class LokiEvaluationMapper(EvaluationMapper):
         if isinstance(obj, (sym.TypedSymbol, sym.MetaSymbol)):
             # The parent was substituted with a Loki expression from the context,
             # so we re-attach the member to it instead of looking up an attribute
-            return sym.Variable(name=expr.name.split('%')[-1], parent=obj)
+            if obj.scope is None:
+                return sym.DeferredTypeSymbol(name=expr.name.split('%')[-1], parent=obj)
+            return obj.scope.get_variable(expr.name.split('%')[-1], parent=obj, fail=False)
         if obj is not None:
             try:
                 return self.case_insensitive_getattr(obj, expr.name.split('%')[-1])

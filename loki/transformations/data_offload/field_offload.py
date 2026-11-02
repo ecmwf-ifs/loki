@@ -379,7 +379,7 @@ def add_async_blocking_vars(routine, block_loop, num_queues, splitting_vars):
                                                        nqueues)),
                                         sym.IntLiteral(1)))
                       ),
-        ir.Assignment(offset, parse_expr(f'({queue}-1)*{splitting_vars.block_size}'))
+        ir.Assignment(offset, parse_expr(f'({queue}-1)*{splitting_vars.block_size}', scope=routine))
     )
     block_loop._update(body=async_blocking_body+block_loop.body)
 

@@ -117,8 +117,8 @@ def create_inner_loop(splitting_vars: LoopSplittingVariables, loop: ir.Loop, sco
     iteration_nums = (
         ir.Assignment(splitting_vars.iter_num,
                       parse_expr(
-                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1"),
-                      scope=scope),
+                          f"{splitting_vars.block_start}+{splitting_vars.inner_loop_var}-1",
+                          scope=scope)),
         ir.Assignment(loop.variable,
                       iteration_index(splitting_vars.iter_num, loop.bounds))
     )

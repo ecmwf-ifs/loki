@@ -99,7 +99,7 @@ class PymbolicMapper(Mapper):
     map_deferred_type_symbol = map_constant
 
     def map_meta_symbol(self, expr, *args, **kwargs):
-        return sym.Variable(name=str(expr.name))
+        return sym.DeferredTypeSymbol(name=str(expr.name))
     map_scalar = map_meta_symbol
     map_array = map_meta_symbol
 
@@ -116,7 +116,7 @@ class PymbolicMapper(Mapper):
 
     def map_variable(self, expr, *args, **kwargs):
         parent = kwargs.pop('parent', None)
-        return sym.Variable(name=expr.name, parent=parent)
+        return sym.DeferredTypeSymbol(name=expr.name, parent=parent)
 
     def map_algebraic_leaf(self, expr, *args, **kwargs):
         if str(expr).isnumeric():
@@ -125,15 +125,14 @@ class PymbolicMapper(Mapper):
             if expr.function.name.lower() in ('real', 'int'):
                 return sym.Cast(expr.function.name, [self.rec(param, *args, **kwargs) for param in expr.parameters][0])
             if expr.function.name.upper() in FORTRAN_INTRINSIC_PROCEDURES:
-                return sym.InlineCall(function=sym.Variable(name=expr.function.name),
+                return sym.InlineCall(function=sym.DeferredTypeSymbol(name=expr.function.name),
                         parameters=tuple(self.rec(param, *args, **kwargs) for param in expr.parameters))
             parent = kwargs.pop('parent', None)
             dimensions = tuple(self.rec(param, *args, **kwargs) for param in expr.parameters)
             if not dimensions:
-                return sym.InlineCall(function=sym.Variable(name=expr.function.name, parent=parent),
+                return sym.InlineCall(function=sym.DeferredTypeSymbol(name=expr.function.name, parent=parent),
                         parameters=dimensions)
-            return sym.Variable(name=expr.function.name, parent=parent,
-                    dimensions=tuple(self.rec(param, *args, **kwargs) for param in expr.parameters))
+            return sym.Array(name=expr.function.name, parent=parent, dimensions=dimensions)
         try:
             return self.map_variable(expr, *args, **kwargs)
         except Exception as e:
@@ -142,7 +141,7 @@ class PymbolicMapper(Mapper):
 
     def map_call_with_kwargs(self, expr, *args, **kwargs):
         parent = kwargs.pop('parent', None)
-        name = sym.Variable(name=expr.function.name, parent=parent)
+        name = sym.DeferredTypeSymbol(name=expr.function.name, parent=parent)
         parameters = tuple(self.rec(param, *args, **kwargs) for param in expr.parameters)
         kw_parameters = {key: self.rec(value, *args, **kwargs) for key, value\
                 in CaseInsensitiveDict(expr.kw_parameters).items()}
@@ -423,7 +422,9 @@ class ExpressionParser(ParserBase):
         """
         stripped = s.split('_', 1)
         if len(stripped) == 2:
-            return sym.FloatLiteral(value=self.parse_float(stripped[0]), kind=sym.Variable(name=stripped[1].lower()))
+            return sym.FloatLiteral(
+                value=self.parse_float(stripped[0]), kind=sym.DeferredTypeSymbol(name=stripped[1].lower())
+            )
         return self.parse_float(stripped[0])
 
     def parse_f_int(self, s):
@@ -434,7 +435,7 @@ class ExpressionParser(ParserBase):
         """
         stripped = s.split('_', 1)
         value = int(stripped[0].replace("d", "e").replace("D", "e"))
-        return sym.IntLiteral(value=value, kind=sym.Variable(name=stripped[1].lower()))
+        return sym.IntLiteral(value=value, kind=sym.DeferredTypeSymbol(name=stripped[1].lower()))
 
     def parse_f_string(self, s):
         """
