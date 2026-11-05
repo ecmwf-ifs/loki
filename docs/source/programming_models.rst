@@ -19,3 +19,15 @@ Loki directives are translated to the corresponding pragmas in either programmin
    :file: /loki_pragma_model.csv
    :widths: 100, 100, 100
    :header-rows: 1
+
+OpenMP GPU thread limits
+------------------------
+
+:any:`PragmaModelTransformation` accepts ``emit_thread_limit=False`` to omit
+``thread_limit(...)`` from OpenMP GPU loop directives. The option defaults to
+True and applies to ordinary gang loops and combined gang/vector loops.
+Generic ``vlength`` metadata is retained, and OpenACC ``vector_length``
+translation is unaffected.
+
+Combined gang/vector directives cannot currently be lowered to CPU OpenMP.
+OpenMP GPU lowering does not translate ``async`` and execution is synchronous.

@@ -21,7 +21,8 @@ from loki.ir import (
     nodes as ir, Import, TypeDef, VariableDeclaration, is_loki_pragma,
     StatementFunction, Transformer, FindNodes, FindVariables,
     FindInlineCalls, FindLiterals, SubstituteExpressions,
-    ExpressionFinder, pragma_regions_attached, pragmas_attached
+    ExpressionFinder, pragma_regions_attached, pragmas_attached,
+    get_pragma_command_and_parameters
 )
 from loki.module import Module
 from loki.subroutine import Subroutine
@@ -650,11 +651,16 @@ def get_loop_bounds(routine, dimension, extended_candidates=True):
 
 
 def is_pragma_driver_loop(loop):
+    """Return whether a loop has a generic driver or gang annotation."""
     if loop.pragma:
         for pragma in loop.pragma:
             if is_loki_pragma(pragma, starts_with='driver-loop') or \
                is_loki_pragma(pragma, starts_with='loop driver'):
                 return True
+            if is_loki_pragma(pragma):
+                command, parameters = get_pragma_command_and_parameters(pragma)
+                if command == 'loop' and 'gang' in parameters:
+                    return True
     return False
 
 
@@ -670,11 +676,8 @@ def is_driver_loop(loop, targets):
         List of subroutines that are to be considered as part of
         the transformation call tree.
     """
-    if loop.pragma:
-        for pragma in loop.pragma:
-            if is_loki_pragma(pragma, starts_with='driver-loop') or \
-               is_loki_pragma(pragma, starts_with='loop driver'):
-                return True
+    if is_pragma_driver_loop(loop):
+        return True
     for call in FindNodes(ir.CallStatement).visit(loop.body):
         if call.name in targets:
             return True
@@ -686,7 +689,7 @@ def find_driver_loops(section, targets, additional_identifier=None):
     Find and return all driver loops in a given `section`.
 
     A *driver loop* is specified either by a call to a routine within
-    `targets` or by the pragma `!$loki driver-loop`.
+    `targets` or by a generic driver-loop or loop gang pragma.
 
     If there are nested loops, then the highest level pragma-marked driver
     loop will take precedence and be considered the driver loop. If there

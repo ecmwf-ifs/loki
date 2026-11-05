@@ -483,6 +483,26 @@ subroutine test_find_driver_loops(n, start, end, arr)
   do i=start, end
     call make_mine_a_double(arr(i))
   end do
+
+  !$loki loop vlength(32) gang
+  do i=start, end
+    !$loki loop gang
+    do j=start, end
+      arr(j) = 1.
+    end do
+  end do
+
+  do i=start, end
+    !$loki loop gang
+    do j=start, end
+      arr(j) = 2.
+    end do
+  end do
+
+  !$acc loop gang
+  do i=start, end
+    arr(i) = 3.
+  end do
 end subroutine test_find_driver_loops
 """
     routine = Subroutine.from_source(fcode, frontend=frontend)
@@ -490,19 +510,23 @@ end subroutine test_find_driver_loops
     with pragmas_attached(routine, node_type=ir.Loop):
         # Test is_driver_loop utility
         loops = FindNodes(ir.Loop).visit(routine.body)
-        assert len(loops) == 3
+        assert len(loops) == 8
         assert is_driver_loop(loops[0], targets=())
         assert not is_driver_loop(loops[1], targets=())
         assert not is_driver_loop(loops[2], targets=())
         assert is_driver_loop(loops[2], targets=('make_mine_a_double', ))
+        assert is_pragma_driver_loop(loops[3])
+        assert is_driver_loop(loops[6], targets=())
+        assert not is_pragma_driver_loop(loops[7])
 
         # Test find_driver_loopd utility
         driver_loops = find_driver_loops(routine.body, targets=('make_mine_a_double',))
-        assert len(driver_loops) == 2
+        assert len(driver_loops) == 4
         assert driver_loops[0].variable == 'i'
         assert isinstance(driver_loops[0].body[0], ir.Assignment)
         assert driver_loops[1].variable == 'i'
         assert isinstance(driver_loops[1].body[0], ir.CallStatement)
+        assert driver_loops[2:] == [loops[3], loops[6]]
 
 
 @pytest.mark.parametrize('frontend', available_frontends())

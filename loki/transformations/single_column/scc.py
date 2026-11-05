@@ -17,6 +17,7 @@ from loki.transformations.temporaries import (
 
 from loki.transformations.single_column.base import SCCBaseTransformation
 from loki.transformations.single_column.annotate import SCCAnnotateTransformation
+from loki.transformations.single_column.collapse import SCCCollapseTransformation
 from loki.transformations.single_column.demote import SCCDemoteTransformation
 from loki.transformations.single_column.hoist import SCCHoistTemporaryArraysTransformation
 from loki.transformations.single_column.devector import SCCDevectorTransformation
@@ -131,6 +132,7 @@ SCCSVectorPipeline = partial(
         SCCDemoteTransformation,
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
@@ -180,6 +182,12 @@ trim_vector_sections : bool
     nodes that are not assignments involving vector parallel arrays.
 demote_local_arrays : bool
     Flag to trigger local array demotion to scalar variables where possible
+collapse_gang_vector : bool, optional
+    Collapse eligible gang/vector driver nests, by default False. All SCC-seq
+    pipelines apply :any:`SCCCollapseTransformation` after temporary-storage
+    synthesis and before pragma-model lowering when this option is enabled.
+    Combined loops are supported by OpenACC and OpenMP GPU lowering; CPU
+    OpenMP lowering raises an error for combined loops.
 """
 
 SCCVHoistPipeline = partial(
@@ -244,6 +252,7 @@ SCCSHoistPipeline = partial(
         HoistTemporaryArraysAnalysis,
         SCCHoistTemporaryArraysTransformation,
         SCCAnnotateTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
@@ -347,6 +356,7 @@ SCCSStackPipeline = partial(
         RemoveUnusedVarTransformation,
         SCCAnnotateTransformation,
         TemporariesPoolAllocatorTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
@@ -445,6 +455,7 @@ SCCSStackFtrPtrPipeline = partial(
         RemoveUnusedVarTransformation,
         SCCAnnotateTransformation,
         FtrPtrStackTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
@@ -546,6 +557,7 @@ SCCSStackDirectIdxPipeline = partial(
         RemoveUnusedVarTransformation,
         SCCAnnotateTransformation,
         DirectIdxStackTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
@@ -648,6 +660,7 @@ SCCSRawStackPipeline = partial(
         SCCSeqRevectorTransformation,
         SCCAnnotateTransformation,
         TemporariesRawStackTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
@@ -749,6 +762,7 @@ SCCSEcStackPipeline = partial(
         RemoveUnusedVarTransformation,
         SCCAnnotateTransformation,
         EcstackPoolAllocatorTransformation,
+        SCCCollapseTransformation,
         PragmaModelTransformation
     )
 )
