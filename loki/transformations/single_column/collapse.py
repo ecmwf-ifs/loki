@@ -12,6 +12,7 @@ from loki.ir import (
 )
 from loki.logging import info
 from loki.tools import as_tuple
+from loki.transformations.utilities import find_driver_loops
 
 
 __all__ = ['SCCCollapseTransformation']
@@ -23,22 +24,21 @@ class SCCCollapseTransformation(Transformation):
 
     This pass only changes generic loop annotations. It relies on the existing
     SCC parallelism contract and requires rectangular, invariant iteration
-    spaces with unit steps and no private or reduction clauses. No statements
-    are moved. Run it after temporary-storage synthesis and before
+    spaces with unit steps and no private, firstprivate or reduction clauses.
+    Comments between loops are allowed, but executable statements are not
+    moved. Conflicting annotations, calls in loop bounds and unsupported
+    control flow also prevent collapse. The ``vlength`` and ``async`` clauses
+    are preserved. Run it after temporary-storage synthesis and before
     :any:`PragmaModelTransformation`, so eligibility reflects the final nest.
 
     Parameters
     ----------
     collapse_gang_vector : bool, optional
         Enable collapsing eligible pairs, by default False.
-    directive : str or False, optional
-        Target programming model. ``'openacc'``, ``'omp-gpu'`` and generic
-        Loki output (``False``) support this transformation.
     """
 
-    def __init__(self, collapse_gang_vector=False, directive=False):
+    def __init__(self, collapse_gang_vector=False):
         self.collapse_gang_vector = collapse_gang_vector
-        self.directive = directive
 
     @staticmethod
     def loop_parameters(pragmas, command, level, allowed):
@@ -112,15 +112,13 @@ class SCCCollapseTransformation(Transformation):
         """Collapse eligible annotated pairs in driver routines when enabled."""
         if not self.collapse_gang_vector or kwargs.get('role') != 'driver':
             return
-        if self.directive not in (False, 'openacc', 'omp-gpu'):
-            info(f'[Loki-SCC::Collapse] Skipping {routine.name}: unsupported directive {self.directive}')
-            return
-
         with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
             with dataflow_analysis_attached(routine):
-                for outer in FindNodes(ir.Loop).visit(routine.body):
-                    params = get_pragma_command_and_parameters(outer.pragma[0]) if outer.pragma else (None, {})
-                    if params[0] != 'loop' or 'gang' not in params[1] or 'collapse' in params[1]:
+                for outer in find_driver_loops(routine.body, targets=()):
+                    gang_pragmas = [p for p in as_tuple(outer.pragma) if p.keyword.lower() == 'loki'
+                                    and get_pragma_command_and_parameters(p)[0] == 'loop'
+                                    and 'gang' in get_pragma_command_and_parameters(p)[1]]
+                    if not gang_pragmas or 'collapse' in get_pragma_command_and_parameters(gang_pragmas[0])[1]:
                         continue
                     inner, reason = self.check_candidate(outer)
                     if reason:

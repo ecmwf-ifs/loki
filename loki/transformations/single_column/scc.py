@@ -4,16 +4,6 @@
 # granted to it by virtue of its status as an intergovernmental organisation
 # nor does it submit to any jurisdiction.
 
-"""
-Single-column transformation pipelines.
-
-All SCC-seq pipelines accept ``collapse_gang_vector=False``. Enabling this
-option applies :any:`SCCCollapseTransformation` after temporary-storage
-synthesis and before pragma-model lowering. Only already-perfect rectangular
-gang/vector nests without private or reduction clauses are collapsed, for
-OpenACC, OpenMP GPU or generic Loki output. Other nests retain their existing annotations.
-"""
-
 from functools import partial
 
 from loki.batch import Pipeline
@@ -193,9 +183,11 @@ trim_vector_sections : bool
 demote_local_arrays : bool
     Flag to trigger local array demotion to scalar variables where possible
 collapse_gang_vector : bool, optional
-    Collapse eligible gang/vector driver nests, by default False. Supported
-    for OpenACC, OpenMP GPU and generic Loki output;
-    see :any:`SCCCollapseTransformation`.
+    Collapse eligible gang/vector driver nests, by default False. All SCC-seq
+    pipelines apply :any:`SCCCollapseTransformation` after temporary-storage
+    synthesis and before pragma-model lowering when this option is enabled.
+    Combined loops are supported by OpenACC and OpenMP GPU lowering; CPU
+    OpenMP lowering raises an error for combined loops.
 """
 
 SCCVHoistPipeline = partial(

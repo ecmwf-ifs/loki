@@ -7,18 +7,19 @@
 import pytest
 
 from loki import Subroutine
+from loki.batch import TransformationError
 from loki.frontend import available_frontends
 from loki.ir import (
     nodes as ir, FindNodes, get_pragma_parameters, pragmas_attached
 )
+from loki.transformations import PragmaModelTransformation
 from loki.transformations.single_column import SCCCollapseTransformation
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
-@pytest.mark.parametrize('directive', [False, 'openacc', 'omp-gpu', 'openmp'])
 @pytest.mark.parametrize('enabled,role', [(False, 'driver'), (True, 'driver'), (True, 'kernel')])
-def test_scc_collapse(frontend, tmp_path, directive, enabled, role):
-    """Collapse only enabled driver nests for supported programming models."""
+def test_scc_collapse(frontend, tmp_path, enabled, role):
+    """Collapse only enabled driver nests, independently of the programming model."""
     routine = Subroutine.from_source('''
 subroutine driver(a, n, nb)
   integer, intent(in) :: n, nb
@@ -40,10 +41,10 @@ end subroutine driver
     before = FindNodes(ir.Loop).visit(routine.body)
     assignments = FindNodes(ir.Assignment).visit(routine.body)
     comments = FindNodes(ir.Comment).visit(routine.body)
-    transform = SCCCollapseTransformation(collapse_gang_vector=enabled, directive=directive)
+    transform = SCCCollapseTransformation(collapse_gang_vector=enabled)
     transform.apply(routine, role=role)
     transform.apply(routine, role=role)
-    collapsed = enabled and role == 'driver' and directive in (False, 'openacc', 'omp-gpu')
+    collapsed = enabled and role == 'driver'
     with pragmas_attached(routine, ir.Loop, attach_pragma_post=True):
         outer, inner = FindNodes(ir.Loop).visit(routine.body)
         assert (outer.variable, outer.bounds) == (before[0].variable, before[0].bounds)
@@ -63,6 +64,9 @@ end subroutine driver
             assert get_pragma_parameters(inner.pragma_post, starts_with='end loop') == {'vector': None}
     assert FindNodes(ir.Assignment).visit(routine.body) == assignments
     assert FindNodes(ir.Comment).visit(routine.body) == comments
+    if collapsed:
+        with pytest.raises(TransformationError, match='Combined gang/vector'):
+            PragmaModelTransformation(directive='openmp').apply(routine)
 
 
 @pytest.mark.parametrize('frontend', available_frontends())
