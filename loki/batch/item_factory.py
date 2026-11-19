@@ -532,7 +532,7 @@ class ItemFactory:
 
         if current_module and proc_name in current_module.interface_symbols:
             # This procedure is declared in an interface in the current module
-            scope_name = scope_ir.name
+            scope_name = current_module.name
             item_name = f'{scope_name}#{proc_name}'.lower()
             if self._is_ignored(item_name, config, ignore):
                 return None

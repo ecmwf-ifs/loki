@@ -833,6 +833,69 @@ end subroutine test_scheduler_interface_dependencies_driver
     assert isinstance(scheduler['test_scheduler_interface_dependencies_mod#proc2'], ProcedureItem)
 
 
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_scheduler_interface_call_in_defining_module(tmp_path, frontend, config):
+    """
+    Ensure that a call to a generic interface from a routine inside the module
+    that declares the interface is resolved to an :any:`InterfaceItem` that is
+    scoped to that module.
+    """
+    fcode = """
+module test_scheduler_interface_in_module_mod
+    implicit none
+    interface my_intf
+        module procedure proc1, proc2
+    end interface my_intf
+contains
+    subroutine proc1(arg)
+        integer, intent(inout) :: arg
+        arg = arg + 1
+    end subroutine proc1
+    subroutine proc2(arg)
+        real, intent(inout) :: arg
+        arg = arg + 1.0
+    end subroutine proc2
+    subroutine caller
+        integer :: i
+        real :: a
+        i = 0
+        a = 0.0
+        call my_intf(i)
+        call my_intf(a)
+    end subroutine caller
+end module test_scheduler_interface_in_module_mod
+    """
+    (tmp_path/'test_scheduler_interface_in_module_mod.F90').write_text(fcode)
+
+    scheduler = Scheduler(
+        paths=[tmp_path], config=config, frontend=frontend, xmods=[tmp_path],
+        seed_routines=['test_scheduler_interface_in_module_mod#caller']
+    )
+
+    expected_dependencies = {
+        'test_scheduler_interface_in_module_mod#caller': {
+            'test_scheduler_interface_in_module_mod#my_intf'
+        },
+        'test_scheduler_interface_in_module_mod#my_intf': {
+            'test_scheduler_interface_in_module_mod#proc1',
+            'test_scheduler_interface_in_module_mod#proc2'
+        },
+        'test_scheduler_interface_in_module_mod#proc1': set(),
+        'test_scheduler_interface_in_module_mod#proc2': set()
+    }
+
+    assert set(scheduler.items) == set(expected_dependencies)
+    assert set(scheduler.dependencies) == {
+        (a, b) for a, deps in expected_dependencies.items() for b in deps
+    }
+
+    assert not any(isinstance(item, ExternalItem) for item in scheduler.items)
+    assert isinstance(scheduler['test_scheduler_interface_in_module_mod#caller'], ProcedureItem)
+    assert isinstance(scheduler['test_scheduler_interface_in_module_mod#my_intf'], InterfaceItem)
+    assert isinstance(scheduler['test_scheduler_interface_in_module_mod#proc1'], ProcedureItem)
+    assert isinstance(scheduler['test_scheduler_interface_in_module_mod#proc2'], ProcedureItem)
+
+
 @pytest.mark.parametrize('full_parse', [True, False])
 def test_scheduler_typebound_inline_call(tmp_path, config, full_parse):
     fcode_mod = """
