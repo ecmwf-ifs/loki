@@ -36,7 +36,7 @@ __all__ = ['TemporariesPoolAllocatorPerDrvLoopTransformation']
 
 class TemporariesPoolAllocatorPerDrvLoopTransformation(TemporariesPoolAllocatorTransformation):
     """
-    Pool allocator transformation that creates one stack per driver loop.
+    Pool allocator extension for multiple driver loops within one driver routine.
 
     Unlike the parent :any:`TemporariesPoolAllocatorTransformation` which
     creates a single pool allocator per driver routine, this variant

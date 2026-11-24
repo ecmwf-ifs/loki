@@ -95,7 +95,7 @@ subroutine compute_phys(bounds, nproma, nb)
   ! Pre-computation (references block dim)
   zfld(1, ibl) = 1.0
 
-  ! Non-block-dim computation (should be excluded)
+  ! Non-block-dim computation (included in the same contiguous section)
   ztmp(1) = 2.0
 
   ! Post-computation (references block dim)
