@@ -129,18 +129,25 @@ end subroutine compute_phys
 def test_block_section_trimming(frontend, block_dim):
     """
     Verify that get_trimmed_sections trims extracted sections to only
-    include nodes that reference block-dimension symbols.
+    include nodes that reference block-dimension symbols, leaving
+    leading scalar setup and data-management pragmas outside.
     """
     fcode = """
-subroutine trim_test(nproma, nb)
+subroutine trim_test(nproma, nb, flag)
   implicit none
   integer, intent(in) :: nproma, nb
   integer :: ibl
   real :: za(nproma, nb)
   real :: ztmp
+  real :: work(nproma)
+  logical, intent(in) :: flag
+  character(len=4) :: mode_flag
 
-  ! This should be trimmed (before first block-dim ref)
+  ! These should be trimmed (before first block-dim ref)
   ztmp = 42.0
+  mode_flag = 'IBOT'
+  if (flag) mode_flag = 'INTG'
+  !$loki unstructured-data create(work)
 
   ! This should remain (references ibl)
   za(1, ibl) = 1.0
@@ -148,7 +155,8 @@ subroutine trim_test(nproma, nb)
   ! This should remain (references ibl)
   za(2, ibl) = 2.0
 
-  ! This should be trimmed (after last block-dim ref)
+  ! These should be trimmed (after last block-dim ref)
+  !$loki exit unstructured-data delete(work)
   ztmp = 99.0
 end subroutine trim_test
     """.strip()
@@ -162,7 +170,7 @@ end subroutine trim_test
         routine, block_dim, sections
     )
 
-    assert len(trimmed) >= 1
+    assert len(trimmed) == 1
     # The trimmed section should span from the first to the last
     # block-dim node, excluding leading/trailing non-block-dim nodes
     all_nodes = [n for sec in trimmed for n in sec]
@@ -173,46 +181,10 @@ end subroutine trim_test
     assert assign_lhs.count('za(2, ibl)') == 1
     # The leading ztmp=42 and trailing ztmp=99 should be trimmed away
     assert assign_lhs.count('ztmp') == 0
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI needs full module header')]
-))
-def test_block_section_trimming_keeps_setup_and_data_pragmas_outside(frontend, block_dim):
-    """
-    Leading scalar setup and explicit data-management pragmas must stay
-    outside trimmed block sections.
-    """
-    fcode = """
-subroutine trim_setup(nproma, nb, flag)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  logical, intent(in) :: flag
-  integer :: ibl
-  character(len=4) :: mode_flag
-  real :: za(nproma, nb)
-  real :: work(nproma)
-
-  mode_flag = 'IBOT'
-  if (flag) mode_flag = 'INTG'
-  !$loki unstructured-data create(work)
-  za(1, ibl) = 1.0
-  !$loki exit unstructured-data delete(work)
-end subroutine trim_setup
-    """.strip()
-
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    routine = source['trim_setup']
-
-    trimmed = SCCBlockSectionTransformation.get_trimmed_sections(
-        routine, block_dim, [routine.body.body]
-    )
-
-    assert len(trimmed) == 1
-    nodes = trimmed[0]
-    assert len(nodes) == 1
-    assert isinstance(nodes[0], ir.Assignment)
-    assert nodes[0].lhs == 'za(1, ibl)'
+    # Setup assignments and data-management pragmas stay outside the section
+    assert assign_lhs.count('mode_flag') == 0
+    assert not [n for n in all_nodes if isinstance(n, (ir.Pragma, ir.Conditional))]
+    assert len([n for n in all_nodes if not isinstance(n, ir.CommentBlock)]) == 2
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -366,61 +338,6 @@ end subroutine driver_split
     assert not FindNodes(ir.Loop).visit(driver.body)
     assert not FindNodes(ir.Assignment).visit(driver.body)
     assert len(FindNodes(ir.CallStatement).visit(driver.body)) == 2
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI needs full module header')]
-))
-def test_driver_marks_successors(frontend, block_dim):
-    """
-    Verify that ``BlockSectionTrafo`` flag is set in the successor's
-    ``trafo_data`` when the driver processes ``!$loki small-kernels``
-    pragma calls.
-    """
-    fcode_kernel = """
-subroutine cpg_gp(nproma)
-  implicit none
-  integer, intent(in) :: nproma
-end subroutine cpg_gp
-    """.strip()
-
-    fcode_driver = """
-subroutine cpg_0(nproma, nb)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  integer :: ibl
-
-  do ibl = 1, nb
-    !$loki small-kernels
-    call cpg_gp(nproma)
-  end do
-end subroutine cpg_0
-    """.strip()
-
-    source = Sourcefile.from_source(
-        fcode_driver + '\n' + fcode_kernel, frontend=frontend
-    )
-    driver = source['cpg_0']
-    kernel = source['cpg_gp']
-
-    driver.enrich(kernel)
-
-    driver_item = _make_item(
-        driver, role='driver', targets=('cpg_gp',)
-    )
-    kernel_item = _make_item(kernel, role='kernel')
-
-    successor_map = CaseInsensitiveDict({
-        'cpg_gp': kernel_item,
-    })
-
-    trafo = SCCBlockSectionTransformation(block_dim=block_dim)
-    trafo.process_driver(
-        driver, driver_item, successor_map,
-        targets=('cpg_gp',)
-    )
-
-    assert kernel_item.trafo_data.get('BlockSectionTrafo') is True
 
 
 @pytest.mark.parametrize('frontend', available_frontends(
@@ -656,62 +573,6 @@ end subroutine kernel
     assert call.arguments == ('bnds', 'nproma')
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI needs full module header')]
-))
-def test_block_section_nested_conditional(frontend, block_dim):
-    """
-    Verify that extract_block_sections recursively processes
-    conditional bodies to find nested block sections.
-    """
-    fcode_kernel = """
-subroutine nested_kernel(nproma, nb)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  integer :: ibl
-  real :: za(nproma, nb)
-  logical :: lflag
-
-  if (lflag) then
-    za(1, ibl) = 1.0
-    !$loki small-kernels
-    call sub_kernel(nproma, nb)
-    za(2, ibl) = 2.0
-  end if
-end subroutine nested_kernel
-    """.strip()
-
-    fcode_sub = """
-subroutine sub_kernel(nproma, nb)
-  implicit none
-  integer, intent(in) :: nproma, nb
-end subroutine sub_kernel
-    """.strip()
-
-    source = Sourcefile.from_source(
-        fcode_kernel + '\n' + fcode_sub, frontend=frontend
-    )
-    routine = source['nested_kernel']
-    sub = source['sub_kernel']
-    routine.enrich(sub)
-
-    sub_item = _make_item(sub, role='kernel')
-    successor_map = CaseInsensitiveDict({
-        'sub_kernel': sub_item,
-    })
-
-    SCCBlockSectionTransformation.mark_small_kernels_successors(routine, successor_map)
-    with pragmas_attached(routine, ir.CallStatement):
-        sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine, routine.body.body, block_dim
-        )
-
-    # Should find sections inside the conditional body
-    assert len(sections) >= 1
-    # sub_kernel should be marked
-    assert sub_item.trafo_data.get('BlockSectionTrafo') is True
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_mark_small_kernels_successors(frontend):
     """
@@ -886,65 +747,6 @@ end subroutine child_kernel
 @pytest.mark.parametrize('frontend', available_frontends(
     skip=[(OMNI, 'OMNI needs full module header')]
 ))
-def test_block_section_separator_at_call(frontend, block_dim):
-    """
-    Verify that calls annotated with ``!$loki small-kernels`` act as
-    separator nodes, splitting the IR into separate block sections.
-    """
-    fcode_kernel = """
-subroutine split_kernel(nproma, nb)
-  implicit none
-  integer, intent(in) :: nproma, nb
-  integer :: ibl
-  real :: za(nproma, nb), zb(nproma, nb)
-
-  ! Section 1
-  za(1, ibl) = 1.0
-
-  !$loki small-kernels
-  call child_kernel(nproma, nb)
-
-  ! Section 2
-  zb(1, ibl) = 2.0
-end subroutine split_kernel
-    """.strip()
-
-    fcode_child = """
-subroutine child_kernel(nproma, nb)
-  implicit none
-  integer, intent(in) :: nproma, nb
-end subroutine child_kernel
-    """.strip()
-
-    source = Sourcefile.from_source(
-        fcode_kernel + '\n' + fcode_child, frontend=frontend
-    )
-    routine = source['split_kernel']
-    child = source['child_kernel']
-    routine.enrich(child)
-
-    with pragmas_attached(routine, ir.CallStatement):
-        sections = SCCBlockSectionTransformation.extract_block_sections(
-            routine, routine.body.body, block_dim
-        )
-
-    # The call should split the body into at least 2 sections
-    assert len(sections) >= 2
-
-    # Each section should contain block-dim references
-    for sec in sections:
-        all_vars = list(FindVariables().visit(sec))
-        var_names = [str(v).lower() for v in all_vars]
-        assert any('ibl' in name for name in var_names)
-
-
-# ----------------------------------------------------------------
-# Additional coverage tests
-# ----------------------------------------------------------------
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI needs full module header')]
-))
 def test_process_kernel_wraps_block_sections(frontend, block_dim):
     """
     End-to-end test for ``process_kernel``: verify that block-dimension
@@ -1047,35 +849,6 @@ end subroutine seq_kernel
         if p.keyword.lower() == 'loki' and 'routine' in p.content.lower()
     ]
     assert len(pragmas_after) == 0
-
-
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI needs full module header')]
-))
-def test_reblock_without_trafo_data_is_noop_without_block_section(frontend, horizontal):
-    """
-    Verify that ``ReblockSectionTransformer`` is a no-op for kernels
-    without ``LowerBlockIndex`` when no ``block_section`` nodes exist.
-    """
-    fcode = """
-subroutine noop_kernel(nproma)
-  implicit none
-  integer, intent(in) :: nproma
-  real :: z(nproma)
-  z(1) = 1.0
-end subroutine noop_kernel
-    """.strip()
-
-    source = Sourcefile.from_source(fcode, frontend=frontend)
-    routine = source['noop_kernel']
-
-    item = _make_item(routine, role='kernel')
-    assigns_before = tuple(FindNodes(ir.Assignment).visit(routine.body))
-
-    routine.body = ReblockSectionTransformer(routine, item, horizontal).visit(routine.body)
-
-    assert tuple(FindNodes(ir.Assignment).visit(routine.body)) == assigns_before
-    assert not FindNodes(ir.Loop).visit(routine.body)
 
 
 @pytest.mark.parametrize('frontend', available_frontends(

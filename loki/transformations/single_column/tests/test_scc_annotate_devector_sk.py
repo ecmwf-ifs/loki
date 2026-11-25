@@ -263,56 +263,6 @@ end subroutine driver
     assert 'ptr_alias' in private_names
 
 
-@pytest.mark.parametrize('frontend', available_frontends(
-    skip=[(OMNI, 'OMNI parser not reliably available')]
-))
-def test_annotate_kernel_driver_loops(tmp_path, frontend, block_dim):
-    """
-    Verify that kernel-role routines with driver loops (nested drivers)
-    get gang-parallel annotations on those loops.
-    """
-    fcode_inner = """
-subroutine inner_kernel(nlon, start, end, field)
-  implicit none
-  integer, intent(in) :: nlon, start, end
-  real, intent(inout) :: field(nlon)
-  integer :: jl
-
-  do jl = start, end
-    field(jl) = field(jl) + 1.0
-  end do
-end subroutine inner_kernel
-    """.strip()
-
-    fcode_outer = """
-subroutine outer_kernel(nlon, nz, nb, start, end, field)
-  implicit none
-  integer, intent(in) :: nlon, nz, nb, start, end
-  real, intent(inout) :: field(nlon, nz, nb)
-  integer :: b
-
-  !$loki loop driver
-  do b = 1, nb
-    call inner_kernel(nlon, start, end, field(:,1,b))
-  end do
-end subroutine outer_kernel
-    """.strip()
-
-    inner = Subroutine.from_source(fcode_inner, frontend=frontend, xmods=[tmp_path])
-    outer = Subroutine.from_source(fcode_outer, frontend=frontend, xmods=[tmp_path])
-    outer.enrich(inner)
-
-    trafo = SCCAnnotateTransformation(block_dim=block_dim, privatise_derived_types=True)
-    trafo.transform_subroutine(outer, role='kernel', targets=('inner_kernel',))
-
-    # The driver loop in the kernel should get a gang pragma
-    with pragmas_attached(outer, ir.Loop, attach_pragma_post=True):
-        loops = FindNodes(ir.Loop).visit(outer.body)
-        driver_loop = [l for l in loops if l.variable == 'b'][0]
-        gang_pragmas = [p for p in as_tuple(driver_loop.pragma) if is_loki_pragma(p, starts_with='loop gang')]
-        assert len(gang_pragmas) == 1
-
-
 @pytest.mark.parametrize('frontend', available_frontends())
 def test_annotate_kernel_driver_loops_device_present(tmp_path, frontend, block_dim):
     """
@@ -380,6 +330,10 @@ end subroutine kernel
     # The local bounds copy is initialised on the host, so it must be firstprivate
     with pragmas_attached(kernel, ir.Loop):
         driver_loop = [l for l in FindNodes(ir.Loop).visit(kernel.body) if l.variable == 'b'][0]
+        gang_pragmas = [
+            p for p in as_tuple(driver_loop.pragma) if is_loki_pragma(p, starts_with='loop gang')
+        ]
+        assert len(gang_pragmas) == 1
         params = get_pragma_parameters(driver_loop.pragma, starts_with='loop gang')
     assert params['firstprivate'] == 'local_bnds'
     assert 'private' not in params
