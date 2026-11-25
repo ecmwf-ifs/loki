@@ -14,7 +14,7 @@ from loki.ir import (
 from loki.transformations.single_column import (
     SCCDevectorTransformation, SCCRevectorTransformation, SCCVectorPipeline,
     SCCVecRevectorTransformation, SCCSeqRevectorTransformation,
-    SCCVVectorPipeline, SCCSVectorPipeline
+    SCCVVectorPipeline, SCCSVectorPipeline, extract_sections
 )
 
 
@@ -876,3 +876,47 @@ def test_scc_devector_section_special_case(frontend, horizontal, vertical, block
             assert len(else_bodies) == 3
             for body in else_bodies:
                 assert isinstance(body[0], ir.Assignment)
+
+
+@pytest.mark.parametrize('frontend', available_frontends())
+def test_extract_sections(frontend):
+    """
+    Test the generic section extraction with custom separator and
+    filter callbacks, including separators nested in loops and
+    conditionals.
+    """
+    fcode = """
+subroutine sections(n, a, b, flag)
+  implicit none
+  integer, intent(in) :: n
+  real, intent(inout) :: a(n), b(n)
+  logical, intent(inout) :: flag
+  integer :: i
+
+  a(1) = 1.0
+  flag = .true.
+  a(2) = 2.0
+  do i = 1, n
+    a(i) = 3.0
+    flag = .false.
+    b(i) = 4.0
+  end do
+  if (flag) then
+    b(1) = 5.0
+  else
+    flag = .true.
+    b(2) = 6.0
+  end if
+end subroutine sections
+    """.strip()
+
+    routine = Subroutine.from_source(fcode, frontend=frontend)
+
+    sections = extract_sections(
+        routine.body.body,
+        find_separators=lambda s: [a for a in FindNodes(ir.Assignment).visit(s) if a.lhs == 'flag'],
+        keep_section=lambda s: any(isinstance(n, ir.Assignment) for n in s)
+    )
+
+    section_lhs = [tuple(n.lhs for n in s if isinstance(n, ir.Assignment)) for s in sections]
+    assert section_lhs == [('a(1)',), ('a(2)',), ('a(i)',), ('b(i)',), ('b(1)',), ('b(2)',)]

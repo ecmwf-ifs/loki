@@ -13,6 +13,7 @@ from loki.ir import (
     NestedTransformer, is_loki_pragma, pragmas_attached,
 )
 from loki.tools import as_tuple, flatten
+from loki.types import BasicType
 from loki.expression import symbols as sym
 
 from loki.transformations.utilities import (
@@ -21,8 +22,104 @@ from loki.transformations.utilities import (
 
 
 __all__ = [
-    'RemoveLoopTransformer', 'SCCDevectorTransformation',
+    'RemoveLoopTransformer', 'SCCDevectorTransformation', 'extract_sections',
 ]
+
+
+_SEPARATOR_NODE_TYPES = (ir.Loop, ir.Conditional, ir.MultiConditional)
+
+
+def is_unstructured_data_pragma(pragma):
+    """
+    Check if :data:`pragma` is a ``!$loki unstructured-data`` or
+    ``!$loki exit unstructured-data`` directive.
+
+    Such directives are not allowed inside compute regions, and therefore
+    separate vector and block sections.
+    """
+    return (
+        is_loki_pragma(pragma, starts_with='unstructured-data') or
+        is_loki_pragma(pragma, starts_with='exit unstructured-data')
+    )
+
+
+def _add_separator(node, section, separator_nodes):
+    """
+    Add either the current node or its outermost parent node from the list of types
+    defining a region separator (:data:`_SEPARATOR_NODE_TYPES`) to the list of
+    separator nodes.
+    """
+
+    if node in section:
+        # If the node is at the current section's level, it's a separator
+        separator_nodes.append(node)
+
+    else:
+        # If the node is deeper in the IR tree, it's highest ancestor is used
+        ancestors = flatten(FindScopes(node).visit(section))
+        ancestor_scopes = [a for a in ancestors if isinstance(a, _SEPARATOR_NODE_TYPES)]
+        if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
+            separator_nodes.append(ancestor_scopes[0])
+
+    return separator_nodes
+
+
+def extract_sections(section, find_separators, keep_section):
+    """
+    Extract contiguous sections of nodes that are not interrupted by
+    separator nodes.
+
+    Separator nodes are determined anywhere in the IR tree of :data:`section`.
+    If a separator node is nested inside a :any:`Loop`, :any:`Conditional`
+    or :any:`MultiConditional`, the outermost of these ancestors in
+    :data:`section` becomes the separator instead. The bodies of separator
+    nodes are processed recursively to find nested sections.
+
+    Parameters
+    ----------
+    section : tuple of :any:`Node`
+        A section of nodes from which to extract sub-sections.
+    find_separators : callable
+        Callable that receives a section and returns the separator nodes
+        within its IR tree.
+    keep_section : callable
+        Callable that receives an extracted sub-section and returns `True`
+        if it should be kept.
+
+    Returns
+    -------
+    list of tuple of :any:`Node`
+        The extracted sections.
+    """
+    separator_nodes = []
+    for node in find_separators(section):
+        separator_nodes = _add_separator(node, section, separator_nodes)
+
+    # Extract contiguous node sections between separator nodes
+    assert all(n in section for n in separator_nodes)
+    subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
+    subsections = [s for s in subsections if keep_section(s)]
+
+    # Recurse on all separator nodes that might contain further sections
+    for separator in separator_nodes:
+
+        if isinstance(separator, ir.Loop):
+            subsections += extract_sections(separator.body, find_separators, keep_section)
+
+        if isinstance(separator, ir.Conditional):
+            subsections += extract_sections(separator.body, find_separators, keep_section)
+            # we need to prevent that all (possibly nested) 'else_bodies' are completely wrapped as a section,
+            # as 'Conditional's rely on the fact that the first element of each 'else_body'
+            # (if 'has_elseif') is a Conditional itself
+            for ebody in separator.else_bodies:
+                subsections += extract_sections(ebody, find_separators, keep_section)
+
+        if isinstance(separator, (ir.MultiConditional, ir.TypeConditional)):
+            for body in separator.bodies:
+                subsections += extract_sections(body, find_separators, keep_section)
+            subsections += extract_sections(separator.else_body, find_separators, keep_section)
+
+    return subsections
 
 
 class RemoveLoopTransformer(Transformer):
@@ -65,32 +162,64 @@ class SCCDevectorTransformation(Transformation):
         nodes that are not assignments involving vector parallel arrays.
     """
 
-    _separator_node_types = (ir.Loop, ir.Conditional, ir.MultiConditional)
-
     def __init__(self, horizontal, trim_vector_sections=False):
         self.horizontal = horizontal
         self.trim_vector_sections = trim_vector_sections
 
-    @classmethod
-    def _add_separator(cls, node, section, separator_nodes):
+    @staticmethod
+    def find_vector_separators(section, horizontal):
         """
-        Add either the current node or its outermost parent node from the list of types
-        defining a vector region separator (:attr:`separator_node_types`) to the list of
-        separator nodes.
+        Find nodes in the IR tree of :data:`section` that separate vector-level
+        computations, such as calls to non-sequential routines, reduction and
+        separator pragmas, or vector-level pointer assignments and intrinsics.
+
+        Parameters
+        ----------
+        section : tuple of :any:`Node`
+            A section of nodes in which to find separator nodes
+        horizontal: :any:`Dimension`
+            The dimension specifying the horizontal vector dimension
         """
+        separators = []
 
-        if node in section:
-            # If the node is at the current section's level, it's a separator
-            separator_nodes.append(node)
+        for call in FindNodes(ir.CallStatement).visit(section):
 
-        else:
-            # If the node is deeper in the IR tree, it's highest ancestor is used
-            ancestors = flatten(FindScopes(node).visit(section))
-            ancestor_scopes = [a for a in ancestors if isinstance(a, cls._separator_node_types)]
-            if len(ancestor_scopes) > 0 and ancestor_scopes[0] not in separator_nodes:
-                separator_nodes.append(ancestor_scopes[0])
+            # check if calls have been enriched
+            if call.routine is not BasicType.DEFERRED:
+                # check if called routine is marked as sequential
+                if check_routine_sequential(routine=call.routine):
+                    continue
 
-        return separator_nodes
+            separators.append(call)
+
+        for pragma in FindNodes(ir.Pragma).visit(section):
+            # Reductions over thread-parallel regions should be marked as a separator node,
+            # as well as unstructured data directives, which are not allowed in compute regions
+            if (is_loki_pragma(pragma, starts_with='vector-reduction') or
+                is_loki_pragma(pragma, starts_with='end vector-reduction') or
+                is_loki_pragma(pragma, starts_with='separator') or
+                is_unstructured_data_pragma(pragma)):
+
+                separators.append(pragma)
+
+        for assign in FindNodes(ir.Assignment).visit(section):
+            if assign.ptr and isinstance(assign.rhs, sym.Array):
+                if any(s in assign.rhs.shape for s in horizontal.size_expressions):
+                    separators.append(assign)
+
+            if isinstance(assign.rhs, sym.InlineCall):
+                # filter out array arguments
+                # we can't use arg_map here because intrinsic functions are not enriched
+                _params = assign.rhs.parameters + as_tuple(assign.rhs.kw_parameters.values())
+                _params = [p for p in _params if isinstance(p, sym.Array)]
+
+                # check if a horizontal array is passed as an argument, meaning we have a vector
+                # InlineCall, e.g. an array reduction intrinsic
+                for p in _params:
+                    if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions):
+                        separators.append(assign)
+
+        return separators
 
     @classmethod
     def extract_vector_sections(cls, section, horizontal):
@@ -106,81 +235,12 @@ class SCCDevectorTransformation(Transformation):
         horizontal: :any:`Dimension`
             The dimension specifying the horizontal vector dimension
         """
-
-        # Identify outer "scopes" (loops/conditionals) constrained by recursive routine calls
-        calls = FindNodes(ir.CallStatement).visit(section)
-        separator_nodes = []
-
-        for call in calls:
-
-            # check if calls have been enriched
-            if call.routine:
-                # check if called routine is marked as sequential
-                if check_routine_sequential(routine=call.routine):
-                    continue
-
-            separator_nodes = cls._add_separator(call, section, separator_nodes)
-
-        for pragma in FindNodes(ir.Pragma).visit(section):
-            # Reductions over thread-parallel regions should be marked as a separator node
-            if (is_loki_pragma(pragma, starts_with='vector-reduction') or
-                is_loki_pragma(pragma, starts_with='end vector-reduction') or
-                is_loki_pragma(pragma, starts_with='separator')):
-
-                separator_nodes = cls._add_separator(pragma, section, separator_nodes)
-
-        for assign in FindNodes(ir.Assignment).visit(section):
-            if assign.ptr and isinstance(assign.rhs, sym.Array):
-                if any(s in assign.rhs.shape for s in horizontal.size_expressions):
-                    separator_nodes = cls._add_separator(assign, section, separator_nodes)
-
-            if isinstance(assign.rhs, sym.InlineCall):
-                # filter out array arguments
-                # we can't use arg_map here because intrinsic functions are not enriched
-                _params = assign.rhs.parameters + as_tuple(assign.rhs.kw_parameters.values())
-                _params = [p for p in _params if isinstance(p, sym.Array)]
-
-                # check if a horizontal array is passed as an argument, meaning we have a vector
-                # InlineCall, e.g. an array reduction intrinsic
-                for p in _params:
-                    if any(s in (p.dimensions or p.shape) for s in horizontal.size_expressions):
-                        separator_nodes = cls._add_separator(assign, section, separator_nodes)
-
-        # Extract contiguous node sections between separator nodes
-        assert all(n in section for n in separator_nodes)
-        subsections = [as_tuple(s) for s in split_at(section, lambda n: n in separator_nodes)]
-
-        # Filter sub-sections that do not use the horizontal loop index variable
-        subsections = [s for s in subsections if horizontal.index in list(FindVariables().visit(s))]
-
-        # Recurse on all separator nodes that might contain further vector sections
-        for separator in separator_nodes:
-
-            if isinstance(separator, ir.Loop):
-                subsec_body = cls.extract_vector_sections(separator.body, horizontal)
-                if subsec_body:
-                    subsections += subsec_body
-
-            if isinstance(separator, ir.Conditional):
-                subsec_body = cls.extract_vector_sections(separator.body, horizontal)
-                if subsec_body:
-                    subsections += subsec_body
-                # we need to prevent that all (possibly nested) 'else_bodies' are completely wrapped as a section,
-                # as 'Conditional's rely on the fact that the first element of each 'else_body'
-                # (if 'has_elseif') is a Conditional itself
-                for ebody in separator.else_bodies:
-                    subsections += cls.extract_vector_sections(ebody, horizontal)
-
-            if isinstance(separator, (ir.MultiConditional, ir.TypeConditional)):
-                for body in separator.bodies:
-                    subsec_body = cls.extract_vector_sections(body, horizontal)
-                    if subsec_body:
-                        subsections += subsec_body
-                subsec_else = cls.extract_vector_sections(separator.else_body, horizontal)
-                if subsec_else:
-                    subsections += subsec_else
-
-        return subsections
+        return extract_sections(
+            section,
+            find_separators=lambda s: cls.find_vector_separators(s, horizontal),
+            # Filter sub-sections that do not use the horizontal loop index variable
+            keep_section=lambda s: horizontal.index in list(FindVariables().visit(s))
+        )
 
     @classmethod
     def get_trimmed_sections(cls, routine, horizontal, sections):
@@ -235,7 +295,8 @@ class SCCDevectorTransformation(Transformation):
         routine.body = RemoveLoopTransformer(dimension=self.horizontal).visit(routine.body)
 
         # Extract vector-level compute sections from the kernel
-        sections = self.extract_vector_sections(routine.body.body, self.horizontal)
+        with pragmas_attached(routine, ir.CallStatement):
+            sections = self.extract_vector_sections(routine.body.body, self.horizontal)
 
         if self.trim_vector_sections:
             sections = self.get_trimmed_sections(routine, self.horizontal, sections)
@@ -267,7 +328,8 @@ class SCCDevectorTransformation(Transformation):
         for loop in driver_loops:
             new_driver_loop = RemoveLoopTransformer(dimension=self.horizontal).visit(loop.body)
             new_driver_loop = loop.clone(body=new_driver_loop)
-            sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
+            with pragmas_attached(routine, ir.CallStatement):
+                sections = self.extract_vector_sections(new_driver_loop.body, self.horizontal)
             if self.trim_vector_sections:
                 sections = self.get_trimmed_sections(new_driver_loop, self.horizontal, sections)
             section_mapper = {s: ir.Section(body=s, label='vector_section') for s in sections}

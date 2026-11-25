@@ -380,8 +380,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         )
 
     def _get_stack_alloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
+        stack_size = InlineCall(
+            function=Variable(name='MAX'), parameters=(stack_size_var, IntLiteral(1)), kw_parameters=()
+        )
         stack_alloc = Allocation(variables=(stack_storage.clone(dimensions=(  # pylint: disable=no-member
-            stack_size_var, block_size)),))
+            stack_size, block_size)),))
         return stack_alloc
 
     def _get_stack_dealloc(self, routine, stack_storage, stack_size_var, block_size): # pylint: disable=unused-argument
@@ -406,6 +409,20 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         )
         return stack_type
 
+    def get_block_index(self, routine, variable_map):
+        """Resolve the configured block index, including derived-type forms."""
+        block_index = variable_map.get(self.block_dim.index, None)
+        if block_index is not None:
+            return block_index
+
+        block_indices = [
+            index for index in self.block_dim.indices
+            if index.split('%', maxsplit=1)[0].lower() in variable_map
+        ]
+        if block_indices:
+            return routine.resolve_typebound_var(block_indices[0], variable_map)
+        return None
+
     def _get_stack_storage_and_size_var(self, routine, stack_size):
         """
         Utility routine to obtain storage array and size variable for the pool allocator
@@ -424,6 +441,11 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         body_append = []
 
         variables_append = []  # New variables to declare in the routine
+
+        existing_acc_data_vars = {
+            p.content.lower() for p in FindNodes(Pragma).visit(routine.body)
+            if p.keyword.lower() == 'acc' and 'data' in p.content.lower()
+        }
 
         if self.stack_size_name in variable_map:
             # Use an existing stack size declaration
@@ -458,15 +480,30 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             )
             variables_append += [stack_storage]
 
-            block_size = routine.resolve_typebound_var(self.block_dim.size, routine.symbol_map)
+            block_size = None
+            for _size in self.block_dim.sizes:
+                try:
+                    block_size = routine.resolve_typebound_var(_size, routine.symbol_map)
+                    break
+                except (KeyError, AttributeError):
+                    continue
+            if block_size is None:
+                raise RuntimeError(
+                    f'{self.__class__.__name__}: Could not resolve any block dimension size '
+                    f'({self.block_dim.sizes}) in {routine.name}'
+                )
             stack_alloc = self._get_stack_alloc(routine, stack_storage, stack_size_var, block_size)
             stack_dealloc = self._get_stack_dealloc(routine, stack_storage, stack_size_var, block_size)
 
             body_prepend += [stack_alloc]
             pragma_data_start = self._get_pragma_start(routine, stack_storage)
-            body_prepend += [pragma_data_start]
             pragma_data_end = self._get_pragma_end(routine, stack_storage)
-            body_append += [pragma_data_end]
+
+            stack_name = stack_storage.name.lower()  # pylint: disable=no-member
+            explicit_acc_management = any(stack_name in content for content in existing_acc_data_vars)
+            if not explicit_acc_management:
+                body_prepend += [pragma_data_start]
+                body_append += [pragma_data_end]
             if stack_dealloc is not None:
                 body_append += [stack_dealloc]
 
@@ -492,7 +529,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             return True
         return False
 
-    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None):
+    def _determine_stack_size(self, routine, successors, local_stack_size=None, item=None, drv_loop=None):
         """
         Utility routine to determine the stack size required for the given :data:`routine`,
         including calls to subroutines
@@ -507,6 +544,10 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             The stack size required for temporaries in :data:`routine`
         item : :any:`Item`
             Scheduler work item corresponding to routine.
+        drv_loop : :any:`Loop`, optional
+            If provided, only consider calls within this specific loop when
+            collecting successor stack sizes. When ``None``, the entire
+            routine body is searched (original behaviour).
 
         Returns
         -------
@@ -533,8 +574,9 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         # Collect stack sizes for successors
         # Note that we need to translate the names of variables used in the expressions to the
         # local names according to the call signature
+        section = drv_loop.body if drv_loop is not None else routine.body
         stack_sizes = []
-        for call in FindNodes(CallStatement).visit(routine.body):
+        for call in FindNodes(CallStatement).visit(section):
             if call.name in successor_map and self._key in successor_map[call.name].trafo_data:
                 successor_stack_size = successor_map[call.name].trafo_data[self._key]['stack_size']
                 # Replace any occurence of routine arguments in the stack size expression
@@ -715,6 +757,54 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             if not var.type.pointer or var.type.allocatable
         ]
 
+        # Filter out temporaries that are already managed explicitly by data
+        # pragmas in the routine body. Pool-allocating them would rewrite them
+        # as Cray-pointer aliases and can break subsequent device data handling.
+        explicit_data_vars = set()
+        for pragma in FindNodes(Pragma).visit(routine.body):
+            keyword = pragma.keyword.lower()
+            content = pragma.content.lower()
+            parameters = None
+
+            if keyword == 'acc':
+                if 'enter' in content and 'data' in content:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='enter data', only_loki_pragmas=False
+                    )
+                elif 'exit' in content and 'data' in content:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='exit data', only_loki_pragmas=False
+                    )
+            elif keyword == 'loki' and 'unstructured-data' in content:
+                if content.startswith('exit unstructured-data'):
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='exit unstructured-data', only_loki_pragmas=False
+                    )
+                else:
+                    parameters = get_pragma_parameters(
+                        pragma, starts_with='unstructured-data', only_loki_pragmas=False
+                    )
+
+            if not parameters:
+                continue
+
+            parameters = {
+                key: ', '.join(as_tuple(value)) for key, value in parameters.items()
+            }
+            for category in ('create', 'delete'):
+                values = parameters.get(category, '')
+                if not values:
+                    continue
+                for entry in values.split(','):
+                    entry = entry.strip()
+                    if entry:
+                        explicit_data_vars.add(entry.lower())
+
+        temporary_arrays = [
+            var for var in temporary_arrays
+            if var.name.lower() not in explicit_data_vars
+        ]
+
         # Create stack argument and local stack var
         stack_var = self._get_local_stack_var(routine)
         stack_var_end = self._get_local_stack_var_end(routine) if self.check_bounds else None
@@ -872,7 +962,7 @@ class TemporariesPoolAllocatorTransformation(Transformation):
                         function=Variable(name='LOC'),
                         parameters=(
                             stack_storage.clone(
-                                dimensions=(Literal(1), Variable(name=self.block_dim.index, scope=routine))
+                                dimensions=(Literal(1), self.get_block_index(routine, routine.variable_map))
                             ),
                         ),
                         kw_parameters=None
@@ -904,9 +994,16 @@ class TemporariesPoolAllocatorTransformation(Transformation):
         if loop_map:
             routine.body = Transformer(loop_map).visit(routine.body)
 
-    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False):
+    def inject_pool_allocator_into_calls(self, routine, targets, ignore, driver=False, drv_loop=None):
         """
         Add the pool allocator argument into subroutine calls
+
+        Parameters
+        ----------
+        drv_loop : :any:`Loop`, optional
+            If provided, only inject into calls within this specific loop.
+            When ``None``, all calls in the routine body are considered
+            (original behaviour).
         """
         call_map = {}
 
@@ -931,7 +1028,8 @@ class TemporariesPoolAllocatorTransformation(Transformation):
             dimensions = as_tuple(stack_storage_var_dim)
             new_kwarguments += ((stack_storage_var.name, stack_storage_var.clone(dimensions=dimensions)),)
 
-        for call in FindNodes(CallStatement).visit(routine.body):
+        section = drv_loop.body if drv_loop is not None else routine.body
+        for call in FindNodes(CallStatement).visit(section):
             if call.name in targets or call.routine.name.lower() in ignore:
                # If call is declared via an explicit interface, the ProcedureSymbol corresponding to the call is the
                # interface block rather than the Subroutine itself. This means we have to update the interface block
